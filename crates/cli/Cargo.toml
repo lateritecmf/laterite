@@ -1,0 +1,20 @@
+[package]
+name = "laterite-cli"
+version = "0.1.0"
+description = "The Laterite command-line tool (lat): admin bootstrap and operations"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "lat"
+path = "src/main.rs"
+
+[dependencies]
+laterite-core = { workspace = true }
+laterite-auth = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+rand = { workspace = true }
+rpassword = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }

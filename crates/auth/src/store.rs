@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::AuthError;
-use crate::models::{AccessEvent, BackendUser};
+use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
 
 /// Looks up a user by username without filtering on active state, so the
 /// caller can distinguish a disabled account from a wrong password only after
@@ -229,4 +229,51 @@ pub async fn assign_role(pool: &PgPool, user_id: Uuid, role_id: Uuid) -> Result<
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Lists backend users for admin tooling, ordered by creation time.
+pub async fn list_backend_users(pool: &PgPool) -> Result<Vec<BackendUserSummary>, AuthError> {
+    let users = sqlx::query_as!(
+        BackendUserSummary,
+        r#"select id, username, email, first_name, last_name,
+                  is_superuser, is_active, created_at
+           from backend_users
+           order by created_at"#
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(users)
+}
+
+/// Sets a new password hash for a user by username, returning the number of rows
+/// affected (0 means no such user). Deliberately does not depend on email.
+pub async fn update_password_by_username(
+    pool: &PgPool,
+    username: &str,
+    password_hash: &str,
+) -> Result<u64, AuthError> {
+    let result = sqlx::query!(
+        r#"update backend_users
+           set password_hash = $1, updated_at = now()
+           where username = $2"#,
+        password_hash,
+        username
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Clears a user's failed-login records, releasing a lockout. Returns the number
+/// of records removed.
+pub async fn clear_failed_attempts(pool: &PgPool, username: &str) -> Result<u64, AuthError> {
+    let result = sqlx::query!(
+        r#"delete from backend_access_log
+           where username_attempted = $1 and event = $2"#,
+        username,
+        AccessEvent::LoginFailure.as_str()
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
