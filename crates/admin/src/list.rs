@@ -7,15 +7,16 @@
 //!
 //! The admin is inherently generic, so unlike the typed, compile-time-checked
 //! queries in `laterite-auth`, list queries are built and checked at runtime.
-//! Identifiers come from developer-authored descriptors (trusted, authored in
-//! YAML config), and are validated and quoted; values are always parameterized.
 
 use askama::Template;
+use axum::response::Response;
 use serde::Deserialize;
 use sqlx::PgPool;
 
+use crate::sql::{quote, valid_ident};
 use crate::{render, render_error, AdminState};
-use axum::response::Response;
+
+const ID_ALIAS: &str = "_lat_id";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortDir {
@@ -48,7 +49,8 @@ impl ListColumn {
     }
 }
 
-/// A list view descriptor: which table, which columns, default ordering, page size.
+/// A list view descriptor: which table, which columns, default ordering, page
+/// size, and (optionally) where per-row edit links point.
 #[derive(Debug, Clone)]
 pub struct ListConfig {
     pub entity: String,
@@ -57,6 +59,10 @@ pub struct ListConfig {
     pub order_by: String,
     pub order_dir: SortDir,
     pub per_page: i64,
+    pub id_field: String,
+    /// When set, rows link to `{edit_base}/{id}/edit` and a "New" link to
+    /// `{edit_base}/new` is shown.
+    pub edit_base: Option<String>,
 }
 
 /// Query-string parameters for a list view.
@@ -65,28 +71,23 @@ pub struct ListParams {
     page: Option<i64>,
 }
 
+/// One rendered row: its id (for edit links) and its display cells.
+pub struct RowView {
+    pub id: String,
+    pub cells: Vec<String>,
+}
+
 /// Display-ready rows plus the total row count for the pager.
 pub struct ListPage {
-    pub rows: Vec<Vec<String>>,
+    pub rows: Vec<RowView>,
     pub total: i64,
 }
 
-fn valid_ident(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 63
-        && s.bytes()
-            .enumerate()
-            .all(|(i, b)| b == b'_' || b.is_ascii_lowercase() || (i > 0 && b.is_ascii_digit()))
-}
-
-fn quote(ident: &str) -> String {
-    format!("\"{ident}\"")
-}
-
-/// Runs the list query for a config, returning display-ready cells and the total.
+/// Runs the list query for a config, returning display-ready rows and the total.
 pub async fn query(pool: &PgPool, config: &ListConfig, offset: i64) -> anyhow::Result<ListPage> {
     if !valid_ident(&config.entity)
         || !valid_ident(&config.order_by)
+        || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
@@ -99,7 +100,9 @@ pub async fn query(pool: &PgPool, config: &ListConfig, offset: i64) -> anyhow::R
         .collect::<Vec<_>>()
         .join(", ");
     let inner = format!(
-        "select {cols} from {} order by {} {} limit $1 offset $2",
+        "select {cols}, {}::text as {} from {} order by {} {} limit $1 offset $2",
+        quote(&config.id_field),
+        quote(ID_ALIAS),
         quote(&config.entity),
         quote(&config.order_by),
         config.order_dir.as_sql(),
@@ -117,12 +120,13 @@ pub async fn query(pool: &PgPool, config: &ListConfig, offset: i64) -> anyhow::R
 
     let rows = raw
         .iter()
-        .map(|row| {
-            config
+        .map(|row| RowView {
+            id: cell(row.get(ID_ALIAS)),
+            cells: config
                 .columns
                 .iter()
                 .map(|c| cell(row.get(c.field.as_str())))
-                .collect()
+                .collect(),
         })
         .collect();
     Ok(ListPage { rows, total })
@@ -150,6 +154,7 @@ pub async fn handle(state: &AdminState, config: &ListConfig, params: ListParams)
                 page,
                 total: result.total,
                 total_pages,
+                edit_base: config.edit_base.clone(),
             })
         }
         Err(_) => render_error(),
@@ -161,25 +166,31 @@ pub async fn handle(state: &AdminState, config: &ListConfig, params: ListParams)
 struct ListTemplate {
     title: String,
     columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: Vec<RowView>,
     page: i64,
     total: i64,
     total_pages: i64,
+    edit_base: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn identifier_validation() {
-        assert!(valid_ident("backend_users"));
-        assert!(valid_ident("created_at"));
-        assert!(!valid_ident("Users"));
-        assert!(!valid_ident("drop table"));
-        assert!(!valid_ident("a-b"));
-        assert!(!valid_ident(""));
-        assert!(!valid_ident("1col"));
+    fn config() -> ListConfig {
+        ListConfig {
+            entity: "backend_users".to_string(),
+            title: "Users".to_string(),
+            columns: vec![
+                ListColumn::new("username", "Username"),
+                ListColumn::new("is_superuser", "Superuser"),
+            ],
+            order_by: "created_at".to_string(),
+            order_dir: SortDir::Desc,
+            per_page: 25,
+            id_field: "id".to_string(),
+            edit_base: None,
+        }
     }
 
     #[sqlx::test(migrations = false)]
@@ -200,22 +211,12 @@ mod tests {
         .await
         .unwrap();
 
-        let config = ListConfig {
-            entity: "backend_users".to_string(),
-            title: "Users".to_string(),
-            columns: vec![
-                ListColumn::new("username", "Username"),
-                ListColumn::new("is_superuser", "Superuser"),
-            ],
-            order_by: "created_at".to_string(),
-            order_dir: SortDir::Desc,
-            per_page: 25,
-        };
-        let result = query(&pool, &config, 0).await.unwrap();
+        let result = query(&pool, &config(), 0).await.unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.rows.len(), 1);
-        assert_eq!(result.rows[0][0], "root");
-        assert_eq!(result.rows[0][1], "true");
+        assert_eq!(result.rows[0].cells[0], "root");
+        assert_eq!(result.rows[0].cells[1], "true");
+        assert!(!result.rows[0].id.is_empty());
     }
 
     #[sqlx::test(migrations = false)]
@@ -223,14 +224,8 @@ mod tests {
         laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
             .await
             .unwrap();
-        let config = ListConfig {
-            entity: "backend_users; drop table backend_users".to_string(),
-            title: "x".to_string(),
-            columns: vec![ListColumn::new("username", "Username")],
-            order_by: "created_at".to_string(),
-            order_dir: SortDir::Asc,
-            per_page: 25,
-        };
-        assert!(query(&pool, &config, 0).await.is_err());
+        let mut bad = config();
+        bad.entity = "backend_users; drop table backend_users".to_string();
+        assert!(query(&pool, &bad, 0).await.is_err());
     }
 }

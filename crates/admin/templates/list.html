@@ -8,27 +8,43 @@
     body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
     .bar { background: #fff; border-bottom: 1px solid #e5e5ea; padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
     .bar a { color: #b7410e; text-decoration: none; font-size: .85rem; }
+    .bar .spacer { flex: 1; }
+    .bar .new { background: #b7410e; color: #fff; padding: .4rem .8rem; border-radius: 8px; }
     h1 { font-size: 1.1rem; margin: 0; }
     .content { padding: 1.5rem; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
     th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid #f0f0f2; font-size: .85rem; }
     th { background: #fafafa; font-weight: 600; color: #6e6e73; }
     tr:last-child td { border-bottom: 0; }
+    td.actions a { color: #b7410e; text-decoration: none; }
     .pager { margin-top: 1rem; font-size: .85rem; color: #6e6e73; display: flex; gap: 1rem; align-items: center; }
     .pager a { color: #b7410e; text-decoration: none; }
     .empty { padding: 2rem; text-align: center; color: #6e6e73; background: #fff; border-radius: 10px; }
   </style>
 </head>
 <body>
-  <div class="bar"><a href="/admin">&larr; Dashboard</a><h1>{{ title }}</h1></div>
+  <div class="bar">
+    <a href="/admin">&larr; Dashboard</a>
+    <h1>{{ title }}</h1>
+    <span class="spacer"></span>
+    {% if let Some(base) = edit_base %}<a class="new" href="{{ base }}/new">+ New</a>{% endif %}
+  </div>
   <div class="content">
     {% if rows.is_empty() %}
     <div class="empty">No records.</div>
     {% else %}
     <table>
-      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <thead><tr>
+        {% for c in columns %}<th>{{ c }}</th>{% endfor %}
+        {% if edit_base.is_some() %}<th></th>{% endif %}
+      </tr></thead>
       <tbody>
-        {% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}
+        {% for row in rows %}
+        <tr>
+          {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+          {% if let Some(base) = edit_base %}<td class="actions"><a href="{{ base }}/{{ row.id }}/edit">Edit</a></td>{% endif %}
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
     {% endif %}
