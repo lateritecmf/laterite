@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Laterite</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
+    .bar { background: #fff; border-bottom: 1px solid #e5e5ea; padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+    .bar a { color: #b7410e; text-decoration: none; font-size: .85rem; }
+    h1 { font-size: 1.1rem; margin: 0; }
+    .content { padding: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid #f0f0f2; font-size: .85rem; }
+    th { background: #fafafa; font-weight: 600; color: #6e6e73; }
+    tr:last-child td { border-bottom: 0; }
+    .pager { margin-top: 1rem; font-size: .85rem; color: #6e6e73; display: flex; gap: 1rem; align-items: center; }
+    .pager a { color: #b7410e; text-decoration: none; }
+    .empty { padding: 2rem; text-align: center; color: #6e6e73; background: #fff; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="bar"><a href="/admin">&larr; Dashboard</a><h1>{{ title }}</h1></div>
+  <div class="content">
+    {% if rows.is_empty() %}
+    <div class="empty">No records.</div>
+    {% else %}
+    <table>
+      <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <div class="pager">
+      <span>Page {{ page }} of {{ total_pages }} ({{ total }} total)</span>
+      {% if page > 1 %}<a href="?page={{ page - 1 }}">&larr; Prev</a>{% endif %}
+      {% if page < total_pages %}<a href="?page={{ page + 1 }}">Next &rarr;</a>{% endif %}
+    </div>
+  </div>
+</body>
+</html>

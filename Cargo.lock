@@ -991,11 +991,15 @@ dependencies = [
 name = "laterite-admin"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "askama",
  "axum",
  "axum-extra",
  "laterite-auth",
+ "laterite-core",
  "serde",
+ "serde_json",
+ "sqlx",
 ]
 
 [[package]]

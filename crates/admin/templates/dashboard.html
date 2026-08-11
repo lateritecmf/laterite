@@ -3,6 +3,7 @@
 {% block content %}
 <h1>Welcome, {{ full_name }}</h1>
 <p class="muted">Signed in as {{ username }}.</p>
+<p><a href="/admin/users">Backend users &rarr;</a></p>
 <form method="post" action="/admin/logout">
   <button type="submit">Sign out</button>
 </form>

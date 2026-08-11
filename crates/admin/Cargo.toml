@@ -6,8 +6,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
+anyhow = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
