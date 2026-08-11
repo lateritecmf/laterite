@@ -1,0 +1,20 @@
+[package]
+name = "laterite-auth"
+version = "0.1.0"
+description = "Laterite CMF backend user authentication: Argon2id credentials, sessions, and role-based permissions"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+laterite-core = { workspace = true }
+argon2 = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

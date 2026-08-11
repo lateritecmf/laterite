@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into backend_access_log\n               (backend_user_id, username_attempted, event, ip_address, user_agent)\n           values ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b07880a6db2fd7daf0616c7928bf79ee1153658c9dc363b1cbada7c568492af8"
+}

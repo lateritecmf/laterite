@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into backend_sessions (token_hash, backend_user_id, expires_at)\n           values ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "53544221ea044e5103047091b2f3032a37f6d61b89ca9d85f96359c07774a28d"
+}

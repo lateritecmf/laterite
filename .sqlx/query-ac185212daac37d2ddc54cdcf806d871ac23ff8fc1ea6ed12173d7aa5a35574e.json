@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select r.permissions\n           from backend_user_roles ur\n           join backend_roles r on r.id = ur.backend_role_id\n           where ur.backend_user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permissions",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ac185212daac37d2ddc54cdcf806d871ac23ff8fc1ea6ed12173d7aa5a35574e"
+}
