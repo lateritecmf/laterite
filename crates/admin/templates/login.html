@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sign in - Laterite{% endblock %}
+{% block content %}
+<h1>Laterite admin</h1>
+{% if let Some(message) = error %}
+<div class="error">{{ message }}</div>
+{% endif %}
+<form method="post" action="/admin/login">
+  <label for="username">Username</label>
+  <input type="text" id="username" name="username" autofocus required>
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" required>
+  <button type="submit">Sign in</button>
+</form>
+{% endblock %}
