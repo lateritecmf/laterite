@@ -1,0 +1,4 @@
+/target
+.env
+config/local.toml
+.DS_Store
