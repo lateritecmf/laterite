@@ -403,4 +403,74 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, AuthError::InactiveAccount));
     }
+
+    #[sqlx::test(migrations = false)]
+    async fn reset_password_updates_the_hash(pool: PgPool) {
+        migrate(&pool).await;
+        seed_user(&pool, "root", "oldpw", true).await;
+
+        let new_hash = password::hash_password("newpw").unwrap();
+        let affected = store::update_password_by_username(&pool, "root", &new_hash)
+            .await
+            .unwrap();
+        assert_eq!(affected, 1);
+
+        let svc = service(pool);
+        let ctx = RequestContext::default();
+        assert!(matches!(
+            svc.authenticate("root", "oldpw", &ctx).await.unwrap_err(),
+            AuthError::InvalidCredentials
+        ));
+        svc.authenticate("root", "newpw", &ctx).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn reset_password_reports_unknown_user(pool: PgPool) {
+        migrate(&pool).await;
+        let hash = password::hash_password("x").unwrap();
+        let affected = store::update_password_by_username(&pool, "ghost", &hash)
+            .await
+            .unwrap();
+        assert_eq!(affected, 0);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn list_users_returns_all_seeded(pool: PgPool) {
+        migrate(&pool).await;
+        seed_user(&pool, "alice", "pw", true).await;
+        seed_user(&pool, "bob", "pw", false).await;
+
+        let users = store::list_backend_users(&pool).await.unwrap();
+        assert_eq!(users.len(), 2);
+        assert!(users
+            .iter()
+            .any(|u| u.username == "alice" && u.is_superuser));
+        assert!(users.iter().any(|u| u.username == "bob" && !u.is_superuser));
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn unlock_clears_the_lockout(pool: PgPool) {
+        migrate(&pool).await;
+        seed_user(&pool, "root", "pw", false).await;
+        let svc = AuthService::new(
+            pool.clone(),
+            AuthConfig {
+                max_failures: 3,
+                ..AuthConfig::default()
+            },
+        );
+        let ctx = RequestContext::default();
+
+        for _ in 0..3 {
+            let _ = svc.authenticate("root", "bad", &ctx).await;
+        }
+        assert!(matches!(
+            svc.authenticate("root", "pw", &ctx).await.unwrap_err(),
+            AuthError::TooManyAttempts
+        ));
+
+        let cleared = store::clear_failed_attempts(&pool, "root").await.unwrap();
+        assert!(cleared >= 3);
+        svc.authenticate("root", "pw", &ctx).await.unwrap();
+    }
 }
