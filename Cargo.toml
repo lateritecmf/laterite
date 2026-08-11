@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/auth", "crates/cli"]
+members = ["crates/core", "crates/auth", "crates/cli", "crates/admin"]
 
 [workspace.package]
 edition = "2021"
@@ -11,6 +11,9 @@ laterite-core = { path = "crates/core" }
 laterite-auth = { path = "crates/auth" }
 anyhow = "1"
 argon2 = "0.5"
+askama = "0.13"
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 config = { version = "0.15", default-features = false, features = ["toml"] }

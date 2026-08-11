@@ -1,0 +1,13 @@
+[package]
+name = "laterite-admin"
+version = "0.1.0"
+description = "Laterite CMF admin surface: the Axum router, session middleware, and login shell"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+laterite-auth = { workspace = true }
+askama = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+serde = { workspace = true }
