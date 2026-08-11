@@ -17,6 +17,9 @@ pub enum CoreError {
     #[error("migration error")]
     Migration(#[from] sqlx::migrate::MigrateError),
 
+    #[error("migration '{name}' in module '{module}' changed after being applied")]
+    MigrationDrift { module: String, name: String },
+
     #[error("not found: {0}")]
     NotFound(String),
 
