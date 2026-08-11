@@ -1,12 +1,13 @@
 //! Laterite admin: the operator-facing web surface.
 //!
-//! This first slice is the auth shell: an Axum router mounted at `/admin` with a
-//! login screen, a session cookie verified against `laterite-auth`, and a
-//! placeholder authenticated page. The descriptor-driven list and form renderer
-//! mounts here next.
+//! An Axum router mounted at `/admin`: a login screen and session cookie
+//! verified against `laterite-auth`, and descriptor-driven screens rendered by
+//! generic handlers. The first descriptor screen is a list view (see [`list`]).
+
+pub mod list;
 
 use askama::Template;
-use axum::extract::{Request, State};
+use axum::extract::{Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -15,6 +16,7 @@ use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use laterite_auth::{AuthService, AuthenticatedUser, RequestContext};
 use serde::Deserialize;
+use sqlx::PgPool;
 
 const SESSION_COOKIE: &str = "laterite_session";
 
@@ -22,6 +24,7 @@ const SESSION_COOKIE: &str = "laterite_session";
 #[derive(Clone)]
 pub struct AdminState {
     pub auth: AuthService,
+    pub pool: PgPool,
 }
 
 /// Builds the admin router. Routes live under `/admin`; the caller mounts it on
@@ -30,6 +33,7 @@ pub fn router(state: AdminState) -> Router {
     Router::new()
         // Protected routes, then apply the auth guard only to those added so far.
         .route("/admin", get(dashboard))
+        .route("/admin/users", get(users_list))
         .route("/admin/logout", post(logout))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         // Public routes (not covered by the guard above).
@@ -107,6 +111,33 @@ async fn dashboard(Extension(user): Extension<AuthenticatedUser>) -> Response {
     })
 }
 
+async fn users_list(
+    State(state): State<AdminState>,
+    Query(params): Query<list::ListParams>,
+) -> Response {
+    list::handle(&state, &backend_users_list_config(), params).await
+}
+
+/// The built-in list view for backend (operator) users.
+fn backend_users_list_config() -> list::ListConfig {
+    list::ListConfig {
+        entity: "backend_users".to_string(),
+        title: "Backend Users".to_string(),
+        columns: vec![
+            list::ListColumn::new("username", "Username"),
+            list::ListColumn::new("email", "Email"),
+            list::ListColumn::new("first_name", "First name"),
+            list::ListColumn::new("last_name", "Last name"),
+            list::ListColumn::new("is_superuser", "Superuser"),
+            list::ListColumn::new("is_active", "Active"),
+            list::ListColumn::new("created_at", "Created"),
+        ],
+        order_by: "created_at".to_string(),
+        order_dir: list::SortDir::Desc,
+        per_page: 25,
+    }
+}
+
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
@@ -120,9 +151,14 @@ struct DashboardTemplate {
     username: String,
 }
 
-fn render<T: Template>(template: T) -> Response {
+/// Renders a template to an HTML response, mapping a render failure to a 500.
+pub(crate) fn render<T: Template>(template: T) -> Response {
     match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response(),
+        Err(_) => render_error(),
     }
+}
+
+pub(crate) fn render_error() -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
 }
