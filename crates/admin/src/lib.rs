@@ -1,16 +1,22 @@
 //! Laterite admin: the operator-facing web surface.
 //!
 //! An Axum router mounted at `/admin`: a login screen and session cookie
-//! verified against `laterite-auth`, and descriptor-driven screens rendered by
-//! generic handlers. Screens are data: a [`list::ListConfig`] or a
-//! [`form::FormConfig`] describes an entity, and generic code renders and
-//! persists it.
+//! verified against `laterite-auth`, and descriptor-driven screens.
+//!
+//! Screens are **resources**: a module declares a [`Resource`] (a
+//! [`list::ListConfig`], optionally a [`form::FormConfig`], a base path, and a
+//! menu label), and the framework mounts the list, create, and edit routes and
+//! adds it to the menu. This is the extension point that lets an application
+//! contribute its own admin screens, the way plugins register
+//! controllers. The framework's own screens (users, roles) are just built-in
+//! resources.
 
 pub mod form;
 pub mod list;
 mod sql;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use askama::Template;
 use axum::extract::{Path, Query, Request, State};
@@ -26,28 +32,123 @@ use sqlx::PgPool;
 
 const SESSION_COOKIE: &str = "laterite_session";
 
-/// Shared state for the admin router.
+/// Shared state for the admin router. Constructed by [`router`].
 #[derive(Clone)]
-pub struct AdminState {
-    pub auth: AuthService,
-    pub pool: PgPool,
+pub(crate) struct AdminState {
+    auth: AuthService,
+    pool: PgPool,
+    nav: Arc<Vec<NavLink>>,
 }
 
-/// Builds the admin router. Routes live under `/admin`; the caller mounts it on
-/// the application's root router.
-pub fn router(state: AdminState) -> Router {
-    Router::new()
-        // Protected routes, then apply the auth guard only to those added so far.
-        .route("/admin", get(dashboard))
-        .route("/admin/users", get(users_list))
-        .route("/admin/roles", get(roles_list))
-        .route("/admin/roles/new", get(role_new).post(role_create))
-        .route("/admin/roles/{id}/edit", get(role_edit).post(role_update))
-        .route("/admin/logout", post(logout))
+impl AdminState {
+    #[cfg(test)]
+    pub(crate) fn new(auth: AuthService, pool: PgPool) -> Self {
+        Self {
+            auth,
+            pool,
+            nav: Arc::new(Vec::new()),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct NavLink {
+    label: String,
+    path: String,
+}
+
+/// An admin resource: a list screen, optionally with a create/edit form, mounted
+/// under `base_path` and shown in the menu as `nav_label`.
+pub struct Resource {
+    pub base_path: String,
+    pub nav_label: String,
+    pub list: list::ListConfig,
+    pub form: Option<form::FormConfig>,
+}
+
+/// Builds the admin router. `app_resources` are the application's own screens;
+/// they are mounted alongside the framework's built-in resources.
+pub fn router(auth: AuthService, pool: PgPool, app_resources: Vec<Resource>) -> Router {
+    let mut resources = builtin_resources();
+    resources.extend(app_resources);
+    let nav = resources
+        .iter()
+        .map(|r| NavLink {
+            label: r.nav_label.clone(),
+            path: r.base_path.clone(),
+        })
+        .collect::<Vec<_>>();
+    let state = AdminState {
+        auth,
+        pool,
+        nav: Arc::new(nav),
+    };
+
+    let mut protected = Router::new().route("/admin", get(dashboard));
+    for resource in &resources {
+        protected = mount_resource(protected, resource);
+    }
+    protected = protected.route("/admin/logout", post(logout));
+
+    protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         // Public routes (not covered by the guard above).
         .route("/admin/login", get(login_form).post(login_submit))
         .with_state(state)
+}
+
+/// Mounts a resource's list, create, and edit routes as generic handlers that
+/// carry the resource's descriptors.
+fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<AdminState> {
+    let base = resource.base_path.clone();
+    let list_cfg = resource.list.clone();
+    let mut router = router.route(
+        &base,
+        get(
+            move |State(state): State<AdminState>, Query(params): Query<list::ListParams>| {
+                let cfg = list_cfg.clone();
+                async move { list::handle(&state, &cfg, params).await }
+            },
+        ),
+    );
+
+    if let Some(form_cfg) = resource.form.clone() {
+        let (new_cfg, create_cfg) = (form_cfg.clone(), form_cfg.clone());
+        router = router.route(
+            &format!("{base}/new"),
+            get(move || {
+                let cfg = new_cfg.clone();
+                async move { form::new_form(&cfg) }
+            })
+            .post(
+                move |State(state): State<AdminState>,
+                      Form(data): Form<HashMap<String, String>>| {
+                    let cfg = create_cfg.clone();
+                    async move { form::create(&state, &cfg, data).await }
+                },
+            ),
+        );
+
+        let (edit_cfg, update_cfg) = (form_cfg.clone(), form_cfg.clone());
+        router = router.route(
+            &format!("{base}/{{id}}/edit"),
+            get(
+                move |State(state): State<AdminState>, Path(id): Path<String>| {
+                    let cfg = edit_cfg.clone();
+                    async move { form::edit_form(&state, &cfg, id).await }
+                },
+            )
+            .post(
+                move |State(state): State<AdminState>,
+                      Path(id): Path<String>,
+                      Form(data): Form<HashMap<String, String>>| {
+                    let cfg = update_cfg.clone();
+                    async move { form::update(&state, &cfg, id, data).await }
+                },
+            ),
+        );
+    }
+    router
 }
 
 /// Redirects unauthenticated requests to the login screen, and injects the
@@ -113,51 +214,42 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
     (jar.remove(removal), Redirect::to("/admin/login")).into_response()
 }
 
-async fn dashboard(Extension(user): Extension<AuthenticatedUser>) -> Response {
+async fn dashboard(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Response {
     render(DashboardTemplate {
         full_name: user.user.full_name(),
         username: user.user.username,
+        nav: state
+            .nav
+            .iter()
+            .map(|n| NavView {
+                label: n.label.clone(),
+                path: n.path.clone(),
+            })
+            .collect(),
     })
 }
 
-async fn users_list(
-    State(state): State<AdminState>,
-    Query(params): Query<list::ListParams>,
-) -> Response {
-    list::handle(&state, &backend_users_list_config(), params).await
+/// The framework's own admin screens.
+fn builtin_resources() -> Vec<Resource> {
+    vec![
+        Resource {
+            base_path: "/admin/users".to_string(),
+            nav_label: "Backend Users".to_string(),
+            list: backend_users_list_config(),
+            form: None,
+        },
+        Resource {
+            base_path: "/admin/roles".to_string(),
+            nav_label: "Roles".to_string(),
+            list: roles_list_config(),
+            form: Some(role_form_config()),
+        },
+    ]
 }
 
-async fn roles_list(
-    State(state): State<AdminState>,
-    Query(params): Query<list::ListParams>,
-) -> Response {
-    list::handle(&state, &roles_list_config(), params).await
-}
-
-async fn role_new() -> Response {
-    form::new_form(&role_form_config())
-}
-
-async fn role_create(
-    State(state): State<AdminState>,
-    Form(data): Form<HashMap<String, String>>,
-) -> Response {
-    form::create(&state, &role_form_config(), data).await
-}
-
-async fn role_edit(State(state): State<AdminState>, Path(id): Path<String>) -> Response {
-    form::edit_form(&state, &role_form_config(), id).await
-}
-
-async fn role_update(
-    State(state): State<AdminState>,
-    Path(id): Path<String>,
-    Form(data): Form<HashMap<String, String>>,
-) -> Response {
-    form::update(&state, &role_form_config(), id, data).await
-}
-
-/// The built-in list view for backend (operator) users.
 fn backend_users_list_config() -> list::ListConfig {
     list::ListConfig {
         entity: "backend_users".to_string(),
@@ -179,7 +271,6 @@ fn backend_users_list_config() -> list::ListConfig {
     }
 }
 
-/// The built-in list view for backend roles.
 fn roles_list_config() -> list::ListConfig {
     list::ListConfig {
         entity: "backend_roles".to_string(),
@@ -197,7 +288,6 @@ fn roles_list_config() -> list::ListConfig {
     }
 }
 
-/// The built-in create/edit form for backend roles.
 fn role_form_config() -> form::FormConfig {
     form::FormConfig {
         entity: "backend_roles".to_string(),
@@ -222,6 +312,12 @@ struct LoginTemplate {
 struct DashboardTemplate {
     full_name: String,
     username: String,
+    nav: Vec<NavView>,
+}
+
+struct NavView {
+    label: String,
+    path: String,
 }
 
 /// Renders a template to an HTML response, mapping a render failure to a 500.

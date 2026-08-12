@@ -84,7 +84,7 @@ impl FormConfig {
 }
 
 /// Renders an empty create form.
-pub fn new_form(config: &FormConfig) -> Response {
+pub(crate) fn new_form(config: &FormConfig) -> Response {
     render(build(
         config,
         &format!("{}/new", config.base_path),
@@ -94,7 +94,7 @@ pub fn new_form(config: &FormConfig) -> Response {
 }
 
 /// Persists a new record, then redirects to the list.
-pub async fn create(
+pub(crate) async fn create(
     state: &AdminState,
     config: &FormConfig,
     data: HashMap<String, String>,
@@ -141,7 +141,7 @@ pub async fn create(
 }
 
 /// Renders a form populated with an existing record.
-pub async fn edit_form(state: &AdminState, config: &FormConfig, id: String) -> Response {
+pub(crate) async fn edit_form(state: &AdminState, config: &FormConfig, id: String) -> Response {
     if !config.idents_valid() {
         return render_error();
     }
@@ -190,7 +190,7 @@ pub async fn edit_form(state: &AdminState, config: &FormConfig, id: String) -> R
 }
 
 /// Persists an edited record, then redirects to the list.
-pub async fn update(
+pub(crate) async fn update(
     state: &AdminState,
     config: &FormConfig,
     id: String,
@@ -299,13 +299,10 @@ mod tests {
     }
 
     fn state(pool: PgPool) -> AdminState {
-        AdminState {
-            auth: laterite_auth::AuthService::new(
-                pool.clone(),
-                laterite_auth::AuthConfig::default(),
-            ),
+        AdminState::new(
+            laterite_auth::AuthService::new(pool.clone(), laterite_auth::AuthConfig::default()),
             pool,
-        }
+        )
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
