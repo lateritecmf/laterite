@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/auth", "crates/cli", "crates/admin"]
+members = ["crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/settings"]
 
 [workspace.package]
 edition = "2021"
@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 laterite-core = { path = "crates/core" }
 laterite-auth = { path = "crates/auth" }
+laterite-settings = { path = "crates/settings" }
 anyhow = "1"
 argon2 = "0.5"
 askama = "0.13"
