@@ -3,8 +3,9 @@
 {% block content %}
 <h1>Welcome, {{ full_name }}</h1>
 <p class="muted">Signed in as {{ username }}.</p>
-<p><a href="/admin/users">Backend users &rarr;</a></p>
-<p><a href="/admin/roles">Roles &rarr;</a></p>
+{% for item in nav %}
+<p><a href="{{ item.path }}">{{ item.label }} &rarr;</a></p>
+{% endfor %}
 <form method="post" action="/admin/logout">
   <button type="submit">Sign out</button>
 </form>

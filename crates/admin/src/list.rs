@@ -84,7 +84,11 @@ pub struct ListPage {
 }
 
 /// Runs the list query for a config, returning display-ready rows and the total.
-pub async fn query(pool: &PgPool, config: &ListConfig, offset: i64) -> anyhow::Result<ListPage> {
+pub(crate) async fn query(
+    pool: &PgPool,
+    config: &ListConfig,
+    offset: i64,
+) -> anyhow::Result<ListPage> {
     if !valid_ident(&config.entity)
         || !valid_ident(&config.order_by)
         || !valid_ident(&config.id_field)
@@ -141,7 +145,11 @@ fn cell(value: Option<&serde_json::Value>) -> String {
 }
 
 /// Renders a list view for the given config.
-pub async fn handle(state: &AdminState, config: &ListConfig, params: ListParams) -> Response {
+pub(crate) async fn handle(
+    state: &AdminState,
+    config: &ListConfig,
+    params: ListParams,
+) -> Response {
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
     match query(&state.pool, config, offset).await {
