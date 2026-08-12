@@ -1,0 +1,13 @@
+[package]
+name = "laterite-settings"
+version = "0.1.0"
+description = "Laterite CMF settings: typed settings models stored as one JSONB blob per code"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+laterite-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
