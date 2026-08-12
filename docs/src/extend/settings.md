@@ -80,6 +80,37 @@ let value = laterite_settings::get(&pool, SiteSettings::CODE).await?;
 laterite_settings::set(&pool, "acme.site", &value.unwrap_or_default()).await?;
 ```
 
+## Editing settings in the admin
+
+To let an operator edit a model from the admin panel, register a
+`SettingsItem` describing where it appears and which fields to show, and pass it
+to the admin router. One generic screen lists every registered item grouped by
+category, and one generic form edits each, reading and writing the JSON value
+through `get`/`set`. No per-model controller is needed.
+
+```rust
+use laterite_admin::settings::{SettingsField, SettingsItem};
+
+let site = SettingsItem {
+    code: SiteSettings::CODE.to_string(),
+    label: "Site".to_string(),
+    description: "Public site title and page size.".to_string(),
+    category: "General".to_string(),
+    order: 10,
+    permission: None,
+    fields: vec![
+        SettingsField::text("title", "Site title"),
+        SettingsField::text("per_page", "Items per page"),
+    ],
+};
+
+let app = laterite_admin::router(auth, pool, Vec::new(), vec![site]);
+```
+
+Fields carry a widget: `SettingsField::text`, `::textarea`, or `::switch` (a
+checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
+model's migration must be registered (above) so the `settings` table exists.
+
 ## Evolving a model
 
 Because a model is one JSON blob and every field is `#[serde(default)]`:
