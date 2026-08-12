@@ -2,3 +2,4 @@
 .env
 config/local.toml
 .DS_Store
+/docs/book

@@ -1,0 +1,225 @@
+/* Laterite theme for mdBook.
+ *
+ * A brand overlay mapped onto stock mdBook selectors and CSS variables, so
+ * mdBook stays upgradable. Every colour is a Laterite design token; the values
+ * are inlined here (with fallbacks) rather than pulled from a separate token
+ * sheet. The look mirrors the admin shell: a warm Bone page, a permanently
+ * dark Ferro sidebar with a Laterite Red active accent, Space Grotesk display
+ * headings, IBM Plex body text, and IBM Plex Mono code on Ferro. Fonts are
+ * self-hosted (OFL) from ../brand-fonts, copied out of src/. */
+
+/* ── Self-hosted brand fonts (OFL) ─────────────────────────────────────── */
+@font-face {
+    font-family: "Space Grotesk";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("../brand-fonts/space-grotesk-500.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Space Grotesk";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("../brand-fonts/space-grotesk-600.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Space Grotesk";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("../brand-fonts/space-grotesk-700.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../brand-fonts/ibm-plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("../brand-fonts/ibm-plex-sans-600.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../brand-fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("../brand-fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
+
+/* ── Design tokens (subset used by the docs) ───────────────────────────── */
+:root {
+    --lat-red-400: #ce6c4e;
+    --lat-red-500: #c44e2f;
+    --lat-red-600: #a83f24;
+    --lat-red-700: #86311b;
+    --lat-ferro-700: #3a2f28;
+    --lat-ferro-800: #2a211c;
+    --lat-ferro-900: #1e1714;
+    --lat-bone-50: #fdfaf6;
+    --lat-bone-100: #f9f4ec;
+    --lat-bone-200: #f4ede4;
+    --lat-bone-300: #eadfd1;
+    --lat-ochre-50: #fdf6ea;
+    --lat-ochre-500: #d98e32;
+    --lat-ochre-700: #a9681e;
+    --lat-slate-300: #9aa2a7;
+    --lat-slate-400: #767e84;
+    --lat-slate-500: #5a6166;
+
+    --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    /* Overrides mdBook's default code font everywhere it uses --mono-font. */
+    --mono-font: "IBM Plex Mono", "Source Code Pro", Consolas, monospace;
+}
+
+/* ── Light theme: Bone page, Ferro sidebar, Red accents (the brand) ─────── */
+.light {
+    --bg: var(--lat-bone-200);
+    --fg: var(--lat-ferro-700);
+
+    --sidebar-bg: var(--lat-ferro-800);
+    --sidebar-fg: var(--lat-slate-300);
+    --sidebar-active: var(--lat-red-400);
+    --sidebar-non-existant: #7a6a5e;
+    --sidebar-header-border-color: rgba(244, 237, 228, 0.1);
+    --scrollbar: rgba(244, 237, 228, 0.28);
+
+    --links: var(--lat-red-500);
+    --inline-code-color: var(--lat-red-700);
+
+    --icons: var(--lat-slate-500);
+    --icons-hover: var(--lat-red-500);
+
+    --theme-popup-bg: var(--lat-bone-100);
+    --theme-popup-border: var(--lat-bone-300);
+    --theme-hover: rgba(196, 78, 47, 0.08);
+
+    --quote-bg: var(--lat-ochre-50);
+    --quote-border: var(--lat-ochre-500);
+    --warning-border: var(--lat-ochre-500);
+
+    --table-border-color: var(--lat-bone-300);
+    --table-header-bg: var(--lat-bone-100);
+    --table-alternate-bg: var(--lat-bone-100);
+
+    --searchbar-border-color: #d8c7b8;
+    --searchbar-bg: #ffffff;
+    --searchbar-fg: var(--lat-ferro-700);
+    --searchbar-shadow-color: rgba(42, 33, 28, 0.16);
+    --searchresults-header-fg: var(--lat-red-700);
+    --searchresults-border-color: var(--lat-bone-300);
+    --searchresults-li-bg: var(--lat-bone-100);
+    --search-mark-bg: #e6b8a4;
+}
+
+/* ── Typography ────────────────────────────────────────────────────────── */
+html,
+body,
+.content {
+    font-family: var(--font-body);
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6,
+.menu-title {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+}
+
+.content h1 {
+    font-weight: 600;
+    color: var(--lat-red-700);
+    border-bottom: 3px solid var(--lat-red-500);
+    padding-bottom: 0.25rem;
+}
+.content h2 {
+    font-weight: 600;
+    margin-top: 2.4rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--lat-bone-300);
+}
+.content h3 {
+    font-weight: 600;
+}
+.menu-title {
+    font-weight: 600;
+}
+
+/* ── Brand lockup at the top of the sidebar (on the dark Ferro ground) ────
+ * mdBook 0.5 renders the chapter list into <mdbook-sidebar-scrollbox> in the
+ * main document when JS is on, and into an iframe (.sidebar-iframe-inner body)
+ * as the no-JS fallback. Hang the lockup off both so it shows either way. */
+.sidebar-scrollbox::before,
+.sidebar-iframe-inner::before {
+    content: "";
+    display: block;
+    height: 40px;
+    margin: 16px 14px 2px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(244, 237, 228, 0.15);
+    background: url("../brand/logo-lockup-dark.png") left top / auto 40px no-repeat;
+}
+
+/* ── Sidebar: dark Ferro with a Laterite Red left accent on the active item ── */
+#sidebar .chapter li.chapter-item a {
+    border-left: 3px solid transparent;
+    padding-left: 17px;
+    border-radius: 0;
+}
+#sidebar .chapter li.chapter-item a:hover {
+    background: rgba(244, 237, 228, 0.06);
+}
+#sidebar .chapter li.chapter-item a.active {
+    border-left-color: var(--lat-red-500);
+    background: rgba(244, 237, 228, 0.07);
+    font-weight: 600;
+}
+#sidebar .part-title {
+    color: var(--lat-slate-400);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+/* ── Code: IBM Plex Mono on Ferro-900, both inline and block ────────────── */
+.content pre {
+    background: var(--lat-ferro-900);
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+.content pre > code,
+.content pre > code.hljs {
+    background: transparent;
+    color: var(--lat-bone-200);
+}
+.content :not(pre) > code {
+    background: var(--lat-bone-300);
+    color: var(--lat-red-700);
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+/* ── Blockquote callouts in Ochre ──────────────────────────────────────── */
+.content blockquote {
+    border-inline-start-color: var(--lat-ochre-500);
+    color: var(--lat-ochre-700);
+    border-radius: 0 8px 8px 0;
+}
