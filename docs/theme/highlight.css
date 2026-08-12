@@ -1,0 +1,77 @@
+/* Laterite syntax highlighting: a dark Ferro theme so code blocks read as one
+ * with the admin's code surfaces. Overrides mdBook's default light highlight
+ * theme. The block background is set by .content pre in laterite.css; here the
+ * .hljs layer is transparent and only the token colours are defined, drawn
+ * from the Laterite palette (Red keywords, Ochre types and numbers, a muted
+ * green for strings, Ferro-tinted comments). */
+
+.hljs {
+    display: block;
+    overflow-x: auto;
+    background: transparent;
+    color: #f4ede4;
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: #7a6a5e;
+    font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-formula {
+    color: #ce6c4e;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-type,
+.hljs-class .hljs-title {
+    color: #ebc183;
+}
+
+.hljs-built_in,
+.hljs-name,
+.hljs-attribute {
+    color: #d9a05a;
+}
+
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-regexp,
+.hljs-addition {
+    color: #8fbf9f;
+}
+
+.hljs-number,
+.hljs-literal {
+    color: #d98e32;
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+    color: #9aa2a7;
+}
+
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+    color: #f9f4ec;
+}
+
+.hljs-deletion {
+    color: #d68a78;
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+.hljs-strong {
+    font-weight: 700;
+}

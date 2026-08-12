@@ -1,0 +1,21 @@
+[book]
+title = "Laterite"
+description = "The Laterite content management framework: guide and API reference."
+authors = ["Laterite"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "coal"
+additional-css = ["theme/laterite.css"]
+git-repository-url = "https://github.com/lateritecmf/core"
+edit-url-template = "https://github.com/lateritecmf/core/edit/main/docs/{path}"
+smart-punctuation = true
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
