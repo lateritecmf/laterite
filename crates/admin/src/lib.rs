@@ -13,6 +13,7 @@
 
 pub mod form;
 pub mod list;
+pub mod settings;
 mod sql;
 
 use std::collections::HashMap;
@@ -38,6 +39,7 @@ pub(crate) struct AdminState {
     auth: AuthService,
     pool: PgPool,
     nav: Arc<Vec<NavLink>>,
+    settings: Arc<Vec<settings::SettingsItem>>,
 }
 
 impl AdminState {
@@ -47,6 +49,7 @@ impl AdminState {
             auth,
             pool,
             nav: Arc::new(Vec::new()),
+            settings: Arc::new(Vec::new()),
         }
     }
 }
@@ -66,27 +69,49 @@ pub struct Resource {
     pub form: Option<form::FormConfig>,
 }
 
-/// Builds the admin router. `app_resources` are the application's own screens;
-/// they are mounted alongside the framework's built-in resources.
-pub fn router(auth: AuthService, pool: PgPool, app_resources: Vec<Resource>) -> Router {
+/// Builds the admin router. `app_resources` are the application's own list/form
+/// screens; `app_settings` are its settings models. Both are mounted alongside
+/// the framework's built-in resources.
+pub fn router(
+    auth: AuthService,
+    pool: PgPool,
+    app_resources: Vec<Resource>,
+    app_settings: Vec<settings::SettingsItem>,
+) -> Router {
     let mut resources = builtin_resources();
     resources.extend(app_resources);
-    let nav = resources
+    let mut nav = resources
         .iter()
         .map(|r| NavLink {
             label: r.nav_label.clone(),
             path: r.base_path.clone(),
         })
         .collect::<Vec<_>>();
+    let has_settings = !app_settings.is_empty();
+    if has_settings {
+        nav.push(NavLink {
+            label: "Settings".to_string(),
+            path: "/admin/settings".to_string(),
+        });
+    }
     let state = AdminState {
         auth,
         pool,
         nav: Arc::new(nav),
+        settings: Arc::new(app_settings),
     };
 
     let mut protected = Router::new().route("/admin", get(dashboard));
     for resource in &resources {
         protected = mount_resource(protected, resource);
+    }
+    if has_settings {
+        protected = protected
+            .route("/admin/settings", get(settings_index))
+            .route(
+                "/admin/settings/{code}",
+                get(settings_edit).post(settings_update),
+            );
     }
     protected = protected.route("/admin/logout", post(logout));
 
@@ -230,6 +255,28 @@ async fn dashboard(
             })
             .collect(),
     })
+}
+
+async fn settings_index(State(state): State<AdminState>) -> Response {
+    settings::index(&state.settings)
+}
+
+async fn settings_edit(State(state): State<AdminState>, Path(code): Path<String>) -> Response {
+    match state.settings.iter().find(|item| item.code == code) {
+        Some(item) => settings::edit_form(&state, item).await,
+        None => not_found(),
+    }
+}
+
+async fn settings_update(
+    State(state): State<AdminState>,
+    Path(code): Path<String>,
+    Form(data): Form<HashMap<String, String>>,
+) -> Response {
+    match state.settings.iter().find(|item| item.code == code) {
+        Some(item) => settings::update(&state, item, data).await,
+        None => not_found(),
+    }
 }
 
 /// The framework's own admin screens.
