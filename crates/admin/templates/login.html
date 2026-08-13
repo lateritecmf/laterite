@@ -1,15 +1,48 @@
-{% extends "base.html" %}
-{% block title %}Sign in - Laterite{% endblock %}
-{% block content %}
-<h1>Laterite admin</h1>
-{% if let Some(message) = error %}
-<div class="error">{{ message }}</div>
-{% endif %}
-<form method="post" action="/admin/login">
-  <label for="username">Username</label>
-  <input type="text" id="username" name="username" autofocus required>
-  <label for="password">Password</label>
-  <input type="password" id="password" name="password" required>
-  <button type="submit">Sign in</button>
-</form>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in - Laterite</title>
+  <link rel="icon" type="image/svg+xml" href="/admin/assets/mark.svg">
+  <link rel="stylesheet" href="/admin/assets/laterite.css">
+  <script>(function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();</script>
+</head>
+<body>
+  <div class="lat-login">
+    <div class="lat-login__form">
+      <div class="lat-login__inner">
+        <div class="lat-login__brand">
+          <img src="/admin/assets/mark.png" alt="">
+          <h1>Laterite</h1>
+        </div>
+        <h2 class="lat-login__title">Admin panel</h2>
+        <p class="lat-login__lead">Sign in to continue.</p>
+        {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+        <form method="post" action="/admin/login">
+          <div class="lat-field">
+            <label class="lat-field__label" for="username">Username</label>
+            <input class="lat-input" type="text" id="username" name="username" autocomplete="username" autofocus required>
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="password">Password</label>
+            <input class="lat-input" type="password" id="password" name="password" autocomplete="current-password" required>
+          </div>
+          <label class="lat-check"><input type="checkbox" name="remember" value="1"> Stay signed in</label>
+          <button class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" type="submit" style="margin-top:20px">Sign in</button>
+        </form>
+        <div class="lat-login__forgot"><a href="#">Forgot your password?</a></div>
+      </div>
+    </div>
+    <div class="lat-login__hero" aria-hidden="true">
+      <div class="lat-hero-blob lat-hero-blob--1"></div>
+      <div class="lat-hero-blob lat-hero-blob--2"></div>
+      <div class="lat-hero-blob lat-hero-blob--3"></div>
+      <div class="lat-hero__caption">
+        <div class="lat-hero__eyebrow">Open source Rust web framework</div>
+        <div class="lat-hero__tag">Build sites. Ship solid.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

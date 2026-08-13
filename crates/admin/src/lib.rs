@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::extract::{Path, Query, Request, State};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -117,9 +117,66 @@ pub fn router(
 
     protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
-        // Public routes (not covered by the guard above).
+        // Public routes (not covered by the guard above): the login screen and
+        // the embedded stylesheet and fonts (needed before authentication).
         .route("/admin/login", get(login_form).post(login_submit))
+        .route("/admin/assets/laterite.css", get(asset_css))
+        .route("/admin/assets/mark.svg", get(asset_mark))
+        .route("/admin/assets/mark.png", get(asset_mark_png))
+        .route("/admin/assets/fonts/{file}", get(asset_font))
         .with_state(state)
+}
+
+/// Serves the embedded brick mark (SVG badge, used for the favicon).
+async fn asset_mark() -> Response {
+    (
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        include_str!("../assets/mark.svg"),
+    )
+        .into_response()
+}
+
+/// Serves the embedded brick mark (PNG, the visible logo).
+async fn asset_mark_png() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        &include_bytes!("../assets/mark.png")[..],
+    )
+        .into_response()
+}
+
+/// Serves the embedded admin stylesheet.
+async fn asset_css() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../assets/laterite.css"),
+    )
+        .into_response()
+}
+
+/// Serves an embedded webfont by file name.
+async fn asset_font(Path(file): Path<String>) -> Response {
+    let bytes: &[u8] = match file.as_str() {
+        "space-grotesk-500.woff2" => &include_bytes!("../assets/fonts/space-grotesk-500.woff2")[..],
+        "space-grotesk-600.woff2" => &include_bytes!("../assets/fonts/space-grotesk-600.woff2")[..],
+        "space-grotesk-700.woff2" => &include_bytes!("../assets/fonts/space-grotesk-700.woff2")[..],
+        "ibm-plex-sans-400.woff2" => &include_bytes!("../assets/fonts/ibm-plex-sans-400.woff2")[..],
+        "ibm-plex-sans-600.woff2" => &include_bytes!("../assets/fonts/ibm-plex-sans-600.woff2")[..],
+        "ibm-plex-mono-400.woff2" => &include_bytes!("../assets/fonts/ibm-plex-mono-400.woff2")[..],
+        "ibm-plex-mono-600.woff2" => &include_bytes!("../assets/fonts/ibm-plex-mono-600.woff2")[..],
+        _ => return not_found(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 /// Mounts a resource's list, create, and edit routes as generic handlers that
@@ -243,9 +300,16 @@ async fn dashboard(
     State(state): State<AdminState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
+    let full_name = user.user.full_name();
+    let initial = full_name
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "?".to_string());
     render(DashboardTemplate {
-        full_name: user.user.full_name(),
+        full_name,
         username: user.user.username,
+        initial,
         nav: state
             .nav
             .iter()
@@ -359,6 +423,7 @@ struct LoginTemplate {
 struct DashboardTemplate {
     full_name: String,
     username: String,
+    initial: String,
     nav: Vec<NavView>,
 }
 
