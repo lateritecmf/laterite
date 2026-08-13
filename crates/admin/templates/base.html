@@ -1,23 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Laterite{% endblock %}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
-    .wrap { max-width: 420px; margin: 8vh auto; padding: 2rem; background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    h1 { font-size: 1.25rem; margin: 0 0 1.25rem; }
-    label { display: block; font-size: .85rem; margin: 0 0 .25rem; }
-    input[type=text], input[type=password] { width: 100%; padding: .55rem .6rem; margin-bottom: 1rem; border: 1px solid #d2d2d7; border-radius: 8px; box-sizing: border-box; }
-    button { background: #b7410e; color: #fff; border: 0; padding: .6rem 1rem; border-radius: 8px; cursor: pointer; font-size: .95rem; }
-    .error { background: #fde8e8; color: #9b1c1c; padding: .6rem .75rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
-    .muted { color: #6e6e73; font-size: .85rem; }
-  </style>
+  <link rel="icon" type="image/svg+xml" href="/admin/assets/mark.svg">
+  <link rel="stylesheet" href="/admin/assets/laterite.css">
+  <script>
+    (function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();
+    function latModeGlyph(m){return m==='light'?'☀':m==='dark'?'☾':'◐';}
+    function latCycleMode(){var o=localStorage.getItem('lat-mode')||'auto';var n=o==='light'?'dark':o==='dark'?'auto':'light';localStorage.setItem('lat-mode',n);var d=n==='dark'||(n==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(n);}
+  </script>
 </head>
-<body>
-  <div class="wrap">
-    {% block content %}{% endblock %}
-  </div>
+<body class="lat-app">
+  <header class="lat-topnav">
+    <a class="lat-topnav__brand" href="/admin">
+      <img src="/admin/assets/mark.png" alt="">
+      <span class="lat-topnav__wordmark">Laterite</span>
+    </a>
+    <nav class="lat-topnav__nav">
+      {% for item in nav %}<a class="lat-topnav__section" href="{{ item.path }}">{{ item.label }}</a>{% endfor %}
+    </nav>
+    <div class="lat-topnav__spacer"></div>
+    <div class="lat-topnav__right">
+      <button class="lat-modebtn" type="button" onclick="latCycleMode()" title="Colour mode" aria-label="Colour mode"><span id="lat-mode-ico">◐</span></button>
+      <div class="lat-avatar" title="{{ full_name }}">{{ initial }}</div>
+    </div>
+  </header>
+  <main class="lat-main">
+    <div class="lat-page">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+  <script>(function(){var m=localStorage.getItem('lat-mode')||'auto';var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(m);})();</script>
 </body>
 </html>

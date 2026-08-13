@@ -1,12 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Admin - Laterite{% endblock %}
+{% block title %}Dashboard - Laterite{% endblock %}
 {% block content %}
-<h1>Welcome, {{ full_name }}</h1>
-<p class="muted">Signed in as {{ username }}.</p>
-{% for item in nav %}
-<p><a href="{{ item.path }}">{{ item.label }} &rarr;</a></p>
-{% endfor %}
-<form method="post" action="/admin/logout">
-  <button type="submit">Sign out</button>
+<div class="lat-card" style="margin-bottom:24px">
+  <div class="lat-card__label">Welcome</div>
+  <h2 style="margin:0 0 4px">{{ full_name }}</h2>
+  <p style="color:var(--text-muted);margin:0">Signed in as {{ username }}.</p>
+</div>
+<div class="lat-card__label" style="margin-bottom:10px">Manage</div>
+<div class="lat-grid">
+  {% for item in nav %}
+  <a class="lat-card" href="{{ item.path }}" style="text-decoration:none;color:inherit">
+    <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-16);color:var(--text-heading)">{{ item.label }}</div>
+    <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">Open {{ item.label }} &rarr;</div>
+  </a>
+  {% endfor %}
+</div>
+<form method="post" action="/admin/logout" style="margin-top:28px">
+  <button class="lat-btn lat-btn--secondary" type="submit">Sign out</button>
 </form>
 {% endblock %}
