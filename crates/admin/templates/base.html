@@ -10,10 +10,12 @@
     (function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();
     function latModeGlyph(m){return m==='light'?'☀':m==='dark'?'☾':'◐';}
     function latCycleMode(){var o=localStorage.getItem('lat-mode')||'auto';var n=o==='light'?'dark':o==='dark'?'auto':'light';localStorage.setItem('lat-mode',n);var d=n==='dark'||(n==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(n);}
+    function latToggleMenu(){var m=document.getElementById('lat-menu');if(m)m.classList.toggle('is-open');}
   </script>
 </head>
 <body class="lat-app">
   <header class="lat-topnav">
+    <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label="Menu">&#9776;</button>
     <a class="lat-topnav__brand" href="/admin">
       <img src="/admin/assets/mark.png" alt="">
       <span class="lat-topnav__wordmark">Laterite</span>
@@ -27,6 +29,13 @@
       <div class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</div>
     </div>
   </header>
+  <div class="lat-drawer" id="lat-menu">
+    <div class="lat-drawer__backdrop" onclick="latToggleMenu()"></div>
+    <nav class="lat-drawer__panel">
+      <div class="lat-drawer__brand"><img src="/admin/assets/mark.png" alt=""><span>Laterite</span></div>
+      {% for item in shell.nav %}<a class="lat-drawer__item" href="{{ item.path }}">{{ item.label }}</a>{% endfor %}
+    </nav>
+  </div>
   <main class="lat-main">
     <div class="lat-page">
       {% block content %}{% endblock %}

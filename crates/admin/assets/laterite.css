@@ -206,6 +206,20 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* Form action bar */
 .lat-actions{display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border-subtle)}
 
+/* Off-canvas menu (small screens) */
+.lat-topnav__burger{display:none;align-items:center;justify-content:center;width:48px;border:0;background:transparent;color:var(--bone-200);font-size:20px;cursor:pointer}
+.lat-drawer{position:fixed;inset:0;z-index:50;visibility:hidden}
+.lat-drawer.is-open{visibility:visible}
+.lat-drawer__backdrop{position:absolute;inset:0;background:var(--surface-overlay);opacity:0;transition:opacity var(--dur-base) var(--ease-standard)}
+.lat-drawer.is-open .lat-drawer__backdrop{opacity:1}
+.lat-drawer__panel{position:absolute;top:0;left:0;bottom:0;width:270px;max-width:82vw;background:var(--surface-sidebar);color:var(--text-inverse);transform:translateX(-100%);transition:transform var(--dur-base) var(--ease-standard);display:flex;flex-direction:column;overflow-y:auto}
+.lat-drawer.is-open .lat-drawer__panel{transform:none}
+.lat-drawer__brand{display:flex;align-items:center;gap:10px;padding:18px;border-bottom:1px solid var(--alpha-bone-08)}
+.lat-drawer__brand img{height:28px}
+.lat-drawer__brand span{font-family:var(--font-display);font-weight:var(--fw-semibold);font-size:var(--fs-16);color:var(--bone-100)}
+.lat-drawer__item{display:block;padding:13px 18px;color:var(--slate-300);text-decoration:none;font-size:var(--fs-13);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:var(--ls-caps);border-left:3px solid transparent}
+.lat-drawer__item:hover{background:var(--alpha-bone-08);color:var(--bone-100);text-decoration:none}
+
 /* Settings index items */
 .lat-settingsitem{display:block;padding:14px 16px;border-bottom:1px solid var(--border-subtle);text-decoration:none;color:inherit}
 .lat-settingsitem:last-child{border-bottom:0}
@@ -236,5 +250,19 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-login__hero{display:none}
 .lat-login__form{width:100%;flex:1 1 auto;padding:32px 24px}
 .lat-login__inner{margin:0 auto}
+}
+
+/* Below --bp-md: collapse the inline nav into the off-canvas drawer */
+@media (max-width:992px){
+.lat-topnav__burger{display:flex}
+.lat-topnav__nav{display:none}
+.lat-topnav__brand{padding-left:6px}
+}
+/* Below --bp-sm: tighten chrome, let tables scroll, drop the wordmark */
+@media (max-width:768px){
+.lat-page{padding:18px}
+.lat-topnav__wordmark{display:none}
+.lat-tablewrap{overflow-x:auto}
+.lat-toolbar h1{font-size:var(--fs-20)}
 }
 }
