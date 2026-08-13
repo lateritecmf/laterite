@@ -84,12 +84,13 @@ impl FormConfig {
 }
 
 /// Renders an empty create form.
-pub(crate) fn new_form(config: &FormConfig) -> Response {
+pub(crate) fn new_form(config: &FormConfig, shell: crate::Shell) -> Response {
     render(build(
         config,
         &format!("{}/new", config.base_path),
         None,
         &HashMap::new(),
+        &shell,
     ))
 }
 
@@ -98,6 +99,7 @@ pub(crate) async fn create(
     state: &AdminState,
     config: &FormConfig,
     data: HashMap<String, String>,
+    shell: crate::Shell,
 ) -> Response {
     if !config.idents_valid() {
         return render_error();
@@ -108,6 +110,7 @@ pub(crate) async fn create(
             &format!("{}/new", config.base_path),
             Some(format!("{} is required.", field.label)),
             &data,
+            &shell,
         ));
     }
 
@@ -136,12 +139,18 @@ pub(crate) async fn create(
             &format!("{}/new", config.base_path),
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
+            &shell,
         )),
     }
 }
 
 /// Renders a form populated with an existing record.
-pub(crate) async fn edit_form(state: &AdminState, config: &FormConfig, id: String) -> Response {
+pub(crate) async fn edit_form(
+    state: &AdminState,
+    config: &FormConfig,
+    id: String,
+    shell: crate::Shell,
+) -> Response {
     if !config.idents_valid() {
         return render_error();
     }
@@ -186,6 +195,7 @@ pub(crate) async fn edit_form(state: &AdminState, config: &FormConfig, id: Strin
         &format!("{}/{}/edit", config.base_path, id),
         None,
         &values,
+        &shell,
     ))
 }
 
@@ -195,6 +205,7 @@ pub(crate) async fn update(
     config: &FormConfig,
     id: String,
     data: HashMap<String, String>,
+    shell: crate::Shell,
 ) -> Response {
     if !config.idents_valid() {
         return render_error();
@@ -205,6 +216,7 @@ pub(crate) async fn update(
             &format!("{}/{}/edit", config.base_path, id),
             Some(format!("{} is required.", field.label)),
             &data,
+            &shell,
         ));
     }
 
@@ -233,6 +245,7 @@ pub(crate) async fn update(
             &format!("{}/{}/edit", config.base_path, id),
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
+            &shell,
         )),
     }
 }
@@ -242,8 +255,10 @@ fn build(
     action: &str,
     error: Option<String>,
     values: &HashMap<String, String>,
+    shell: &crate::Shell,
 ) -> FormTemplate {
     FormTemplate {
+        shell: shell.clone(),
         title: config.title.clone(),
         action: action.to_string(),
         cancel_path: config.base_path.clone(),
@@ -273,6 +288,7 @@ struct FieldView {
 #[derive(Template)]
 #[template(path = "form.html")]
 struct FormTemplate {
+    shell: crate::Shell,
     title: String,
     action: String,
     cancel_path: String,
@@ -324,6 +340,7 @@ mod tests {
             &st,
             &cfg,
             data(&[("code", "editor"), ("name", "Content Editor")]),
+            crate::Shell::test(),
         )
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
@@ -344,7 +361,13 @@ mod tests {
             .unwrap();
         let cfg = config();
         let st = state(pool.clone());
-        create(&st, &cfg, data(&[("code", "editor"), ("name", "Editor")])).await;
+        create(
+            &st,
+            &cfg,
+            data(&[("code", "editor"), ("name", "Editor")]),
+            crate::Shell::test(),
+        )
+        .await;
 
         let id: String = sqlx::query_scalar("select id::text from backend_roles where code = $1")
             .bind("editor")
@@ -357,6 +380,7 @@ mod tests {
             &cfg,
             id,
             data(&[("code", "editor"), ("name", "Senior Editor")]),
+            crate::Shell::test(),
         )
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
@@ -377,7 +401,13 @@ mod tests {
         let cfg = config();
         let st = state(pool.clone());
 
-        let resp = create(&st, &cfg, data(&[("code", ""), ("name", "No Code")])).await;
+        let resp = create(
+            &st,
+            &cfg,
+            data(&[("code", ""), ("name", "No Code")]),
+            crate::Shell::test(),
+        )
+        .await;
         // Re-renders the form (200), does not redirect, and inserts nothing.
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
         let count: i64 = sqlx::query_scalar("select count(*) from backend_roles")

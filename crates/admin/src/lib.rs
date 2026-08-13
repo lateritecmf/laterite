@@ -60,6 +60,48 @@ struct NavLink {
     path: String,
 }
 
+/// The chrome shared by every authenticated page: the top-nav links and the
+/// signed-in operator. Built once by the auth guard and injected into request
+/// extensions, so page handlers render inside the same shell without each
+/// rebuilding it. Templates embed it as `shell` and `base.html` renders it.
+#[derive(Clone)]
+pub(crate) struct Shell {
+    nav: Vec<NavView>,
+    full_name: String,
+    initial: String,
+}
+
+impl Shell {
+    fn new(nav: &[NavLink], user: &AuthenticatedUser) -> Self {
+        let full_name = user.user.full_name();
+        let initial = full_name
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_else(|| "?".to_string());
+        Shell {
+            nav: nav
+                .iter()
+                .map(|n| NavView {
+                    label: n.label.clone(),
+                    path: n.path.clone(),
+                })
+                .collect(),
+            full_name,
+            initial,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test() -> Self {
+        Shell {
+            nav: Vec::new(),
+            full_name: "Test Operator".to_string(),
+            initial: "T".to_string(),
+        }
+    }
+}
+
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
 /// under `base_path` and shown in the menu as `nav_label`.
 pub struct Resource {
@@ -187,9 +229,11 @@ fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<Adm
     let mut router = router.route(
         &base,
         get(
-            move |State(state): State<AdminState>, Query(params): Query<list::ListParams>| {
+            move |State(state): State<AdminState>,
+                  Extension(shell): Extension<Shell>,
+                  Query(params): Query<list::ListParams>| {
                 let cfg = list_cfg.clone();
-                async move { list::handle(&state, &cfg, params).await }
+                async move { list::handle(&state, &cfg, params, shell).await }
             },
         ),
     );
@@ -198,15 +242,16 @@ fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<Adm
         let (new_cfg, create_cfg) = (form_cfg.clone(), form_cfg.clone());
         router = router.route(
             &format!("{base}/new"),
-            get(move || {
+            get(move |Extension(shell): Extension<Shell>| {
                 let cfg = new_cfg.clone();
-                async move { form::new_form(&cfg) }
+                async move { form::new_form(&cfg, shell) }
             })
             .post(
                 move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
                       Form(data): Form<HashMap<String, String>>| {
                     let cfg = create_cfg.clone();
-                    async move { form::create(&state, &cfg, data).await }
+                    async move { form::create(&state, &cfg, data, shell).await }
                 },
             ),
         );
@@ -215,17 +260,20 @@ fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<Adm
         router = router.route(
             &format!("{base}/{{id}}/edit"),
             get(
-                move |State(state): State<AdminState>, Path(id): Path<String>| {
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Path(id): Path<String>| {
                     let cfg = edit_cfg.clone();
-                    async move { form::edit_form(&state, &cfg, id).await }
+                    async move { form::edit_form(&state, &cfg, id, shell).await }
                 },
             )
             .post(
                 move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
                       Path(id): Path<String>,
                       Form(data): Form<HashMap<String, String>>| {
                     let cfg = update_cfg.clone();
-                    async move { form::update(&state, &cfg, id, data).await }
+                    async move { form::update(&state, &cfg, id, data, shell).await }
                 },
             ),
         );
@@ -247,7 +295,9 @@ async fn require_auth(
     };
     match identity {
         Some(user) => {
+            let shell = Shell::new(&state.nav, &user);
             request.extensions_mut().insert(user);
+            request.extensions_mut().insert(shell);
             next.run(request).await
         }
         None => Redirect::to("/admin/login").into_response(),
@@ -297,48 +347,41 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
 }
 
 async fn dashboard(
-    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
-    let full_name = user.user.full_name();
-    let initial = full_name
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "?".to_string());
     render(DashboardTemplate {
-        full_name,
         username: user.user.username,
-        initial,
-        nav: state
-            .nav
-            .iter()
-            .map(|n| NavView {
-                label: n.label.clone(),
-                path: n.path.clone(),
-            })
-            .collect(),
+        shell,
     })
 }
 
-async fn settings_index(State(state): State<AdminState>) -> Response {
-    settings::index(&state.settings)
+async fn settings_index(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+) -> Response {
+    settings::index(&state.settings, shell)
 }
 
-async fn settings_edit(State(state): State<AdminState>, Path(code): Path<String>) -> Response {
+async fn settings_edit(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Path(code): Path<String>,
+) -> Response {
     match state.settings.iter().find(|item| item.code == code) {
-        Some(item) => settings::edit_form(&state, item).await,
+        Some(item) => settings::edit_form(&state, item, shell).await,
         None => not_found(),
     }
 }
 
 async fn settings_update(
     State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
     Path(code): Path<String>,
     Form(data): Form<HashMap<String, String>>,
 ) -> Response {
     match state.settings.iter().find(|item| item.code == code) {
-        Some(item) => settings::update(&state, item, data).await,
+        Some(item) => settings::update(&state, item, data, shell).await,
         None => not_found(),
     }
 }
@@ -421,12 +464,11 @@ struct LoginTemplate {
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct DashboardTemplate {
-    full_name: String,
+    shell: Shell,
     username: String,
-    initial: String,
-    nav: Vec<NavView>,
 }
 
+#[derive(Clone)]
 struct NavView {
     label: String,
     path: String,

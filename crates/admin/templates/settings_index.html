@@ -1,42 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings - Laterite</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
-    .bar { background: #fff; border-bottom: 1px solid #e5e5ea; padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
-    .bar a { color: #b7410e; text-decoration: none; font-size: .85rem; }
-    h1 { font-size: 1.1rem; margin: 0; }
-    .content { padding: 1.5rem; max-width: 720px; }
-    h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: #6e6e73; margin: 1.5rem 0 .5rem; }
-    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); overflow: hidden; }
-    .item { display: block; padding: .9rem 1.1rem; border-bottom: 1px solid #f0f0f2; text-decoration: none; color: inherit; }
-    .item:last-child { border-bottom: 0; }
-    .item:hover { background: #faf6f4; }
-    .item .label { font-weight: 600; font-size: .95rem; }
-    .item .desc { color: #6e6e73; font-size: .85rem; margin-top: .15rem; }
-    .empty { color: #6e6e73; font-size: .9rem; }
-  </style>
-</head>
-<body>
-  <div class="bar"><a href="/admin">&larr; Dashboard</a><h1>Settings</h1></div>
-  <div class="content">
-    {% if groups.is_empty() %}
-    <p class="empty">No settings have been registered.</p>
-    {% endif %}
-    {% for group in groups %}
-    <h2>{{ group.name }}</h2>
-    <div class="card">
-      {% for item in group.items %}
-      <a class="item" href="{{ item.path }}">
-        <div class="label">{{ item.label }}</div>
-        {% if !item.description.is_empty() %}<div class="desc">{{ item.description }}</div>{% endif %}
-      </a>
-      {% endfor %}
-    </div>
-    {% endfor %}
-  </div>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}Settings - Laterite{% endblock %}
+{% block content %}
+<div class="lat-toolbar"><h1>Settings</h1></div>
+{% if groups.is_empty() %}
+<div class="lat-card"><p style="color:var(--text-muted);margin:0">No settings have been registered.</p></div>
+{% endif %}
+{% for group in groups %}
+<div class="lat-card__label" style="margin:22px 0 10px">{{ group.name }}</div>
+<div class="lat-tablewrap">
+  {% for item in group.items %}
+  <a class="lat-settingsitem" href="{{ item.path }}">
+    <span class="lat-settingsitem__label">{{ item.label }}</span>
+    {% if !item.description.is_empty() %}<span class="lat-settingsitem__desc">{{ item.description }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

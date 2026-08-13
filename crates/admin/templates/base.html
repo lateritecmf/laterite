@@ -19,12 +19,12 @@
       <span class="lat-topnav__wordmark">Laterite</span>
     </a>
     <nav class="lat-topnav__nav">
-      {% for item in nav %}<a class="lat-topnav__section" href="{{ item.path }}">{{ item.label }}</a>{% endfor %}
+      {% for item in shell.nav %}<a class="lat-topnav__section" href="{{ item.path }}">{{ item.label }}</a>{% endfor %}
     </nav>
     <div class="lat-topnav__spacer"></div>
     <div class="lat-topnav__right">
       <button class="lat-modebtn" type="button" onclick="latCycleMode()" title="Colour mode" aria-label="Colour mode"><span id="lat-mode-ico">◐</span></button>
-      <div class="lat-avatar" title="{{ full_name }}">{{ initial }}</div>
+      <div class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</div>
     </div>
   </header>
   <main class="lat-main">

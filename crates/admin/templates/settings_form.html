@@ -1,60 +1,30 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title }} - Laterite</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
-    .bar { background: #fff; border-bottom: 1px solid #e5e5ea; padding: .9rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
-    .bar a { color: #b7410e; text-decoration: none; font-size: .85rem; }
-    h1 { font-size: 1.1rem; margin: 0; }
-    .content { padding: 1.5rem; max-width: 560px; }
-    .card { background: #fff; border-radius: 10px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-    .lead { color: #6e6e73; font-size: .9rem; margin: 0 0 1.25rem; }
-    label { display: block; font-size: .85rem; margin: 0 0 .25rem; }
-    input[type=text], textarea { width: 100%; padding: .55rem .6rem; margin-bottom: .35rem; border: 1px solid #d2d2d7; border-radius: 8px; box-sizing: border-box; font: inherit; }
-    textarea { min-height: 6rem; }
-    .field { margin-bottom: 1rem; }
-    .switch { display: flex; align-items: center; gap: .5rem; }
-    .switch label { margin: 0; }
-    .help { color: #6e6e73; font-size: .8rem; margin: 0 0 0; }
-    .actions { display: flex; gap: .75rem; align-items: center; margin-top: .5rem; }
-    button { background: #b7410e; color: #fff; border: 0; padding: .6rem 1rem; border-radius: 8px; cursor: pointer; font-size: .95rem; }
-    .actions a { color: #6e6e73; text-decoration: none; font-size: .9rem; }
-    .error { background: #fde8e8; color: #9b1c1c; padding: .6rem .75rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
-  </style>
-</head>
-<body>
-  <div class="bar"><a href="/admin/settings">&larr; Settings</a><h1>{{ title }}</h1></div>
-  <div class="content">
-    <div class="card">
-      {% if !description.is_empty() %}<p class="lead">{{ description }}</p>{% endif %}
-      {% if let Some(message) = error %}<div class="error">{{ message }}</div>{% endif %}
-      <form method="post" action="{{ action }}">
-        {% for field in fields %}
-        <div class="field">
-          {% if field.switch %}
-          <div class="switch">
-            <input type="checkbox" id="{{ field.name }}" name="{{ field.name }}" value="on"{% if field.checked %} checked{% endif %}>
-            <label for="{{ field.name }}">{{ field.label }}</label>
-          </div>
-          {% else if field.textarea %}
-          <label for="{{ field.name }}">{{ field.label }}</label>
-          <textarea id="{{ field.name }}" name="{{ field.name }}">{{ field.value }}</textarea>
-          {% else %}
-          <label for="{{ field.name }}">{{ field.label }}</label>
-          <input type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}">
-          {% endif %}
-          {% if let Some(help) = field.help %}<p class="help">{{ help }}</p>{% endif %}
-        </div>
-        {% endfor %}
-        <div class="actions">
-          <button type="submit">Save</button>
-          <a href="/admin/settings">Cancel</a>
-        </div>
-      </form>
+{% extends "base.html" %}
+{% block title %}{{ title }} - Laterite{% endblock %}
+{% block content %}
+<nav class="lat-breadcrumb"><a href="/admin/settings">&larr; Settings</a></nav>
+<div class="lat-toolbar"><h1>{{ title }}</h1></div>
+<div class="lat-card" style="max-width:620px">
+  {% if !description.is_empty() %}<p style="color:var(--text-muted);font-size:var(--fs-13);margin:0 0 18px">{{ description }}</p>{% endif %}
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  <form method="post" action="{{ action }}">
+    {% for field in fields %}
+    <div class="lat-field">
+      {% if field.switch %}
+      <label class="lat-check"><input type="checkbox" id="{{ field.name }}" name="{{ field.name }}" value="on"{% if field.checked %} checked{% endif %}> {{ field.label }}</label>
+      {% else if field.textarea %}
+      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
+      <textarea class="lat-input" id="{{ field.name }}" name="{{ field.name }}">{{ field.value }}</textarea>
+      {% else %}
+      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
+      <input class="lat-input" type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}">
+      {% endif %}
+      {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
     </div>
-  </div>
-</body>
-</html>
+    {% endfor %}
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">Save</button>
+      <a class="lat-btn lat-btn--ghost" href="/admin/settings">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
