@@ -97,19 +97,24 @@ impl SettingsItem {
 }
 
 /// Renders the settings index: every registered item grouped by category.
-pub(crate) fn index(items: &[SettingsItem]) -> Response {
+pub(crate) fn index(items: &[SettingsItem], shell: crate::Shell) -> Response {
     render(SettingsIndexTemplate {
+        shell,
         groups: group(items),
     })
 }
 
 /// Renders the edit form for one item, populated from its stored value.
-pub(crate) async fn edit_form(state: &AdminState, item: &SettingsItem) -> Response {
+pub(crate) async fn edit_form(
+    state: &AdminState,
+    item: &SettingsItem,
+    shell: crate::Shell,
+) -> Response {
     let stored = match laterite_settings::get(&state.pool, &item.code).await {
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
-    render(build(item, None, &stored))
+    render(build(item, None, &stored, &shell))
 }
 
 /// Persists submitted values as the item's JSON object, then returns to the index.
@@ -117,6 +122,7 @@ pub(crate) async fn update(
     state: &AdminState,
     item: &SettingsItem,
     data: HashMap<String, String>,
+    shell: crate::Shell,
 ) -> Response {
     let value = collect(item, &data);
     match laterite_settings::set(&state.pool, &item.code, &value).await {
@@ -125,6 +131,7 @@ pub(crate) async fn update(
             item,
             Some("Could not save. Please try again.".to_string()),
             &value,
+            &shell,
         )),
     }
 }
@@ -185,7 +192,12 @@ fn group(items: &[SettingsItem]) -> Vec<CategoryView> {
     groups
 }
 
-fn build(item: &SettingsItem, error: Option<String>, stored: &Value) -> SettingsFormTemplate {
+fn build(
+    item: &SettingsItem,
+    error: Option<String>,
+    stored: &Value,
+    shell: &crate::Shell,
+) -> SettingsFormTemplate {
     let fields = item
         .fields
         .iter()
@@ -207,6 +219,7 @@ fn build(item: &SettingsItem, error: Option<String>, stored: &Value) -> Settings
         })
         .collect();
     SettingsFormTemplate {
+        shell: shell.clone(),
         title: item.label.clone(),
         description: item.description.clone(),
         action: item.path(),
@@ -230,6 +243,7 @@ struct ItemView {
 #[derive(Template)]
 #[template(path = "settings_index.html")]
 struct SettingsIndexTemplate {
+    shell: crate::Shell,
     groups: Vec<CategoryView>,
 }
 
@@ -246,6 +260,7 @@ struct FieldView {
 #[derive(Template)]
 #[template(path = "settings_form.html")]
 struct SettingsFormTemplate {
+    shell: crate::Shell,
     title: String,
     description: String,
     action: String,
@@ -340,6 +355,7 @@ mod tests {
             &item(),
             // log_requests is absent, as an unchecked checkbox would be.
             data(&[("log_events", "on"), ("retention_days", "30")]),
+            crate::Shell::test(),
         )
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
@@ -355,7 +371,7 @@ mod tests {
 
     #[test]
     fn index_renders() {
-        let resp = index(&[item()]);
+        let resp = index(&[item()], crate::Shell::test());
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 
@@ -366,7 +382,7 @@ mod tests {
             .unwrap();
         let st = state(pool);
         // No stored value yet: the form still renders (fields fall back to defaults).
-        let resp = edit_form(&st, &item()).await;
+        let resp = edit_form(&st, &item(), crate::Shell::test()).await;
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 }

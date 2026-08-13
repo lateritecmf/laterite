@@ -3,12 +3,12 @@
 {% block content %}
 <div class="lat-card" style="margin-bottom:24px">
   <div class="lat-card__label">Welcome</div>
-  <h2 style="margin:0 0 4px">{{ full_name }}</h2>
+  <h2 style="margin:0 0 4px">{{ shell.full_name }}</h2>
   <p style="color:var(--text-muted);margin:0">Signed in as {{ username }}.</p>
 </div>
 <div class="lat-card__label" style="margin-bottom:10px">Manage</div>
 <div class="lat-grid">
-  {% for item in nav %}
+  {% for item in shell.nav %}
   <a class="lat-card" href="{{ item.path }}" style="text-decoration:none;color:inherit">
     <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-16);color:var(--text-heading)">{{ item.label }}</div>
     <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">Open {{ item.label }} &rarr;</div>

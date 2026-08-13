@@ -149,6 +149,7 @@ pub(crate) async fn handle(
     state: &AdminState,
     config: &ListConfig,
     params: ListParams,
+    shell: crate::Shell,
 ) -> Response {
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
@@ -156,6 +157,7 @@ pub(crate) async fn handle(
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
             render(ListTemplate {
+                shell,
                 title: config.title.clone(),
                 columns: config.columns.iter().map(|c| c.label.clone()).collect(),
                 rows: result.rows,
@@ -172,6 +174,7 @@ pub(crate) async fn handle(
 #[derive(Template)]
 #[template(path = "list.html")]
 struct ListTemplate {
+    shell: crate::Shell,
     title: String,
     columns: Vec<String>,
     rows: Vec<RowView>,
