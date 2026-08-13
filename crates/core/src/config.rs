@@ -25,6 +25,16 @@ pub struct ServerConfig {
     pub listen: String,
 }
 
+/// Deployment-level backend settings. Per-install brand and per-operator preferences
+/// live in the settings and preferences stores, not here.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct BackendConfig {
+    /// Set the `Secure` attribute on the admin session cookie. Enable behind HTTPS
+    /// in production; leave off for plain-HTTP local development.
+    pub secure_cookie: bool,
+}
+
 fn default_max_connections() -> u32 {
     10
 }
@@ -85,6 +95,27 @@ mod tests {
         assert_eq!(cfg.database.url, "postgres://from-env");
         assert_eq!(cfg.database.max_connections, 10);
         assert_eq!(cfg.database.acquire_timeout_secs, 5);
+    }
+
+    #[test]
+    fn backend_config_defaults_and_loads() {
+        #[derive(Deserialize)]
+        struct C {
+            #[serde(default)]
+            backend: BackendConfig,
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("default.toml"), "").unwrap();
+        let c: C = load(dir.path(), "LATERITE_BE_NONE").unwrap();
+        assert!(!c.backend.secure_cookie);
+
+        std::fs::write(
+            dir.path().join("default.toml"),
+            "[backend]\nsecure_cookie = true\n",
+        )
+        .unwrap();
+        let c: C = load(dir.path(), "LATERITE_BE_SET").unwrap();
+        assert!(c.backend.secure_cookie);
     }
 
     #[test]
