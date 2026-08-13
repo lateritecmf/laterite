@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use rand::RngCore;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
@@ -18,14 +19,25 @@ use crate::password;
 use crate::permission::PermissionSet;
 use crate::store;
 
-/// Tunable auth policy.
-#[derive(Debug, Clone)]
+/// Tunable auth policy. Loadable from a config section (all keys optional; an unset
+/// key keeps its default):
+///
+/// ```toml
+/// [auth]
+/// session_ttl_secs = 43200
+/// max_failures = 5
+/// failure_window_secs = 900
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct AuthConfig {
     /// How long an issued session remains valid.
+    #[serde(rename = "session_ttl_secs", deserialize_with = "de_secs")]
     pub session_ttl: Duration,
     /// Failed attempts within `failure_window` before a username is locked out.
     pub max_failures: i64,
     /// The window over which failed attempts are counted.
+    #[serde(rename = "failure_window_secs", deserialize_with = "de_secs")]
     pub failure_window: Duration,
 }
 
@@ -36,6 +48,36 @@ impl Default for AuthConfig {
             max_failures: 5,
             failure_window: Duration::from_secs(60 * 15),
         }
+    }
+}
+
+/// Deserializes a whole-second count into a `Duration`.
+fn de_secs<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Duration, D::Error> {
+    Ok(Duration::from_secs(u64::deserialize(de)?))
+}
+
+#[cfg(test)]
+mod auth_config_tests {
+    use super::AuthConfig;
+    use std::time::Duration;
+
+    #[test]
+    fn unset_keys_keep_defaults() {
+        let cfg: AuthConfig = serde_json::from_str(r#"{"max_failures": 3}"#).unwrap();
+        assert_eq!(cfg.max_failures, 3);
+        assert_eq!(cfg.session_ttl, Duration::from_secs(60 * 60 * 12));
+        assert_eq!(cfg.failure_window, Duration::from_secs(60 * 15));
+    }
+
+    #[test]
+    fn seconds_map_to_durations() {
+        let cfg: AuthConfig = serde_json::from_str(
+            r#"{"session_ttl_secs": 3600, "max_failures": 7, "failure_window_secs": 120}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.session_ttl, Duration::from_secs(3600));
+        assert_eq!(cfg.max_failures, 7);
+        assert_eq!(cfg.failure_window, Duration::from_secs(120));
     }
 }
 

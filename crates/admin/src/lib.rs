@@ -40,6 +40,7 @@ pub(crate) struct AdminState {
     pool: PgPool,
     nav: Arc<Vec<NavLink>>,
     settings: Arc<Vec<settings::SettingsItem>>,
+    secure_cookie: bool,
 }
 
 impl AdminState {
@@ -50,8 +51,18 @@ impl AdminState {
             pool,
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
+            secure_cookie: false,
         }
     }
+}
+
+/// Deployment-level admin settings passed to [`router`]. Per-install brand and
+/// per-operator preferences are settings/preferences, not deployment config.
+#[derive(Clone, Default)]
+pub struct AdminConfig {
+    /// Set the `Secure` attribute on the session cookie. Enable behind HTTPS in
+    /// production; leave off for plain-HTTP local development.
+    pub secure_cookie: bool,
 }
 
 #[derive(Clone)]
@@ -119,6 +130,7 @@ pub fn router(
     pool: PgPool,
     app_resources: Vec<Resource>,
     app_settings: Vec<settings::SettingsItem>,
+    config: AdminConfig,
 ) -> Router {
     let mut resources = builtin_resources();
     resources.extend(app_resources);
@@ -141,6 +153,7 @@ pub fn router(
         pool,
         nav: Arc::new(nav),
         settings: Arc::new(app_settings),
+        secure_cookie: config.secure_cookie,
     };
 
     let mut protected = Router::new().route("/admin", get(dashboard));
@@ -328,6 +341,7 @@ async fn login_submit(
             let cookie = Cookie::build((SESSION_COOKIE, session.token))
                 .path("/admin")
                 .http_only(true)
+                .secure(state.secure_cookie)
                 .same_site(SameSite::Lax)
                 .build();
             (jar.add(cookie), Redirect::to("/admin")).into_response()
