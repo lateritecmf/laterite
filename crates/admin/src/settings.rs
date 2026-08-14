@@ -86,13 +86,19 @@ pub struct SettingsItem {
     /// Permission required to edit, enforced by middleware. `None` means any
     /// authenticated operator.
     pub permission: Option<String>,
+    /// When set, the item links to this route (e.g. a resource list) instead of
+    /// its settings form. Used to place list/form screens (like Administrators)
+    /// in the settings menu rather than the main menu.
+    pub link: Option<String>,
     pub fields: Vec<SettingsField>,
 }
 
 impl SettingsItem {
-    /// The path this item is edited at.
+    /// Where this item leads: its link target if set, else its settings form.
     pub fn path(&self) -> String {
-        format!("/admin/settings/{}", self.code)
+        self.link
+            .clone()
+            .unwrap_or_else(|| format!("/admin/settings/{}", self.code))
     }
 }
 
@@ -281,6 +287,7 @@ mod tests {
             category: "Logs".to_string(),
             order: 10,
             permission: None,
+            link: None,
             fields: vec![
                 SettingsField::switch("log_events", "Log events"),
                 SettingsField::switch("log_requests", "Log requests"),
@@ -313,6 +320,7 @@ mod tests {
                 category: "System".into(),
                 order: 20,
                 permission: None,
+                link: None,
                 fields: vec![],
             },
             SettingsItem {
@@ -322,6 +330,7 @@ mod tests {
                 category: "System".into(),
                 order: 10,
                 permission: None,
+                link: None,
                 fields: vec![],
             },
             SettingsItem {
@@ -331,6 +340,7 @@ mod tests {
                 category: "Logs".into(),
                 order: 5,
                 permission: None,
+                link: None,
                 fields: vec![],
             },
         ];
@@ -341,6 +351,27 @@ mod tests {
         // Within "System", Alpha (10) before Beta (20).
         assert_eq!(groups[1].items[0].label, "Alpha");
         assert_eq!(groups[1].items[1].label, "Beta");
+    }
+
+    #[test]
+    fn settings_model_item_path_is_its_form() {
+        assert_eq!(item().path(), "/admin/settings/test.log");
+    }
+
+    #[test]
+    fn link_item_path_follows_the_link() {
+        let admins = crate::builtin_settings()
+            .into_iter()
+            .find(|i| i.code == "backend.administrators")
+            .unwrap();
+        assert_eq!(admins.category, "Users");
+        assert!(admins.link.is_some());
+        assert!(admins.fields.is_empty());
+        // links to the resource list, not a settings form
+        assert_eq!(admins.path(), "/admin/users");
+        assert!(crate::builtin_settings()
+            .iter()
+            .any(|i| i.code == "backend.roles"));
     }
 
     #[sqlx::test(migrations = false)]
