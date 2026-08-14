@@ -7,7 +7,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
-use laterite_auth::{password, store};
+use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
 use sqlx::PgPool;
 
@@ -89,18 +89,18 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
     match command {
         AdminCommand::Create(args) => {
             let plain = resolve_password(args.password, args.generate)?;
-            let hash = password::hash_password(&plain)?;
-            let id = store::create_user(
-                &pool,
-                &args.username,
-                &args.email,
-                &args.first_name,
-                args.last_name.as_deref(),
-                &hash,
-                true,
-            )
-            .await
-            .context("could not create backend user")?;
+            let auth = AuthService::new(pool, AuthConfig::default());
+            let id = auth
+                .create_superuser(NewOperator {
+                    username: &args.username,
+                    email: &args.email,
+                    first_name: &args.first_name,
+                    last_name: args.last_name.as_deref(),
+                    password: &plain,
+                    timezone: None,
+                })
+                .await
+                .context("could not create backend user")?;
             println!("Created backend superuser '{}' ({id})", args.username);
         }
         AdminCommand::ResetPassword(args) => {

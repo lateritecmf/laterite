@@ -119,6 +119,20 @@ impl AuthenticatedUser {
     }
 }
 
+/// The details for creating a backend operator. Used by the CLI and the
+/// first-run setup screen so account creation has one code path.
+#[derive(Debug, Clone)]
+pub struct NewOperator<'a> {
+    pub username: &'a str,
+    pub email: &'a str,
+    pub first_name: &'a str,
+    pub last_name: Option<&'a str>,
+    pub password: &'a str,
+    /// The operator's display timezone (an IANA name), or `None` to inherit the
+    /// deployment default.
+    pub timezone: Option<&'a str>,
+}
+
 /// The auth service. Cheap to clone: it holds a pool handle and config.
 #[derive(Clone)]
 pub struct AuthService {
@@ -220,6 +234,33 @@ impl AuthService {
         timezone: Option<&str>,
     ) -> Result<(), AuthError> {
         store::set_user_timezone(&self.pool, user_id, timezone).await
+    }
+
+    /// Whether any backend operator exists yet. A fresh install with none is
+    /// routed to first-run setup instead of login.
+    pub async fn has_any_operator(&self) -> Result<bool, AuthError> {
+        store::any_user_exists(&self.pool).await
+    }
+
+    /// Creates a superuser operator: hashes the password, inserts the user, and
+    /// records their timezone preference. The single account-creation path,
+    /// shared by the CLI and the first-run setup screen.
+    pub async fn create_superuser(&self, new: NewOperator<'_>) -> Result<uuid::Uuid, AuthError> {
+        let hash = password::hash_password(new.password)?;
+        let id = store::create_user(
+            &self.pool,
+            new.username,
+            new.email,
+            new.first_name,
+            new.last_name,
+            &hash,
+            true,
+        )
+        .await?;
+        if new.timezone.is_some() {
+            store::set_user_timezone(&self.pool, id, new.timezone).await?;
+        }
+        Ok(id)
     }
 
     async fn log(
@@ -376,6 +417,37 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(user.timezone, None);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn has_any_operator_flips_after_the_first_account(pool: PgPool) {
+        migrate(&pool).await;
+        let svc = service(pool);
+
+        // A fresh install has no operators, so setup (not login) applies.
+        assert!(!svc.has_any_operator().await.unwrap());
+
+        svc.create_superuser(NewOperator {
+            username: "first",
+            email: "first@example.test",
+            first_name: "First",
+            last_name: None,
+            password: "hunter2",
+            timezone: Some("Asia/Kolkata"),
+        })
+        .await
+        .unwrap();
+
+        assert!(svc.has_any_operator().await.unwrap());
+
+        // The account is a usable superuser with the onboarding timezone recorded.
+        let session = svc
+            .authenticate("first", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let identity = svc.verify_session(&session.token).await.unwrap();
+        assert!(identity.allows("anything.a.superuser.can.do"));
+        assert_eq!(identity.user.timezone.as_deref(), Some("Asia/Kolkata"));
     }
 
     #[sqlx::test(migrations = false)]

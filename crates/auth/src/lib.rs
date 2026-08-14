@@ -22,7 +22,9 @@ mod models;
 pub use error::AuthError;
 pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
-pub use service::{AuthConfig, AuthService, AuthenticatedUser, IssuedSession, RequestContext};
+pub use service::{
+    AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator, RequestContext,
+};
 
 use laterite_core::ModuleMigrations;
 
