@@ -211,6 +211,17 @@ impl AuthService {
         store::delete_session(&self.pool, &hash_token(token)).await
     }
 
+    /// Persists an operator's own display timezone. `Some(name)` sets an IANA
+    /// timezone; `None` clears it so the operator falls back to the deployment
+    /// default. Validating that `name` is a real timezone is the caller's job.
+    pub async fn set_user_timezone(
+        &self,
+        user_id: uuid::Uuid,
+        timezone: Option<&str>,
+    ) -> Result<(), AuthError> {
+        store::set_user_timezone(&self.pool, user_id, timezone).await
+    }
+
     async fn log(
         &self,
         user_id: Option<uuid::Uuid>,
@@ -334,6 +345,37 @@ mod tests {
             .unwrap();
         let identity = svc.verify_session(&session.token).await.unwrap();
         assert_eq!(identity.user.full_name(), "Prakash");
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn operator_timezone_round_trips_and_clears(pool: PgPool) {
+        migrate(&pool).await;
+        let id = seed_user(&pool, "tz", "pw", true).await;
+
+        // A fresh operator has no preference and inherits the default.
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.timezone, None);
+
+        let svc = service(pool.clone());
+        svc.set_user_timezone(id, Some("Asia/Kolkata"))
+            .await
+            .unwrap();
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.timezone.as_deref(), Some("Asia/Kolkata"));
+
+        // Clearing it returns the operator to the default.
+        svc.set_user_timezone(id, None).await.unwrap();
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.timezone, None);
     }
 
     #[sqlx::test(migrations = false)]

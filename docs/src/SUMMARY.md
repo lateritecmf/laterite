@@ -6,6 +6,7 @@
 
 - [Installation](getting-started/installation.md)
 - [Configuration](getting-started/configuration.md)
+- [Dates and Timezones](getting-started/dates-and-timezones.md)
 
 # Extending Laterite
 

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Preferences - Laterite{% endblock %}
+{% block content %}
+<div class="lat-toolbar"><h1>Preferences</h1></div>
+<div class="lat-card" style="max-width:620px">
+  {% if saved %}<div class="lat-alert lat-alert--ok">Your preferences were saved.</div>{% endif %}
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  <form method="post" action="/admin/preferences">
+    <div class="lat-field">
+      <label class="lat-field__label" for="timezone">Display timezone</label>
+      <select class="lat-input" id="timezone" name="timezone">
+        <option value=""{% if inherits %} selected{% endif %}>Use the deployment default ({{ default_tz }})</option>
+        {% for zone in zones %}<option value="{{ zone.name }}"{% if zone.selected %} selected{% endif %}>{{ zone.name }}</option>{% endfor %}
+      </select>
+      <p class="lat-help">Timestamps currently render in {{ effective_tz }}. Storage is always UTC; this only changes how dates are shown to you.</p>
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -27,7 +27,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use chrono_tz::Tz;
+use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, RequestContext};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -96,10 +96,14 @@ pub(crate) struct Shell {
     nav: Vec<NavView>,
     full_name: String,
     initial: String,
+    /// The timezone this operator's timestamps render in, resolved once per
+    /// request: the operator's own preference if set and valid, else the
+    /// deployment default. List and detail screens format dates in it.
+    tz: Tz,
 }
 
 impl Shell {
-    fn new(nav: &[NavLink], user: &AuthenticatedUser) -> Self {
+    fn new(nav: &[NavLink], user: &AuthenticatedUser, default_tz: Tz) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
             .chars()
@@ -116,6 +120,7 @@ impl Shell {
                 .collect(),
             full_name,
             initial,
+            tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
         }
     }
 
@@ -125,8 +130,18 @@ impl Shell {
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
+            tz: Tz::UTC,
         }
     }
+}
+
+/// Resolves the timezone an operator's timestamps render in: their own
+/// preference when it is set and a valid IANA name, otherwise the deployment
+/// default. An unparseable stored value falls back rather than erroring.
+fn resolve_display_tz(preference: Option<&str>, default_tz: Tz) -> Tz {
+    preference
+        .and_then(|name| name.parse::<Tz>().ok())
+        .unwrap_or(default_tz)
 }
 
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
@@ -189,6 +204,10 @@ pub fn router(
         .route(
             "/admin/settings/{code}",
             get(settings_edit).post(settings_update),
+        )
+        .route(
+            "/admin/preferences",
+            get(preferences_form).post(preferences_update),
         )
         .route("/admin/logout", post(logout));
 
@@ -330,7 +349,7 @@ async fn require_auth(
     };
     match identity {
         Some(user) => {
-            let shell = Shell::new(&state.nav, &user);
+            let shell = Shell::new(&state.nav, &user, state.timezone);
             request.extensions_mut().insert(user);
             request.extensions_mut().insert(shell);
             next.run(request).await
@@ -427,6 +446,88 @@ async fn settings_update(
     {
         Some(item) => settings::update(&state, item, data, shell).await,
         None => not_found(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PreferencesQuery {
+    saved: Option<String>,
+}
+
+/// The self-service Preferences screen for the signed-in operator.
+async fn preferences_form(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(query): Query<PreferencesQuery>,
+) -> Response {
+    render(preferences_view(
+        &shell,
+        &user,
+        state.timezone,
+        query.saved.is_some(),
+        None,
+    ))
+}
+
+#[derive(Deserialize)]
+struct PreferencesForm {
+    timezone: String,
+}
+
+async fn preferences_update(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Form(form): Form<PreferencesForm>,
+) -> Response {
+    let trimmed = form.timezone.trim();
+    // An empty choice clears the preference so the operator inherits the default.
+    let stored = if trimmed.is_empty() {
+        None
+    } else if trimmed.parse::<Tz>().is_ok() {
+        Some(trimmed)
+    } else {
+        return render(preferences_view(
+            &shell,
+            &user,
+            state.timezone,
+            false,
+            Some("That is not a recognised timezone."),
+        ));
+    };
+    match state.auth.set_user_timezone(user.user.id, stored).await {
+        Ok(()) => Redirect::to("/admin/preferences?saved=1").into_response(),
+        Err(_) => render_error(),
+    }
+}
+
+/// Builds the Preferences view. `shell.tz` is the timezone currently in force
+/// (the operator's preference or the default); the operator's stored preference
+/// selects the matching option, or the inherit option when unset.
+fn preferences_view(
+    shell: &Shell,
+    user: &AuthenticatedUser,
+    default_tz: Tz,
+    saved: bool,
+    error: Option<&str>,
+) -> PreferencesTemplate {
+    let current = user.user.timezone.as_deref();
+    let zones = TZ_VARIANTS
+        .iter()
+        .map(|tz| TzOption {
+            name: tz.name().to_string(),
+            selected: current == Some(tz.name()),
+        })
+        .collect();
+    PreferencesTemplate {
+        shell: shell.clone(),
+        zones,
+        effective_tz: shell.tz.name().to_string(),
+        default_tz: default_tz.name().to_string(),
+        inherits: current.is_none(),
+        saved,
+        error: error.map(|e| e.to_string()),
     }
 }
 
@@ -540,6 +641,26 @@ struct DashboardTemplate {
     username: String,
 }
 
+#[derive(Template)]
+#[template(path = "preferences.html")]
+struct PreferencesTemplate {
+    shell: Shell,
+    zones: Vec<TzOption>,
+    /// The timezone dates currently render in for this operator.
+    effective_tz: String,
+    /// The deployment default, named in the inherit option.
+    default_tz: String,
+    /// Whether the operator currently inherits the default (no preference set).
+    inherits: bool,
+    saved: bool,
+    error: Option<String>,
+}
+
+struct TzOption {
+    name: String,
+    selected: bool,
+}
+
 #[derive(Clone)]
 struct NavView {
     label: String,
@@ -560,4 +681,27 @@ pub(crate) fn render_error() -> Response {
 
 pub(crate) fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_tz_prefers_a_valid_operator_preference() {
+        assert_eq!(
+            resolve_display_tz(Some("Asia/Kolkata"), Tz::UTC),
+            Tz::Asia__Kolkata
+        );
+    }
+
+    #[test]
+    fn display_tz_falls_back_when_unset_or_invalid() {
+        let default = Tz::Europe__London;
+        // No preference: use the deployment default.
+        assert_eq!(resolve_display_tz(None, default), default);
+        // Junk stored value: fall back rather than error.
+        assert_eq!(resolve_display_tz(Some("Not/AZone"), default), default);
+        assert_eq!(resolve_display_tz(Some(""), default), default);
+    }
 }
