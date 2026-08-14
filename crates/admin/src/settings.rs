@@ -102,17 +102,22 @@ impl SettingsItem {
     }
 }
 
-/// Renders the settings index: every registered item grouped by category.
+/// Renders the settings index: the context sidebar of every registered item
+/// grouped by category, and a prompt to pick one. `items` is already filtered to
+/// what the operator may see.
 pub(crate) fn index(items: &[SettingsItem], shell: crate::Shell) -> Response {
     render(SettingsIndexTemplate {
         shell,
-        groups: group(items),
+        groups: group(items, None),
     })
 }
 
-/// Renders the edit form for one item, populated from its stored value.
+/// Renders the edit form for one item, populated from its stored value, beside
+/// the context sidebar with `item` highlighted. `items` is the operator's
+/// visible set, so the sidebar shows the same items the index does.
 pub(crate) async fn edit_form(
     state: &AdminState,
+    items: &[SettingsItem],
     item: &SettingsItem,
     shell: crate::Shell,
 ) -> Response {
@@ -120,12 +125,13 @@ pub(crate) async fn edit_form(
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
-    render(build(item, None, &stored, &shell))
+    render(build(items, item, None, &stored, &shell))
 }
 
 /// Persists submitted values as the item's JSON object, then returns to the index.
 pub(crate) async fn update(
     state: &AdminState,
+    items: &[SettingsItem],
     item: &SettingsItem,
     data: HashMap<String, String>,
     shell: crate::Shell,
@@ -134,6 +140,7 @@ pub(crate) async fn update(
     match laterite_settings::set(&state.pool, &item.code, &value).await {
         Ok(()) => Redirect::to("/admin/settings").into_response(),
         Err(_) => render(build(
+            items,
             item,
             Some("Could not save. Please try again.".to_string()),
             &value,
@@ -167,7 +174,7 @@ fn is_checked(raw: Option<&String>) -> bool {
 /// Categories sort by their lowest item `order`, then name; items by `order`,
 /// then label. This is the simple-weight stage; relative-anchor ordering with an
 /// operator override is a later refinement.
-fn group(items: &[SettingsItem]) -> Vec<CategoryView> {
+fn group(items: &[SettingsItem], active_code: Option<&str>) -> Vec<CategoryView> {
     let mut by_category: HashMap<&str, Vec<&SettingsItem>> = HashMap::new();
     for item in items {
         by_category.entry(&item.category).or_default().push(item);
@@ -185,6 +192,7 @@ fn group(items: &[SettingsItem]) -> Vec<CategoryView> {
                         label: i.label.clone(),
                         description: i.description.clone(),
                         path: i.path(),
+                        active: active_code == Some(i.code.as_str()),
                     })
                     .collect(),
             }
@@ -199,6 +207,7 @@ fn group(items: &[SettingsItem]) -> Vec<CategoryView> {
 }
 
 fn build(
+    items: &[SettingsItem],
     item: &SettingsItem,
     error: Option<String>,
     stored: &Value,
@@ -226,6 +235,7 @@ fn build(
         .collect();
     SettingsFormTemplate {
         shell: shell.clone(),
+        groups: group(items, Some(&item.code)),
         title: item.label.clone(),
         description: item.description.clone(),
         action: item.path(),
@@ -244,6 +254,8 @@ struct ItemView {
     label: String,
     description: String,
     path: String,
+    /// Whether this is the item currently open, so the sidebar highlights it.
+    active: bool,
 }
 
 #[derive(Template)]
@@ -267,6 +279,7 @@ struct FieldView {
 #[template(path = "settings_form.html")]
 struct SettingsFormTemplate {
     shell: crate::Shell,
+    groups: Vec<CategoryView>,
     title: String,
     description: String,
     action: String,
@@ -344,13 +357,28 @@ mod tests {
                 fields: vec![],
             },
         ];
-        let groups = group(&items);
+        let groups = group(&items, None);
         // "Logs" (min order 5) comes before "System" (min order 10).
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
         // Within "System", Alpha (10) before Beta (20).
         assert_eq!(groups[1].items[0].label, "Alpha");
         assert_eq!(groups[1].items[1].label, "Beta");
+        // Nothing is active when no code is given.
+        assert!(groups.iter().flat_map(|g| &g.items).all(|i| !i.active));
+    }
+
+    #[test]
+    fn group_marks_only_the_active_item() {
+        let items = vec![item()];
+        let groups = group(&items, Some("test.log"));
+        let active: Vec<&str> = groups
+            .iter()
+            .flat_map(|g| &g.items)
+            .filter(|i| i.active)
+            .map(|i| i.label.as_str())
+            .collect();
+        assert_eq!(active, ["Log Settings"]);
     }
 
     #[test]
@@ -381,9 +409,11 @@ mod tests {
             .unwrap();
         let st = state(pool.clone());
 
+        let it = item();
         let resp = update(
             &st,
-            &item(),
+            std::slice::from_ref(&it),
+            &it,
             // log_requests is absent, as an unchecked checkbox would be.
             data(&[("log_events", "on"), ("retention_days", "30")]),
             crate::Shell::test(),
@@ -413,7 +443,8 @@ mod tests {
             .unwrap();
         let st = state(pool);
         // No stored value yet: the form still renders (fields fall back to defaults).
-        let resp = edit_form(&st, &item(), crate::Shell::test()).await;
+        let it = item();
+        let resp = edit_form(&st, std::slice::from_ref(&it), &it, crate::Shell::test()).await;
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 }

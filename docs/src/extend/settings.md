@@ -116,6 +116,11 @@ Fields carry a widget: `SettingsField::text`, `::textarea`, or `::switch` (a
 checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
 `settings` table comes from `builtin_migrations()` (above).
 
+Set an item's `permission` to a dotted string to hide it from operators who lack
+it; a `None` permission is always visible, and superusers see everything.
+Registered items render in a categorised context sidebar on the settings
+screens, with the open item highlighted.
+
 ## The settings menu vs the main menu
 
 The admin has two menus. The **main menu** (top nav) holds Dashboard, the

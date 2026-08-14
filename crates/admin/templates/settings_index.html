@@ -4,16 +4,24 @@
 <div class="lat-toolbar"><h1>Settings</h1></div>
 {% if groups.is_empty() %}
 <div class="lat-card"><p style="color:var(--text-muted);margin:0">No settings have been registered.</p></div>
-{% endif %}
-{% for group in groups %}
-<div class="lat-card__label" style="margin:22px 0 10px">{{ group.name }}</div>
-<div class="lat-tablewrap">
-  {% for item in group.items %}
-  <a class="lat-settingsitem" href="{{ item.path }}">
-    <span class="lat-settingsitem__label">{{ item.label }}</span>
-    {% if !item.description.is_empty() %}<span class="lat-settingsitem__desc">{{ item.description }}</span>{% endif %}
-  </a>
-  {% endfor %}
+{% else %}
+<div class="lat-settingslayout">
+  <aside class="lat-sidebar lat-sidebar--panel">
+    {% for group in groups %}
+    <div class="lat-sidebar__group">
+      <div class="lat-sidebar__grouphead">{{ group.name }}</div>
+      {% for item in group.items %}
+      <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}">
+        <span class="lat-sidebar__title">{{ item.label }}</span>
+        {% if !item.description.is_empty() %}<span class="lat-sidebar__desc">{{ item.description }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </aside>
+  <div class="lat-settingslayout__main">
+    <div class="lat-card"><p style="color:var(--text-muted);margin:0">Choose a setting from the list to configure it.</p></div>
+  </div>
 </div>
-{% endfor %}
+{% endif %}
 {% endblock %}
