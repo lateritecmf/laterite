@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, username, email, first_name, last_name, password_hash,\n                  is_superuser, is_active, created_at, updated_at\n           from backend_users\n           where username = $1",
+  "query": "select id, username, email, first_name, last_name, password_hash,\n                  is_superuser, is_active, timezone, created_at, updated_at\n           from backend_users\n           where id = $1 and is_active = true",
   "describe": {
     "columns": [
       {
@@ -45,18 +45,23 @@
       },
       {
         "ordinal": 8,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -68,9 +73,10 @@
       false,
       false,
       false,
+      true,
       false,
       false
     ]
   },
-  "hash": "b786fd958f398caa26d980fe810d202869d6d173d823df7b15bab2f17b1f09e3"
+  "hash": "098b498b46d647d8adc9bb9eee1da7b7cf4b63cdac7f9838edb9ee4265a89661"
 }

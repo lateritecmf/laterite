@@ -26,7 +26,14 @@
     <div class="lat-topnav__spacer"></div>
     <div class="lat-topnav__right">
       <button class="lat-modebtn" type="button" onclick="latCycleMode()" title="Colour mode" aria-label="Colour mode"><span id="lat-mode-ico">◐</span></button>
-      <div class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</div>
+      <details class="lat-usermenu">
+        <summary class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</summary>
+        <div class="lat-usermenu__panel">
+          <div class="lat-usermenu__name">{{ shell.full_name }}</div>
+          <a class="lat-usermenu__item" href="/admin/preferences">Preferences</a>
+          <form method="post" action="/admin/logout"><button class="lat-usermenu__item" type="submit">Sign out</button></form>
+        </div>
+      </details>
     </div>
   </header>
   <div class="lat-drawer" id="lat-menu">

@@ -238,7 +238,7 @@ pub(crate) async fn handle(
                         .cells
                         .iter()
                         .zip(&config.columns)
-                        .map(|(raw, col)| format_cell(raw, col.kind, state.timezone))
+                        .map(|(raw, col)| format_cell(raw, col.kind, shell.tz))
                         .collect(),
                 })
                 .collect();

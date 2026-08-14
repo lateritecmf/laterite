@@ -21,7 +21,7 @@ pub async fn find_user_by_username(
     let user = sqlx::query_as!(
         BackendUser,
         r#"select id, username, email, first_name, last_name, password_hash,
-                  is_superuser, is_active, created_at, updated_at
+                  is_superuser, is_active, timezone, created_at, updated_at
            from backend_users
            where username = $1"#,
         username
@@ -39,7 +39,7 @@ pub async fn find_active_user_by_id(
     let user = sqlx::query_as!(
         BackendUser,
         r#"select id, username, email, first_name, last_name, password_hash,
-                  is_superuser, is_active, created_at, updated_at
+                  is_superuser, is_active, timezone, created_at, updated_at
            from backend_users
            where id = $1 and is_active = true"#,
         id
@@ -197,6 +197,26 @@ pub async fn create_user(
     .fetch_one(pool)
     .await?;
     Ok(id)
+}
+
+/// Sets an operator's own display timezone, or clears it with `None` so the
+/// operator falls back to the deployment default. The IANA name is validated by
+/// the caller before it reaches here.
+pub async fn set_user_timezone(
+    pool: &PgPool,
+    user_id: Uuid,
+    timezone: Option<&str>,
+) -> Result<(), AuthError> {
+    sqlx::query!(
+        r#"update backend_users
+           set timezone = $2, updated_at = now()
+           where id = $1"#,
+        user_id,
+        timezone
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub async fn create_role(

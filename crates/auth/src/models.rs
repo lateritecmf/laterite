@@ -22,6 +22,10 @@ pub struct BackendUser {
     pub password_hash: String,
     pub is_superuser: bool,
     pub is_active: bool,
+    /// The operator's own display timezone as an IANA name (e.g. `Asia/Kolkata`).
+    /// `None` means the operator inherits the deployment default. Storage is
+    /// always UTC; this only affects how timestamps render for this operator.
+    pub timezone: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

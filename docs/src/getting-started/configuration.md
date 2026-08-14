@@ -49,6 +49,6 @@ runtime without a redeploy:
 
 - **Branding** (application name, colour-mode default, logo) is an operator-editable setting stored
   in the database and changed from the admin.
-- **Preferences** (an operator's own colour-mode override, timezone, and locale) are per-user, set
-  from the admin. `backend.timezone` is only the default until an operator sets their own; storage
-  is always UTC and dates are converted for display.
+- **Preferences** are per-operator and set from the admin. An operator's own display timezone is
+  one: `backend.timezone` is only the default until they choose their own from Preferences. See
+  [Dates and Timezones](dates-and-timezones.md).
