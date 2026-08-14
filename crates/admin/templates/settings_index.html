@@ -1,28 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Settings - Laterite{% endblock %}
-{% block sidebar %}
-{% if !groups.is_empty() %}
-<aside class="lat-sidebar">
-  {% for group in groups %}
-  <details class="lat-sidebar__group" open>
-    <summary class="lat-sidebar__grouphead"><span>{{ group.name }}</span><span class="lat-sidebar__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></summary>
-    {% for item in group.items %}
-    <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}">
-      <span class="lat-sidebar__icon">{{ item.icon|safe }}</span>
-      <span class="lat-sidebar__text">
-        <span class="lat-sidebar__title">{{ item.label }}</span>
-        {% if !item.description.is_empty() %}<span class="lat-sidebar__desc">{{ item.description }}</span>{% endif %}
-      </span>
-    </a>
-    {% endfor %}
-  </details>
-  {% endfor %}
-</aside>
-{% endif %}
-{% endblock %}
 {% block content %}
 <div class="lat-toolbar"><h1>Settings</h1></div>
-{% if groups.is_empty() %}
+{% if shell.sidebar.is_empty() %}
 <div class="lat-card"><p style="color:var(--text-muted);margin:0">No settings have been registered.</p></div>
 {% else %}
 <p style="color:var(--text-muted);max-width:52ch">Choose a section from the list to configure it.</p>

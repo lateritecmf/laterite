@@ -105,22 +105,16 @@ impl SettingsItem {
     }
 }
 
-/// Renders the settings index: the context sidebar of every registered item
-/// grouped by category, and a prompt to pick one. `items` is already filtered to
-/// what the operator may see.
-pub(crate) fn index(items: &[SettingsItem], shell: crate::Shell) -> Response {
-    render(SettingsIndexTemplate {
-        shell,
-        groups: group(items, None),
-    })
+/// Renders the settings index: a prompt to pick a section. The context sidebar
+/// itself is resolved by the auth guard and rendered by the shell.
+pub(crate) fn index(shell: crate::Shell) -> Response {
+    render(SettingsIndexTemplate { shell })
 }
 
-/// Renders the edit form for one item, populated from its stored value, beside
-/// the context sidebar with `item` highlighted. `items` is the operator's
-/// visible set, so the sidebar shows the same items the index does.
+/// Renders the edit form for one item, populated from its stored value. The
+/// context sidebar (with this item active) comes from the shell.
 pub(crate) async fn edit_form(
     state: &AdminState,
-    items: &[SettingsItem],
     item: &SettingsItem,
     shell: crate::Shell,
 ) -> Response {
@@ -128,13 +122,12 @@ pub(crate) async fn edit_form(
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
-    render(build(items, item, None, &stored, &shell))
+    render(build(item, None, &stored, &shell))
 }
 
 /// Persists submitted values as the item's JSON object, then returns to the index.
 pub(crate) async fn update(
     state: &AdminState,
-    items: &[SettingsItem],
     item: &SettingsItem,
     data: HashMap<String, String>,
     shell: crate::Shell,
@@ -143,7 +136,6 @@ pub(crate) async fn update(
     match laterite_settings::set(&state.pool, &item.code, &value).await {
         Ok(()) => Redirect::to("/admin/settings").into_response(),
         Err(_) => render(build(
-            items,
             item,
             Some("Could not save. Please try again.".to_string()),
             &value,
@@ -173,11 +165,15 @@ fn is_checked(raw: Option<&String>) -> bool {
     matches!(raw.map(String::as_str), Some("on" | "true" | "1"))
 }
 
-/// Groups items by category and orders categories, then items, deterministically.
-/// Categories sort by their lowest item `order`, then name; items by `order`,
-/// then label. This is the simple-weight stage; relative-anchor ordering with an
-/// operator override is a later refinement.
-fn group(items: &[SettingsItem], active_code: Option<&str>) -> Vec<CategoryView> {
+/// Builds the context-sidebar groups: items grouped by category and ordered
+/// deterministically, with `active_code` (if any) marked. Categories sort by
+/// their lowest item `order`, then name; items by `order`, then label. This is
+/// the simple-weight stage; relative-anchor ordering with an operator override
+/// is a later refinement.
+pub(crate) fn sidebar_groups(
+    items: &[SettingsItem],
+    active_code: Option<&str>,
+) -> Vec<CategoryView> {
     let mut by_category: HashMap<&str, Vec<&SettingsItem>> = HashMap::new();
     for item in items {
         by_category.entry(&item.category).or_default().push(item);
@@ -211,7 +207,6 @@ fn group(items: &[SettingsItem], active_code: Option<&str>) -> Vec<CategoryView>
 }
 
 fn build(
-    items: &[SettingsItem],
     item: &SettingsItem,
     error: Option<String>,
     stored: &Value,
@@ -239,7 +234,6 @@ fn build(
         .collect();
     SettingsFormTemplate {
         shell: shell.clone(),
-        groups: group(items, Some(&item.code)),
         title: item.label.clone(),
         description: item.description.clone(),
         action: item.path(),
@@ -248,20 +242,24 @@ fn build(
     }
 }
 
-struct CategoryView {
-    name: String,
+/// One category block in the context sidebar. Rendered by the shell.
+#[derive(Clone)]
+pub(crate) struct CategoryView {
+    pub(crate) name: String,
     min_order: i32,
-    items: Vec<ItemView>,
+    pub(crate) items: Vec<ItemView>,
 }
 
-struct ItemView {
-    label: String,
-    description: String,
-    path: String,
+/// One item in the context sidebar.
+#[derive(Clone)]
+pub(crate) struct ItemView {
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) path: String,
     /// Inline SVG markup for the item's icon, rendered raw in the template.
-    icon: &'static str,
+    pub(crate) icon: &'static str,
     /// Whether this is the item currently open, so the sidebar highlights it.
-    active: bool,
+    pub(crate) active: bool,
 }
 
 /// Inline SVG for a sidebar icon name (a subset of Lucide). Unknown or absent
@@ -282,7 +280,6 @@ fn icon_svg(name: Option<&str>) -> &'static str {
 #[template(path = "settings_index.html")]
 struct SettingsIndexTemplate {
     shell: crate::Shell,
-    groups: Vec<CategoryView>,
 }
 
 struct FieldView {
@@ -299,7 +296,6 @@ struct FieldView {
 #[template(path = "settings_form.html")]
 struct SettingsFormTemplate {
     shell: crate::Shell,
-    groups: Vec<CategoryView>,
     title: String,
     description: String,
     action: String,
@@ -381,7 +377,7 @@ mod tests {
                 fields: vec![],
             },
         ];
-        let groups = group(&items, None);
+        let groups = sidebar_groups(&items, None);
         // "Logs" (min order 5) comes before "System" (min order 10).
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
@@ -403,7 +399,7 @@ mod tests {
     #[test]
     fn group_marks_only_the_active_item() {
         let items = vec![item()];
-        let groups = group(&items, Some("test.log"));
+        let groups = sidebar_groups(&items, Some("test.log"));
         let active: Vec<&str> = groups
             .iter()
             .flat_map(|g| &g.items)
@@ -444,7 +440,6 @@ mod tests {
         let it = item();
         let resp = update(
             &st,
-            std::slice::from_ref(&it),
             &it,
             // log_requests is absent, as an unchecked checkbox would be.
             data(&[("log_events", "on"), ("retention_days", "30")]),
@@ -464,7 +459,7 @@ mod tests {
 
     #[test]
     fn index_renders() {
-        let resp = index(&[item()], crate::Shell::test());
+        let resp = index(crate::Shell::test());
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 
@@ -476,7 +471,7 @@ mod tests {
         let st = state(pool);
         // No stored value yet: the form still renders (fields fall back to defaults).
         let it = item();
-        let resp = edit_form(&st, std::slice::from_ref(&it), &it, crate::Shell::test()).await;
+        let resp = edit_form(&st, &it, crate::Shell::test()).await;
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 }

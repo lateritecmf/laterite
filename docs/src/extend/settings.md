@@ -151,6 +151,12 @@ SettingsItem {
 
 The framework registers its own Users and Roles this way, under a Users category.
 
+A linked screen keeps the settings context sidebar. The framework derives the
+context from the `link`: any request whose path is the link or falls under it
+(its list, forms and sub-pages) renders the settings sidebar with that item
+active. Registering the item is the only step, and the sidebar tracks the same
+link it navigates to.
+
 ## Evolving a model
 
 Because a model is one JSON blob and every field is `#[serde(default)]`:

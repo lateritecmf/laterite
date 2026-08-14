@@ -1,11 +1,9 @@
 //! Laterite settings: typed settings models stored as one JSONB blob per code.
 //!
-//! October uses an ExpandoModel (dynamic attributes over a JSON column) because
-//! PHP is dynamic. Rust does better: a settings model is a plain serde struct,
-//! stored as one JSONB value keyed by a stable code, with compile-time-typed
-//! access. A generic, untyped get/set is also provided for the admin settings
-//! controller, which renders and saves any registered settings item without
-//! knowing its concrete type.
+//! A settings model is a plain serde struct, stored as one JSONB value keyed by
+//! a stable code, with compile-time-typed access. A generic, untyped get/set is
+//! also provided for the admin settings controller, which renders and saves any
+//! registered settings item without knowing its concrete type.
 
 use laterite_core::ModuleMigrations;
 use serde::de::DeserializeOwned;

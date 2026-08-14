@@ -7,9 +7,8 @@
 //! [`list::ListConfig`], optionally a [`form::FormConfig`], a base path, and a
 //! menu label), and the framework mounts the list, create, and edit routes and
 //! adds it to the menu. This is the extension point that lets an application
-//! contribute its own admin screens, the way October plugins register
-//! controllers. The framework's own screens (users, roles) are just built-in
-//! resources.
+//! contribute its own admin screens. The framework's own screens (users, roles)
+//! are just built-in resources.
 
 pub mod form;
 pub mod list;
@@ -100,10 +99,19 @@ pub(crate) struct Shell {
     /// request: the operator's own preference if set and valid, else the
     /// deployment default. List and detail screens format dates in it.
     tz: Tz,
+    /// The context sidebar for the current section, resolved once per request
+    /// from the path (see [`build_context_sidebar`]). Empty means no sidebar.
+    /// `base.html` renders it, so any screen in a settings context shows it.
+    sidebar: Vec<settings::CategoryView>,
 }
 
 impl Shell {
-    fn new(nav: &[NavLink], user: &AuthenticatedUser, default_tz: Tz) -> Self {
+    fn new(
+        nav: &[NavLink],
+        user: &AuthenticatedUser,
+        default_tz: Tz,
+        sidebar: Vec<settings::CategoryView>,
+    ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
             .chars()
@@ -121,6 +129,7 @@ impl Shell {
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
+            sidebar,
         }
     }
 
@@ -131,7 +140,41 @@ impl Shell {
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
             tz: Tz::UTC,
+            sidebar: Vec::new(),
         }
+    }
+}
+
+/// Resolves the context sidebar for a request path from the descriptors. A
+/// screen is in the settings context when it is the settings index/form, or when
+/// its path falls under a settings item's `link` (its list, forms and
+/// sub-pages); the matching item is marked active, and only items the operator
+/// may see are shown.
+fn build_context_sidebar(
+    items: &[settings::SettingsItem],
+    perms: &PermissionSet,
+    path: &str,
+) -> Vec<settings::CategoryView> {
+    let visible = visible_settings(items, perms);
+    let (in_context, active) = if path == "/admin/settings" {
+        (true, None)
+    } else if let Some(code) = path.strip_prefix("/admin/settings/") {
+        (true, Some(code.to_string()))
+    } else {
+        // A linked resource: the settings item whose link is the longest prefix
+        // of this path owns the context (so /admin/roles/5/edit still resolves).
+        let active = visible
+            .iter()
+            .filter_map(|i| i.link.as_deref().map(|link| (link, &i.code)))
+            .filter(|(link, _)| path == *link || path.starts_with(&format!("{link}/")))
+            .max_by_key(|(link, _)| link.len())
+            .map(|(_, code)| code.clone());
+        (active.is_some(), active)
+    };
+    if in_context {
+        settings::sidebar_groups(&visible, active.as_deref())
+    } else {
+        Vec::new()
     }
 }
 
@@ -369,7 +412,9 @@ async fn require_auth(
     };
     match identity {
         Some(user) => {
-            let shell = Shell::new(&state.nav, &user, state.timezone);
+            let path = request.uri().path().to_string();
+            let sidebar = build_context_sidebar(&state.settings, &user.permissions, &path);
+            let shell = Shell::new(&state.nav, &user, state.timezone, sidebar);
             request.extensions_mut().insert(user);
             request.extensions_mut().insert(shell);
             next.run(request).await
@@ -563,13 +608,8 @@ fn visible_settings(
         .collect()
 }
 
-async fn settings_index(
-    State(state): State<AdminState>,
-    Extension(shell): Extension<Shell>,
-    Extension(user): Extension<AuthenticatedUser>,
-) -> Response {
-    let items = visible_settings(&state.settings, &user.permissions);
-    settings::index(&items, shell)
+async fn settings_index(Extension(shell): Extension<Shell>) -> Response {
+    settings::index(shell)
 }
 
 async fn settings_edit(
@@ -578,12 +618,14 @@ async fn settings_edit(
     Extension(user): Extension<AuthenticatedUser>,
     Path(code): Path<String>,
 ) -> Response {
+    // Filter first, so an operator cannot open a settings form they lack the
+    // permission to see.
     let items = visible_settings(&state.settings, &user.permissions);
     match items
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::edit_form(&state, &items, item, shell).await,
+        Some(item) => settings::edit_form(&state, item, shell).await,
         None => not_found(),
     }
 }
@@ -600,7 +642,7 @@ async fn settings_update(
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::update(&state, &items, item, data, shell).await,
+        Some(item) => settings::update(&state, item, data, shell).await,
         None => not_found(),
     }
 }
@@ -926,5 +968,35 @@ mod tests {
         // A superuser sees everything.
         let superuser = PermissionSet::new(true, Vec::<String>::new());
         assert_eq!(visible_settings(&items, &superuser).len(), 2);
+    }
+
+    #[test]
+    fn context_sidebar_follows_settings_links() {
+        let items = builtin_settings();
+        let superuser = PermissionSet::new(true, Vec::<String>::new());
+        let active_path = |path: &str| -> Option<String> {
+            build_context_sidebar(&items, &superuser, path)
+                .into_iter()
+                .flat_map(|g| g.items)
+                .find(|i| i.active)
+                .map(|i| i.path)
+        };
+
+        // A linked resource, and its sub-pages, resolve to that item as active.
+        assert_eq!(active_path("/admin/users").as_deref(), Some("/admin/users"));
+        assert_eq!(
+            active_path("/admin/roles/42/edit").as_deref(),
+            Some("/admin/roles")
+        );
+        // The settings index shows the sidebar, with nothing active.
+        assert!(!build_context_sidebar(&items, &superuser, "/admin/settings").is_empty());
+        assert_eq!(active_path("/admin/settings"), None);
+        // A settings form activates its own item.
+        assert_eq!(
+            active_path("/admin/settings/backend.roles").as_deref(),
+            Some("/admin/roles")
+        );
+        // The dashboard is not a settings context, so it has no sidebar.
+        assert!(build_context_sidebar(&items, &superuser, "/admin").is_empty());
     }
 }
