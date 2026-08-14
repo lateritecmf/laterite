@@ -59,9 +59,17 @@ let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 axum::serve(listener, app).await?;
 ```
 
-With the server running, sign in at `/admin`. Create the first backend user
-from the command line rather than shipping a seeded default password. The
-`laterite-cli` crate installs a `lat` binary:
+## Create the first administrator
+
+With the server running, open `/admin`. On a fresh install with no accounts, the
+admin serves a **first-run setup** screen instead of login: fill in the first
+administrator (username, name, email, password) and a display timezone, and you
+are signed straight in. The setup screen closes itself once an account exists, so
+it is only reachable while the install is empty. No default password is ever
+shipped.
+
+For a scripted or headless install, create the first administrator from the
+command line instead. The `laterite-cli` crate installs a `lat` binary:
 
 ```bash
 cargo install laterite-cli

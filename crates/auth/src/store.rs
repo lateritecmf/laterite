@@ -199,6 +199,15 @@ pub async fn create_user(
     Ok(id)
 }
 
+/// Whether any backend user exists. Used to decide between the first-run setup
+/// screen and the login screen.
+pub async fn any_user_exists(pool: &PgPool) -> Result<bool, AuthError> {
+    let exists = sqlx::query_scalar!(r#"select exists(select 1 from backend_users) as "exists!""#)
+        .fetch_one(pool)
+        .await?;
+    Ok(exists)
+}
+
 /// Sets an operator's own display timezone, or clears it with `None` so the
 /// operator falls back to the deployment default. The IANA name is validated by
 /// the caller before it reaches here.

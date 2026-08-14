@@ -171,6 +171,7 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-field{display:block;margin-bottom:16px}
 .lat-field__label{display:block;font-size:var(--fs-13);font-weight:var(--fw-medium);color:var(--text-body);margin-bottom:6px}
 .lat-field__req{color:var(--accent);margin-left:3px}
+.lat-field__opt{color:var(--text-muted);font-weight:var(--fw-regular);font-size:var(--fs-12)}
 .lat-input{width:100%;height:var(--control-h);padding:0 12px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);outline:none;transition:var(--transition-control)}
 .lat-input:focus{border-color:var(--accent);box-shadow:var(--ring-focus)}
 .lat-input:disabled{background:var(--surface-input-disabled);cursor:not-allowed}

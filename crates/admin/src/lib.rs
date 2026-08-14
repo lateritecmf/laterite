@@ -28,7 +28,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
-use laterite_auth::{AuthService, AuthenticatedUser, RequestContext};
+use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, RequestContext};
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -231,9 +231,11 @@ pub fn router(
 
     protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
-        // Public routes (not covered by the guard above): the login screen and
-        // the embedded stylesheet and fonts (needed before authentication).
+        // Public routes (not covered by the guard above): the login and first-run
+        // setup screens and the embedded stylesheet and fonts (needed before
+        // authentication).
         .route("/admin/login", get(login_form).post(login_submit))
+        .route("/admin/setup", get(setup_form).post(setup_submit))
         .route("/admin/assets/laterite.css", get(asset_css))
         .route("/admin/assets/mark.svg", get(asset_mark))
         .route("/admin/assets/mark.png", get(asset_mark_png))
@@ -376,8 +378,13 @@ async fn require_auth(
     }
 }
 
-async fn login_form() -> Response {
-    render(LoginTemplate { error: None })
+async fn login_form(State(state): State<AdminState>) -> Response {
+    // A fresh install with no operators goes to first-run setup instead.
+    match state.auth.has_any_operator().await {
+        Ok(false) => Redirect::to("/admin/setup").into_response(),
+        Ok(true) => render(LoginTemplate { error: None }),
+        Err(_) => render_error(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -397,17 +404,121 @@ async fn login_submit(
         .await
     {
         Ok(session) => {
-            let cookie = Cookie::build((SESSION_COOKIE, session.token))
-                .path("/admin")
-                .http_only(true)
-                .secure(state.secure_cookie)
-                .same_site(SameSite::Lax)
-                .build();
+            let cookie = session_cookie(session.token, state.secure_cookie);
             (jar.add(cookie), Redirect::to("/admin")).into_response()
         }
         Err(_) => render(LoginTemplate {
             error: Some("Invalid username or password.".to_string()),
         }),
+    }
+}
+
+/// Builds the session cookie, scoped to the admin and flagged `Secure` behind
+/// HTTPS. Shared by login and first-run setup.
+fn session_cookie(token: String, secure: bool) -> Cookie<'static> {
+    Cookie::build((SESSION_COOKIE, token))
+        .path("/admin")
+        .http_only(true)
+        .secure(secure)
+        .same_site(SameSite::Lax)
+        .build()
+}
+
+#[derive(Deserialize)]
+struct SetupForm {
+    username: String,
+    first_name: String,
+    last_name: String,
+    email: String,
+    password: String,
+    timezone: String,
+}
+
+/// The first-run setup screen: shown only while no operator exists, so a fresh
+/// install can create its first administrator without the CLI.
+async fn setup_form(State(state): State<AdminState>) -> Response {
+    match state.auth.has_any_operator().await {
+        Ok(true) => Redirect::to("/admin/login").into_response(),
+        Ok(false) => render(setup_view(state.timezone, None)),
+        Err(_) => render_error(),
+    }
+}
+
+async fn setup_submit(
+    State(state): State<AdminState>,
+    jar: CookieJar,
+    Form(form): Form<SetupForm>,
+) -> Response {
+    // Setup only ever creates the first operator; once one exists it is closed.
+    match state.auth.has_any_operator().await {
+        Ok(true) => return Redirect::to("/admin/login").into_response(),
+        Ok(false) => {}
+        Err(_) => return render_error(),
+    }
+
+    let username = form.username.trim();
+    let email = form.email.trim();
+    let first_name = form.first_name.trim();
+    let last_name = form.last_name.trim();
+    let tz = form.timezone.trim();
+    if username.is_empty() || email.is_empty() || first_name.is_empty() || form.password.is_empty()
+    {
+        return render(setup_view(
+            state.timezone,
+            Some("Username, first name, email, and password are all required."),
+        ));
+    }
+    // The setup select always carries a value, but guard against a bad one.
+    if tz.parse::<Tz>().is_err() {
+        return render(setup_view(
+            state.timezone,
+            Some("That is not a recognised timezone."),
+        ));
+    }
+
+    let new = NewOperator {
+        username,
+        email,
+        first_name,
+        last_name: (!last_name.is_empty()).then_some(last_name),
+        password: &form.password,
+        timezone: Some(tz),
+    };
+    if state.auth.create_superuser(new).await.is_err() {
+        return render(setup_view(
+            state.timezone,
+            Some("Could not create the account. The username or email may already be taken."),
+        ));
+    }
+
+    // Sign the new administrator straight in through the normal login path.
+    match state
+        .auth
+        .authenticate(username, &form.password, &RequestContext::default())
+        .await
+    {
+        Ok(session) => {
+            let cookie = session_cookie(session.token, state.secure_cookie);
+            (jar.add(cookie), Redirect::to("/admin")).into_response()
+        }
+        Err(_) => Redirect::to("/admin/login").into_response(),
+    }
+}
+
+/// Builds the setup view, its timezone select defaulting to the deployment
+/// default so the first administrator can accept or change it.
+fn setup_view(default_tz: Tz, error: Option<&str>) -> SetupTemplate {
+    let default_name = default_tz.name();
+    let zones = TZ_VARIANTS
+        .iter()
+        .map(|tz| TzOption {
+            name: tz.name().to_string(),
+            selected: tz.name() == default_name,
+        })
+        .collect();
+    SetupTemplate {
+        zones,
+        error: error.map(|e| e.to_string()),
     }
 }
 
@@ -657,6 +768,13 @@ struct LoginTemplate {
 struct DashboardTemplate {
     shell: Shell,
     username: String,
+}
+
+#[derive(Template)]
+#[template(path = "setup.html")]
+struct SetupTemplate {
+    zones: Vec<TzOption>,
+    error: Option<String>,
 }
 
 #[derive(Template)]

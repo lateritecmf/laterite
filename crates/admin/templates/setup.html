@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up Laterite</title>
+  <link rel="icon" type="image/svg+xml" href="/admin/assets/mark.svg">
+  <link rel="stylesheet" href="/admin/assets/laterite.css">
+  <script>(function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();</script>
+</head>
+<body>
+  <div class="lat-login">
+    <div class="lat-login__form">
+      <div class="lat-login__inner">
+        <div class="lat-login__brand">
+          <img src="/admin/assets/mark.png" alt="">
+          <h1>Laterite</h1>
+        </div>
+        <h2 class="lat-login__title">Create the first administrator</h2>
+        <p class="lat-login__lead">This install has no accounts yet. Set one up to sign in.</p>
+        {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+        <form method="post" action="/admin/setup">
+          <div class="lat-field">
+            <label class="lat-field__label" for="username">Username</label>
+            <input class="lat-input" type="text" id="username" name="username" autocomplete="username" autofocus required>
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="first_name">First name</label>
+            <input class="lat-input" type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="last_name">Last name <span class="lat-field__opt">(optional)</span></label>
+            <input class="lat-input" type="text" id="last_name" name="last_name" autocomplete="family-name">
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="email">Email</label>
+            <input class="lat-input" type="email" id="email" name="email" autocomplete="email" required>
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="password">Password</label>
+            <input class="lat-input" type="password" id="password" name="password" autocomplete="new-password" required>
+          </div>
+          <div class="lat-field">
+            <label class="lat-field__label" for="timezone">Display timezone</label>
+            <select class="lat-input" id="timezone" name="timezone">
+              {% for zone in zones %}<option value="{{ zone.name }}"{% if zone.selected %} selected{% endif %}>{{ zone.name }}</option>{% endfor %}
+            </select>
+            <p class="lat-help">Dates render in this zone. Storage is always UTC, and you can change it later in Preferences.</p>
+          </div>
+          <button class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" type="submit" style="margin-top:20px">Create administrator</button>
+        </form>
+      </div>
+    </div>
+    <div class="lat-login__hero" aria-hidden="true">
+      <div class="lat-hero-blob lat-hero-blob--1"></div>
+      <div class="lat-hero-blob lat-hero-blob--2"></div>
+      <div class="lat-hero-blob lat-hero-blob--3"></div>
+      <div class="lat-hero__caption">
+        <div class="lat-hero__eyebrow">Open source Rust web framework</div>
+        <div class="lat-hero__tag">Build sites. Ship solid.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
