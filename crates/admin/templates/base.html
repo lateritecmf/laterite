@@ -43,11 +43,14 @@
       {% for item in shell.nav %}<a class="lat-drawer__item" href="{{ item.path }}">{{ item.label }}</a>{% endfor %}
     </nav>
   </div>
-  <main class="lat-main">
-    <div class="lat-page">
-      {% block content %}{% endblock %}
-    </div>
-  </main>
+  <div class="lat-body">
+    {% block sidebar %}{% endblock %}
+    <main class="lat-main">
+      <div class="lat-page">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
   <script>(function(){var m=localStorage.getItem('lat-mode')||'auto';var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(m);})();</script>
 </body>
 </html>

@@ -1,46 +1,47 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} - Laterite{% endblock %}
-{% block content %}
-<div class="lat-toolbar"><h1>{{ title }}</h1></div>
-<div class="lat-settingslayout">
-  <aside class="lat-sidebar lat-sidebar--panel">
-    {% for group in groups %}
-    <div class="lat-sidebar__group">
-      <div class="lat-sidebar__grouphead">{{ group.name }}</div>
-      {% for item in group.items %}
-      <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}">
+{% block sidebar %}
+<aside class="lat-sidebar">
+  {% for group in groups %}
+  <details class="lat-sidebar__group" open>
+    <summary class="lat-sidebar__grouphead"><span>{{ group.name }}</span><span class="lat-sidebar__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+    {% for item in group.items %}
+    <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}">
+      <span class="lat-sidebar__icon">{{ item.icon|safe }}</span>
+      <span class="lat-sidebar__text">
         <span class="lat-sidebar__title">{{ item.label }}</span>
         {% if !item.description.is_empty() %}<span class="lat-sidebar__desc">{{ item.description }}</span>{% endif %}
-      </a>
-      {% endfor %}
+      </span>
+    </a>
+    {% endfor %}
+  </details>
+  {% endfor %}
+</aside>
+{% endblock %}
+{% block content %}
+<div class="lat-toolbar"><h1>{{ title }}</h1></div>
+<div class="lat-card" style="max-width:620px">
+  {% if !description.is_empty() %}<p style="color:var(--text-muted);font-size:var(--fs-13);margin:0 0 18px">{{ description }}</p>{% endif %}
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  <form method="post" action="{{ action }}">
+    {% for field in fields %}
+    <div class="lat-field">
+      {% if field.switch %}
+      <label class="lat-check"><input type="checkbox" id="{{ field.name }}" name="{{ field.name }}" value="on"{% if field.checked %} checked{% endif %}> {{ field.label }}</label>
+      {% else if field.textarea %}
+      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
+      <textarea class="lat-input" id="{{ field.name }}" name="{{ field.name }}">{{ field.value }}</textarea>
+      {% else %}
+      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
+      <input class="lat-input" type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}">
+      {% endif %}
+      {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
     </div>
     {% endfor %}
-  </aside>
-  <div class="lat-settingslayout__main">
-    <div class="lat-card" style="max-width:620px">
-      {% if !description.is_empty() %}<p style="color:var(--text-muted);font-size:var(--fs-13);margin:0 0 18px">{{ description }}</p>{% endif %}
-      {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-      <form method="post" action="{{ action }}">
-        {% for field in fields %}
-        <div class="lat-field">
-          {% if field.switch %}
-          <label class="lat-check"><input type="checkbox" id="{{ field.name }}" name="{{ field.name }}" value="on"{% if field.checked %} checked{% endif %}> {{ field.label }}</label>
-          {% else if field.textarea %}
-          <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
-          <textarea class="lat-input" id="{{ field.name }}" name="{{ field.name }}">{{ field.value }}</textarea>
-          {% else %}
-          <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
-          <input class="lat-input" type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}">
-          {% endif %}
-          {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
-        </div>
-        {% endfor %}
-        <div class="lat-actions">
-          <button class="lat-btn lat-btn--primary" type="submit">Save</button>
-          <a class="lat-btn lat-btn--ghost" href="/admin/settings">Cancel</a>
-        </div>
-      </form>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">Save</button>
+      <a class="lat-btn lat-btn--ghost" href="/admin/settings">Cancel</a>
     </div>
-  </div>
+  </form>
 </div>
 {% endblock %}
