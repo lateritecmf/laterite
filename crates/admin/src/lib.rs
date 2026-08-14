@@ -27,6 +27,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use chrono_tz::Tz;
 use laterite_auth::{AuthService, AuthenticatedUser, RequestContext};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -41,6 +42,7 @@ pub(crate) struct AdminState {
     nav: Arc<Vec<NavLink>>,
     settings: Arc<Vec<settings::SettingsItem>>,
     secure_cookie: bool,
+    timezone: Tz,
 }
 
 impl AdminState {
@@ -52,17 +54,31 @@ impl AdminState {
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             secure_cookie: false,
+            timezone: Tz::UTC,
         }
     }
 }
 
 /// Deployment-level admin settings passed to [`router`]. Per-install brand and
 /// per-operator preferences are settings/preferences, not deployment config.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AdminConfig {
     /// Set the `Secure` attribute on the session cookie. Enable behind HTTPS in
     /// production; leave off for plain-HTTP local development.
     pub secure_cookie: bool,
+    /// Default display timezone for the admin (an IANA name like `Asia/Kolkata`).
+    /// Storage is UTC; this only affects rendering. Invalid or empty falls back
+    /// to UTC. An operator's own preference overrides it (later).
+    pub timezone: String,
+}
+
+impl Default for AdminConfig {
+    fn default() -> Self {
+        Self {
+            secure_cookie: false,
+            timezone: "UTC".to_string(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -161,6 +177,7 @@ pub fn router(
         nav: Arc::new(nav),
         settings: Arc::new(settings),
         secure_cookie: config.secure_cookie,
+        timezone: config.timezone.parse().unwrap_or(Tz::UTC),
     };
 
     let mut protected = Router::new().route("/admin", get(dashboard));
@@ -468,9 +485,9 @@ fn backend_users_list_config() -> list::ListConfig {
             list::ListColumn::new("email", "Email"),
             list::ListColumn::new("first_name", "First name"),
             list::ListColumn::new("last_name", "Last name"),
-            list::ListColumn::new("is_superuser", "Superuser"),
-            list::ListColumn::new("is_active", "Active"),
-            list::ListColumn::new("created_at", "Created"),
+            list::ListColumn::new("is_superuser", "Superuser").yes_no(),
+            list::ListColumn::new("is_active", "Active").yes_no(),
+            list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
         order_dir: list::SortDir::Desc,
@@ -487,7 +504,7 @@ fn roles_list_config() -> list::ListConfig {
         columns: vec![
             list::ListColumn::new("code", "Code"),
             list::ListColumn::new("name", "Name"),
-            list::ListColumn::new("created_at", "Created"),
+            list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
         order_dir: list::SortDir::Desc,

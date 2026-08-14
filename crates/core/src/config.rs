@@ -27,12 +27,25 @@ pub struct ServerConfig {
 
 /// Deployment-level backend settings. Per-install brand and per-operator preferences
 /// live in the settings and preferences stores, not here.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct BackendConfig {
     /// Set the `Secure` attribute on the admin session cookie. Enable behind HTTPS
     /// in production; leave off for plain-HTTP local development.
     pub secure_cookie: bool,
+    /// The default display timezone for the admin (an IANA name like
+    /// `Asia/Kolkata`). Storage is always UTC; this only affects how dates render.
+    /// An operator's own preference overrides it (later); it falls back to UTC.
+    pub timezone: String,
+}
+
+impl Default for BackendConfig {
+    fn default() -> Self {
+        Self {
+            secure_cookie: false,
+            timezone: "UTC".to_string(),
+        }
+    }
 }
 
 fn default_max_connections() -> u32 {
@@ -108,14 +121,16 @@ mod tests {
         std::fs::write(dir.path().join("default.toml"), "").unwrap();
         let c: C = load(dir.path(), "LATERITE_BE_NONE").unwrap();
         assert!(!c.backend.secure_cookie);
+        assert_eq!(c.backend.timezone, "UTC");
 
         std::fs::write(
             dir.path().join("default.toml"),
-            "[backend]\nsecure_cookie = true\n",
+            "[backend]\nsecure_cookie = true\ntimezone = \"Asia/Kolkata\"\n",
         )
         .unwrap();
         let c: C = load(dir.path(), "LATERITE_BE_SET").unwrap();
         assert!(c.backend.secure_cookie);
+        assert_eq!(c.backend.timezone, "Asia/Kolkata");
     }
 
     #[test]

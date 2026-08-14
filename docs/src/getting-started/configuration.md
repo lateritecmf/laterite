@@ -32,6 +32,7 @@ acquire_timeout_secs = 5         # optional
 
 [backend]
 secure_cookie = false            # set true behind HTTPS in production
+timezone = "UTC"                 # default admin display timezone (IANA name); storage stays UTC
 
 [auth]
 session_ttl_secs = 43200         # session lifetime, 12h default
@@ -48,4 +49,6 @@ runtime without a redeploy:
 
 - **Branding** (application name, colour-mode default, logo) is an operator-editable setting stored
   in the database and changed from the admin.
-- **Preferences** (an operator's own colour-mode override, locale) are per-user, set from the admin.
+- **Preferences** (an operator's own colour-mode override, timezone, and locale) are per-user, set
+  from the admin. `backend.timezone` is only the default until an operator sets their own; storage
+  is always UTC and dates are converted for display.
