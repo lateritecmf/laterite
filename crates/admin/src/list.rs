@@ -10,6 +10,8 @@
 
 use askama::Template;
 use axum::response::Response;
+use chrono::DateTime;
+use chrono_tz::Tz;
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -33,11 +35,29 @@ impl SortDir {
     }
 }
 
-/// One column of a list view: the source field and its display label.
+/// How a list column's raw value is rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColumnKind {
+    /// A plain string (the default).
+    #[default]
+    Text,
+    /// A UTC timestamp shown as date and time in the display timezone.
+    DateTime,
+    /// A UTC timestamp shown as a date in the display timezone.
+    Date,
+    /// A UTC timestamp shown as a time in the display timezone.
+    Time,
+    /// A boolean shown as Yes/No.
+    Bool,
+}
+
+/// One column of a list view: the source field, its display label, and how the
+/// value is rendered.
 #[derive(Debug, Clone)]
 pub struct ListColumn {
     pub field: String,
     pub label: String,
+    pub kind: ColumnKind,
 }
 
 impl ListColumn {
@@ -45,7 +65,32 @@ impl ListColumn {
         Self {
             field: field.to_string(),
             label: label.to_string(),
+            kind: ColumnKind::Text,
         }
+    }
+
+    /// Render this column as a date and time in the display timezone.
+    pub fn datetime(mut self) -> Self {
+        self.kind = ColumnKind::DateTime;
+        self
+    }
+
+    /// Render this column as a date in the display timezone.
+    pub fn date(mut self) -> Self {
+        self.kind = ColumnKind::Date;
+        self
+    }
+
+    /// Render this column as a time in the display timezone.
+    pub fn time(mut self) -> Self {
+        self.kind = ColumnKind::Time;
+        self
+    }
+
+    /// Render this boolean column as Yes/No.
+    pub fn yes_no(mut self) -> Self {
+        self.kind = ColumnKind::Bool;
+        self
     }
 }
 
@@ -144,6 +189,34 @@ fn cell(value: Option<&serde_json::Value>) -> String {
     }
 }
 
+/// Formats a raw cell value for display according to its column kind. Timestamps
+/// are stored UTC; date/time kinds convert to `tz` and format human-readably.
+/// Unparseable values fall through unchanged.
+fn format_cell(raw: &str, kind: ColumnKind, tz: Tz) -> String {
+    match kind {
+        ColumnKind::Text => raw.to_string(),
+        ColumnKind::Bool => match raw {
+            "true" => "Yes".to_string(),
+            "false" => "No".to_string(),
+            other => other.to_string(),
+        },
+        ColumnKind::DateTime | ColumnKind::Date | ColumnKind::Time => {
+            match DateTime::parse_from_rfc3339(raw) {
+                Ok(dt) => {
+                    let local = dt.with_timezone(&tz);
+                    let pattern = match kind {
+                        ColumnKind::Date => "%-d %b %Y",
+                        ColumnKind::Time => "%H:%M",
+                        _ => "%-d %b %Y, %H:%M",
+                    };
+                    local.format(pattern).to_string()
+                }
+                Err(_) => raw.to_string(),
+            }
+        }
+    }
+}
+
 /// Renders a list view for the given config.
 pub(crate) async fn handle(
     state: &AdminState,
@@ -156,11 +229,24 @@ pub(crate) async fn handle(
     match query(&state.pool, config, offset).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
+            let rows = result
+                .rows
+                .into_iter()
+                .map(|row| RowView {
+                    id: row.id,
+                    cells: row
+                        .cells
+                        .iter()
+                        .zip(&config.columns)
+                        .map(|(raw, col)| format_cell(raw, col.kind, state.timezone))
+                        .collect(),
+                })
+                .collect();
             render(ListTemplate {
                 shell,
                 title: config.title.clone(),
                 columns: config.columns.iter().map(|c| c.label.clone()).collect(),
-                rows: result.rows,
+                rows,
                 page,
                 total: result.total,
                 total_pages,
@@ -202,6 +288,29 @@ mod tests {
             id_field: "id".to_string(),
             edit_base: None,
         }
+    }
+
+    #[test]
+    fn formats_cells_by_kind() {
+        let ist: Tz = "Asia/Kolkata".parse().unwrap();
+        // 10:00 UTC is 15:30 in Asia/Kolkata (UTC+5:30)
+        assert_eq!(
+            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::DateTime, ist),
+            "13 Aug 2026, 15:30"
+        );
+        assert_eq!(
+            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::Date, Tz::UTC),
+            "13 Aug 2026"
+        );
+        assert_eq!(
+            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::Time, ist),
+            "15:30"
+        );
+        assert_eq!(format_cell("true", ColumnKind::Bool, Tz::UTC), "Yes");
+        assert_eq!(format_cell("false", ColumnKind::Bool, Tz::UTC), "No");
+        assert_eq!(format_cell("root", ColumnKind::Text, Tz::UTC), "root");
+        // unparseable timestamp falls through unchanged
+        assert_eq!(format_cell("n/a", ColumnKind::DateTime, Tz::UTC), "n/a");
     }
 
     #[sqlx::test(migrations = false)]
