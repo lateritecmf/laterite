@@ -23,19 +23,22 @@ laterite-settings = "0.1"
 
 ## Run migrations
 
-Each crate owns its migrations and exposes them as a `ModuleMigrations` set.
-The application runs every set through the shared runner, which records applied
-migrations per module so each set advances independently:
+Each crate owns its migrations and exposes them as a `ModuleMigrations` set. The
+runner records applied migrations per module so each set advances independently.
+`laterite_admin::builtin_migrations()` bundles the sets for every module the
+admin mounts (the auth schema and the settings store), so an application runs one
+call instead of naming each framework module by hand:
 
 ```rust
-laterite_core::migrate::run(
-    &pool,
-    &[
-        laterite_auth::migrations(),
-        laterite_settings::migrations(),
-    ],
-)
-.await?;
+laterite_core::migrate::run(&pool, &laterite_admin::builtin_migrations()).await?;
+```
+
+An application with its own modules appends their sets before running:
+
+```rust
+let mut migrations = laterite_admin::builtin_migrations();
+migrations.extend([pages::migrations()]);
+laterite_core::migrate::run(&pool, &migrations).await?;
 ```
 
 ## Mount the admin panel
@@ -45,7 +48,13 @@ laterite_core::migrate::run(
 any other Axum service:
 
 ```rust
-let app = laterite_admin::router(auth, pool, Vec::new());
+let app = laterite_admin::router(
+    auth,
+    pool,
+    Vec::new(),
+    Vec::new(),
+    laterite_admin::AdminConfig::default(),
+);
 let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 axum::serve(listener, app).await?;
 ```
