@@ -94,6 +94,7 @@ let site = SettingsItem {
     description: "Public site title, tagline, and a maintenance switch.".to_string(),
     category: "General".to_string(),
     order: 10,
+    icon: Some("sliders-horizontal".to_string()),
     permission: None,
     link: None,
     fields: vec![
@@ -119,7 +120,9 @@ checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
 Set an item's `permission` to a dotted string to hide it from operators who lack
 it; a `None` permission is always visible, and superusers see everything.
 Registered items render in a categorised context sidebar on the settings
-screens, with the open item highlighted.
+screens, with the open item highlighted. Give each item an `icon` (a Lucide name
+such as `users` or `shield`) for the sidebar; an unknown or `None` name falls
+back to a generic glyph.
 
 ## The settings menu vs the main menu
 
@@ -139,6 +142,7 @@ SettingsItem {
     description: "Manage site pages.".to_string(),
     category: "Content".to_string(),
     order: 10,
+    icon: Some("folder".to_string()),
     permission: None,
     link: Some("/admin/pages".to_string()),
     fields: Vec::new(),

@@ -83,6 +83,9 @@ pub struct SettingsItem {
     pub category: String,
     /// Weight within the category (lower sorts first).
     pub order: i32,
+    /// Icon name shown beside the item in the context sidebar (a Lucide name
+    /// such as `users` or `shield`). `None` falls back to a generic glyph.
+    pub icon: Option<String>,
     /// Permission required to edit, enforced by middleware. `None` means any
     /// authenticated operator.
     pub permission: Option<String>,
@@ -192,6 +195,7 @@ fn group(items: &[SettingsItem], active_code: Option<&str>) -> Vec<CategoryView>
                         label: i.label.clone(),
                         description: i.description.clone(),
                         path: i.path(),
+                        icon: icon_svg(i.icon.as_deref()),
                         active: active_code == Some(i.code.as_str()),
                     })
                     .collect(),
@@ -254,8 +258,24 @@ struct ItemView {
     label: String,
     description: String,
     path: String,
+    /// Inline SVG markup for the item's icon, rendered raw in the template.
+    icon: &'static str,
     /// Whether this is the item currently open, so the sidebar highlights it.
     active: bool,
+}
+
+/// Inline SVG for a sidebar icon name (a subset of Lucide). Unknown or absent
+/// names fall back to a generic glyph. Returned markup is trusted and rendered
+/// with `|safe`.
+fn icon_svg(name: Option<&str>) -> &'static str {
+    const USERS: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>"##;
+    const SHIELD: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>"##;
+    const SLIDERS: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>"##;
+    match name {
+        Some("users") => USERS,
+        Some("shield") => SHIELD,
+        _ => SLIDERS,
+    }
 }
 
 #[derive(Template)]
@@ -299,6 +319,7 @@ mod tests {
             description: "What the log records.".to_string(),
             category: "Logs".to_string(),
             order: 10,
+            icon: None,
             permission: None,
             link: None,
             fields: vec![
@@ -332,6 +353,7 @@ mod tests {
                 description: String::new(),
                 category: "System".into(),
                 order: 20,
+                icon: None,
                 permission: None,
                 link: None,
                 fields: vec![],
@@ -342,6 +364,7 @@ mod tests {
                 description: String::new(),
                 category: "System".into(),
                 order: 10,
+                icon: None,
                 permission: None,
                 link: None,
                 fields: vec![],
@@ -352,6 +375,7 @@ mod tests {
                 description: String::new(),
                 category: "Logs".into(),
                 order: 5,
+                icon: None,
                 permission: None,
                 link: None,
                 fields: vec![],
@@ -366,6 +390,14 @@ mod tests {
         assert_eq!(groups[1].items[1].label, "Beta");
         // Nothing is active when no code is given.
         assert!(groups.iter().flat_map(|g| &g.items).all(|i| !i.active));
+    }
+
+    #[test]
+    fn icon_svg_maps_names_and_falls_back() {
+        assert!(icon_svg(Some("users")).contains("<circle"));
+        assert!(icon_svg(Some("shield")).starts_with("<svg"));
+        // Unknown and absent names both resolve to the same generic glyph.
+        assert_eq!(icon_svg(Some("no-such-icon")), icon_svg(None));
     }
 
     #[test]
