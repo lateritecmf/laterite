@@ -153,6 +153,24 @@ pub struct Resource {
     pub form: Option<form::FormConfig>,
 }
 
+/// The migration sets for every module the admin mounts: the auth schema
+/// (users, roles, sessions, access log) and the settings store. Run these
+/// before serving [`router`] so its built-in screens have their tables, so an
+/// application never has to know which framework modules the admin pulls in.
+///
+/// An application with its own modules appends their sets:
+///
+/// ```no_run
+/// # async fn f(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+/// let migrations = laterite_admin::builtin_migrations();
+/// // migrations.extend([my_module::migrations()]);
+/// laterite_core::migrate::run(&pool, &migrations).await?;
+/// # Ok(()) }
+/// ```
+pub fn builtin_migrations() -> Vec<laterite_core::ModuleMigrations> {
+    vec![laterite_auth::migrations(), laterite_settings::migrations()]
+}
+
 /// Builds the admin router. `app_resources` are the application's own list/form
 /// screens; `app_settings` are its settings models. Both are mounted alongside
 /// the framework's built-in resources.
@@ -703,5 +721,25 @@ mod tests {
         // Junk stored value: fall back rather than error.
         assert_eq!(resolve_display_tz(Some("Not/AZone"), default), default);
         assert_eq!(resolve_display_tz(Some(""), default), default);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn builtin_migrations_create_the_admin_tables(pool: PgPool) {
+        laterite_core::migrate::run(&pool, &builtin_migrations())
+            .await
+            .unwrap();
+        // A table from each bundled module exists, so an app that only ran
+        // builtin_migrations has everything the admin's screens need.
+        for table in ["backend_users", "settings"] {
+            let exists: bool = sqlx::query_scalar(
+                "select exists (select from information_schema.tables \
+                 where table_schema = 'public' and table_name = $1)",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(exists, "{table} should exist after builtin_migrations");
+        }
     }
 }
