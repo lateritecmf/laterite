@@ -28,7 +28,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
-use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, RequestContext};
+use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -540,24 +540,50 @@ async fn dashboard(
     })
 }
 
+/// Whether an operator may see a settings item: items with no permission are
+/// public, otherwise the operator must hold the item's permission.
+fn operator_can_see(item: &settings::SettingsItem, perms: &PermissionSet) -> bool {
+    match &item.permission {
+        None => true,
+        Some(p) => perms.allows(p),
+    }
+}
+
+/// The settings items this operator may see, in registry order. Both the index
+/// and the form use this set, so an operator never sees or edits an item their
+/// permissions do not allow.
+fn visible_settings(
+    items: &[settings::SettingsItem],
+    perms: &PermissionSet,
+) -> Vec<settings::SettingsItem> {
+    items
+        .iter()
+        .filter(|item| operator_can_see(item, perms))
+        .cloned()
+        .collect()
+}
+
 async fn settings_index(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
-    settings::index(&state.settings, shell)
+    let items = visible_settings(&state.settings, &user.permissions);
+    settings::index(&items, shell)
 }
 
 async fn settings_edit(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(code): Path<String>,
 ) -> Response {
-    match state
-        .settings
+    let items = visible_settings(&state.settings, &user.permissions);
+    match items
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::edit_form(&state, item, shell).await,
+        Some(item) => settings::edit_form(&state, &items, item, shell).await,
         None => not_found(),
     }
 }
@@ -565,15 +591,16 @@ async fn settings_edit(
 async fn settings_update(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(code): Path<String>,
     Form(data): Form<HashMap<String, String>>,
 ) -> Response {
-    match state
-        .settings
+    let items = visible_settings(&state.settings, &user.permissions);
+    match items
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::update(&state, item, data, shell).await,
+        Some(item) => settings::update(&state, &items, item, data, shell).await,
         None => not_found(),
     }
 }
@@ -859,5 +886,42 @@ mod tests {
             .unwrap();
             assert!(exists, "{table} should exist after builtin_migrations");
         }
+    }
+
+    fn settings_item(code: &str, permission: Option<&str>) -> settings::SettingsItem {
+        settings::SettingsItem {
+            code: code.to_string(),
+            label: code.to_string(),
+            description: String::new(),
+            category: "General".to_string(),
+            order: 1,
+            permission: permission.map(str::to_string),
+            link: None,
+            fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn settings_visibility_respects_permissions() {
+        let items = vec![
+            settings_item("public", None),
+            settings_item("gated", Some("backend.manage_users")),
+        ];
+
+        // An operator without the grant sees only the unpermissioned item.
+        let none = PermissionSet::new(false, Vec::<String>::new());
+        let codes: Vec<String> = visible_settings(&items, &none)
+            .into_iter()
+            .map(|i| i.code)
+            .collect();
+        assert_eq!(codes, ["public"]);
+
+        // Holding the permission reveals the gated item.
+        let granted = PermissionSet::new(false, ["backend.manage_users".to_string()]);
+        assert_eq!(visible_settings(&items, &granted).len(), 2);
+
+        // A superuser sees everything.
+        let superuser = PermissionSet::new(true, Vec::<String>::new());
+        assert_eq!(visible_settings(&items, &superuser).len(), 2);
     }
 }
