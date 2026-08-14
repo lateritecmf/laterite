@@ -1,7 +1,7 @@
 # Settings Models
 
 A settings model holds a group of configuration values that an operator edits
-from the admin panel: a site title, a page size, feature toggles. In Laterite a
+from the admin panel: a site title, a tagline, feature toggles. In Laterite a
 settings model is a plain Rust struct. It is stored as a single JSON value keyed
 by a stable code, so adding or removing a field never needs a database
 migration, and access to it is checked by the compiler.
@@ -23,7 +23,9 @@ pub struct SiteSettings {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
-    pub per_page: u32,
+    pub tagline: String,
+    #[serde(default)]
+    pub maintenance_mode: bool,
 }
 
 impl SettingsModel for SiteSettings {
@@ -35,18 +37,12 @@ The `CODE` is the storage key. Choose it once and never change it, the way you
 would treat a table name. Namespacing it to your application (`acme.site`)
 keeps it from colliding with settings declared by other modules.
 
-## Register the migration
+## The settings table
 
-The settings table is created by the crate's own migration. Add its set to the
-application's migration runner once, alongside the other modules:
-
-```rust
-laterite_core::migrate::run(
-    &pool,
-    &[laterite_settings::migrations()],
-)
-.await?;
-```
+The settings store lives in a single `settings` table.
+`laterite_admin::builtin_migrations()` already includes its migration, so once
+you have [run migrations](../getting-started/installation.md#run-migrations) the
+table is there.
 
 ## Read and write, typed
 
@@ -64,7 +60,8 @@ Save with `save`, which upserts the whole struct as one JSON value:
 ```rust
 let settings = SiteSettings {
     title: "Acme".into(),
-    per_page: 25,
+    tagline: "We build things".into(),
+    maintenance_mode: false,
 };
 laterite_settings::save(&pool, &settings).await?;
 ```
@@ -94,14 +91,15 @@ use laterite_admin::settings::{SettingsField, SettingsItem};
 let site = SettingsItem {
     code: SiteSettings::CODE.to_string(),
     label: "Site".to_string(),
-    description: "Public site title and page size.".to_string(),
+    description: "Public site title, tagline, and a maintenance switch.".to_string(),
     category: "General".to_string(),
     order: 10,
     permission: None,
     link: None,
     fields: vec![
         SettingsField::text("title", "Site title"),
-        SettingsField::text("per_page", "Items per page"),
+        SettingsField::text("tagline", "Tagline"),
+        SettingsField::switch("maintenance_mode", "Maintenance mode"),
     ],
 };
 
@@ -116,7 +114,7 @@ let app = laterite_admin::router(
 
 Fields carry a widget: `SettingsField::text`, `::textarea`, or `::switch` (a
 checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
-model's migration must be registered (above) so the `settings` table exists.
+`settings` table comes from `builtin_migrations()` (above).
 
 ## The settings menu vs the main menu
 

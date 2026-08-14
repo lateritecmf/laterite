@@ -13,6 +13,9 @@ git-repository-url = "https://github.com/lateritecmf/core"
 edit-url-template = "https://github.com/lateritecmf/core/edit/main/docs/{path}"
 smart-punctuation = true
 
+[output.html.playground]
+runnable = false
+
 [output.html.fold]
 enable = true
 level = 1
