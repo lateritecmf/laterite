@@ -133,26 +133,33 @@ pub fn router(
     config: AdminConfig,
 ) -> Router {
     let mut resources = builtin_resources();
-    resources.extend(app_resources);
-    let mut nav = resources
-        .iter()
-        .map(|r| NavLink {
-            label: r.nav_label.clone(),
-            path: r.base_path.clone(),
-        })
-        .collect::<Vec<_>>();
-    let has_settings = !app_settings.is_empty();
-    if has_settings {
+    let mut settings = builtin_settings();
+    settings.extend(app_settings);
+
+    // Main menu (top nav): Dashboard, the application's own sections, then
+    // Settings. Built-in Users and Roles are settings items (see the settings
+    // menu), not main-menu tabs.
+    let mut nav = vec![NavLink {
+        label: "Dashboard".to_string(),
+        path: "/admin".to_string(),
+    }];
+    for resource in &app_resources {
         nav.push(NavLink {
-            label: "Settings".to_string(),
-            path: "/admin/settings".to_string(),
+            label: resource.nav_label.clone(),
+            path: resource.base_path.clone(),
         });
     }
+    nav.push(NavLink {
+        label: "Settings".to_string(),
+        path: "/admin/settings".to_string(),
+    });
+    resources.extend(app_resources);
+
     let state = AdminState {
         auth,
         pool,
         nav: Arc::new(nav),
-        settings: Arc::new(app_settings),
+        settings: Arc::new(settings),
         secure_cookie: config.secure_cookie,
     };
 
@@ -160,15 +167,13 @@ pub fn router(
     for resource in &resources {
         protected = mount_resource(protected, resource);
     }
-    if has_settings {
-        protected = protected
-            .route("/admin/settings", get(settings_index))
-            .route(
-                "/admin/settings/{code}",
-                get(settings_edit).post(settings_update),
-            );
-    }
-    protected = protected.route("/admin/logout", post(logout));
+    protected = protected
+        .route("/admin/settings", get(settings_index))
+        .route(
+            "/admin/settings/{code}",
+            get(settings_edit).post(settings_update),
+        )
+        .route("/admin/logout", post(logout));
 
     protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
@@ -382,7 +387,11 @@ async fn settings_edit(
     Extension(shell): Extension<Shell>,
     Path(code): Path<String>,
 ) -> Response {
-    match state.settings.iter().find(|item| item.code == code) {
+    match state
+        .settings
+        .iter()
+        .find(|item| item.code == code && item.link.is_none())
+    {
         Some(item) => settings::edit_form(&state, item, shell).await,
         None => not_found(),
     }
@@ -394,7 +403,11 @@ async fn settings_update(
     Path(code): Path<String>,
     Form(data): Form<HashMap<String, String>>,
 ) -> Response {
-    match state.settings.iter().find(|item| item.code == code) {
+    match state
+        .settings
+        .iter()
+        .find(|item| item.code == code && item.link.is_none())
+    {
         Some(item) => settings::update(&state, item, data, shell).await,
         None => not_found(),
     }
@@ -414,6 +427,34 @@ fn builtin_resources() -> Vec<Resource> {
             nav_label: "Roles".to_string(),
             list: roles_list_config(),
             form: Some(role_form_config()),
+        },
+    ]
+}
+
+/// The framework's own settings items. The built-in Users and Roles resources
+/// appear in the settings menu under a Users category (linking to their list
+/// screens), rather than as main-menu tabs.
+fn builtin_settings() -> Vec<settings::SettingsItem> {
+    vec![
+        settings::SettingsItem {
+            code: "backend.administrators".to_string(),
+            label: "Administrators".to_string(),
+            description: "Manage backend administrator accounts.".to_string(),
+            category: "Users".to_string(),
+            order: 10,
+            permission: None,
+            link: Some("/admin/users".to_string()),
+            fields: Vec::new(),
+        },
+        settings::SettingsItem {
+            code: "backend.roles".to_string(),
+            label: "Roles".to_string(),
+            description: "Manage roles and their permissions.".to_string(),
+            category: "Users".to_string(),
+            order: 20,
+            permission: None,
+            link: Some("/admin/roles".to_string()),
+            fields: Vec::new(),
         },
     ]
 }

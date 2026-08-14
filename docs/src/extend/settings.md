@@ -98,18 +98,51 @@ let site = SettingsItem {
     category: "General".to_string(),
     order: 10,
     permission: None,
+    link: None,
     fields: vec![
         SettingsField::text("title", "Site title"),
         SettingsField::text("per_page", "Items per page"),
     ],
 };
 
-let app = laterite_admin::router(auth, pool, Vec::new(), vec![site]);
+let app = laterite_admin::router(
+    auth,
+    pool,
+    Vec::new(),
+    vec![site],
+    laterite_admin::AdminConfig::default(),
+);
 ```
 
 Fields carry a widget: `SettingsField::text`, `::textarea`, or `::switch` (a
 checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
 model's migration must be registered (above) so the `settings` table exists.
+
+## The settings menu vs the main menu
+
+The admin has two menus. The **main menu** (top nav) holds Dashboard, the
+application's own sections, and Settings. The **settings menu** is the grouped
+index at `/admin/settings`. Administrative screens (backend users, roles, and the
+like) belong in the settings menu, not as top-level tabs.
+
+A `SettingsItem` normally edits a settings model at `/admin/settings/{code}`. Set
+its `link` to place an existing screen (a resource list) in the settings menu
+instead of a form:
+
+```rust
+SettingsItem {
+    code: "acme.pages".to_string(),
+    label: "Pages".to_string(),
+    description: "Manage site pages.".to_string(),
+    category: "Content".to_string(),
+    order: 10,
+    permission: None,
+    link: Some("/admin/pages".to_string()),
+    fields: Vec::new(),
+};
+```
+
+The framework registers its own Users and Roles this way, under a Users category.
 
 ## Evolving a model
 
