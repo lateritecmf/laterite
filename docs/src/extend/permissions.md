@@ -62,14 +62,47 @@ superuser:
 | `backend.manage_users` | The backend users list. |
 | `backend.manage_roles` | The roles list and the role editor. |
 
+## Roles and per-user overrides
+
+Permissions resolve in two layers. **Roles** set the base: an operator holds
+every permission granted by any role assigned to them. A **per-user override**
+then refines that base for one operator, and takes precedence over their roles.
+
+For a given permission, an operator is allowed it when:
+
+1. they are a superuser (always allowed), otherwise
+2. their override for that permission decides: an explicit **deny** refuses it and
+   an explicit **allow** grants it, otherwise
+3. the role grants decide.
+
+A denial always wins over an allow. Overrides are exact permission codes, so a
+denial can carve a single permission out of a wildcard role grant.
+
 ## Assigning permissions to a role
 
 The **Roles** screen (under Settings, gated by `backend.manage_roles`) is the
-permission editor. Editing a role shows every registered permission as a
+role permission editor. Editing a role shows every registered permission as a
 checkbox, grouped under its heading, ticked for the permissions the role already
 holds. Saving stores the ticked set on the role, and every operator with that
 role gains those grants. Only registered permissions can be ticked, so a role
 never carries a permission the deployment has not declared.
+
+## Overriding permissions for one user
+
+The **Backend Users** screen (gated by `backend.manage_users`) edits a single
+user's overrides. Each registered permission has a three-state control:
+
+- **Allow**: grant it to this user regardless of their roles.
+- **Inherit** (the default): defer to the roles.
+- **Deny**: refuse it to this user even if a role grants it.
+
+Two rules keep the screen safe:
+
+- A **superuser** already holds every permission, so the screen shows a note
+  rather than the controls for them.
+- An operator can only change permissions they hold themselves. Controls for
+  permissions they lack are shown locked, and saving never alters those, so the
+  screen cannot grant access beyond the editing operator's own.
 
 ## Registering permissions
 

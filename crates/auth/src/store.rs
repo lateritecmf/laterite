@@ -67,6 +67,42 @@ pub async fn load_role_permissions(
     Ok(rows)
 }
 
+/// Loads a user's per-permission overrides: a map of permission code to `1`
+/// (allow) or `-1` (deny). A code that is absent inherits the role decision.
+pub async fn load_user_permission_overrides(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<std::collections::HashMap<String, i64>, AuthError> {
+    let value: Option<serde_json::Value> = sqlx::query_scalar!(
+        "select permissions from backend_users where id = $1",
+        user_id
+    )
+    .fetch_optional(pool)
+    .await?;
+    let overrides = value
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    Ok(overrides)
+}
+
+/// Replaces a user's per-permission overrides. Values other than `1` and `-1`
+/// should not be stored; callers drop `inherit` entries before saving.
+pub async fn set_user_permissions(
+    pool: &PgPool,
+    user_id: Uuid,
+    overrides: &std::collections::HashMap<String, i64>,
+) -> Result<(), AuthError> {
+    let value = serde_json::to_value(overrides).unwrap_or_else(|_| serde_json::json!({}));
+    sqlx::query!(
+        "update backend_users set permissions = $1 where id = $2",
+        value,
+        user_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn insert_session(
     pool: &PgPool,
     token_hash: &str,

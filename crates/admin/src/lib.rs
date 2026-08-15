@@ -16,6 +16,7 @@ pub mod list;
 mod roles;
 pub mod settings;
 mod sql;
+mod users;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -353,6 +354,15 @@ pub fn router(
             ),
         "backend.manage_roles",
     ));
+    // The backend users screen edits a user's per-permission overrides, gated by
+    // the same permission as its list.
+    protected = protected.merge(guard_with_permission(
+        Router::new().route(
+            "/admin/users/{id}/edit",
+            get(users::edit_form).post(users::update),
+        ),
+        "backend.manage_users",
+    ));
     protected = protected
         .route("/admin/settings", get(settings_index))
         .route(
@@ -403,7 +413,13 @@ async fn asset_mark_png() -> Response {
 /// Serves the embedded admin stylesheet.
 async fn asset_css() -> Response {
     (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            // The stylesheet is embedded in the binary, so it changes only when
+            // the binary does. Revalidating on each load keeps a browser from
+            // serving a stale copy after an upgrade.
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
         include_str!("../assets/laterite.css"),
     )
         .into_response()
@@ -925,7 +941,10 @@ fn backend_users_list_config() -> list::ListConfig {
         order_dir: list::SortDir::Desc,
         per_page: 25,
         id_field: "id".to_string(),
-        edit_base: None,
+        // Rows link to the per-user permission editor; users are created from the
+        // CLI or first-run setup, so no "New" screen here.
+        edit_base: Some("/admin/users".to_string()),
+        creatable: false,
     }
 }
 
@@ -943,6 +962,7 @@ fn roles_list_config() -> list::ListConfig {
         per_page: 25,
         id_field: "id".to_string(),
         edit_base: Some("/admin/roles".to_string()),
+        creatable: true,
     }
 }
 

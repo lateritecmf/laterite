@@ -215,7 +215,18 @@ impl AuthService {
             .await?
             .into_iter()
             .flatten();
-        let permissions = PermissionSet::new(user.is_superuser, grants);
+        // Split the user's per-permission overrides into allow (1) and deny (-1),
+        // which take precedence over the role grants.
+        let overrides = store::load_user_permission_overrides(&self.pool, user.id).await?;
+        let (mut allow, mut deny) = (Vec::new(), Vec::new());
+        for (code, decision) in overrides {
+            match decision.signum() {
+                1 => allow.push(code),
+                -1 => deny.push(code),
+                _ => {}
+            }
+        }
+        let permissions = PermissionSet::with_overrides(user.is_superuser, grants, allow, deny);
 
         Ok(AuthenticatedUser { user, permissions })
     }
@@ -234,6 +245,24 @@ impl AuthService {
         timezone: Option<&str>,
     ) -> Result<(), AuthError> {
         store::set_user_timezone(&self.pool, user_id, timezone).await
+    }
+
+    /// Loads a user's per-permission overrides (code to `1` allow or `-1` deny).
+    pub async fn user_permission_overrides(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<std::collections::HashMap<String, i64>, AuthError> {
+        store::load_user_permission_overrides(&self.pool, user_id).await
+    }
+
+    /// Replaces a user's per-permission overrides. Callers pass only `1` and `-1`
+    /// entries; an inherited permission is represented by its absence.
+    pub async fn set_user_permissions(
+        &self,
+        user_id: uuid::Uuid,
+        overrides: &std::collections::HashMap<String, i64>,
+    ) -> Result<(), AuthError> {
+        store::set_user_permissions(&self.pool, user_id, overrides).await
     }
 
     /// Whether any backend operator exists yet. A fresh install with none is

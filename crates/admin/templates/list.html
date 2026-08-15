@@ -3,7 +3,7 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
-  {% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ New</a></div>{% endif %}
+  {% if creatable %}{% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ New</a></div>{% endif %}{% endif %}
 </div>
 <div class="lat-tablewrap">
   <table class="lat-table">
