@@ -127,6 +127,9 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-topnav__section{display:flex;align-items:center;justify-content:center;gap:8px;min-width:78px;padding:0 16px;border:0;cursor:pointer;background:transparent;color:var(--slate-300);font-family:var(--font-body);font-size:var(--fs-11);font-weight:var(--fw-medium);letter-spacing:var(--ls-caps);text-transform:uppercase;text-decoration:none;transition:var(--transition-control)}
 .lat-topnav__section:hover{background:var(--alpha-bone-08);color:var(--bone-100);text-decoration:none}
 .lat-topnav__section.is-active{background:var(--alpha-bone-08);color:var(--bone-100);font-weight:var(--fw-semibold);box-shadow:inset 0 -3px 0 var(--accent)}
+.lat-topnav__ico{display:inline-flex;align-items:center;opacity:.85}
+.lat-topnav__ico svg{width:15px;height:15px}
+.lat-topnav__section.is-active .lat-topnav__ico,.lat-topnav__section:hover .lat-topnav__ico{opacity:1}
 .lat-topnav__spacer{flex:1}
 .lat-topnav__right{display:flex;align-items:center;gap:12px}
 .lat-avatar{width:36px;height:36px;border-radius:var(--radius-lg);background:var(--red-600);color:#FFF7F2;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:var(--fw-semibold);font-size:var(--fs-13)}
