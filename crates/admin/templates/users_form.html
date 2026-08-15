@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ full_name }} - Laterite{% endblock %}
+{% block content %}
+<nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; Backend Users</a></nav>
+<div class="lat-toolbar">
+  <div class="lat-titleblock">
+    <p class="lat-eyebrow">Backend user</p>
+    <h1>{{ full_name }}</h1>
+  </div>
+</div>
+<div class="lat-card" style="max-width:680px">
+  <dl class="lat-facts">
+    <div><dt>Username</dt><dd>{{ username }}</dd></div>
+    <div><dt>Email</dt><dd>{{ email }}</dd></div>
+  </dl>
+
+  {% if is_superuser %}
+  <div class="lat-alert lat-alert--ok">This user is a superuser and holds every permission, so there is nothing to override.</div>
+  {% else %}
+  <form method="post" action="{{ action }}">
+    <div class="lat-field">
+      <span class="lat-field__label">Permission overrides</span>
+      <p class="lat-help">Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked.</p>
+      {% for group in groups %}
+      <fieldset class="lat-permgroup">
+        <legend class="lat-permgroup__legend">{{ group.name }}</legend>
+        {% for perm in group.rows %}
+        <div class="lat-permrow{% if !perm.changeable %} is-locked{% endif %}">
+          <span class="lat-permrow__label">{{ perm.label }}</span>
+          <div class="lat-permrow__states">
+            <label class="lat-permstate"><input type="radio" name="p:{{ perm.code }}" value="1"{% if perm.state == 1 %} checked{% endif %}{% if !perm.changeable %} disabled{% endif %}> Allow</label>
+            <label class="lat-permstate"><input type="radio" name="p:{{ perm.code }}" value="0"{% if perm.state == 0 %} checked{% endif %}{% if !perm.changeable %} disabled{% endif %}> Inherit</label>
+            <label class="lat-permstate"><input type="radio" name="p:{{ perm.code }}" value="-1"{% if perm.state == -1 %} checked{% endif %}{% if !perm.changeable %} disabled{% endif %}> Deny</label>
+          </div>
+        </div>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">Save</button>
+      <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">Cancel</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

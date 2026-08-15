@@ -105,9 +105,11 @@ pub struct ListConfig {
     pub order_dir: SortDir,
     pub per_page: i64,
     pub id_field: String,
-    /// When set, rows link to `{edit_base}/{id}/edit` and a "New" link to
-    /// `{edit_base}/new` is shown.
+    /// When set, rows link to `{edit_base}/{id}/edit`.
     pub edit_base: Option<String>,
+    /// Whether to offer a "New" link to `{edit_base}/new`. A resource that only
+    /// edits existing records (no create screen) sets this false.
+    pub creatable: bool,
 }
 
 /// Query-string parameters for a list view.
@@ -251,6 +253,7 @@ pub(crate) async fn handle(
                 total: result.total,
                 total_pages,
                 edit_base: config.edit_base.clone(),
+                creatable: config.creatable,
             })
         }
         Err(_) => render_error(),
@@ -268,6 +271,7 @@ struct ListTemplate {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
+    creatable: bool,
 }
 
 #[cfg(test)]
@@ -287,6 +291,7 @@ mod tests {
             per_page: 25,
             id_field: "id".to_string(),
             edit_base: None,
+            creatable: false,
         }
     }
 
