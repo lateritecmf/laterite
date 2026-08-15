@@ -21,7 +21,7 @@
       <span class="lat-topnav__wordmark">Laterite</span>
     </a>
     <nav class="lat-topnav__nav">
-      {% for item in shell.nav %}<a class="lat-topnav__section{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
+      {% for item in shell.nav %}<a class="lat-topnav__section{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{% if !item.icon.is_empty() %}<span class="lat-topnav__ico">{{ item.icon|safe }}</span>{% endif %}<span>{{ item.label }}</span></a>{% endfor %}
     </nav>
     <div class="lat-topnav__spacer"></div>
     <div class="lat-topnav__right">

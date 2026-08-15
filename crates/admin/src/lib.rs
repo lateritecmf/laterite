@@ -11,6 +11,7 @@
 //! are just built-in resources.
 
 pub mod form;
+mod icons;
 pub mod list;
 pub mod settings;
 mod sql;
@@ -84,6 +85,9 @@ impl Default for AdminConfig {
 struct NavLink {
     label: String,
     path: String,
+    /// An icon name (a Lucide subset, see [`icons`]), or `None` for a text-only
+    /// tab. The built-in Dashboard and Settings entries set one.
+    icon: Option<&'static str>,
 }
 
 /// The chrome shared by every authenticated page: the top-nav links and the
@@ -126,6 +130,7 @@ impl Shell {
                     label: n.label.clone(),
                     path: n.path.clone(),
                     active: active_nav == Some(n.path.as_str()),
+                    icon: n.icon.map(|name| icons::svg(Some(name))).unwrap_or(""),
                 })
                 .collect(),
             full_name,
@@ -267,16 +272,19 @@ pub fn router(
     let mut nav = vec![NavLink {
         label: "Dashboard".to_string(),
         path: "/admin".to_string(),
+        icon: Some("layout-dashboard"),
     }];
     for resource in &app_resources {
         nav.push(NavLink {
             label: resource.nav_label.clone(),
             path: resource.base_path.clone(),
+            icon: None,
         });
     }
     nav.push(NavLink {
         label: "Settings".to_string(),
         path: "/admin/settings".to_string(),
+        icon: Some("settings"),
     });
     resources.extend(app_resources);
 
@@ -913,6 +921,9 @@ struct NavView {
     label: String,
     path: String,
     active: bool,
+    /// Inline SVG for the tab's icon, or empty for a text-only tab. Rendered raw
+    /// with `|safe`.
+    icon: &'static str,
 }
 
 /// Renders a template to an HTML response, mapping a render failure to a 500.
@@ -1048,14 +1059,17 @@ mod tests {
             NavLink {
                 label: "Dashboard".to_string(),
                 path: "/admin".to_string(),
+                icon: Some("layout-dashboard"),
             },
             NavLink {
                 label: "Pages".to_string(),
                 path: "/admin/pages".to_string(),
+                icon: None,
             },
             NavLink {
                 label: "Settings".to_string(),
                 path: "/admin/settings".to_string(),
+                icon: Some("settings"),
             },
         ];
 
