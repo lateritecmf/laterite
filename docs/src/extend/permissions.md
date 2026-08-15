@@ -61,3 +61,41 @@ superuser:
 | --- | --- |
 | `backend.manage_users` | The backend users list. |
 | `backend.manage_roles` | The roles list and the role editor. |
+
+## Assigning permissions to a role
+
+The **Roles** screen (under Settings, gated by `backend.manage_roles`) is the
+permission editor. Editing a role shows every registered permission as a
+checkbox, grouped under its heading, ticked for the permissions the role already
+holds. Saving stores the ticked set on the role, and every operator with that
+role gains those grants. Only registered permissions can be ticked, so a role
+never carries a permission the deployment has not declared.
+
+## Registering permissions
+
+Register the permissions your application defines by passing them to
+`laterite_admin::router`, so they appear in the role editor alongside the
+framework's. A `Permission` is a `code`, a human `label`, and the `group` it
+sorts under:
+
+```rust
+use laterite_admin::Permission;
+
+let permissions = vec![
+    Permission {
+        code: "acme.publish_pages".to_string(),
+        label: "Publish pages".to_string(),
+        group: "Content".to_string(),
+    },
+    Permission {
+        code: "acme.manage_media".to_string(),
+        label: "Manage media".to_string(),
+        group: "Content".to_string(),
+    },
+];
+
+let app = laterite_admin::router(auth, pool, resources, settings, permissions, config);
+```
+
+Gate a screen on one of these by setting it as a resource's `permission` (above),
+and it becomes assignable from the role editor.

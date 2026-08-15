@@ -13,6 +13,7 @@
 pub mod form;
 mod icons;
 pub mod list;
+mod roles;
 pub mod settings;
 mod sql;
 
@@ -41,6 +42,7 @@ pub(crate) struct AdminState {
     pool: PgPool,
     nav: Arc<Vec<NavLink>>,
     settings: Arc<Vec<settings::SettingsItem>>,
+    permissions: Arc<Vec<Permission>>,
     secure_cookie: bool,
     timezone: Tz,
 }
@@ -53,6 +55,7 @@ impl AdminState {
             pool,
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
+            permissions: Arc::new(builtin_permissions()),
             secure_cookie: false,
             timezone: Tz::UTC,
         }
@@ -239,6 +242,34 @@ pub struct Resource {
     pub permission: Option<String>,
 }
 
+/// A permission an operator can be granted: a dotted `code`, a human `label`,
+/// and a `group` heading it sorts under in the role editor. The framework
+/// registers its own (see the built-in grants), and an application registers
+/// its permissions through [`router`] so they appear in the editor alongside.
+#[derive(Clone)]
+pub struct Permission {
+    pub code: String,
+    pub label: String,
+    pub group: String,
+}
+
+/// The framework's own permissions, offered in the role editor under a
+/// "Backend" group. These gate the built-in Users and Roles screens.
+fn builtin_permissions() -> Vec<Permission> {
+    vec![
+        Permission {
+            code: "backend.manage_users".to_string(),
+            label: "Manage backend users".to_string(),
+            group: "Backend".to_string(),
+        },
+        Permission {
+            code: "backend.manage_roles".to_string(),
+            label: "Manage roles".to_string(),
+            group: "Backend".to_string(),
+        },
+    ]
+}
+
 /// The migration sets for every module the admin mounts: the auth schema
 /// (users, roles, sessions, access log) and the settings store. Run these
 /// before serving [`router`] so its built-in screens have their tables, so an
@@ -258,18 +289,22 @@ pub fn builtin_migrations() -> Vec<laterite_core::ModuleMigrations> {
 }
 
 /// Builds the admin router. `app_resources` are the application's own list/form
-/// screens; `app_settings` are its settings models. Both are mounted alongside
-/// the framework's built-in resources.
+/// screens; `app_settings` are its settings models; `app_permissions` are the
+/// permissions it defines, offered in the role editor alongside the framework's.
+/// All are mounted alongside the framework's built-in equivalents.
 pub fn router(
     auth: AuthService,
     pool: PgPool,
     app_resources: Vec<Resource>,
     app_settings: Vec<settings::SettingsItem>,
+    app_permissions: Vec<Permission>,
     config: AdminConfig,
 ) -> Router {
     let mut resources = builtin_resources();
     let mut settings = builtin_settings();
     settings.extend(app_settings);
+    let mut permissions = builtin_permissions();
+    permissions.extend(app_permissions);
 
     // Main menu (top nav): Dashboard, the application's own sections, then
     // Settings. Built-in Users and Roles are settings items (see the settings
@@ -298,6 +333,7 @@ pub fn router(
         pool,
         nav: Arc::new(nav),
         settings: Arc::new(settings),
+        permissions: Arc::new(permissions),
         secure_cookie: config.secure_cookie,
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
     };
@@ -306,6 +342,17 @@ pub fn router(
     for resource in &resources {
         protected = protected.merge(mount_resource(resource));
     }
+    // The roles screen has a dedicated create/edit form (the permission editor),
+    // gated by the same permission as its list.
+    protected = protected.merge(guard_with_permission(
+        Router::new()
+            .route("/admin/roles/new", get(roles::new_form).post(roles::create))
+            .route(
+                "/admin/roles/{id}/edit",
+                get(roles::edit_form).post(roles::update),
+            ),
+        "backend.manage_roles",
+    ));
     protected = protected
         .route("/admin/settings", get(settings_index))
         .route(
@@ -444,25 +491,31 @@ fn mount_resource(resource: &Resource) -> Router<AdminState> {
         );
     }
 
-    // Gate every route the resource mounts on its permission. The auth guard
-    // runs first and injects the identity, so the guard reads it from the
-    // request extensions and answers 403 for an operator who lacks the grant.
-    if let Some(permission) = resource.permission.clone() {
-        let needed: Arc<str> = Arc::from(permission);
-        router = router.route_layer(middleware::from_fn(
-            move |Extension(user): Extension<AuthenticatedUser>, req: Request, next: Next| {
-                let needed = needed.clone();
-                async move {
-                    if user.allows(&needed) {
-                        next.run(req).await
-                    } else {
-                        forbidden()
-                    }
-                }
-            },
-        ));
+    // Gate every route the resource mounts on its permission.
+    if let Some(permission) = &resource.permission {
+        router = guard_with_permission(router, permission);
     }
     router
+}
+
+/// Wraps every route currently in `router` in a permission guard: the auth guard
+/// runs first and injects the identity, so this reads it from the request
+/// extensions and answers `403 Forbidden` for an operator who lacks `permission`.
+/// Shared by resource mounting and the roles permission editor.
+fn guard_with_permission(router: Router<AdminState>, permission: &str) -> Router<AdminState> {
+    let needed: Arc<str> = Arc::from(permission);
+    router.route_layer(middleware::from_fn(
+        move |Extension(user): Extension<AuthenticatedUser>, req: Request, next: Next| {
+            let needed = needed.clone();
+            async move {
+                if user.allows(&needed) {
+                    next.run(req).await
+                } else {
+                    forbidden()
+                }
+            }
+        },
+    ))
 }
 
 /// Redirects unauthenticated requests to the login screen, and injects the
@@ -817,7 +870,9 @@ fn builtin_resources() -> Vec<Resource> {
             base_path: "/admin/roles".to_string(),
             nav_label: "Roles".to_string(),
             list: roles_list_config(),
-            form: Some(role_form_config()),
+            // The create/edit form is the dedicated permission editor (see the
+            // `roles` module), mounted separately, not the generic form.
+            form: None,
             permission: Some("backend.manage_roles".to_string()),
         },
     ]
@@ -888,19 +943,6 @@ fn roles_list_config() -> list::ListConfig {
         per_page: 25,
         id_field: "id".to_string(),
         edit_base: Some("/admin/roles".to_string()),
-    }
-}
-
-fn role_form_config() -> form::FormConfig {
-    form::FormConfig {
-        entity: "backend_roles".to_string(),
-        title: "Role".to_string(),
-        base_path: "/admin/roles".to_string(),
-        id_field: "id".to_string(),
-        fields: vec![
-            form::FormField::text("code", "Code").required(),
-            form::FormField::text("name", "Name").required(),
-        ],
     }
 }
 

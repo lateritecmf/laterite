@@ -195,6 +195,9 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-input--lg{height:var(--control-h-lg)}
 .lat-check{display:flex;align-items:center;gap:8px;font-size:var(--fs-13);color:var(--text-body);cursor:pointer}
 .lat-check input{width:16px;height:16px;accent-color:var(--accent)}
+.lat-permgroup{border:1px solid var(--border-subtle);border-radius:var(--radius-control);padding:12px 14px;margin:0 0 10px}
+.lat-permgroup__legend{padding:0 6px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-muted)}
+.lat-permgroup .lat-check{padding:5px 0}
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
 
 /* Cards */
