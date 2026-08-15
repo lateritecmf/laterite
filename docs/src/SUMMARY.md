@@ -12,6 +12,7 @@
 # Extending Laterite
 
 - [Settings Models](extend/settings.md)
+- [Permissions](extend/permissions.md)
 
 # Reference
 

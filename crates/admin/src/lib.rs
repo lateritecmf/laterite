@@ -232,6 +232,11 @@ pub struct Resource {
     pub nav_label: String,
     pub list: list::ListConfig,
     pub form: Option<form::FormConfig>,
+    /// The permission an operator must hold to reach any of the resource's
+    /// routes. `None` leaves the resource open to any signed-in operator; a
+    /// dotted string gates every route the resource mounts, and an operator who
+    /// lacks it receives `403 Forbidden`. Superusers pass regardless.
+    pub permission: Option<String>,
 }
 
 /// The migration sets for every module the admin mounts: the auth schema
@@ -299,7 +304,7 @@ pub fn router(
 
     let mut protected = Router::new().route("/admin", get(dashboard));
     for resource in &resources {
-        protected = mount_resource(protected, resource);
+        protected = protected.merge(mount_resource(resource));
     }
     protected = protected
         .route("/admin/settings", get(settings_index))
@@ -379,12 +384,14 @@ async fn asset_font(Path(file): Path<String>) -> Response {
         .into_response()
 }
 
-/// Mounts a resource's list, create, and edit routes as generic handlers that
-/// carry the resource's descriptors.
-fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<AdminState> {
+/// Builds a resource's list, create, and edit routes as generic handlers that
+/// carry the resource's descriptors. When the resource sets a `permission`, every
+/// route it mounts is wrapped in a guard that answers `403 Forbidden` for an
+/// operator who lacks it; the caller merges the result into the protected router.
+fn mount_resource(resource: &Resource) -> Router<AdminState> {
     let base = resource.base_path.clone();
     let list_cfg = resource.list.clone();
-    let mut router = router.route(
+    let mut router = Router::new().route(
         &base,
         get(
             move |State(state): State<AdminState>,
@@ -435,6 +442,25 @@ fn mount_resource(router: Router<AdminState>, resource: &Resource) -> Router<Adm
                 },
             ),
         );
+    }
+
+    // Gate every route the resource mounts on its permission. The auth guard
+    // runs first and injects the identity, so the guard reads it from the
+    // request extensions and answers 403 for an operator who lacks the grant.
+    if let Some(permission) = resource.permission.clone() {
+        let needed: Arc<str> = Arc::from(permission);
+        router = router.route_layer(middleware::from_fn(
+            move |Extension(user): Extension<AuthenticatedUser>, req: Request, next: Next| {
+                let needed = needed.clone();
+                async move {
+                    if user.allows(&needed) {
+                        next.run(req).await
+                    } else {
+                        forbidden()
+                    }
+                }
+            },
+        ));
     }
     router
 }
@@ -785,12 +811,14 @@ fn builtin_resources() -> Vec<Resource> {
             nav_label: "Backend Users".to_string(),
             list: backend_users_list_config(),
             form: None,
+            permission: Some("backend.manage_users".to_string()),
         },
         Resource {
             base_path: "/admin/roles".to_string(),
             nav_label: "Roles".to_string(),
             list: roles_list_config(),
             form: Some(role_form_config()),
+            permission: Some("backend.manage_roles".to_string()),
         },
     ]
 }
@@ -807,7 +835,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             category: "Users".to_string(),
             order: 10,
             icon: Some("users".to_string()),
-            permission: None,
+            permission: Some("backend.manage_users".to_string()),
             link: Some("/admin/users".to_string()),
             fields: Vec::new(),
         },
@@ -818,7 +846,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             category: "Users".to_string(),
             order: 20,
             icon: Some("shield".to_string()),
-            permission: None,
+            permission: Some("backend.manage_roles".to_string()),
             link: Some("/admin/roles".to_string()),
             fields: Vec::new(),
         },
@@ -940,6 +968,10 @@ pub(crate) fn render_error() -> Response {
 
 pub(crate) fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
+}
+
+pub(crate) fn forbidden() -> Response {
+    (StatusCode::FORBIDDEN, "Forbidden").into_response()
 }
 
 #[cfg(test)]
