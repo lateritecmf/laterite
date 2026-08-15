@@ -89,6 +89,7 @@ async fn resource_routes_enforce_their_permission(pool: PgPool) {
             pool.clone(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             AdminConfig::default(),
         )
     };

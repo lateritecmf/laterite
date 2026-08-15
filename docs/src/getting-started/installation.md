@@ -51,13 +51,18 @@ any other Axum service:
 let app = laterite_admin::router(
     auth,
     pool,
-    Vec::new(),
-    Vec::new(),
+    Vec::new(), // resources
+    Vec::new(), // settings items
+    Vec::new(), // permissions
     laterite_admin::AdminConfig::default(),
 );
 let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 axum::serve(listener, app).await?;
 ```
+
+The three vectors are the application's own [resources](../extend/settings.md),
+settings items, and [permissions](../extend/permissions.md); an application with
+none yet passes them empty.
 
 ## Create the first administrator
 

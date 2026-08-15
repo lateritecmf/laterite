@@ -109,6 +109,7 @@ let app = laterite_admin::router(
     pool,
     Vec::new(),
     vec![site],
+    Vec::new(),
     laterite_admin::AdminConfig::default(),
 );
 ```

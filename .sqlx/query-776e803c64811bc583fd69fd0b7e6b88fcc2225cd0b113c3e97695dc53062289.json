@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update backend_roles set code = $1, name = $2, permissions = $3 where id::text = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "776e803c64811bc583fd69fd0b7e6b88fcc2225cd0b113c3e97695dc53062289"
+}
