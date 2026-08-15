@@ -241,6 +241,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-drawer__brand span{font-family:var(--font-display);font-weight:var(--fw-semibold);font-size:var(--fs-16);color:var(--bone-100)}
 .lat-drawer__item{display:block;padding:13px 18px;color:var(--slate-300);text-decoration:none;font-size:var(--fs-13);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:var(--ls-caps);border-left:3px solid transparent}
 .lat-drawer__item:hover{background:var(--alpha-bone-08);color:var(--bone-100);text-decoration:none}
+.lat-drawer__item.is-active{background:var(--alpha-bone-08);color:var(--bone-100);border-left-color:var(--accent)}
 
 /* Settings index items */
 .lat-settingsitem{display:block;padding:14px 16px;border-bottom:1px solid var(--border-subtle);text-decoration:none;color:inherit}

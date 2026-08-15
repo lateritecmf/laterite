@@ -100,7 +100,7 @@ pub(crate) struct Shell {
     /// deployment default. List and detail screens format dates in it.
     tz: Tz,
     /// The context sidebar for the current section, resolved once per request
-    /// from the path (see [`build_context_sidebar`]). Empty means no sidebar.
+    /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
 }
@@ -111,6 +111,7 @@ impl Shell {
         user: &AuthenticatedUser,
         default_tz: Tz,
         sidebar: Vec<settings::CategoryView>,
+        active_nav: Option<&str>,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -124,6 +125,7 @@ impl Shell {
                 .map(|n| NavView {
                     label: n.label.clone(),
                     path: n.path.clone(),
+                    active: active_nav == Some(n.path.as_str()),
                 })
                 .collect(),
             full_name,
@@ -145,18 +147,14 @@ impl Shell {
     }
 }
 
-/// Resolves the context sidebar for a request path from the descriptors. A
-/// screen is in the settings context when it is the settings index/form, or when
-/// its path falls under a settings item's `link` (its list, forms and
-/// sub-pages); the matching item is marked active, and only items the operator
-/// may see are shown.
-fn build_context_sidebar(
-    items: &[settings::SettingsItem],
-    perms: &PermissionSet,
-    path: &str,
-) -> Vec<settings::CategoryView> {
-    let visible = visible_settings(items, perms);
-    let (in_context, active) = if path == "/admin/settings" {
+/// Whether `path` sits in the settings context, and if so which item code is
+/// active. A screen is in the settings context when it is the settings index or
+/// a settings form, or when its path falls under a settings item's `link` (its
+/// list, forms and sub-pages). The matching item is returned so the sidebar can
+/// highlight it. `visible` is the operator's permitted items, so a linked
+/// resource they cannot see never claims the context.
+fn settings_context(visible: &[settings::SettingsItem], path: &str) -> (bool, Option<String>) {
+    if path == "/admin/settings" {
         (true, None)
     } else if let Some(code) = path.strip_prefix("/admin/settings/") {
         (true, Some(code.to_string()))
@@ -170,12 +168,47 @@ fn build_context_sidebar(
             .max_by_key(|(link, _)| link.len())
             .map(|(_, code)| code.clone());
         (active.is_some(), active)
-    };
-    if in_context {
+    }
+}
+
+/// The top-nav item to highlight for `path`. A screen in the settings context
+/// lights the Settings tab (so a linked resource such as the users list keeps
+/// Settings active); otherwise a section owns its own path subtree and stays
+/// active across its sub-pages, with the longest matching prefix winning. The
+/// `/admin` root is every path's ancestor, so it lights the Dashboard tab only
+/// on an exact match: a screen belonging to no section (Preferences, say) lights
+/// nothing rather than falling back to Dashboard.
+fn active_nav_path(nav: &[NavLink], in_settings_context: bool, path: &str) -> Option<String> {
+    if in_settings_context {
+        return Some("/admin/settings".to_string());
+    }
+    nav.iter()
+        .filter(|n| {
+            path == n.path || (n.path != "/admin" && path.starts_with(&format!("{}/", n.path)))
+        })
+        .max_by_key(|n| n.path.len())
+        .map(|n| n.path.clone())
+}
+
+/// Resolves the per-request navigation context from the descriptors: the
+/// settings sidebar (empty when the screen sits outside any settings context)
+/// and the top-nav item to highlight. The auth guard runs this once per request
+/// and hands both to the [`Shell`].
+fn resolve_nav_context(
+    nav: &[NavLink],
+    items: &[settings::SettingsItem],
+    perms: &PermissionSet,
+    path: &str,
+) -> (Vec<settings::CategoryView>, Option<String>) {
+    let visible = visible_settings(items, perms);
+    let (in_context, active) = settings_context(&visible, path);
+    let sidebar = if in_context {
         settings::sidebar_groups(&visible, active.as_deref())
     } else {
         Vec::new()
-    }
+    };
+    let active_nav = active_nav_path(nav, in_context, path);
+    (sidebar, active_nav)
 }
 
 /// Resolves the timezone an operator's timestamps render in: their own
@@ -413,8 +446,15 @@ async fn require_auth(
     match identity {
         Some(user) => {
             let path = request.uri().path().to_string();
-            let sidebar = build_context_sidebar(&state.settings, &user.permissions, &path);
-            let shell = Shell::new(&state.nav, &user, state.timezone, sidebar);
+            let (sidebar, active_nav) =
+                resolve_nav_context(&state.nav, &state.settings, &user.permissions, &path);
+            let shell = Shell::new(
+                &state.nav,
+                &user,
+                state.timezone,
+                sidebar,
+                active_nav.as_deref(),
+            );
             request.extensions_mut().insert(user);
             request.extensions_mut().insert(shell);
             next.run(request).await
@@ -872,6 +912,7 @@ struct TzOption {
 struct NavView {
     label: String,
     path: String,
+    active: bool,
 }
 
 /// Renders a template to an HTML response, mapping a render failure to a 500.
@@ -974,8 +1015,9 @@ mod tests {
     fn context_sidebar_follows_settings_links() {
         let items = builtin_settings();
         let superuser = PermissionSet::new(true, Vec::<String>::new());
+        let sidebar = |path: &str| resolve_nav_context(&[], &items, &superuser, path).0;
         let active_path = |path: &str| -> Option<String> {
-            build_context_sidebar(&items, &superuser, path)
+            sidebar(path)
                 .into_iter()
                 .flat_map(|g| g.items)
                 .find(|i| i.active)
@@ -989,7 +1031,7 @@ mod tests {
             Some("/admin/roles")
         );
         // The settings index shows the sidebar, with nothing active.
-        assert!(!build_context_sidebar(&items, &superuser, "/admin/settings").is_empty());
+        assert!(!sidebar("/admin/settings").is_empty());
         assert_eq!(active_path("/admin/settings"), None);
         // A settings form activates its own item.
         assert_eq!(
@@ -997,6 +1039,50 @@ mod tests {
             Some("/admin/roles")
         );
         // The dashboard is not a settings context, so it has no sidebar.
-        assert!(build_context_sidebar(&items, &superuser, "/admin").is_empty());
+        assert!(sidebar("/admin").is_empty());
+    }
+
+    #[test]
+    fn active_nav_lights_the_right_tab() {
+        let nav = vec![
+            NavLink {
+                label: "Dashboard".to_string(),
+                path: "/admin".to_string(),
+            },
+            NavLink {
+                label: "Pages".to_string(),
+                path: "/admin/pages".to_string(),
+            },
+            NavLink {
+                label: "Settings".to_string(),
+                path: "/admin/settings".to_string(),
+            },
+        ];
+
+        // Dashboard lights only on an exact match, never as a prefix of deeper paths.
+        assert_eq!(
+            active_nav_path(&nav, false, "/admin").as_deref(),
+            Some("/admin")
+        );
+        // A section keeps its own tab active across its sub-pages.
+        assert_eq!(
+            active_nav_path(&nav, false, "/admin/pages/7/edit").as_deref(),
+            Some("/admin/pages")
+        );
+        // A sibling section that merely shares a prefix does not steal the tab.
+        assert_eq!(active_nav_path(&nav, false, "/admin/pages-archive"), None);
+        // A screen under no section (reached from the user menu) lights nothing,
+        // rather than the root falling back to Dashboard.
+        assert_eq!(active_nav_path(&nav, false, "/admin/preferences"), None);
+        // The settings context lights Settings, including for a linked resource
+        // whose path lives outside /admin/settings.
+        assert_eq!(
+            active_nav_path(&nav, true, "/admin/users").as_deref(),
+            Some("/admin/settings")
+        );
+        assert_eq!(
+            active_nav_path(&nav, true, "/admin/settings").as_deref(),
+            Some("/admin/settings")
+        );
     }
 }
