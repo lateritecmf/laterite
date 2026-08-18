@@ -9,8 +9,10 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod migrate;
+pub mod migration;
 pub mod module;
 pub mod pagination;
 
 pub use error::{CoreError, CoreResult};
 pub use migrate::ModuleMigrations;
+pub use migration::{DbBackend, Migration, MigrationSet, Schema, SqlMigration};
