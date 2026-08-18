@@ -20,6 +20,9 @@ pub enum CoreError {
     #[error("migration '{name}' in module '{module}' changed after being applied")]
     MigrationDrift { module: String, name: String },
 
+    #[error("migration '{name}' in module '{module}' cannot be reversed")]
+    Irreversible { module: String, name: String },
+
     #[error("not found: {0}")]
     NotFound(String),
 
