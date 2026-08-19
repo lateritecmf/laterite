@@ -12,6 +12,20 @@ sea-query = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+
+[features]
+default = []
+# Database drivers. A deployment enables exactly the one(s) it runs against, so
+# only that driver is compiled in. Nothing is on by default.
+postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
+sqlite = ["sqlx/sqlite"]
+# The multi-backend test harness (`laterite_core::testing`). Enabled by crates'
+# dev-dependencies, never in a production build.
+testing = ["dep:tokio", "dep:url", "dep:uuid"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

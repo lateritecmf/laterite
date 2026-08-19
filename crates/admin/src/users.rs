@@ -20,10 +20,9 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 use laterite_auth::{AuthenticatedUser, PermissionSet};
-use laterite_core::query::{bind_values, build as to_sql};
+use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::AnyRowExt;
 use sea_query::{Alias, Expr, Query};
-use sqlx::Row;
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
 
@@ -48,7 +47,7 @@ pub(crate) async fn edit_form(
             .from(Alias::new("backend_users"))
             .and_where(
                 Expr::col(Alias::new("id"))
-                    .cast_as(Alias::new("text"))
+                    .cast_as(Alias::new(text_cast(state.db.backend)))
                     .eq(id.clone()),
             )
             .to_owned();
@@ -64,12 +63,12 @@ pub(crate) async fn edit_form(
     let Some(row) = row else {
         return not_found();
     };
-    let username: String = row.try_get("username").unwrap_or_default();
-    let first_name: String = row.try_get("first_name").unwrap_or_default();
-    let last_name: Option<String> = row.try_get("last_name").ok().flatten();
-    let email: String = row.try_get("email").unwrap_or_default();
+    let username = row.get_text("username").unwrap_or_default();
+    let first_name = row.get_text("first_name").unwrap_or_default();
+    let last_name = row.get_text_opt("last_name").unwrap_or_default();
+    let email = row.get_text("email").unwrap_or_default();
     let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
-    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let perms_json = row.get_text("permissions").unwrap_or_default();
     let overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     render(build(
         &state,
@@ -98,7 +97,7 @@ pub(crate) async fn update(
             .from(Alias::new("backend_users"))
             .and_where(
                 Expr::col(Alias::new("id"))
-                    .cast_as(Alias::new("text"))
+                    .cast_as(Alias::new(text_cast(state.db.backend)))
                     .eq(id.clone()),
             )
             .to_owned();
@@ -123,7 +122,7 @@ pub(crate) async fn update(
         Err(_) => return not_found(),
     };
 
-    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let perms_json = row.get_text("permissions").unwrap_or_default();
     let mut overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     let submitted = parse_states(&pairs);
 

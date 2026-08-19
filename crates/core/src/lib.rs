@@ -13,8 +13,10 @@ pub mod module;
 pub mod pagination;
 pub mod query;
 pub mod strata;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
-pub use migration::{bool_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
+pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use query::AnyRowExt;

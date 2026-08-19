@@ -58,6 +58,21 @@ pub fn bool_col<T: sea_query::IntoIden>(name: T) -> ColumnDef {
     ColumnDef::new(name).integer().to_owned()
 }
 
+/// The length of a [`key_col`], generous enough for UUIDs, codes, usernames,
+/// emails, and token hashes while staying within MySQL's index-length limit.
+pub const KEY_LEN: u32 = 255;
+
+/// A portable key column: a bounded `varchar` rather than `text`. Use this in a
+/// migration for any column that participates in a key, index, or foreign key
+/// (ids, codes, tokens, and columns named in an `Index`): MySQL cannot index a
+/// `text` column without a prefix length, so a plain `text` id or unique column
+/// fails there. A bounded string keys cleanly on every backend. It holds the
+/// same UTF-8 strings a `text` column would, so application code is unchanged.
+/// Chain `.not_null()`, `.primary_key()`, `.unique_key()`, and so on as usual.
+pub fn key_col<T: sea_query::IntoIden>(name: T) -> ColumnDef {
+    ColumnDef::new(name).string_len(KEY_LEN).to_owned()
+}
+
 fn schema_sql<S: SchemaStatementBuilder>(backend: DbBackend, stmt: &S) -> String {
     match backend {
         DbBackend::Postgres => stmt.build(PostgresQueryBuilder),

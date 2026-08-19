@@ -1090,7 +1090,6 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower",
- "uuid",
 ]
 
 [[package]]
@@ -1109,7 +1108,6 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -1137,6 +1135,8 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]

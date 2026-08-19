@@ -5,13 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Formatting and lints. The database test suites run in the per-backend
+# workflows (sqlite.yml, postgres.yml, mysql.yml); clippy enables the SQLite
+# driver so the test targets type-check without needing a database service.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
-    # The suite builds SQL at runtime (sea-query over sqlx::Any) and its tests
-    # run against an in-memory SQLite database, so no database service is needed.
-    # A backend matrix that also runs the suite against Postgres and MySQL is a
-    # planned follow-up once the test harness takes the target backend from env.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -19,5 +18,4 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --features sqlite -- -D warnings

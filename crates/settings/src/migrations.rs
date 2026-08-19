@@ -26,12 +26,7 @@ impl Migration for CreateSettings {
             Table::create()
                 .table(Settings::Table)
                 .if_not_exists()
-                .col(
-                    ColumnDef::new(Settings::Code)
-                        .text()
-                        .not_null()
-                        .primary_key(),
-                )
+                .col(key_col(Settings::Code).not_null().primary_key())
                 .col(
                     ColumnDef::new(Settings::Value)
                         .text()

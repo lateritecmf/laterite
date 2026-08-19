@@ -1,0 +1,35 @@
+name: Postgres
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The application crates against a real Postgres. The harness provisions an
+# ephemeral database per test on the maintenance connection below, so the CI
+# user must be able to CREATE DATABASE (the postgres image's superuser is).
+# Single-threaded because each test opens its own connection pool.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: laterite
+          POSTGRES_PASSWORD: laterite
+          POSTGRES_DB: laterite_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      LATERITE_TEST_DATABASE_URL: postgres://laterite:laterite@localhost:5432/laterite_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p laterite-auth -p laterite-settings -p laterite-admin --features postgres -- --test-threads=1

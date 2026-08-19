@@ -12,20 +12,10 @@ use tower::ServiceExt;
 
 const SESSION_COOKIE: &str = "laterite_session";
 
-/// A fresh in-memory SQLite database with the admin's built-in migrations
-/// applied, the same runner path the application uses at startup.
-async fn test_db() -> Db {
-    sqlx::any::install_default_drivers();
-    let pool = sqlx::any::AnyPoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("sqlite pool");
-    let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
-    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
-        .await
-        .expect("migrations should apply");
-    db
+/// A fresh test database with the admin's built-in migrations applied, on
+/// whichever backend the run targets. Hold the guard for the test's lifetime.
+async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+    laterite_core::testing::connect_test(&laterite_admin::builtin_migrations()).await
 }
 
 async fn login(svc: &AuthService, username: &str, password: &str) -> String {
@@ -56,11 +46,23 @@ fn post(path: &str, token: &str, body: String) -> Request<Body> {
 
 async fn overrides_of(pool: &Db, user_id: &str) -> HashMap<String, i64> {
     // Ids are bigint auto-increment keys; permissions are a JSON text object.
-    let json: String = sqlx::query_scalar("select permissions from backend_users where id = ?")
-        .bind(user_id.parse::<i64>().unwrap())
+    // Read through the query layer so the placeholder renders per backend.
+    let (sql, values) = laterite_core::query::build(
+        pool.backend,
+        sea_query::Query::select()
+            .column(sea_query::Alias::new("permissions"))
+            .from(sea_query::Alias::new("backend_users"))
+            .and_where(
+                sea_query::Expr::col(sea_query::Alias::new("id"))
+                    .eq(user_id.parse::<i64>().unwrap()),
+            )
+            .to_owned(),
+    );
+    let row = laterite_core::query::bind_values(sqlx::query(&sql), values)
         .fetch_one(&pool.pool)
         .await
         .unwrap();
+    let json = laterite_core::AnyRowExt::get_text(&row, "permissions").unwrap();
     serde_json::from_str(&json).unwrap()
 }
 
@@ -106,7 +108,7 @@ async fn seed_superuser(svc: &AuthService) {
 
 #[tokio::test]
 async fn allow_override_grants_access_beyond_roles() {
-    let pool = test_db().await;
+    let (pool, _guard) = test_db().await;
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
     seed_superuser(&svc).await;
     let root = login(&svc, "root", "rootpw12345").await;
@@ -150,7 +152,7 @@ async fn allow_override_grants_access_beyond_roles() {
 
 #[tokio::test]
 async fn editor_cannot_change_permissions_it_lacks() {
-    let pool = test_db().await;
+    let (pool, _guard) = test_db().await;
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
     seed_superuser(&svc).await;
 

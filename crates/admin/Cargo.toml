@@ -19,8 +19,14 @@ sea-query = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
-uuid = { workspace = true }
+
+[features]
+default = []
+postgres = ["laterite-core/postgres", "laterite-auth/postgres", "laterite-settings/postgres"]
+mysql = ["laterite-core/mysql", "laterite-auth/mysql", "laterite-settings/mysql"]
+sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite", "laterite-settings/sqlite"]
 
 [dev-dependencies]
+laterite-core = { workspace = true, features = ["testing"] }
 tokio = { workspace = true }
 tower = { workspace = true }

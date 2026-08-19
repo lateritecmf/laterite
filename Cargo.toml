@@ -31,17 +31,17 @@ sea-query = { version = "0.32", features = [
     "backend-sqlite",
     "derive",
 ] }
+# Backend drivers (postgres/mysql/sqlite) are not enabled here: each is turned on
+# by a laterite-core feature so a deployment compiles only the driver it uses.
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
     "any",
-    "postgres",
-    "mysql",
-    "sqlite",
 ] }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
+url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }

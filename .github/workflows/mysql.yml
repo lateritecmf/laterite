@@ -1,0 +1,34 @@
+name: MariaDB
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The application crates against a real MariaDB (the maintained MySQL-protocol
+# server; Oracle MySQL 8 reached end of life in 2026). The harness provisions an
+# ephemeral database per test on the maintenance connection below, so root must
+# be able to CREATE DATABASE. Single-threaded because each test opens its own
+# connection pool.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: laterite
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LATERITE_TEST_DATABASE_URL: mysql://root:laterite@127.0.0.1:3306/mysql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p laterite-auth -p laterite-settings -p laterite-admin --features mysql -- --test-threads=1

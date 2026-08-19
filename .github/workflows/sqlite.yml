@@ -1,0 +1,17 @@
+name: SQLite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The full workspace suite on an in-memory SQLite database (the default when
+# LATERITE_TEST_DATABASE_URL is unset), so no service is needed.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --features sqlite

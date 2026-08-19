@@ -11,9 +11,9 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
-use laterite_core::query::{bind_values, build as to_sql};
+use laterite_core::query::{bind_values, build as to_sql, text_cast};
+use laterite_core::AnyRowExt;
 use sea_query::{Alias, Expr, Query};
-use sqlx::Row;
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
 
@@ -76,7 +76,7 @@ pub(crate) async fn edit_form(
             .from(Alias::new("backend_roles"))
             .and_where(
                 Expr::col(Alias::new("id"))
-                    .cast_as(Alias::new("text"))
+                    .cast_as(Alias::new(text_cast(state.db.backend)))
                     .eq(id.clone()),
             )
             .to_owned();
@@ -92,9 +92,9 @@ pub(crate) async fn edit_form(
     let Some(row) = row else {
         return not_found();
     };
-    let code: String = row.try_get("code").unwrap_or_default();
-    let name: String = row.try_get("name").unwrap_or_default();
-    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let code = row.get_text("code").unwrap_or_default();
+    let name = row.get_text("name").unwrap_or_default();
+    let perms_json = row.get_text("permissions").unwrap_or_default();
     let perms: Vec<String> = serde_json::from_str(&perms_json).unwrap_or_default();
     render(build(&state, &action, None, &code, &name, &perms, shell))
 }
@@ -130,7 +130,7 @@ pub(crate) async fn update(
             .value(Alias::new("permissions"), perms_json)
             .and_where(
                 Expr::col(Alias::new("id"))
-                    .cast_as(Alias::new("text"))
+                    .cast_as(Alias::new(text_cast(state.db.backend)))
                     .eq(id.clone()),
             )
             .to_owned();
