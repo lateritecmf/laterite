@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Laterite CMF settings: typed settings models stored as one JSON value per code"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 laterite-core = { workspace = true }

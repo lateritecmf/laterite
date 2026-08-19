@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Laterite CMF backend user authentication: Argon2id credentials, sessions, and role-based permissions"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 laterite-core = { workspace = true }
