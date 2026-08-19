@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "The Laterite command-line tool (lat): admin bootstrap and operations"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "lat"

@@ -5,11 +5,14 @@ members = ["crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/s
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/lateritecmf/laterite"
 
 [workspace.dependencies]
-laterite-core = { path = "crates/core" }
-laterite-auth = { path = "crates/auth" }
-laterite-settings = { path = "crates/settings" }
+# Path plus version: the path is used for local builds within the workspace, and
+# the version is what cargo emits as the crates.io dependency when publishing.
+laterite-core = { path = "crates/core", version = "0.1.0" }
+laterite-auth = { path = "crates/auth", version = "0.1.0" }
+laterite-settings = { path = "crates/settings", version = "0.1.0" }
 anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"

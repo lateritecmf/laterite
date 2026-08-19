@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Laterite CMF admin surface: the Axum router, session middleware, and login shell"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 laterite-core = { workspace = true }
