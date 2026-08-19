@@ -20,6 +20,10 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 use laterite_auth::{AuthenticatedUser, PermissionSet};
+use laterite_core::query::{bind_values, build as to_sql};
+use laterite_core::AnyRowExt;
+use sea_query::{Alias, Expr, Query};
+use sqlx::Row;
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
 
@@ -30,13 +34,29 @@ pub(crate) async fn edit_form(
     Extension(editor): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Response {
-    let row = match sqlx::query!(
-        r#"select username, first_name, last_name, email, is_superuser, permissions
-           from backend_users where id::text = $1"#,
-        id,
-    )
-    .fetch_optional(&state.pool)
-    .await
+    // Scope the builder so it drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let stmt = Query::select()
+            .columns([
+                Alias::new("username"),
+                Alias::new("first_name"),
+                Alias::new("last_name"),
+                Alias::new("email"),
+                Alias::new("is_superuser"),
+                Alias::new("permissions"),
+            ])
+            .from(Alias::new("backend_users"))
+            .and_where(
+                Expr::col(Alias::new("id"))
+                    .cast_as(Alias::new("text"))
+                    .eq(id.clone()),
+            )
+            .to_owned();
+        to_sql(state.db.backend, stmt)
+    };
+    let row = match bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
+        .await
     {
         Ok(row) => row,
         Err(_) => return render_error(),
@@ -44,17 +64,22 @@ pub(crate) async fn edit_form(
     let Some(row) = row else {
         return not_found();
     };
-    let overrides: HashMap<String, i64> =
-        serde_json::from_value(row.permissions).unwrap_or_default();
+    let username: String = row.try_get("username").unwrap_or_default();
+    let first_name: String = row.try_get("first_name").unwrap_or_default();
+    let last_name: Option<String> = row.try_get("last_name").ok().flatten();
+    let email: String = row.try_get("email").unwrap_or_default();
+    let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
+    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     render(build(
         &state,
         shell,
         &editor.permissions,
         format!("/admin/users/{id}/edit"),
-        full_name(&row.first_name, row.last_name.as_deref()),
-        row.username,
-        row.email,
-        row.is_superuser,
+        full_name(&first_name, last_name.as_deref()),
+        username,
+        email,
+        is_superuser,
         &overrides,
     ))
 }
@@ -66,12 +91,22 @@ pub(crate) async fn update(
     Path(id): Path<String>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
-    let row = match sqlx::query!(
-        "select id, is_superuser, permissions from backend_users where id::text = $1",
-        id,
-    )
-    .fetch_optional(&state.pool)
-    .await
+    // Scope the builder so it drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let stmt = Query::select()
+            .columns([Alias::new("is_superuser"), Alias::new("permissions")])
+            .from(Alias::new("backend_users"))
+            .and_where(
+                Expr::col(Alias::new("id"))
+                    .cast_as(Alias::new("text"))
+                    .eq(id.clone()),
+            )
+            .to_owned();
+        to_sql(state.db.backend, stmt)
+    };
+    let row = match bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
+        .await
     {
         Ok(row) => row,
         Err(_) => return render_error(),
@@ -80,12 +115,16 @@ pub(crate) async fn update(
         return not_found();
     };
     // A superuser has no editable overrides; nothing to save.
-    if row.is_superuser {
+    if row.get_bool("is_superuser").unwrap_or(false) {
         return Redirect::to("/admin/users").into_response();
     }
+    let target_id = match id.parse::<i64>() {
+        Ok(target_id) => target_id,
+        Err(_) => return not_found(),
+    };
 
-    let mut overrides: HashMap<String, i64> =
-        serde_json::from_value(row.permissions).unwrap_or_default();
+    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let mut overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     let submitted = parse_states(&pairs);
 
     // Only touch registered permissions the editor holds. A permission the editor
@@ -109,7 +148,7 @@ pub(crate) async fn update(
         }
     }
 
-    match state.auth.set_user_permissions(row.id, &overrides).await {
+    match state.auth.set_user_permissions(target_id, &overrides).await {
         Ok(()) => Redirect::to("/admin/users").into_response(),
         Err(_) => render_error(),
     }

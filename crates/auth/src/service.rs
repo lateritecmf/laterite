@@ -11,7 +11,8 @@ use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+
+use laterite_core::Db;
 
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser};
@@ -133,16 +134,16 @@ pub struct NewOperator<'a> {
     pub timezone: Option<&'a str>,
 }
 
-/// The auth service. Cheap to clone: it holds a pool handle and config.
+/// The auth service. Cheap to clone: it holds a database handle and config.
 #[derive(Clone)]
 pub struct AuthService {
-    pool: PgPool,
+    db: Db,
     config: AuthConfig,
 }
 
 impl AuthService {
-    pub fn new(pool: PgPool, config: AuthConfig) -> Self {
-        Self { pool, config }
+    pub fn new(db: Db, config: AuthConfig) -> Self {
+        Self { db, config }
     }
 
     /// Verifies a username and password, and on success issues a session.
@@ -158,7 +159,7 @@ impl AuthService {
         let now = Utc::now();
         let since = now - chrono_from_std(self.config.failure_window);
 
-        if store::count_recent_failures(&self.pool, username, since).await?
+        if store::count_recent_failures(&self.db, username, since).await?
             >= self.config.max_failures
         {
             self.log(None, username, AccessEvent::LockedOut, ctx)
@@ -166,7 +167,7 @@ impl AuthService {
             return Err(AuthError::TooManyAttempts);
         }
 
-        let user = match store::find_user_by_username(&self.pool, username).await? {
+        let user = match store::find_user_by_username(&self.db, username).await? {
             Some(user) => user,
             None => {
                 self.log(None, username, AccessEvent::LoginFailure, ctx)
@@ -189,7 +190,7 @@ impl AuthService {
 
         let token = generate_token();
         let expires_at = now + chrono_from_std(self.config.session_ttl);
-        store::insert_session(&self.pool, &hash_token(&token), user.id, expires_at).await?;
+        store::insert_session(&self.db, &hash_token(&token), user.id, expires_at).await?;
         self.log(Some(user.id), username, AccessEvent::LoginSuccess, ctx)
             .await?;
 
@@ -203,21 +204,21 @@ impl AuthService {
         let token_hash = hash_token(token);
         let now = Utc::now();
 
-        let user_id = store::find_valid_session(&self.pool, &token_hash, now)
+        let user_id = store::find_valid_session(&self.db, &token_hash, now)
             .await?
             .ok_or(AuthError::SessionInvalid)?;
-        let user = store::find_active_user_by_id(&self.pool, user_id)
+        let user = store::find_active_user_by_id(&self.db, user_id)
             .await?
             .ok_or(AuthError::SessionInvalid)?;
-        store::touch_session(&self.pool, &token_hash, now).await?;
+        store::touch_session(&self.db, &token_hash, now).await?;
 
-        let grants = store::load_role_permissions(&self.pool, user.id)
+        let grants = store::load_role_permissions(&self.db, user.id)
             .await?
             .into_iter()
             .flatten();
         // Split the user's per-permission overrides into allow (1) and deny (-1),
         // which take precedence over the role grants.
-        let overrides = store::load_user_permission_overrides(&self.pool, user.id).await?;
+        let overrides = store::load_user_permission_overrides(&self.db, user.id).await?;
         let (mut allow, mut deny) = (Vec::new(), Vec::new());
         for (code, decision) in overrides {
             match decision.signum() {
@@ -233,7 +234,7 @@ impl AuthService {
 
     /// Invalidates a session. Unknown tokens are a no-op.
     pub async fn logout(&self, token: &str) -> Result<(), AuthError> {
-        store::delete_session(&self.pool, &hash_token(token)).await
+        store::delete_session(&self.db, &hash_token(token)).await
     }
 
     /// Persists an operator's own display timezone. `Some(name)` sets an IANA
@@ -241,43 +242,43 @@ impl AuthService {
     /// default. Validating that `name` is a real timezone is the caller's job.
     pub async fn set_user_timezone(
         &self,
-        user_id: uuid::Uuid,
+        user_id: i64,
         timezone: Option<&str>,
     ) -> Result<(), AuthError> {
-        store::set_user_timezone(&self.pool, user_id, timezone).await
+        store::set_user_timezone(&self.db, user_id, timezone).await
     }
 
     /// Loads a user's per-permission overrides (code to `1` allow or `-1` deny).
     pub async fn user_permission_overrides(
         &self,
-        user_id: uuid::Uuid,
+        user_id: i64,
     ) -> Result<std::collections::HashMap<String, i64>, AuthError> {
-        store::load_user_permission_overrides(&self.pool, user_id).await
+        store::load_user_permission_overrides(&self.db, user_id).await
     }
 
     /// Replaces a user's per-permission overrides. Callers pass only `1` and `-1`
     /// entries; an inherited permission is represented by its absence.
     pub async fn set_user_permissions(
         &self,
-        user_id: uuid::Uuid,
+        user_id: i64,
         overrides: &std::collections::HashMap<String, i64>,
     ) -> Result<(), AuthError> {
-        store::set_user_permissions(&self.pool, user_id, overrides).await
+        store::set_user_permissions(&self.db, user_id, overrides).await
     }
 
     /// Whether any backend operator exists yet. A fresh install with none is
     /// routed to first-run setup instead of login.
     pub async fn has_any_operator(&self) -> Result<bool, AuthError> {
-        store::any_user_exists(&self.pool).await
+        store::any_user_exists(&self.db).await
     }
 
     /// Creates a superuser operator: hashes the password, inserts the user, and
     /// records their timezone preference. The single account-creation path,
     /// shared by the CLI and the first-run setup screen.
-    pub async fn create_superuser(&self, new: NewOperator<'_>) -> Result<uuid::Uuid, AuthError> {
+    pub async fn create_superuser(&self, new: NewOperator<'_>) -> Result<i64, AuthError> {
         let hash = password::hash_password(new.password)?;
         let id = store::create_user(
-            &self.pool,
+            &self.db,
             new.username,
             new.email,
             new.first_name,
@@ -287,20 +288,20 @@ impl AuthService {
         )
         .await?;
         if new.timezone.is_some() {
-            store::set_user_timezone(&self.pool, id, new.timezone).await?;
+            store::set_user_timezone(&self.db, id, new.timezone).await?;
         }
         Ok(id)
     }
 
     async fn log(
         &self,
-        user_id: Option<uuid::Uuid>,
+        user_id: Option<i64>,
         username: &str,
         event: AccessEvent,
         ctx: &RequestContext,
     ) -> Result<(), AuthError> {
         store::insert_access_log(
-            &self.pool,
+            &self.db,
             user_id,
             username,
             event,
@@ -341,15 +342,10 @@ fn to_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    async fn seed_user(
-        pool: &PgPool,
-        username: &str,
-        password: &str,
-        superuser: bool,
-    ) -> uuid::Uuid {
+    async fn seed_user(db: &Db, username: &str, password: &str, superuser: bool) -> i64 {
         let hash = password::hash_password(password).unwrap();
         store::create_user(
-            pool,
+            db,
             username,
             &format!("{username}@example.test"),
             "Test",
@@ -361,21 +357,30 @@ mod tests {
         .unwrap()
     }
 
-    fn service(pool: PgPool) -> AuthService {
-        AuthService::new(pool, AuthConfig::default())
+    fn service(db: Db) -> AuthService {
+        AuthService::new(db, AuthConfig::default())
     }
 
-    /// Applies this module's migrations through the framework runner, the same
-    /// path the application uses at startup. Also exercises the runner itself.
-    async fn migrate(pool: &PgPool) {
-        laterite_core::migrate::run(pool, &[crate::migrations()])
+    /// A fresh in-memory SQLite database with this module's migrations applied
+    /// through the framework runner, the same path the application uses at
+    /// startup. Also exercises the runner itself, on a real backend.
+    async fn test_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
+        laterite_core::migration::run(&db.pool, db.backend, &[crate::migrations()])
             .await
             .expect("migrations should apply");
+        db
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn authenticate_issues_a_verifiable_session(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn authenticate_issues_a_verifiable_session() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "hunter2", true).await;
         let svc = service(pool);
 
@@ -393,9 +398,9 @@ mod tests {
         assert!(identity.allows("anything.superuser.can.do"));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn full_name_falls_back_to_first_name_when_last_is_absent(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn full_name_falls_back_to_first_name_when_last_is_absent() {
+        let pool = test_db().await;
         let hash = password::hash_password("pw").unwrap();
         store::create_user(
             &pool,
@@ -417,9 +422,9 @@ mod tests {
         assert_eq!(identity.user.full_name(), "Prakash");
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn operator_timezone_round_trips_and_clears(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn operator_timezone_round_trips_and_clears() {
+        let pool = test_db().await;
         let id = seed_user(&pool, "tz", "pw", true).await;
 
         // A fresh operator has no preference and inherits the default.
@@ -448,9 +453,9 @@ mod tests {
         assert_eq!(user.timezone, None);
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn has_any_operator_flips_after_the_first_account(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn has_any_operator_flips_after_the_first_account() {
+        let pool = test_db().await;
         let svc = service(pool);
 
         // A fresh install has no operators, so setup (not login) applies.
@@ -479,9 +484,9 @@ mod tests {
         assert_eq!(identity.user.timezone.as_deref(), Some("Asia/Kolkata"));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn wrong_password_is_rejected(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn wrong_password_is_rejected() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "hunter2", false).await;
         let svc = service(pool);
 
@@ -492,9 +497,9 @@ mod tests {
         assert!(matches!(err, AuthError::InvalidCredentials));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn unknown_user_is_rejected_without_distinction(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn unknown_user_is_rejected_without_distinction() {
+        let pool = test_db().await;
         let svc = service(pool);
         let err = svc
             .authenticate("ghost", "whatever", &RequestContext::default())
@@ -503,9 +508,9 @@ mod tests {
         assert!(matches!(err, AuthError::InvalidCredentials));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn lockout_trips_after_max_failures(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn lockout_trips_after_max_failures() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "hunter2", false).await;
         let svc = AuthService::new(
             pool,
@@ -525,9 +530,9 @@ mod tests {
         assert!(matches!(err, AuthError::TooManyAttempts));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn permissions_come_from_assigned_roles(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn permissions_come_from_assigned_roles() {
+        let pool = test_db().await;
         let user_id = seed_user(&pool, "mod", "pw", false).await;
         let role_id = store::create_role(
             &pool,
@@ -552,9 +557,9 @@ mod tests {
         assert!(identity.require("users.edit").is_err());
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn logout_invalidates_the_session(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn logout_invalidates_the_session() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "pw", true).await;
         let svc = service(pool);
 
@@ -569,17 +574,16 @@ mod tests {
         assert!(matches!(err, AuthError::SessionInvalid));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn inactive_account_is_refused_after_correct_password(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn inactive_account_is_refused_after_correct_password() {
+        let pool = test_db().await;
         let user_id = seed_user(&pool, "root", "pw", false).await;
-        sqlx::query!(
-            "update backend_users set is_active = false where id = $1",
-            user_id
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("update backend_users set is_active = ? where id = ?")
+            .bind(0_i32)
+            .bind(user_id.to_string())
+            .execute(&pool.pool)
+            .await
+            .unwrap();
 
         let svc = service(pool);
         let err = svc
@@ -589,9 +593,9 @@ mod tests {
         assert!(matches!(err, AuthError::InactiveAccount));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn reset_password_updates_the_hash(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn reset_password_updates_the_hash() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "oldpw", true).await;
 
         let new_hash = password::hash_password("newpw").unwrap();
@@ -609,9 +613,9 @@ mod tests {
         svc.authenticate("root", "newpw", &ctx).await.unwrap();
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn reset_password_reports_unknown_user(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn reset_password_reports_unknown_user() {
+        let pool = test_db().await;
         let hash = password::hash_password("x").unwrap();
         let affected = store::update_password_by_username(&pool, "ghost", &hash)
             .await
@@ -619,9 +623,9 @@ mod tests {
         assert_eq!(affected, 0);
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn list_users_returns_all_seeded(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn list_users_returns_all_seeded() {
+        let pool = test_db().await;
         seed_user(&pool, "alice", "pw", true).await;
         seed_user(&pool, "bob", "pw", false).await;
 
@@ -633,9 +637,9 @@ mod tests {
         assert!(users.iter().any(|u| u.username == "bob" && !u.is_superuser));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn unlock_clears_the_lockout(pool: PgPool) {
-        migrate(&pool).await;
+    #[tokio::test]
+    async fn unlock_clears_the_lockout() {
+        let pool = test_db().await;
         seed_user(&pool, "root", "pw", false).await;
         let svc = AuthService::new(
             pool.clone(),

@@ -16,5 +16,4 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 rand = { workspace = true }
 rpassword = { workspace = true }
-sqlx = { workspace = true }
 tokio = { workspace = true }

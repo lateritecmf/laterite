@@ -1,25 +1,28 @@
-//! Laterite settings: typed settings models stored as one JSONB blob per code.
+//! Laterite settings: typed settings models stored as one JSON blob per code.
 //!
-//! A settings model is a plain serde struct, stored as one JSONB value keyed by
+//! A settings model is a plain serde struct, stored as one JSON value keyed by
 //! a stable code, with compile-time-typed access. A generic, untyped get/set is
 //! also provided for the admin settings controller, which renders and saves any
-//! registered settings item without knowing its concrete type.
+//! registered settings item without knowing its concrete type. The JSON is
+//! stored as text, so the store is portable across backends.
 
-use laterite_core::ModuleMigrations;
+pub mod migrations;
+
+use chrono::{SecondsFormat, Utc};
+use laterite_core::strata::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::Row;
 use thiserror::Error;
 
-/// Migrations owned by this crate.
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+pub use migrations::{migrations, MODULE_ID};
 
-/// The stable migration namespace for this module.
-pub const MODULE_ID: &str = "laterite.settings";
-
-/// This module's migrations, for registration with the application's runner.
-pub fn migrations() -> ModuleMigrations {
-    ModuleMigrations::new(MODULE_ID, &MIGRATOR)
+#[derive(Iden)]
+pub(crate) enum Settings {
+    Table,
+    Code,
+    Value,
+    UpdatedAt,
 }
 
 #[derive(Debug, Error)]
@@ -40,40 +43,60 @@ pub trait SettingsModel: Serialize + DeserializeOwned + Default {
 }
 
 /// Loads a typed settings model, returning its `Default` when unset.
-pub async fn load<T: SettingsModel>(pool: &PgPool) -> Result<T, SettingsError> {
-    match get(pool, T::CODE).await? {
+pub async fn load<T: SettingsModel>(db: &Db) -> Result<T, SettingsError> {
+    match get(db, T::CODE).await? {
         Some(value) => Ok(serde_json::from_value(value)?),
         None => Ok(T::default()),
     }
 }
 
 /// Upserts a typed settings model.
-pub async fn save<T: SettingsModel>(pool: &PgPool, model: &T) -> Result<(), SettingsError> {
-    set(pool, T::CODE, &serde_json::to_value(model)?).await
+pub async fn save<T: SettingsModel>(db: &Db, model: &T) -> Result<(), SettingsError> {
+    set(db, T::CODE, &serde_json::to_value(model)?).await
 }
 
 /// Reads the raw JSON value for a code, for the generic settings controller.
-pub async fn get(pool: &PgPool, code: &str) -> Result<Option<serde_json::Value>, SettingsError> {
-    let value = sqlx::query_scalar!("select value from settings where code = $1", code)
-        .fetch_optional(pool)
+pub async fn get(db: &Db, code: &str) -> Result<Option<serde_json::Value>, SettingsError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(Settings::Value)
+            .from(Settings::Table)
+            .and_where(Expr::col(Settings::Code).eq(code))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
         .await?;
-    Ok(value)
+    match row {
+        Some(r) => {
+            let text: String = r.try_get("value")?;
+            Ok(Some(serde_json::from_str(&text)?))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Upserts the raw JSON value for a code.
-pub async fn set(
-    pool: &PgPool,
-    code: &str,
-    value: &serde_json::Value,
-) -> Result<(), SettingsError> {
-    sqlx::query!(
-        r#"insert into settings (code, value) values ($1, $2)
-           on conflict (code) do update set value = $2, updated_at = now()"#,
-        code,
-        value
-    )
-    .execute(pool)
-    .await?;
+pub async fn set(db: &Db, code: &str, value: &serde_json::Value) -> Result<(), SettingsError> {
+    let json = serde_json::to_string(value)?;
+    let now = Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true);
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(Settings::Table)
+            .columns([Settings::Code, Settings::Value, Settings::UpdatedAt])
+            .values_panic([code.into(), json.into(), now.into()])
+            .on_conflict(
+                OnConflict::column(Settings::Code)
+                    .update_columns([Settings::Value, Settings::UpdatedAt])
+                    .to_owned(),
+            )
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
@@ -81,6 +104,21 @@ pub async fn set(
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    /// A fresh in-memory SQLite database with this module's migrations applied.
+    async fn test_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        let db = Db::new(pool, DbBackend::Sqlite);
+        laterite_core::migration::run(&db.pool, db.backend, &[migrations()])
+            .await
+            .unwrap();
+        db
+    }
 
     #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
     struct LogSettings {
@@ -94,15 +132,13 @@ mod tests {
         const CODE: &'static str = "test.log";
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn typed_round_trip_and_default(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn typed_round_trip_and_default() {
+        let db = test_db().await;
 
         // Unset resolves to the model's Default.
         assert_eq!(
-            load::<LogSettings>(&pool).await.unwrap(),
+            load::<LogSettings>(&db).await.unwrap(),
             LogSettings::default()
         );
 
@@ -111,30 +147,28 @@ mod tests {
             log_events: true,
             log_requests: false,
         };
-        save(&pool, &saved).await.unwrap();
-        assert_eq!(load::<LogSettings>(&pool).await.unwrap(), saved);
+        save(&db, &saved).await.unwrap();
+        assert_eq!(load::<LogSettings>(&db).await.unwrap(), saved);
 
         // The untyped get sees the same value.
-        let raw = get(&pool, LogSettings::CODE).await.unwrap().unwrap();
+        let raw = get(&db, LogSettings::CODE).await.unwrap().unwrap();
         assert_eq!(raw["log_events"], serde_json::json!(true));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn missing_field_uses_serde_default(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn missing_field_uses_serde_default() {
+        let db = test_db().await;
 
         // A stored value missing a field deserializes with that field defaulted.
         set(
-            &pool,
+            &db,
             LogSettings::CODE,
             &serde_json::json!({ "log_events": true }),
         )
         .await
         .unwrap();
         assert_eq!(
-            load::<LogSettings>(&pool).await.unwrap(),
+            load::<LogSettings>(&db).await.unwrap(),
             LogSettings {
                 log_events: true,
                 log_requests: false,

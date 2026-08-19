@@ -12,10 +12,13 @@ use askama::Template;
 use axum::response::Response;
 use chrono::DateTime;
 use chrono_tz::Tz;
+use laterite_core::query::{bind_values, bind_values_as, build};
+use laterite_core::Db;
+use sea_query::{Alias, Expr, Order, Query};
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::Row;
 
-use crate::sql::{quote, valid_ident};
+use crate::sql::valid_ident;
 use crate::{render, render_error, AdminState};
 
 const ID_ALIAS: &str = "_lat_id";
@@ -24,15 +27,6 @@ const ID_ALIAS: &str = "_lat_id";
 pub enum SortDir {
     Asc,
     Desc,
-}
-
-impl SortDir {
-    fn as_sql(self) -> &'static str {
-        match self {
-            SortDir::Asc => "asc",
-            SortDir::Desc => "desc",
-        }
-    }
 }
 
 /// How a list column's raw value is rendered.
@@ -131,11 +125,10 @@ pub struct ListPage {
 }
 
 /// Runs the list query for a config, returning display-ready rows and the total.
-pub(crate) async fn query(
-    pool: &PgPool,
-    config: &ListConfig,
-    offset: i64,
-) -> anyhow::Result<ListPage> {
+/// Built with `sea-query` and dynamic identifiers (`Alias`), and every selected
+/// column is cast to text so a value of any type reads back uniformly as a
+/// string for display, without a Postgres-specific `row_to_json`.
+pub(crate) async fn query(db: &Db, config: &ListConfig, offset: i64) -> anyhow::Result<ListPage> {
     if !valid_ident(&config.entity)
         || !valid_ident(&config.order_by)
         || !valid_ident(&config.id_field)
@@ -144,51 +137,69 @@ pub(crate) async fn query(
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
 
-    let cols = config
-        .columns
-        .iter()
-        .map(|c| quote(&c.field))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let inner = format!(
-        "select {cols}, {}::text as {} from {} order by {} {} limit $1 offset $2",
-        quote(&config.id_field),
-        quote(ID_ALIAS),
-        quote(&config.entity),
-        quote(&config.order_by),
-        config.order_dir.as_sql(),
-    );
-    let sql = format!("select row_to_json(_t) from ({inner}) _t");
+    let dir = match config.order_dir {
+        SortDir::Asc => Order::Asc,
+        SortDir::Desc => Order::Desc,
+    };
+    // Scope each sea-query builder so it drops before the await that follows: its
+    // identifiers are reference-counted (not `Send`), and a live builder across
+    // the await would make this future non-`Send`.
+    let (sql, values) = {
+        let mut select = Query::select();
+        for column in &config.columns {
+            select.expr_as(
+                Expr::col(Alias::new(&column.field)).cast_as(Alias::new("text")),
+                Alias::new(&column.field),
+            );
+        }
+        select
+            .expr_as(
+                Expr::col(Alias::new(&config.id_field)).cast_as(Alias::new("text")),
+                Alias::new(ID_ALIAS),
+            )
+            .from(Alias::new(&config.entity))
+            .order_by(Alias::new(&config.order_by), dir)
+            .limit(config.per_page.max(0) as u64)
+            .offset(offset.max(0) as u64);
+        build(db.backend, select)
+    };
+    let raw = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
 
-    let raw: Vec<serde_json::Value> = sqlx::query_scalar(&sql)
-        .bind(config.per_page)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
-    let total: i64 = sqlx::query_scalar(&format!("select count(*) from {}", quote(&config.entity)))
-        .fetch_one(pool)
-        .await?;
+    let (csql, cvalues) = {
+        let count = Query::select()
+            .expr(Expr::col(Alias::new(&config.id_field)).count())
+            .from(Alias::new(&config.entity))
+            .to_owned();
+        build(db.backend, count)
+    };
+    let total: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&csql), cvalues)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
 
     let rows = raw
         .iter()
         .map(|row| RowView {
-            id: cell(row.get(ID_ALIAS)),
+            id: get_text(row, ID_ALIAS),
             cells: config
                 .columns
                 .iter()
-                .map(|c| cell(row.get(c.field.as_str())))
+                .map(|c| get_text(row, &c.field))
                 .collect(),
         })
         .collect();
     Ok(ListPage { rows, total })
 }
 
-fn cell(value: Option<&serde_json::Value>) -> String {
-    match value {
-        None | Some(serde_json::Value::Null) => String::new(),
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
-    }
+/// Reads a text-cast column as a display string, treating null or a decode
+/// error as empty.
+fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
+    row.try_get::<Option<String>, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 /// Formats a raw cell value for display according to its column kind. Timestamps
@@ -198,8 +209,8 @@ fn format_cell(raw: &str, kind: ColumnKind, tz: Tz) -> String {
     match kind {
         ColumnKind::Text => raw.to_string(),
         ColumnKind::Bool => match raw {
-            "true" => "Yes".to_string(),
-            "false" => "No".to_string(),
+            "1" | "true" => "Yes".to_string(),
+            "0" | "false" | "" => "No".to_string(),
             other => other.to_string(),
         },
         ColumnKind::DateTime | ColumnKind::Date | ColumnKind::Time => {
@@ -228,7 +239,7 @@ pub(crate) async fn handle(
 ) -> Response {
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
-    match query(&state.pool, config, offset).await {
+    match query(&state.db, config, offset).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
             let rows = result
@@ -318,14 +329,28 @@ mod tests {
         assert_eq!(format_cell("n/a", ColumnKind::DateTime, Tz::UTC), "n/a");
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn query_returns_display_rows(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
+    /// A fresh in-memory SQLite database with the auth tables migrated in, the
+    /// same runner path the application uses at startup.
+    async fn test_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
-            .unwrap();
+            .expect("sqlite pool");
+        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
+        laterite_core::migration::run(&db.pool, db.backend, &[laterite_auth::migrations()])
+            .await
+            .expect("migrations should apply");
+        db
+    }
+
+    #[tokio::test]
+    async fn query_returns_display_rows() {
+        let db = test_db().await;
         let hash = laterite_auth::password::hash_password("pw").unwrap();
         laterite_auth::store::create_user(
-            &pool,
+            &db,
             "root",
             "root@example.test",
             "Ada",
@@ -336,21 +361,21 @@ mod tests {
         .await
         .unwrap();
 
-        let result = query(&pool, &config(), 0).await.unwrap();
+        let result = query(&db, &config(), 0).await.unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].cells[0], "root");
-        assert_eq!(result.rows[0].cells[1], "true");
+        // Booleans store as 0/1 integers everywhere, so a cast-to-text superuser
+        // flag reads back as "1"; the display layer maps it to "Yes".
+        assert_eq!(result.rows[0].cells[1], "1");
         assert!(!result.rows[0].id.is_empty());
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn query_rejects_bad_identifiers(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn query_rejects_bad_identifiers() {
+        let db = test_db().await;
         let mut bad = config();
         bad.entity = "backend_users; drop table backend_users".to_string();
-        assert!(query(&pool, &bad, 0).await.is_err());
+        assert!(query(&db, &bad, 0).await.is_err());
     }
 }

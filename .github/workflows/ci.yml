@@ -8,27 +8,10 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: laterite
-          POSTGRES_PASSWORD: laterite
-          POSTGRES_DB: laterite_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      # Compile the sqlx macros from the committed .sqlx offline data, so the
-      # build does not depend on the database being reachable.
-      SQLX_OFFLINE: "true"
-      # Runtime target for the #[sqlx::test] cases, which create ephemeral
-      # databases against the service above.
-      DATABASE_URL: postgres://laterite:laterite@localhost:5432/laterite_ci
+    # The suite builds SQL at runtime (sea-query over sqlx::Any) and its tests
+    # run against an in-memory SQLite database, so no database service is needed.
+    # A backend matrix that also runs the suite against Postgres and MySQL is a
+    # planned follow-up once the test harness takes the target backend from env.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

@@ -11,6 +11,9 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
+use laterite_core::query::{bind_values, build as to_sql};
+use sea_query::{Alias, Expr, Query};
+use sqlx::Row;
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
 
@@ -41,15 +44,7 @@ pub(crate) async fn create(
             shell,
         ));
     }
-    match sqlx::query!(
-        "insert into backend_roles (code, name, permissions) values ($1, $2, $3)",
-        code,
-        name,
-        &perms[..],
-    )
-    .execute(&state.pool)
-    .await
-    {
+    match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
         Ok(_) => Redirect::to("/admin/roles").into_response(),
         Err(_) => render(build(
             &state,
@@ -70,12 +65,26 @@ pub(crate) async fn edit_form(
     Path(id): Path<String>,
 ) -> Response {
     let action = format!("/admin/roles/{id}/edit");
-    let row = match sqlx::query!(
-        "select code, name, permissions from backend_roles where id::text = $1",
-        id,
-    )
-    .fetch_optional(&state.pool)
-    .await
+    // Scope the builder so it drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let stmt = Query::select()
+            .columns([
+                Alias::new("code"),
+                Alias::new("name"),
+                Alias::new("permissions"),
+            ])
+            .from(Alias::new("backend_roles"))
+            .and_where(
+                Expr::col(Alias::new("id"))
+                    .cast_as(Alias::new("text"))
+                    .eq(id.clone()),
+            )
+            .to_owned();
+        to_sql(state.db.backend, stmt)
+    };
+    let row = match bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
+        .await
     {
         Ok(row) => row,
         Err(_) => return render_error(),
@@ -83,15 +92,11 @@ pub(crate) async fn edit_form(
     let Some(row) = row else {
         return not_found();
     };
-    render(build(
-        &state,
-        &action,
-        None,
-        &row.code,
-        &row.name,
-        &row.permissions,
-        shell,
-    ))
+    let code: String = row.try_get("code").unwrap_or_default();
+    let name: String = row.try_get("name").unwrap_or_default();
+    let perms_json: String = row.try_get("permissions").unwrap_or_default();
+    let perms: Vec<String> = serde_json::from_str(&perms_json).unwrap_or_default();
+    render(build(&state, &action, None, &code, &name, &perms, shell))
 }
 
 /// Persists an edited role, then redirects to the list.
@@ -115,15 +120,25 @@ pub(crate) async fn update(
             shell,
         ));
     }
-    match sqlx::query!(
-        "update backend_roles set code = $1, name = $2, permissions = $3 where id::text = $4",
-        code,
-        name,
-        &perms[..],
-        id,
-    )
-    .execute(&state.pool)
-    .await
+    let perms_json = serde_json::to_string(&perms).unwrap_or_else(|_| "[]".to_string());
+    // Scope the builder so it drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let stmt = Query::update()
+            .table(Alias::new("backend_roles"))
+            .value(Alias::new("code"), code.clone())
+            .value(Alias::new("name"), name.clone())
+            .value(Alias::new("permissions"), perms_json)
+            .and_where(
+                Expr::col(Alias::new("id"))
+                    .cast_as(Alias::new("text"))
+                    .eq(id.clone()),
+            )
+            .to_owned();
+        to_sql(state.db.backend, stmt)
+    };
+    match bind_values(sqlx::query(&sql), values)
+        .execute(&state.db.pool)
+        .await
     {
         Ok(_) => Redirect::to("/admin/roles").into_response(),
         Err(_) => render(build(

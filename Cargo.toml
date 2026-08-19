@@ -34,14 +34,10 @@ sea-query = { version = "0.32", features = [
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
-    "postgres",
     "any",
+    "postgres",
+    "mysql",
     "sqlite",
-    "migrate",
-    "macros",
-    "uuid",
-    "chrono",
-    "json",
 ] }
 tempfile = "3"
 thiserror = "2"

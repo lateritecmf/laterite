@@ -49,6 +49,15 @@ impl DbBackend {
     }
 }
 
+/// A portable boolean column, stored as a 0/1 integer. Use this in a migration
+/// instead of `ColumnDef::new(name).boolean()`: `sqlx::Any` cannot decode a
+/// SQLite `boolean` column, so integer is the representation that works on every
+/// backend. Bind and read the value as a normal `bool` through the query layer
+/// (see `crate::query`). Chain `.not_null()`, `.default(0)`, and so on as usual.
+pub fn bool_col<T: sea_query::IntoIden>(name: T) -> ColumnDef {
+    ColumnDef::new(name).integer().to_owned()
+}
+
 fn schema_sql<S: SchemaStatementBuilder>(backend: DbBackend, stmt: &S) -> String {
     match backend {
         DbBackend::Postgres => stmt.build(PostgresQueryBuilder),

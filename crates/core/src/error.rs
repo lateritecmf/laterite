@@ -14,9 +14,6 @@ pub enum CoreError {
     #[error("database error")]
     Database(#[from] sqlx::Error),
 
-    #[error("migration error")]
-    Migration(#[from] sqlx::migrate::MigrateError),
-
     #[error("migration '{name}' in module '{module}' changed after being applied")]
     MigrationDrift { module: String, name: String },
 

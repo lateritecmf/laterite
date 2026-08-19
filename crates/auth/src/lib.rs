@@ -12,29 +12,19 @@
 //! extractors, cookie handling, and the rendered login screen.
 
 pub mod error;
+pub mod migrations;
 pub mod password;
 pub mod permission;
 pub mod service;
 pub mod store;
 
 mod models;
+mod schema;
 
 pub use error::AuthError;
+pub use migrations::{migrations, MODULE_ID};
 pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
     AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator, RequestContext,
 };
-
-use laterite_core::ModuleMigrations;
-
-/// The stable migration namespace for this module.
-pub const MODULE_ID: &str = "laterite.auth";
-
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
-
-/// This module's migrations, for registration with the application's migration
-/// runner (`laterite_core::migrate::run`).
-pub fn migrations() -> ModuleMigrations {
-    ModuleMigrations::new(MODULE_ID, &MIGRATOR)
-}

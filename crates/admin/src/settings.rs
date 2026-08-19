@@ -118,7 +118,7 @@ pub(crate) async fn edit_form(
     item: &SettingsItem,
     shell: crate::Shell,
 ) -> Response {
-    let stored = match laterite_settings::get(&state.pool, &item.code).await {
+    let stored = match laterite_settings::get(&state.db, &item.code).await {
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
@@ -133,7 +133,7 @@ pub(crate) async fn update(
     shell: crate::Shell,
 ) -> Response {
     let value = collect(item, &data);
-    match laterite_settings::set(&state.pool, &item.code, &value).await {
+    match laterite_settings::set(&state.db, &item.code, &value).await {
         Ok(()) => Redirect::to("/admin/settings").into_response(),
         Err(_) => render(build(
             item,
@@ -292,7 +292,7 @@ struct SettingsFormTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
+    use laterite_core::Db;
 
     fn item() -> SettingsItem {
         SettingsItem {
@@ -312,11 +312,27 @@ mod tests {
         }
     }
 
-    fn state(pool: PgPool) -> AdminState {
+    fn state(db: Db) -> AdminState {
         AdminState::new(
-            laterite_auth::AuthService::new(pool.clone(), laterite_auth::AuthConfig::default()),
-            pool,
+            laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
+            db,
         )
+    }
+
+    /// A fresh in-memory SQLite database with the settings table migrated in,
+    /// the same runner path the application uses at startup.
+    async fn test_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
+        laterite_core::migration::run(&db.pool, db.backend, &[laterite_settings::migrations()])
+            .await
+            .expect("migrations should apply");
+        db
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -408,12 +424,10 @@ mod tests {
             .any(|i| i.code == "backend.roles"));
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn update_persists_typed_values(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_settings::migrations()])
-            .await
-            .unwrap();
-        let st = state(pool.clone());
+    #[tokio::test]
+    async fn update_persists_typed_values() {
+        let db = test_db().await;
+        let st = state(db.clone());
 
         let it = item();
         let resp = update(
@@ -426,7 +440,7 @@ mod tests {
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
 
-        let stored = laterite_settings::get(&pool, "test.log")
+        let stored = laterite_settings::get(&db, "test.log")
             .await
             .unwrap()
             .unwrap();
@@ -441,12 +455,10 @@ mod tests {
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn edit_form_renders_for_unset_item(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_settings::migrations()])
-            .await
-            .unwrap();
-        let st = state(pool);
+    #[tokio::test]
+    async fn edit_form_renders_for_unset_item() {
+        let db = test_db().await;
+        let st = state(db);
         // No stored value yet: the form still renders (fields fall back to defaults).
         let it = item();
         let resp = edit_form(&st, &it, crate::Shell::test()).await;

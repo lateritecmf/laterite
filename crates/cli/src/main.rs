@@ -9,12 +9,13 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
-use sqlx::PgPool;
+use laterite_core::Db;
 
 #[derive(Parser)]
 #[command(name = "lat", version, about = "The Laterite command-line tool")]
 struct Cli {
-    /// Postgres connection URL. Falls back to the DATABASE_URL environment variable.
+    /// Database connection URL (Postgres, MySQL, or SQLite). Falls back to the
+    /// DATABASE_URL environment variable.
     #[arg(long, global = true, env = "DATABASE_URL")]
     database_url: Option<String>,
 
@@ -132,7 +133,7 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
     Ok(())
 }
 
-async fn connect(database_url: Option<String>) -> Result<PgPool> {
+async fn connect(database_url: Option<String>) -> Result<Db> {
     let url = database_url.context("no database URL: pass --database-url or set DATABASE_URL")?;
     let config = DatabaseConfig {
         url,
