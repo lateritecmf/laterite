@@ -1,344 +1,525 @@
 //! Data access for the auth schema.
 //!
-//! Free functions over a `PgPool`. Query text is checked against the database
-//! at compile time by the sqlx macros; the service layer composes these into
-//! the authentication and authorization flows.
+//! Free functions over a [`Db`] (pool plus backend). Queries are built with
+//! `sea-query` and bound through `laterite_core::query`, so they run on any
+//! supported backend. Portability at the boundary: ids are `bigint`
+//! auto-increment keys (the database assigns them, read back through
+//! [`laterite_core::query::insert_returning_id`]), timestamps are stored as text
+//! and converted to `DateTime<Utc>` here, and permission collections are stored
+//! as JSON text.
 
-use chrono::{DateTime, Utc};
-use sqlx::PgPool;
-use uuid::Uuid;
+use std::collections::HashMap;
+
+use chrono::{DateTime, SecondsFormat, Utc};
+use laterite_core::query::{bind_values, bind_values_as, build, insert_returning_id};
+use laterite_core::{AnyRowExt, Db};
+use sea_query::{Expr, OnConflict, Order, Query};
+use sqlx::any::AnyRow;
+use sqlx::Row;
 
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
+use crate::schema::{
+    BackendAccessLog, BackendRoles, BackendSessions, BackendUserRoles, BackendUsers,
+};
 
-/// Looks up a user by username without filtering on active state, so the
-/// caller can distinguish a disabled account from a wrong password only after
-/// the password has been verified.
+fn now_ts() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+fn ts(dt: DateTime<Utc>) -> String {
+    dt.to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+fn parse_ts(s: &str) -> Result<DateTime<Utc>, AuthError> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|d| d.with_timezone(&Utc))
+        .map_err(|e| AuthError::Data(format!("timestamp `{s}`: {e}")))
+}
+
+fn user_from_row(row: &AnyRow) -> Result<BackendUser, AuthError> {
+    Ok(BackendUser {
+        id: row.try_get::<i64, _>("id")?,
+        username: row.try_get("username")?,
+        email: row.try_get("email")?,
+        first_name: row.try_get("first_name")?,
+        last_name: row.try_get("last_name")?,
+        password_hash: row.try_get("password_hash")?,
+        is_superuser: row.get_bool("is_superuser")?,
+        is_active: row.get_bool("is_active")?,
+        timezone: row.try_get("timezone")?,
+        created_at: parse_ts(&row.try_get::<String, _>("created_at")?)?,
+        updated_at: parse_ts(&row.try_get::<String, _>("updated_at")?)?,
+    })
+}
+
+fn summary_from_row(row: &AnyRow) -> Result<BackendUserSummary, AuthError> {
+    Ok(BackendUserSummary {
+        id: row.try_get::<i64, _>("id")?,
+        username: row.try_get("username")?,
+        email: row.try_get("email")?,
+        first_name: row.try_get("first_name")?,
+        last_name: row.try_get("last_name")?,
+        is_superuser: row.get_bool("is_superuser")?,
+        is_active: row.get_bool("is_active")?,
+        created_at: parse_ts(&row.try_get::<String, _>("created_at")?)?,
+    })
+}
+
+const USER_COLS: [BackendUsers; 11] = [
+    BackendUsers::Id,
+    BackendUsers::Username,
+    BackendUsers::Email,
+    BackendUsers::FirstName,
+    BackendUsers::LastName,
+    BackendUsers::PasswordHash,
+    BackendUsers::IsSuperuser,
+    BackendUsers::IsActive,
+    BackendUsers::Timezone,
+    BackendUsers::CreatedAt,
+    BackendUsers::UpdatedAt,
+];
+
+/// Looks up a user by username without filtering on active state.
 pub async fn find_user_by_username(
-    pool: &PgPool,
+    db: &Db,
     username: &str,
 ) -> Result<Option<BackendUser>, AuthError> {
-    let user = sqlx::query_as!(
-        BackendUser,
-        r#"select id, username, email, first_name, last_name, password_hash,
-                  is_superuser, is_active, timezone, created_at, updated_at
-           from backend_users
-           where username = $1"#,
-        username
-    )
-    .fetch_optional(pool)
-    .await?;
-    Ok(user)
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(USER_COLS)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Username).eq(username))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    row.map(|r| user_from_row(&r)).transpose()
 }
 
 /// Looks up an active user by id, used when resolving a session to an identity.
-pub async fn find_active_user_by_id(
-    pool: &PgPool,
-    id: Uuid,
-) -> Result<Option<BackendUser>, AuthError> {
-    let user = sqlx::query_as!(
-        BackendUser,
-        r#"select id, username, email, first_name, last_name, password_hash,
-                  is_superuser, is_active, timezone, created_at, updated_at
-           from backend_users
-           where id = $1 and is_active = true"#,
-        id
-    )
-    .fetch_optional(pool)
-    .await?;
-    Ok(user)
+pub async fn find_active_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(USER_COLS)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(id))
+            .and_where(Expr::col(BackendUsers::IsActive).eq(true))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    row.map(|r| user_from_row(&r)).transpose()
 }
 
-/// Returns the permission arrays of every role assigned to a user, for the
-/// service to flatten into a permission set.
-pub async fn load_role_permissions(
-    pool: &PgPool,
-    user_id: Uuid,
-) -> Result<Vec<Vec<String>>, AuthError> {
-    let rows = sqlx::query_scalar!(
-        r#"select r.permissions
-           from backend_user_roles ur
-           join backend_roles r on r.id = ur.backend_role_id
-           where ur.backend_user_id = $1"#,
-        user_id
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
+/// Returns the permission lists of every role assigned to a user (each stored
+/// as a JSON array), for the service to flatten into a permission set.
+pub async fn load_role_permissions(db: &Db, user_id: i64) -> Result<Vec<Vec<String>>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column((BackendRoles::Table, BackendRoles::Permissions))
+            .from(BackendUserRoles::Table)
+            .inner_join(
+                BackendRoles::Table,
+                Expr::col((BackendRoles::Table, BackendRoles::Id))
+                    .equals((BackendUserRoles::Table, BackendUserRoles::BackendRoleId)),
+            )
+            .and_where(
+                Expr::col((BackendUserRoles::Table, BackendUserRoles::BackendUserId)).eq(user_id),
+            )
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let json: String = row.try_get("permissions")?;
+        let perms: Vec<String> = serde_json::from_str(&json)
+            .map_err(|e| AuthError::Data(format!("role permissions: {e}")))?;
+        out.push(perms);
+    }
+    Ok(out)
 }
 
 /// Loads a user's per-permission overrides: a map of permission code to `1`
-/// (allow) or `-1` (deny). A code that is absent inherits the role decision.
+/// (allow) or `-1` (deny).
 pub async fn load_user_permission_overrides(
-    pool: &PgPool,
-    user_id: Uuid,
-) -> Result<std::collections::HashMap<String, i64>, AuthError> {
-    let value: Option<serde_json::Value> = sqlx::query_scalar!(
-        "select permissions from backend_users where id = $1",
-        user_id
-    )
-    .fetch_optional(pool)
-    .await?;
-    let overrides = value
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+    db: &Db,
+    user_id: i64,
+) -> Result<HashMap<String, i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUsers::Permissions)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    let overrides = match row {
+        Some(r) => {
+            let json: String = r.try_get("permissions")?;
+            serde_json::from_str(&json).unwrap_or_default()
+        }
+        None => HashMap::new(),
+    };
     Ok(overrides)
 }
 
-/// Replaces a user's per-permission overrides. Values other than `1` and `-1`
-/// should not be stored; callers drop `inherit` entries before saving.
+/// Replaces a user's per-permission overrides (stored as a JSON object).
 pub async fn set_user_permissions(
-    pool: &PgPool,
-    user_id: Uuid,
-    overrides: &std::collections::HashMap<String, i64>,
+    db: &Db,
+    user_id: i64,
+    overrides: &HashMap<String, i64>,
 ) -> Result<(), AuthError> {
-    let value = serde_json::to_value(overrides).unwrap_or_else(|_| serde_json::json!({}));
-    sqlx::query!(
-        "update backend_users set permissions = $1 where id = $2",
-        value,
-        user_id
-    )
-    .execute(pool)
-    .await?;
+    let json = serde_json::to_string(overrides).unwrap_or_else(|_| "{}".to_string());
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::Permissions, json)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
 pub async fn insert_session(
-    pool: &PgPool,
+    db: &Db,
     token_hash: &str,
-    user_id: Uuid,
+    user_id: i64,
     expires_at: DateTime<Utc>,
 ) -> Result<(), AuthError> {
-    sqlx::query!(
-        r#"insert into backend_sessions (token_hash, backend_user_id, expires_at)
-           values ($1, $2, $3)"#,
-        token_hash,
-        user_id,
-        expires_at
-    )
-    .execute(pool)
-    .await?;
+    let now = now_ts();
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendSessions::Table)
+            .columns([
+                BackendSessions::TokenHash,
+                BackendSessions::BackendUserId,
+                BackendSessions::CreatedAt,
+                BackendSessions::LastSeenAt,
+                BackendSessions::ExpiresAt,
+            ])
+            .values_panic([
+                token_hash.into(),
+                user_id.into(),
+                now.clone().into(),
+                now.into(),
+                ts(expires_at).into(),
+            ])
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
 /// Returns the owning user id of a non-expired session, if any.
 pub async fn find_valid_session(
-    pool: &PgPool,
+    db: &Db,
     token_hash: &str,
     now: DateTime<Utc>,
-) -> Result<Option<Uuid>, AuthError> {
-    let user_id = sqlx::query_scalar!(
-        r#"select backend_user_id from backend_sessions
-           where token_hash = $1 and expires_at > $2"#,
-        token_hash,
-        now
-    )
-    .fetch_optional(pool)
-    .await?;
-    Ok(user_id)
+) -> Result<Option<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendSessions::BackendUserId)
+            .from(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    match row {
+        Some(r) => Ok(Some(r.try_get::<i64, _>("backend_user_id")?)),
+        None => Ok(None),
+    }
 }
 
-pub async fn touch_session(
-    pool: &PgPool,
-    token_hash: &str,
-    now: DateTime<Utc>,
-) -> Result<(), AuthError> {
-    sqlx::query!(
-        "update backend_sessions set last_seen_at = $2 where token_hash = $1",
-        token_hash,
-        now
-    )
-    .execute(pool)
-    .await?;
+pub async fn touch_session(db: &Db, token_hash: &str, now: DateTime<Utc>) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendSessions::Table)
+            .value(BackendSessions::LastSeenAt, ts(now))
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
-pub async fn delete_session(pool: &PgPool, token_hash: &str) -> Result<(), AuthError> {
-    sqlx::query!(
-        "delete from backend_sessions where token_hash = $1",
-        token_hash
-    )
-    .execute(pool)
-    .await?;
+pub async fn delete_session(db: &Db, token_hash: &str) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn insert_access_log(
-    pool: &PgPool,
-    user_id: Option<Uuid>,
+    db: &Db,
+    user_id: Option<i64>,
     username_attempted: &str,
     event: AccessEvent,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<(), AuthError> {
-    sqlx::query!(
-        r#"insert into backend_access_log
-               (backend_user_id, username_attempted, event, ip_address, user_agent)
-           values ($1, $2, $3, $4, $5)"#,
-        user_id,
-        username_attempted,
-        event.as_str(),
-        ip_address,
-        user_agent
-    )
-    .execute(pool)
-    .await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendAccessLog::Table)
+            .columns([
+                BackendAccessLog::BackendUserId,
+                BackendAccessLog::UsernameAttempted,
+                BackendAccessLog::Event,
+                BackendAccessLog::IpAddress,
+                BackendAccessLog::UserAgent,
+                BackendAccessLog::CreatedAt,
+            ])
+            .values_panic([
+                user_id.into(),
+                username_attempted.into(),
+                event.as_str().into(),
+                ip_address.map(str::to_string).into(),
+                user_agent.map(str::to_string).into(),
+                now_ts().into(),
+            ])
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
 /// Counts recent failed login attempts for a username, for throttling.
 pub async fn count_recent_failures(
-    pool: &PgPool,
+    db: &Db,
     username: &str,
     since: DateTime<Utc>,
 ) -> Result<i64, AuthError> {
-    let count = sqlx::query_scalar!(
-        r#"select count(*) as "count!"
-           from backend_access_log
-           where username_attempted = $1 and event = $2 and created_at >= $3"#,
-        username,
-        AccessEvent::LoginFailure.as_str(),
-        since
-    )
-    .fetch_one(pool)
-    .await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(BackendAccessLog::Id).count())
+            .from(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(username))
+            .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
+            .and_where(Expr::col(BackendAccessLog::CreatedAt).gte(ts(since)))
+            .to_owned(),
+    );
+    let count: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&sql), values)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
     Ok(count)
 }
 
-/// Creates a backend user, returning its id. Intended for seeding the first
-/// operator and for tests; ordinary user management goes through the admin.
+/// Creates a backend user, returning the id the database assigned. Timestamps
+/// are generated here (no database-side defaults) so the insert is portable.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_user(
-    pool: &PgPool,
+    db: &Db,
     username: &str,
     email: &str,
     first_name: &str,
     last_name: Option<&str>,
     password_hash: &str,
     is_superuser: bool,
-) -> Result<Uuid, AuthError> {
-    let id = sqlx::query_scalar!(
-        r#"insert into backend_users
-               (username, email, first_name, last_name, password_hash, is_superuser)
-           values ($1, $2, $3, $4, $5, $6)
-           returning id"#,
-        username,
-        email,
-        first_name,
-        last_name,
-        password_hash,
-        is_superuser
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(id)
+) -> Result<i64, AuthError> {
+    let now = now_ts();
+    let stmt = Query::insert()
+        .into_table(BackendUsers::Table)
+        .columns([
+            BackendUsers::Username,
+            BackendUsers::Email,
+            BackendUsers::FirstName,
+            BackendUsers::LastName,
+            BackendUsers::PasswordHash,
+            BackendUsers::IsSuperuser,
+            BackendUsers::CreatedAt,
+            BackendUsers::UpdatedAt,
+        ])
+        .values_panic([
+            username.into(),
+            email.into(),
+            first_name.into(),
+            last_name.map(str::to_string).into(),
+            password_hash.into(),
+            is_superuser.into(),
+            now.clone().into(),
+            now.into(),
+        ])
+        .to_owned();
+    Ok(insert_returning_id(db, stmt, BackendUsers::Id).await?)
 }
 
-/// Whether any backend user exists. Used to decide between the first-run setup
-/// screen and the login screen.
-pub async fn any_user_exists(pool: &PgPool) -> Result<bool, AuthError> {
-    let exists = sqlx::query_scalar!(r#"select exists(select 1 from backend_users) as "exists!""#)
-        .fetch_one(pool)
-        .await?;
-    Ok(exists)
+/// Whether any backend user exists.
+pub async fn any_user_exists(db: &Db) -> Result<bool, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(BackendUsers::Id).count())
+            .from(BackendUsers::Table)
+            .to_owned(),
+    );
+    let count: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&sql), values)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
+    Ok(count > 0)
 }
 
-/// Sets an operator's own display timezone, or clears it with `None` so the
-/// operator falls back to the deployment default. The IANA name is validated by
-/// the caller before it reaches here.
+/// Sets an operator's own display timezone, or clears it with `None`.
 pub async fn set_user_timezone(
-    pool: &PgPool,
-    user_id: Uuid,
+    db: &Db,
+    user_id: i64,
     timezone: Option<&str>,
 ) -> Result<(), AuthError> {
-    sqlx::query!(
-        r#"update backend_users
-           set timezone = $2, updated_at = now()
-           where id = $1"#,
-        user_id,
-        timezone
-    )
-    .execute(pool)
-    .await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::Timezone, timezone.map(str::to_string))
+            .value(BackendUsers::UpdatedAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
 pub async fn create_role(
-    pool: &PgPool,
+    db: &Db,
     code: &str,
     name: &str,
     permissions: &[String],
-) -> Result<Uuid, AuthError> {
-    let id = sqlx::query_scalar!(
-        r#"insert into backend_roles (code, name, permissions)
-           values ($1, $2, $3)
-           returning id"#,
-        code,
-        name,
-        permissions
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(id)
+) -> Result<i64, AuthError> {
+    let perms = serde_json::to_string(permissions).unwrap_or_else(|_| "[]".to_string());
+    let stmt = Query::insert()
+        .into_table(BackendRoles::Table)
+        .columns([
+            BackendRoles::Code,
+            BackendRoles::Name,
+            BackendRoles::Permissions,
+            BackendRoles::CreatedAt,
+        ])
+        .values_panic([code.into(), name.into(), perms.into(), now_ts().into()])
+        .to_owned();
+    Ok(insert_returning_id(db, stmt, BackendRoles::Id).await?)
 }
 
-pub async fn assign_role(pool: &PgPool, user_id: Uuid, role_id: Uuid) -> Result<(), AuthError> {
-    sqlx::query!(
-        r#"insert into backend_user_roles (backend_user_id, backend_role_id)
-           values ($1, $2)
-           on conflict do nothing"#,
-        user_id,
-        role_id
-    )
-    .execute(pool)
-    .await?;
+pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendUserRoles::Table)
+            .columns([
+                BackendUserRoles::BackendUserId,
+                BackendUserRoles::BackendRoleId,
+            ])
+            .values_panic([user_id.into(), role_id.into()])
+            .on_conflict(
+                OnConflict::columns([
+                    BackendUserRoles::BackendUserId,
+                    BackendUserRoles::BackendRoleId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(())
 }
 
 /// Lists backend users for admin tooling, ordered by creation time.
-pub async fn list_backend_users(pool: &PgPool) -> Result<Vec<BackendUserSummary>, AuthError> {
-    let users = sqlx::query_as!(
-        BackendUserSummary,
-        r#"select id, username, email, first_name, last_name,
-                  is_superuser, is_active, created_at
-           from backend_users
-           order by created_at"#
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(users)
+pub async fn list_backend_users(db: &Db) -> Result<Vec<BackendUserSummary>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendUsers::Id,
+                BackendUsers::Username,
+                BackendUsers::Email,
+                BackendUsers::FirstName,
+                BackendUsers::LastName,
+                BackendUsers::IsSuperuser,
+                BackendUsers::IsActive,
+                BackendUsers::CreatedAt,
+            ])
+            .from(BackendUsers::Table)
+            .order_by(BackendUsers::CreatedAt, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter().map(summary_from_row).collect()
 }
 
-/// Sets a new password hash for a user by username, returning the number of rows
-/// affected (0 means no such user). Deliberately does not depend on email.
+/// Sets a new password hash for a user by username, returning rows affected.
 pub async fn update_password_by_username(
-    pool: &PgPool,
+    db: &Db,
     username: &str,
     password_hash: &str,
 ) -> Result<u64, AuthError> {
-    let result = sqlx::query!(
-        r#"update backend_users
-           set password_hash = $1, updated_at = now()
-           where username = $2"#,
-        password_hash,
-        username
-    )
-    .execute(pool)
-    .await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::PasswordHash, password_hash)
+            .value(BackendUsers::UpdatedAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Username).eq(username))
+            .to_owned(),
+    );
+    let result = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(result.rows_affected())
 }
 
-/// Clears a user's failed-login records, releasing a lockout. Returns the number
-/// of records removed.
-pub async fn clear_failed_attempts(pool: &PgPool, username: &str) -> Result<u64, AuthError> {
-    let result = sqlx::query!(
-        r#"delete from backend_access_log
-           where username_attempted = $1 and event = $2"#,
-        username,
-        AccessEvent::LoginFailure.as_str()
-    )
-    .execute(pool)
-    .await?;
+/// Clears a user's failed-login records, releasing a lockout.
+pub async fn clear_failed_attempts(db: &Db, username: &str) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(username))
+            .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
+            .to_owned(),
+    );
+    let result = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
     Ok(result.rows_affected())
 }

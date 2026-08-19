@@ -8,8 +8,10 @@ license.workspace = true
 [dependencies]
 laterite-core = { workspace = true }
 argon2 = { workspace = true }
+async-trait = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
+sea-query = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

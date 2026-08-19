@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use uuid::Uuid;
 
 /// A backend user: an operator of the admin surface.
 ///
@@ -13,7 +12,7 @@ use uuid::Uuid;
 /// without leaking the stored credential.
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendUser {
-    pub id: Uuid,
+    pub id: i64,
     pub username: String,
     pub email: String,
     pub first_name: String,
@@ -44,7 +43,7 @@ impl BackendUser {
 /// A lightweight backend-user projection for listings (no credential fields).
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendUserSummary {
-    pub id: Uuid,
+    pub id: i64,
     pub username: String,
     pub email: String,
     pub first_name: String,

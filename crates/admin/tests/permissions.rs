@@ -5,11 +5,27 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
-use sqlx::PgPool;
+use laterite_core::Db;
 use tower::ServiceExt;
 
 /// The session cookie name the admin sets and reads (wire format).
 const SESSION_COOKIE: &str = "laterite_session";
+
+/// A fresh in-memory SQLite database with the admin's built-in migrations
+/// applied, the same runner path the application uses at startup.
+async fn test_db() -> Db {
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("sqlite pool");
+    let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
+    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
+        .await
+        .expect("migrations should apply");
+    db
+}
 
 /// Signs in and returns the session token.
 async fn login(svc: &AuthService, username: &str, password: &str) -> String {
@@ -28,11 +44,9 @@ fn get(path: &str, token: Option<&str>) -> Request<Body> {
     builder.body(Body::empty()).unwrap()
 }
 
-#[sqlx::test(migrations = false)]
-async fn resource_routes_enforce_their_permission(pool: PgPool) {
-    laterite_core::migrate::run(&pool, &laterite_admin::builtin_migrations())
-        .await
-        .unwrap();
+#[tokio::test]
+async fn resource_routes_enforce_their_permission() {
+    let pool = test_db().await;
 
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
 

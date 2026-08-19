@@ -31,8 +31,8 @@ use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
+use laterite_core::Db;
 use serde::Deserialize;
-use sqlx::PgPool;
 
 const SESSION_COOKIE: &str = "laterite_session";
 
@@ -40,7 +40,7 @@ const SESSION_COOKIE: &str = "laterite_session";
 #[derive(Clone)]
 pub(crate) struct AdminState {
     auth: AuthService,
-    pool: PgPool,
+    db: Db,
     nav: Arc<Vec<NavLink>>,
     settings: Arc<Vec<settings::SettingsItem>>,
     permissions: Arc<Vec<Permission>>,
@@ -50,10 +50,10 @@ pub(crate) struct AdminState {
 
 impl AdminState {
     #[cfg(test)]
-    pub(crate) fn new(auth: AuthService, pool: PgPool) -> Self {
+    pub(crate) fn new(auth: AuthService, db: Db) -> Self {
         Self {
             auth,
-            pool,
+            db,
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
@@ -279,13 +279,13 @@ fn builtin_permissions() -> Vec<Permission> {
 /// An application with its own modules appends their sets:
 ///
 /// ```no_run
-/// # async fn f(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-/// let migrations = laterite_admin::builtin_migrations();
+/// # async fn f(db: laterite_core::Db) -> Result<(), Box<dyn std::error::Error>> {
+/// let mut migrations = laterite_admin::builtin_migrations();
 /// // migrations.extend([my_module::migrations()]);
-/// laterite_core::migrate::run(&pool, &migrations).await?;
+/// laterite_core::migration::run(&db.pool, db.backend, &migrations).await?;
 /// # Ok(()) }
 /// ```
-pub fn builtin_migrations() -> Vec<laterite_core::ModuleMigrations> {
+pub fn builtin_migrations() -> Vec<laterite_core::MigrationSet> {
     vec![laterite_auth::migrations(), laterite_settings::migrations()]
 }
 
@@ -295,7 +295,7 @@ pub fn builtin_migrations() -> Vec<laterite_core::ModuleMigrations> {
 /// All are mounted alongside the framework's built-in equivalents.
 pub fn router(
     auth: AuthService,
-    pool: PgPool,
+    db: Db,
     app_resources: Vec<Resource>,
     app_settings: Vec<settings::SettingsItem>,
     app_permissions: Vec<Permission>,
@@ -331,7 +331,7 @@ pub fn router(
 
     let state = AdminState {
         auth,
-        pool,
+        db,
         nav: Arc::new(nav),
         settings: Arc::new(settings),
         permissions: Arc::new(permissions),
@@ -1058,23 +1058,35 @@ mod tests {
         assert_eq!(resolve_display_tz(Some(""), default), default);
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn builtin_migrations_create_the_admin_tables(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &builtin_migrations())
+    /// A fresh in-memory SQLite database with no migrations applied, the blank
+    /// slate an application starts from before it runs its migration set.
+    async fn empty_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        Db::new(pool, laterite_core::DbBackend::Sqlite)
+    }
+
+    #[tokio::test]
+    async fn builtin_migrations_create_the_admin_tables() {
+        let db = empty_db().await;
+        laterite_core::migration::run(&db.pool, db.backend, &builtin_migrations())
             .await
             .unwrap();
         // A table from each bundled module exists, so an app that only ran
         // builtin_migrations has everything the admin's screens need.
         for table in ["backend_users", "settings"] {
-            let exists: bool = sqlx::query_scalar(
-                "select exists (select from information_schema.tables \
-                 where table_schema = 'public' and table_name = $1)",
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from sqlite_master where type = 'table' and name = ?",
             )
             .bind(table)
-            .fetch_one(&pool)
+            .fetch_one(&db.pool)
             .await
             .unwrap();
-            assert!(exists, "{table} should exist after builtin_migrations");
+            assert_eq!(count, 1, "{table} should exist after builtin_migrations");
         }
     }
 

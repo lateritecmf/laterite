@@ -6,11 +6,27 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
-use sqlx::PgPool;
+use laterite_core::Db;
 use std::collections::HashMap;
 use tower::ServiceExt;
 
 const SESSION_COOKIE: &str = "laterite_session";
+
+/// A fresh in-memory SQLite database with the admin's built-in migrations
+/// applied, the same runner path the application uses at startup.
+async fn test_db() -> Db {
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("sqlite pool");
+    let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
+    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
+        .await
+        .expect("migrations should apply");
+    db
+}
 
 async fn login(svc: &AuthService, username: &str, password: &str) -> String {
     svc.authenticate(username, password, &RequestContext::default())
@@ -38,17 +54,17 @@ fn post(path: &str, token: &str, body: String) -> Request<Body> {
         .unwrap()
 }
 
-async fn overrides_of(pool: &PgPool, user_id: &str) -> HashMap<String, i64> {
-    let value: serde_json::Value =
-        sqlx::query_scalar("select permissions from backend_users where id::text = $1")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    serde_json::from_value(value).unwrap()
+async fn overrides_of(pool: &Db, user_id: &str) -> HashMap<String, i64> {
+    // Ids are bigint auto-increment keys; permissions are a JSON text object.
+    let json: String = sqlx::query_scalar("select permissions from backend_users where id = ?")
+        .bind(user_id.parse::<i64>().unwrap())
+        .fetch_one(&pool.pool)
+        .await
+        .unwrap();
+    serde_json::from_str(&json).unwrap()
 }
 
-async fn plain_user(pool: &PgPool, name: &str) -> String {
+async fn plain_user(pool: &Db, name: &str) -> String {
     let hash = password::hash_password("pw012345678").unwrap();
     store::create_user(
         pool,
@@ -64,7 +80,7 @@ async fn plain_user(pool: &PgPool, name: &str) -> String {
     .to_string()
 }
 
-fn app(pool: &PgPool) -> axum::Router {
+fn app(pool: &Db) -> axum::Router {
     router(
         AuthService::new(pool.clone(), AuthConfig::default()),
         pool.clone(),
@@ -88,11 +104,9 @@ async fn seed_superuser(svc: &AuthService) {
     .unwrap();
 }
 
-#[sqlx::test(migrations = false)]
-async fn allow_override_grants_access_beyond_roles(pool: PgPool) {
-    laterite_core::migrate::run(&pool, &laterite_admin::builtin_migrations())
-        .await
-        .unwrap();
+#[tokio::test]
+async fn allow_override_grants_access_beyond_roles() {
+    let pool = test_db().await;
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
     seed_superuser(&svc).await;
     let root = login(&svc, "root", "rootpw12345").await;
@@ -134,11 +148,9 @@ async fn allow_override_grants_access_beyond_roles(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
 }
 
-#[sqlx::test(migrations = false)]
-async fn editor_cannot_change_permissions_it_lacks(pool: PgPool) {
-    laterite_core::migrate::run(&pool, &laterite_admin::builtin_migrations())
-        .await
-        .unwrap();
+#[tokio::test]
+async fn editor_cannot_change_permissions_it_lacks() {
+    let pool = test_db().await;
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
     seed_superuser(&svc).await;
 

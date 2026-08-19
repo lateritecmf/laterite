@@ -13,6 +13,7 @@
 
 - [Settings Models](extend/settings.md)
 - [Permissions](extend/permissions.md)
+- [Database Portability](extend/database-portability.md)
 
 # Reference
 

@@ -32,6 +32,11 @@ pub enum AuthError {
 
     #[error("database error")]
     Store(#[from] sqlx::Error),
+
+    /// A stored value could not be parsed back into its Rust type (corrupt data
+    /// or a schema mismatch).
+    #[error("corrupt stored data: {0}")]
+    Data(String),
 }
 
 impl From<AuthError> for CoreError {
@@ -44,6 +49,7 @@ impl From<AuthError> for CoreError {
             AuthError::PermissionDenied(perm) => CoreError::Forbidden(perm),
             AuthError::PasswordHash(msg) => CoreError::Internal(msg),
             AuthError::Store(e) => CoreError::Database(e),
+            AuthError::Data(msg) => CoreError::Internal(msg),
         }
     }
 }

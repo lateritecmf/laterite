@@ -7,13 +7,21 @@
 //! This first slice supports scalar text fields (text and textarea widgets),
 //! which is enough for the roles screen it is dogfooded on. Typed and
 //! transforming fields (switches, selects, password hashing) are later widgets.
+//!
+//! The primary key is a `bigint` auto-increment column the database assigns, so
+//! create inserts only the descriptor's fields and never sets the id. An entity
+//! with other required columns that lack defaults (for example audit timestamps)
+//! is beyond this slice; those are filled by a later timestamp-aware widget.
 
 use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
+use laterite_core::query::{bind_values, build as to_sql};
+use sea_query::{Alias, Expr, Query, SimpleExpr};
+use sqlx::Row;
 
-use crate::sql::{quote, valid_ident};
+use crate::sql::valid_ident;
 use crate::{not_found, render, render_error, AdminState};
 
 #[derive(Debug, Clone, Copy)]
@@ -114,25 +122,26 @@ pub(crate) async fn create(
         ));
     }
 
-    let cols = config
-        .fields
-        .iter()
-        .map(|f| quote(&f.name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let placeholders = (1..=config.fields.len())
-        .map(|i| format!("${i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "insert into {} ({cols}) values ({placeholders})",
-        quote(&config.entity)
-    );
-    let mut q = sqlx::query(&sql);
-    for field in &config.fields {
-        q = q.bind(data.get(&field.name).cloned().unwrap_or_default());
-    }
-    match q.execute(&state.pool).await {
+    // The primary key is a database-assigned auto-increment id, so the insert
+    // lists only the descriptor's fields. The builder is scoped so it drops
+    // before the await, keeping the handler future `Send`.
+    let (sql, values) = {
+        let vals: Vec<SimpleExpr> = config
+            .fields
+            .iter()
+            .map(|f| data.get(&f.name).cloned().unwrap_or_default().into())
+            .collect();
+        let stmt = Query::insert()
+            .into_table(Alias::new(&config.entity))
+            .columns(config.fields.iter().map(|f| Alias::new(&f.name)))
+            .values_panic(vals)
+            .to_owned();
+        to_sql(state.db.backend, stmt)
+    };
+    match bind_values(sqlx::query(&sql), values)
+        .execute(&state.db.pool)
+        .await
+    {
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
             config,
@@ -154,26 +163,32 @@ pub(crate) async fn edit_form(
     if !config.idents_valid() {
         return render_error();
     }
-    let cols = config
-        .fields
-        .iter()
-        .map(|f| quote(&f.name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "select row_to_json(_t) from (select {cols} from {} where {}::text = $1) _t",
-        quote(&config.entity),
-        quote(&config.id_field),
-    );
-    let row: Option<serde_json::Value> = match sqlx::query_scalar(&sql)
-        .bind(&id)
-        .fetch_optional(&state.pool)
+    // Scope the sea-query builder so it is dropped before the await below: its
+    // identifiers are reference-counted (not `Send`), and a live builder across
+    // the await would make this handler's future non-`Send`.
+    let (sql, values) = {
+        let mut select = Query::select();
+        for field in &config.fields {
+            select.expr_as(
+                Expr::col(Alias::new(&field.name)).cast_as(Alias::new("text")),
+                Alias::new(&field.name),
+            );
+        }
+        select.from(Alias::new(&config.entity)).and_where(
+            Expr::col(Alias::new(&config.id_field))
+                .cast_as(Alias::new("text"))
+                .eq(id.clone()),
+        );
+        to_sql(state.db.backend, select)
+    };
+    let row = match bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
         .await
     {
         Ok(row) => row,
         Err(_) => return render_error(),
     };
-    let Some(object) = row else {
+    let Some(row) = row else {
         return not_found();
     };
 
@@ -181,11 +196,11 @@ pub(crate) async fn edit_form(
         .fields
         .iter()
         .map(|f| {
-            let value = match object.get(f.name.as_str()) {
-                Some(serde_json::Value::String(s)) => s.clone(),
-                Some(serde_json::Value::Null) | None => String::new(),
-                Some(other) => other.to_string(),
-            };
+            let value = row
+                .try_get::<Option<String>, _>(f.name.as_str())
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             (f.name.clone(), value)
         })
         .collect();
@@ -220,25 +235,27 @@ pub(crate) async fn update(
         ));
     }
 
-    let sets = config
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(i, f)| format!("{} = ${}", quote(&f.name), i + 1))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let id_placeholder = config.fields.len() + 1;
-    let sql = format!(
-        "update {} set {sets} where {}::text = ${id_placeholder}",
-        quote(&config.entity),
-        quote(&config.id_field),
-    );
-    let mut q = sqlx::query(&sql);
-    for field in &config.fields {
-        q = q.bind(data.get(&field.name).cloned().unwrap_or_default());
-    }
-    q = q.bind(id.clone());
-    match q.execute(&state.pool).await {
+    // Scope the builder so it drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let mut update = Query::update();
+        update.table(Alias::new(&config.entity));
+        for field in &config.fields {
+            update.value(
+                Alias::new(&field.name),
+                data.get(&field.name).cloned().unwrap_or_default(),
+            );
+        }
+        update.and_where(
+            Expr::col(Alias::new(&config.id_field))
+                .cast_as(Alias::new("text"))
+                .eq(id.clone()),
+        );
+        to_sql(state.db.backend, update)
+    };
+    match bind_values(sqlx::query(&sql), values)
+        .execute(&state.db.pool)
+        .await
+    {
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
             config,
@@ -299,13 +316,13 @@ struct FormTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
+    use laterite_core::Db;
 
     fn config() -> FormConfig {
         FormConfig {
-            entity: "backend_roles".to_string(),
-            title: "Role".to_string(),
-            base_path: "/admin/roles".to_string(),
+            entity: "samples".to_string(),
+            title: "Sample".to_string(),
+            base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![
                 FormField::text("code", "Code").required(),
@@ -314,11 +331,50 @@ mod tests {
         }
     }
 
-    fn state(pool: PgPool) -> AdminState {
+    fn state(db: Db) -> AdminState {
         AdminState::new(
-            laterite_auth::AuthService::new(pool.clone(), laterite_auth::AuthConfig::default()),
-            pool,
+            laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
+            db,
         )
+    }
+
+    /// A fresh in-memory SQLite database holding a minimal `samples` table, so
+    /// the generic insert/update path is exercised in isolation without pulling
+    /// in another module's required columns.
+    async fn test_db() -> Db {
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        sqlx::query(
+            "create table samples (id integer primary key autoincrement, \
+             code text not null, name text not null)",
+        )
+        .execute(&pool)
+        .await
+        .expect("create samples table");
+        Db::new(pool, laterite_core::DbBackend::Sqlite)
+    }
+
+    /// Reads a single text column from the one row matching `code`, so a test can
+    /// assert what was persisted without depending on the read path under test.
+    async fn fetch_text(db: &Db, column: &str, code: &str) -> Option<String> {
+        let stmt = Query::select()
+            .expr_as(
+                Expr::col(Alias::new(column)).cast_as(Alias::new("text")),
+                Alias::new("v"),
+            )
+            .from(Alias::new("samples"))
+            .and_where(Expr::col(Alias::new("code")).eq(code))
+            .to_owned();
+        let (sql, values) = to_sql(db.backend, stmt);
+        let row = bind_values(sqlx::query(&sql), values)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap()?;
+        row.try_get::<Option<String>, _>("v").ok().flatten()
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -328,13 +384,11 @@ mod tests {
             .collect()
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn create_then_fetch(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn create_then_fetch() {
+        let db = test_db().await;
         let cfg = config();
-        let st = state(pool.clone());
+        let st = state(db.clone());
 
         let resp = create(
             &st,
@@ -345,22 +399,17 @@ mod tests {
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
 
-        let row: (String, String) =
-            sqlx::query_as("select code, name from backend_roles where code = $1")
-                .bind("editor")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(row, ("editor".to_string(), "Content Editor".to_string()));
+        assert_eq!(
+            fetch_text(&db, "name", "editor").await.as_deref(),
+            Some("Content Editor")
+        );
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn update_changes_the_row(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn update_changes_the_row() {
+        let db = test_db().await;
         let cfg = config();
-        let st = state(pool.clone());
+        let st = state(db.clone());
         create(
             &st,
             &cfg,
@@ -369,11 +418,9 @@ mod tests {
         )
         .await;
 
-        let id: String = sqlx::query_scalar("select id::text from backend_roles where code = $1")
-            .bind("editor")
-            .fetch_one(&pool)
+        let id = fetch_text(&db, "id", "editor")
             .await
-            .unwrap();
+            .expect("row should exist after create");
 
         let resp = update(
             &st,
@@ -385,21 +432,17 @@ mod tests {
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
 
-        let name: String = sqlx::query_scalar("select name from backend_roles where code = $1")
-            .bind("editor")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(name, "Senior Editor");
+        assert_eq!(
+            fetch_text(&db, "name", "editor").await.as_deref(),
+            Some("Senior Editor")
+        );
     }
 
-    #[sqlx::test(migrations = false)]
-    async fn create_requires_required_fields(pool: PgPool) {
-        laterite_core::migrate::run(&pool, &[laterite_auth::migrations()])
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn create_requires_required_fields() {
+        let db = test_db().await;
         let cfg = config();
-        let st = state(pool.clone());
+        let st = state(db.clone());
 
         let resp = create(
             &st,
@@ -410,8 +453,8 @@ mod tests {
         .await;
         // Re-renders the form (200), does not redirect, and inserts nothing.
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
-        let count: i64 = sqlx::query_scalar("select count(*) from backend_roles")
-            .fetch_one(&pool)
+        let count: i64 = sqlx::query_scalar("select count(*) from samples")
+            .fetch_one(&db.pool)
             .await
             .unwrap();
         assert_eq!(count, 0);
