@@ -319,20 +319,10 @@ mod tests {
         )
     }
 
-    /// A fresh in-memory SQLite database with the settings table migrated in,
-    /// the same runner path the application uses at startup.
-    async fn test_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
-        laterite_core::migration::run(&db.pool, db.backend, &[laterite_settings::migrations()])
-            .await
-            .expect("migrations should apply");
-        db
+    /// A fresh test database with the settings table migrated in, on whichever
+    /// backend the run targets. Hold the returned guard for the test's lifetime.
+    async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+        laterite_core::testing::connect_test(&[laterite_settings::migrations()]).await
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -426,7 +416,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_persists_typed_values() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let st = state(db.clone());
 
         let it = item();
@@ -457,7 +447,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_form_renders_for_unset_item() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let st = state(db);
         // No stored value yet: the form still renders (fields fall back to defaults).
         let it = item();

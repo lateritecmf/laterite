@@ -11,9 +11,11 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use laterite_core::query::{bind_values, bind_values_as, build, insert_returning_id};
+use laterite_core::query::{
+    bind_values, bind_values_as, build, insert_returning_id, on_conflict_ignore,
+};
 use laterite_core::{AnyRowExt, Db};
-use sea_query::{Expr, OnConflict, Order, Query};
+use sea_query::{Expr, Order, Query};
 use sqlx::any::AnyRow;
 use sqlx::Row;
 
@@ -37,32 +39,42 @@ fn parse_ts(s: &str) -> Result<DateTime<Utc>, AuthError> {
         .map_err(|e| AuthError::Data(format!("timestamp `{s}`: {e}")))
 }
 
+/// Normalises a user-facing key (username or email) so lookups, uniqueness, and
+/// login throttling behave identically on every backend. MySQL's default
+/// collation is case-insensitive (and trailing-space-insensitive) while Postgres
+/// and SQLite are case-sensitive, so the framework lower-cases and trims these
+/// keys before storing or matching. Apply it on every write and lookup of a
+/// username or email so `Root` and `root ` resolve to the same account anywhere.
+fn normalize_key(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
 fn user_from_row(row: &AnyRow) -> Result<BackendUser, AuthError> {
     Ok(BackendUser {
         id: row.try_get::<i64, _>("id")?,
-        username: row.try_get("username")?,
-        email: row.try_get("email")?,
-        first_name: row.try_get("first_name")?,
-        last_name: row.try_get("last_name")?,
-        password_hash: row.try_get("password_hash")?,
+        username: row.get_text("username")?,
+        email: row.get_text("email")?,
+        first_name: row.get_text("first_name")?,
+        last_name: row.get_text_opt("last_name")?,
+        password_hash: row.get_text("password_hash")?,
         is_superuser: row.get_bool("is_superuser")?,
         is_active: row.get_bool("is_active")?,
-        timezone: row.try_get("timezone")?,
-        created_at: parse_ts(&row.try_get::<String, _>("created_at")?)?,
-        updated_at: parse_ts(&row.try_get::<String, _>("updated_at")?)?,
+        timezone: row.get_text_opt("timezone")?,
+        created_at: parse_ts(&row.get_text("created_at")?)?,
+        updated_at: parse_ts(&row.get_text("updated_at")?)?,
     })
 }
 
 fn summary_from_row(row: &AnyRow) -> Result<BackendUserSummary, AuthError> {
     Ok(BackendUserSummary {
         id: row.try_get::<i64, _>("id")?,
-        username: row.try_get("username")?,
-        email: row.try_get("email")?,
-        first_name: row.try_get("first_name")?,
-        last_name: row.try_get("last_name")?,
+        username: row.get_text("username")?,
+        email: row.get_text("email")?,
+        first_name: row.get_text("first_name")?,
+        last_name: row.get_text_opt("last_name")?,
         is_superuser: row.get_bool("is_superuser")?,
         is_active: row.get_bool("is_active")?,
-        created_at: parse_ts(&row.try_get::<String, _>("created_at")?)?,
+        created_at: parse_ts(&row.get_text("created_at")?)?,
     })
 }
 
@@ -90,7 +102,7 @@ pub async fn find_user_by_username(
         Query::select()
             .columns(USER_COLS)
             .from(BackendUsers::Table)
-            .and_where(Expr::col(BackendUsers::Username).eq(username))
+            .and_where(Expr::col(BackendUsers::Username).eq(normalize_key(username)))
             .to_owned(),
     );
     let row = bind_values(sqlx::query(&sql), values)
@@ -139,7 +151,7 @@ pub async fn load_role_permissions(db: &Db, user_id: i64) -> Result<Vec<Vec<Stri
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let json: String = row.try_get("permissions")?;
+        let json = row.get_text("permissions")?;
         let perms: Vec<String> = serde_json::from_str(&json)
             .map_err(|e| AuthError::Data(format!("role permissions: {e}")))?;
         out.push(perms);
@@ -166,7 +178,7 @@ pub async fn load_user_permission_overrides(
         .await?;
     let overrides = match row {
         Some(r) => {
-            let json: String = r.try_get("permissions")?;
+            let json = r.get_text("permissions")?;
             serde_json::from_str(&json).unwrap_or_default()
         }
         None => HashMap::new(),
@@ -303,7 +315,7 @@ pub async fn insert_access_log(
             ])
             .values_panic([
                 user_id.into(),
-                username_attempted.into(),
+                normalize_key(username_attempted).into(),
                 event.as_str().into(),
                 ip_address.map(str::to_string).into(),
                 user_agent.map(str::to_string).into(),
@@ -328,7 +340,7 @@ pub async fn count_recent_failures(
         Query::select()
             .expr(Expr::col(BackendAccessLog::Id).count())
             .from(BackendAccessLog::Table)
-            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(username))
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(normalize_key(username)))
             .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
             .and_where(Expr::col(BackendAccessLog::CreatedAt).gte(ts(since)))
             .to_owned(),
@@ -366,8 +378,8 @@ pub async fn create_user(
             BackendUsers::UpdatedAt,
         ])
         .values_panic([
-            username.into(),
-            email.into(),
+            normalize_key(username).into(),
+            normalize_key(email).into(),
             first_name.into(),
             last_name.map(str::to_string).into(),
             password_hash.into(),
@@ -446,14 +458,10 @@ pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), Auth
                 BackendUserRoles::BackendRoleId,
             ])
             .values_panic([user_id.into(), role_id.into()])
-            .on_conflict(
-                OnConflict::columns([
-                    BackendUserRoles::BackendUserId,
-                    BackendUserRoles::BackendRoleId,
-                ])
-                .do_nothing()
-                .to_owned(),
-            )
+            .on_conflict(on_conflict_ignore([
+                BackendUserRoles::BackendUserId,
+                BackendUserRoles::BackendRoleId,
+            ]))
             .to_owned(),
     );
     bind_values(sqlx::query(&sql), values)
@@ -499,7 +507,7 @@ pub async fn update_password_by_username(
             .table(BackendUsers::Table)
             .value(BackendUsers::PasswordHash, password_hash)
             .value(BackendUsers::UpdatedAt, now_ts())
-            .and_where(Expr::col(BackendUsers::Username).eq(username))
+            .and_where(Expr::col(BackendUsers::Username).eq(normalize_key(username)))
             .to_owned(),
     );
     let result = bind_values(sqlx::query(&sql), values)
@@ -514,7 +522,7 @@ pub async fn clear_failed_attempts(db: &Db, username: &str) -> Result<u64, AuthE
         db.backend,
         Query::delete()
             .from_table(BackendAccessLog::Table)
-            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(username))
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(normalize_key(username)))
             .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
             .to_owned(),
     );

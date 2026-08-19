@@ -49,18 +49,8 @@ impl Migration for CreateBackendUsers {
                         .auto_increment()
                         .primary_key(),
                 )
-                .col(
-                    ColumnDef::new(BackendUsers::Username)
-                        .text()
-                        .not_null()
-                        .unique_key(),
-                )
-                .col(
-                    ColumnDef::new(BackendUsers::Email)
-                        .text()
-                        .not_null()
-                        .unique_key(),
-                )
+                .col(key_col(BackendUsers::Username).not_null().unique_key())
+                .col(key_col(BackendUsers::Email).not_null().unique_key())
                 .col(ColumnDef::new(BackendUsers::FirstName).text().not_null())
                 .col(ColumnDef::new(BackendUsers::LastName).text())
                 .col(ColumnDef::new(BackendUsers::PasswordHash).text().not_null())
@@ -98,12 +88,7 @@ impl Migration for CreateBackendRoles {
                         .auto_increment()
                         .primary_key(),
                 )
-                .col(
-                    ColumnDef::new(BackendRoles::Code)
-                        .text()
-                        .not_null()
-                        .unique_key(),
-                )
+                .col(key_col(BackendRoles::Code).not_null().unique_key())
                 .col(ColumnDef::new(BackendRoles::Name).text().not_null())
                 .col(
                     ColumnDef::new(BackendRoles::Permissions)
@@ -181,12 +166,7 @@ impl Migration for CreateBackendSessions {
             Table::create()
                 .table(BackendSessions::Table)
                 .if_not_exists()
-                .col(
-                    ColumnDef::new(BackendSessions::TokenHash)
-                        .text()
-                        .not_null()
-                        .primary_key(),
-                )
+                .col(key_col(BackendSessions::TokenHash).not_null().primary_key())
                 .col(
                     ColumnDef::new(BackendSessions::BackendUserId)
                         .big_integer()
@@ -242,19 +222,13 @@ impl Migration for CreateBackendAccessLog {
                         .primary_key(),
                 )
                 .col(ColumnDef::new(BackendAccessLog::BackendUserId).big_integer())
-                .col(
-                    ColumnDef::new(BackendAccessLog::UsernameAttempted)
-                        .text()
-                        .not_null(),
-                )
+                // Indexed below (username + created_at), so both are bounded keys
+                // rather than `text`, which MySQL cannot index.
+                .col(key_col(BackendAccessLog::UsernameAttempted).not_null())
                 .col(ColumnDef::new(BackendAccessLog::Event).text().not_null())
                 .col(ColumnDef::new(BackendAccessLog::IpAddress).text())
                 .col(ColumnDef::new(BackendAccessLog::UserAgent).text())
-                .col(
-                    ColumnDef::new(BackendAccessLog::CreatedAt)
-                        .text()
-                        .not_null(),
-                )
+                .col(key_col(BackendAccessLog::CreatedAt).not_null())
                 .foreign_key(
                     ForeignKey::create()
                         .from(BackendAccessLog::Table, BackendAccessLog::BackendUserId)

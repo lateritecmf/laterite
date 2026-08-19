@@ -1058,35 +1058,30 @@ mod tests {
         assert_eq!(resolve_display_tz(Some(""), default), default);
     }
 
-    /// A fresh in-memory SQLite database with no migrations applied, the blank
-    /// slate an application starts from before it runs its migration set.
-    async fn empty_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        Db::new(pool, laterite_core::DbBackend::Sqlite)
+    /// A fresh test database with no migrations applied, the blank slate an
+    /// application starts from before it runs its migration set. Hold the guard
+    /// for the test's lifetime.
+    async fn empty_db() -> (Db, laterite_core::testing::TestGuard) {
+        laterite_core::testing::connect_test(&[]).await
     }
 
     #[tokio::test]
     async fn builtin_migrations_create_the_admin_tables() {
-        let db = empty_db().await;
+        let (db, _guard) = empty_db().await;
         laterite_core::migration::run(&db.pool, db.backend, &builtin_migrations())
             .await
             .unwrap();
         // A table from each bundled module exists, so an app that only ran
-        // builtin_migrations has everything the admin's screens need.
+        // builtin_migrations has everything the admin's screens need. A no-row
+        // probe succeeds only if the table exists, portably on every backend.
         for table in ["backend_users", "settings"] {
-            let count: i64 = sqlx::query_scalar(
-                "select count(*) from sqlite_master where type = 'table' and name = ?",
-            )
-            .bind(table)
-            .fetch_one(&db.pool)
-            .await
-            .unwrap();
-            assert_eq!(count, 1, "{table} should exist after builtin_migrations");
+            let probe = sqlx::query(&format!("select 1 from {table} where 1 = 0"))
+                .fetch_optional(&db.pool)
+                .await;
+            assert!(
+                probe.is_ok(),
+                "{table} should exist after builtin_migrations"
+            );
         }
     }
 

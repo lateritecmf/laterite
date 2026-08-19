@@ -17,7 +17,13 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
+
+[features]
+default = []
+postgres = ["laterite-core/postgres"]
+mysql = ["laterite-core/mysql"]
+sqlite = ["laterite-core/sqlite"]
 
 [dev-dependencies]
+laterite-core = { workspace = true, features = ["testing"] }
 tokio = { workspace = true }

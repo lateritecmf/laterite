@@ -12,7 +12,6 @@ use chrono::{SecondsFormat, Utc};
 use laterite_core::strata::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sqlx::Row;
 use thiserror::Error;
 
 pub use migrations::{migrations, MODULE_ID};
@@ -70,7 +69,7 @@ pub async fn get(db: &Db, code: &str) -> Result<Option<serde_json::Value>, Setti
         .await?;
     match row {
         Some(r) => {
-            let text: String = r.try_get("value")?;
+            let text = r.get_text("value")?;
             Ok(Some(serde_json::from_str(&text)?))
         }
         None => Ok(None),
@@ -105,19 +104,10 @@ mod tests {
     use super::*;
     use serde::Deserialize;
 
-    /// A fresh in-memory SQLite database with this module's migrations applied.
-    async fn test_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        let db = Db::new(pool, DbBackend::Sqlite);
-        laterite_core::migration::run(&db.pool, db.backend, &[migrations()])
-            .await
-            .unwrap();
-        db
+    /// A fresh test database with this module's migrations applied, on whichever
+    /// backend the run targets. Hold the returned guard for the test's lifetime.
+    async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+        laterite_core::testing::connect_test(&[migrations()]).await
     }
 
     #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -134,7 +124,7 @@ mod tests {
 
     #[tokio::test]
     async fn typed_round_trip_and_default() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
 
         // Unset resolves to the model's Default.
         assert_eq!(
@@ -157,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_field_uses_serde_default() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
 
         // A stored value missing a field deserializes with that field defaulted.
         set(

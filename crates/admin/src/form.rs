@@ -17,9 +17,9 @@ use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
-use laterite_core::query::{bind_values, build as to_sql};
+use laterite_core::query::{bind_values, build as to_sql, text_cast};
+use laterite_core::AnyRowExt;
 use sea_query::{Alias, Expr, Query, SimpleExpr};
-use sqlx::Row;
 
 use crate::sql::valid_ident;
 use crate::{not_found, render, render_error, AdminState};
@@ -167,16 +167,17 @@ pub(crate) async fn edit_form(
     // identifiers are reference-counted (not `Send`), and a live builder across
     // the await would make this handler's future non-`Send`.
     let (sql, values) = {
+        let cast = text_cast(state.db.backend);
         let mut select = Query::select();
         for field in &config.fields {
             select.expr_as(
-                Expr::col(Alias::new(&field.name)).cast_as(Alias::new("text")),
+                Expr::col(Alias::new(&field.name)).cast_as(Alias::new(cast)),
                 Alias::new(&field.name),
             );
         }
         select.from(Alias::new(&config.entity)).and_where(
             Expr::col(Alias::new(&config.id_field))
-                .cast_as(Alias::new("text"))
+                .cast_as(Alias::new(cast))
                 .eq(id.clone()),
         );
         to_sql(state.db.backend, select)
@@ -197,7 +198,7 @@ pub(crate) async fn edit_form(
         .iter()
         .map(|f| {
             let value = row
-                .try_get::<Option<String>, _>(f.name.as_str())
+                .get_text_opt(f.name.as_str())
                 .ok()
                 .flatten()
                 .unwrap_or_default();
@@ -247,7 +248,7 @@ pub(crate) async fn update(
         }
         update.and_where(
             Expr::col(Alias::new(&config.id_field))
-                .cast_as(Alias::new("text"))
+                .cast_as(Alias::new(text_cast(state.db.backend)))
                 .eq(id.clone()),
         );
         to_sql(state.db.backend, update)
@@ -316,7 +317,39 @@ struct FormTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use laterite_core::strata::{
+        async_trait, ColumnDef, CoreResult, Migration, MigrationSet, Schema, Table,
+    };
+    use laterite_core::testing::{connect_test, TestGuard};
     use laterite_core::Db;
+
+    /// A minimal table for exercising the generic insert/update path in isolation,
+    /// defined as a portable migration so the test runs on any backend.
+    struct CreateSamples;
+    #[async_trait(?Send)]
+    impl Migration for CreateSamples {
+        fn name(&self) -> &str {
+            "0001_create_samples"
+        }
+        async fn up(&self, s: &mut Schema<'_>) -> CoreResult<()> {
+            s.exec(
+                Table::create()
+                    .table(Alias::new("samples"))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Alias::new("id"))
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Alias::new("code")).text().not_null())
+                    .col(ColumnDef::new(Alias::new("name")).text().not_null())
+                    .to_owned(),
+            )
+            .await
+        }
+    }
 
     fn config() -> FormConfig {
         FormConfig {
@@ -338,24 +371,11 @@ mod tests {
         )
     }
 
-    /// A fresh in-memory SQLite database holding a minimal `samples` table, so
-    /// the generic insert/update path is exercised in isolation without pulling
-    /// in another module's required columns.
-    async fn test_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        sqlx::query(
-            "create table samples (id integer primary key autoincrement, \
-             code text not null, name text not null)",
-        )
-        .execute(&pool)
-        .await
-        .expect("create samples table");
-        Db::new(pool, laterite_core::DbBackend::Sqlite)
+    /// A fresh test database holding a minimal `samples` table, on whichever
+    /// backend the run targets. Hold the returned guard for the test's lifetime.
+    async fn test_db() -> (Db, TestGuard) {
+        let samples = MigrationSet::new("test.samples", vec![Box::new(CreateSamples)]);
+        connect_test(&[samples]).await
     }
 
     /// Reads a single text column from the one row matching `code`, so a test can
@@ -363,7 +383,7 @@ mod tests {
     async fn fetch_text(db: &Db, column: &str, code: &str) -> Option<String> {
         let stmt = Query::select()
             .expr_as(
-                Expr::col(Alias::new(column)).cast_as(Alias::new("text")),
+                Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(db.backend))),
                 Alias::new("v"),
             )
             .from(Alias::new("samples"))
@@ -374,7 +394,7 @@ mod tests {
             .fetch_optional(&db.pool)
             .await
             .unwrap()?;
-        row.try_get::<Option<String>, _>("v").ok().flatten()
+        row.get_text_opt("v").ok().flatten()
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -386,7 +406,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_then_fetch() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let cfg = config();
         let st = state(db.clone());
 
@@ -407,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_changes_the_row() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let cfg = config();
         let st = state(db.clone());
         create(
@@ -440,7 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_requires_required_fields() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let cfg = config();
         let st = state(db.clone());
 

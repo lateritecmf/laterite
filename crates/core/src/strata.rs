@@ -4,7 +4,7 @@
 //! module gathers everything a layer needs. `use laterite_core::strata::*;`
 //! brings in the `Migration` trait and its `#[async_trait]` macro, the schema and
 //! query builders, the `Db` handle, and the portability polyfills (`bool_col`,
-//! `AnyRowExt`). Importing the general structure is enough; you should not have
+//! `key_col`, `AnyRowExt`). Importing the general structure is enough; you should not have
 //! to reach for individual items or remember which representation a type needs on
 //! which backend. The `make migration` scaffolding writes a file with this import
 //! already in place.
@@ -12,8 +12,11 @@
 pub use async_trait::async_trait;
 
 pub use crate::error::{CoreError, CoreResult};
-pub use crate::migration::{bool_col, Migration, MigrationSet, Schema, SqlMigration};
-pub use crate::query::{bind_values, bind_values_as, build, AnyRowExt};
+pub use crate::migration::{bool_col, key_col, Migration, MigrationSet, Schema, SqlMigration};
+pub use crate::query::{
+    bind_values, bind_values_as, build, insert_returning_id, on_conflict_ignore, text_cast,
+    AnyRowExt,
+};
 pub use crate::{Db, DbBackend};
 
 // Common `sea-query` items for building DDL and queries, re-exported so a

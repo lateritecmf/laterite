@@ -17,11 +17,77 @@ pub trait AnyRowExt {
     /// Reads a boolean stored as a 0/1 integer (the portable representation, see
     /// [`bind_values`]). The counterpart to binding a `bool`.
     fn get_bool(&self, column: &str) -> Result<bool, sqlx::Error>;
+
+    /// Reads a text column as a `String`, portably. MySQL reports `TEXT` columns
+    /// as `BLOB` through `sqlx::Any`, so a plain `String` decode fails there; this
+    /// falls back to reading the bytes and decoding UTF-8. Use for every text read
+    /// so the same code works on every backend.
+    fn get_text(&self, column: &str) -> Result<String, sqlx::Error>;
+
+    /// The nullable counterpart to [`get_text`], for a `text` column that may be
+    /// `NULL`.
+    fn get_text_opt(&self, column: &str) -> Result<Option<String>, sqlx::Error>;
 }
 
 impl AnyRowExt for AnyRow {
     fn get_bool(&self, column: &str) -> Result<bool, sqlx::Error> {
         Ok(self.try_get::<i32, _>(column)? != 0)
+    }
+
+    fn get_text(&self, column: &str) -> Result<String, sqlx::Error> {
+        match self.try_get::<String, _>(column) {
+            Ok(s) => Ok(s),
+            Err(_) => decode_utf8(column, self.try_get::<Vec<u8>, _>(column)?),
+        }
+    }
+
+    fn get_text_opt(&self, column: &str) -> Result<Option<String>, sqlx::Error> {
+        match self.try_get::<Option<String>, _>(column) {
+            Ok(s) => Ok(s),
+            Err(_) => self
+                .try_get::<Option<Vec<u8>>, _>(column)?
+                .map(|b| decode_utf8(column, b))
+                .transpose(),
+        }
+    }
+}
+
+/// Decodes bytes read from a text-typed column (the MySQL `BLOB` fallback path)
+/// as UTF-8, surfacing a bad encoding as a column-decode error.
+fn decode_utf8(column: &str, bytes: Vec<u8>) -> Result<String, sqlx::Error> {
+    String::from_utf8(bytes).map_err(|e| sqlx::Error::ColumnDecode {
+        index: column.to_string(),
+        source: Box::new(e),
+    })
+}
+
+/// A portable "insert, ignore duplicates" conflict clause for `keys` (the unique
+/// or primary-key columns of the conflict). Use in place of
+/// `OnConflict::columns(keys).do_nothing()`: sea-query renders MySQL's
+/// `DO NOTHING` as invalid SQL (`ON DUPLICATE KEY IGNORE`), so this expresses the
+/// same intent as a no-op update of the first key column, which is valid on
+/// Postgres, MySQL, and SQLite alike.
+pub fn on_conflict_ignore<C>(keys: impl IntoIterator<Item = C>) -> sea_query::OnConflict
+where
+    C: sea_query::IntoIden,
+{
+    use sea_query::IntoIden;
+    let keys: Vec<sea_query::DynIden> = keys.into_iter().map(IntoIden::into_iden).collect();
+    let first = keys[0].clone();
+    sea_query::OnConflict::columns(keys)
+        .update_column(first)
+        .to_owned()
+}
+
+/// The SQL type to cast a column to when you need its value back as a string on
+/// any backend. Descriptor-driven screens cast every selected column to a string
+/// so a value of any type reads back uniformly through `sqlx::Any`. MySQL rejects
+/// `CAST(x AS text)` (it casts to `char`), while Postgres and SQLite use `text`.
+/// Use as `Expr::col(c).cast_as(sea_query::Alias::new(text_cast(backend)))`.
+pub fn text_cast(backend: DbBackend) -> &'static str {
+    match backend {
+        DbBackend::Mysql => "char",
+        DbBackend::Postgres | DbBackend::Sqlite => "text",
     }
 }
 

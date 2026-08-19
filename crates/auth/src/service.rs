@@ -361,26 +361,16 @@ mod tests {
         AuthService::new(db, AuthConfig::default())
     }
 
-    /// A fresh in-memory SQLite database with this module's migrations applied
-    /// through the framework runner, the same path the application uses at
-    /// startup. Also exercises the runner itself, on a real backend.
-    async fn test_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
-        laterite_core::migration::run(&db.pool, db.backend, &[crate::migrations()])
-            .await
-            .expect("migrations should apply");
-        db
+    /// A fresh test database with this module's migrations applied through the
+    /// framework runner, on whichever backend the run targets (see
+    /// `laterite_core::testing`). Hold the returned guard for the test's lifetime.
+    async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+        laterite_core::testing::connect_test(&[crate::migrations()]).await
     }
 
     #[tokio::test]
     async fn authenticate_issues_a_verifiable_session() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "hunter2", true).await;
         let svc = service(pool);
 
@@ -399,8 +389,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn username_is_case_insensitive_across_backends() {
+        // The account is created lower-cased, and a differently-cased login
+        // resolves to it: this must hold identically on every backend (MySQL's
+        // collation is case-insensitive, Postgres and SQLite are not).
+        let (pool, _guard) = test_db().await;
+        let hash = password::hash_password("pw").unwrap();
+        store::create_user(
+            &pool,
+            "Root",
+            "Root@Example.test",
+            "Case",
+            None,
+            &hash,
+            true,
+        )
+        .await
+        .unwrap();
+        let svc = service(pool);
+        let session = svc
+            .authenticate("ROOT", "pw", &RequestContext::default())
+            .await
+            .expect("case-varied login should resolve to the same account");
+        let identity = svc.verify_session(&session.token).await.unwrap();
+        assert_eq!(identity.user.username, "root");
+        assert_eq!(identity.user.email, "root@example.test");
+    }
+
+    #[tokio::test]
     async fn full_name_falls_back_to_first_name_when_last_is_absent() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let hash = password::hash_password("pw").unwrap();
         store::create_user(
             &pool,
@@ -424,7 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_timezone_round_trips_and_clears() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let id = seed_user(&pool, "tz", "pw", true).await;
 
         // A fresh operator has no preference and inherits the default.
@@ -455,7 +473,7 @@ mod tests {
 
     #[tokio::test]
     async fn has_any_operator_flips_after_the_first_account() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let svc = service(pool);
 
         // A fresh install has no operators, so setup (not login) applies.
@@ -486,7 +504,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_password_is_rejected() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "hunter2", false).await;
         let svc = service(pool);
 
@@ -499,7 +517,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_user_is_rejected_without_distinction() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let svc = service(pool);
         let err = svc
             .authenticate("ghost", "whatever", &RequestContext::default())
@@ -510,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn lockout_trips_after_max_failures() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "hunter2", false).await;
         let svc = AuthService::new(
             pool,
@@ -532,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn permissions_come_from_assigned_roles() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let user_id = seed_user(&pool, "mod", "pw", false).await;
         let role_id = store::create_role(
             &pool,
@@ -559,7 +577,7 @@ mod tests {
 
     #[tokio::test]
     async fn logout_invalidates_the_session() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "pw", true).await;
         let svc = service(pool);
 
@@ -576,11 +594,18 @@ mod tests {
 
     #[tokio::test]
     async fn inactive_account_is_refused_after_correct_password() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let user_id = seed_user(&pool, "root", "pw", false).await;
-        sqlx::query("update backend_users set is_active = ? where id = ?")
-            .bind(0_i32)
-            .bind(user_id.to_string())
+        // Deactivate through the query layer so the placeholder renders per backend.
+        let (sql, values) = laterite_core::query::build(
+            pool.backend,
+            sea_query::Query::update()
+                .table(crate::schema::BackendUsers::Table)
+                .value(crate::schema::BackendUsers::IsActive, false)
+                .and_where(sea_query::Expr::col(crate::schema::BackendUsers::Id).eq(user_id))
+                .to_owned(),
+        );
+        laterite_core::query::bind_values(sqlx::query(&sql), values)
             .execute(&pool.pool)
             .await
             .unwrap();
@@ -595,7 +620,7 @@ mod tests {
 
     #[tokio::test]
     async fn reset_password_updates_the_hash() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "oldpw", true).await;
 
         let new_hash = password::hash_password("newpw").unwrap();
@@ -615,7 +640,7 @@ mod tests {
 
     #[tokio::test]
     async fn reset_password_reports_unknown_user() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         let hash = password::hash_password("x").unwrap();
         let affected = store::update_password_by_username(&pool, "ghost", &hash)
             .await
@@ -625,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_users_returns_all_seeded() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "alice", "pw", true).await;
         seed_user(&pool, "bob", "pw", false).await;
 
@@ -639,7 +664,7 @@ mod tests {
 
     #[tokio::test]
     async fn unlock_clears_the_lockout() {
-        let pool = test_db().await;
+        let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "pw", false).await;
         let svc = AuthService::new(
             pool.clone(),

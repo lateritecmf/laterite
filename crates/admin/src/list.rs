@@ -12,11 +12,10 @@ use askama::Template;
 use axum::response::Response;
 use chrono::DateTime;
 use chrono_tz::Tz;
-use laterite_core::query::{bind_values, bind_values_as, build};
-use laterite_core::Db;
+use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
+use laterite_core::{AnyRowExt, Db};
 use sea_query::{Alias, Expr, Order, Query};
 use serde::Deserialize;
-use sqlx::Row;
 
 use crate::sql::valid_ident;
 use crate::{render, render_error, AdminState};
@@ -148,13 +147,13 @@ pub(crate) async fn query(db: &Db, config: &ListConfig, offset: i64) -> anyhow::
         let mut select = Query::select();
         for column in &config.columns {
             select.expr_as(
-                Expr::col(Alias::new(&column.field)).cast_as(Alias::new("text")),
+                Expr::col(Alias::new(&column.field)).cast_as(Alias::new(text_cast(db.backend))),
                 Alias::new(&column.field),
             );
         }
         select
             .expr_as(
-                Expr::col(Alias::new(&config.id_field)).cast_as(Alias::new("text")),
+                Expr::col(Alias::new(&config.id_field)).cast_as(Alias::new(text_cast(db.backend))),
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
@@ -196,10 +195,9 @@ pub(crate) async fn query(db: &Db, config: &ListConfig, offset: i64) -> anyhow::
 /// Reads a text-cast column as a display string, treating null or a decode
 /// error as empty.
 fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
-    row.try_get::<Option<String>, _>(column)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+    // `get_text_opt` falls back to a byte read for MySQL, where a cast-to-char of
+    // a `text` column still comes back typed as BLOB.
+    row.get_text_opt(column).ok().flatten().unwrap_or_default()
 }
 
 /// Formats a raw cell value for display according to its column kind. Timestamps
@@ -329,25 +327,15 @@ mod tests {
         assert_eq!(format_cell("n/a", ColumnKind::DateTime, Tz::UTC), "n/a");
     }
 
-    /// A fresh in-memory SQLite database with the auth tables migrated in, the
-    /// same runner path the application uses at startup.
-    async fn test_db() -> Db {
-        sqlx::any::install_default_drivers();
-        let pool = sqlx::any::AnyPoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("sqlite pool");
-        let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
-        laterite_core::migration::run(&db.pool, db.backend, &[laterite_auth::migrations()])
-            .await
-            .expect("migrations should apply");
-        db
+    /// A fresh test database with the auth tables migrated in, on whichever
+    /// backend the run targets. Hold the returned guard for the test's lifetime.
+    async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+        laterite_core::testing::connect_test(&[laterite_auth::migrations()]).await
     }
 
     #[tokio::test]
     async fn query_returns_display_rows() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let hash = laterite_auth::password::hash_password("pw").unwrap();
         laterite_auth::store::create_user(
             &db,
@@ -373,7 +361,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_rejects_bad_identifiers() {
-        let db = test_db().await;
+        let (db, _guard) = test_db().await;
         let mut bad = config();
         bad.entity = "backend_users; drop table backend_users".to_string();
         assert!(query(&db, &bad, 0).await.is_err());

@@ -17,3 +17,9 @@ clap = { workspace = true }
 rand = { workspace = true }
 rpassword = { workspace = true }
 tokio = { workspace = true }
+
+[features]
+default = []
+postgres = ["laterite-core/postgres", "laterite-auth/postgres"]
+mysql = ["laterite-core/mysql", "laterite-auth/mysql"]
+sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite"]

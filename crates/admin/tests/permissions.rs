@@ -11,20 +11,10 @@ use tower::ServiceExt;
 /// The session cookie name the admin sets and reads (wire format).
 const SESSION_COOKIE: &str = "laterite_session";
 
-/// A fresh in-memory SQLite database with the admin's built-in migrations
-/// applied, the same runner path the application uses at startup.
-async fn test_db() -> Db {
-    sqlx::any::install_default_drivers();
-    let pool = sqlx::any::AnyPoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("sqlite pool");
-    let db = Db::new(pool, laterite_core::DbBackend::Sqlite);
-    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
-        .await
-        .expect("migrations should apply");
-    db
+/// A fresh test database with the admin's built-in migrations applied, on
+/// whichever backend the run targets. Hold the guard for the test's lifetime.
+async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
+    laterite_core::testing::connect_test(&laterite_admin::builtin_migrations()).await
 }
 
 /// Signs in and returns the session token.
@@ -46,7 +36,7 @@ fn get(path: &str, token: Option<&str>) -> Request<Body> {
 
 #[tokio::test]
 async fn resource_routes_enforce_their_permission() {
-    let pool = test_db().await;
+    let (pool, _guard) = test_db().await;
 
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
 

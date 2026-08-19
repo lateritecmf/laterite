@@ -31,6 +31,8 @@ imported, so imports are never your concern.
 | `bool` | `integer` (0/1) | `bool_col` in migrations; bound and read as `bool` |
 | `DateTime<Utc>` | `text` (RFC 3339) | fixed-precision so string ordering is chronological |
 | JSON object / array | `text` | `serde_json` at the boundary |
+| key / id / code column | `varchar(255)` | `key_col` (MySQL cannot index `text`) |
+| any string read | `String` | `AnyRowExt::get_text` (MySQL reports `text` as `BLOB`) |
 
 `sqlx::Any` has no unsigned column types, so the bind layer also maps unsigned
 integers to the next wider signed integer. You rarely write these yourself, but
@@ -81,7 +83,70 @@ Store an object or array as `text` and (de)serialize with `serde_json`. Only
 whole-value read/write is portable; do not rely on in-database JSON operators or
 indexes, which are Postgres-specific.
 
+### Strings, keys, and casts
+
+Three MySQL quirks shape how strings are stored and read; the helpers below hide
+all of them.
+
+- **Key columns are `varchar`, not `text`.** MySQL cannot index a `text` column,
+  so any column that is a primary key, unique key, foreign key, or part of an
+  index must be a bounded string. Use `laterite_core::key_col(name)` (a
+  `varchar(255)`) for ids, codes, tokens, and anything you index; use plain
+  `.text()` only for unindexed prose.
+
+- **Read strings with `get_text`, never `try_get::<String>`.** MySQL reports a
+  `text` column as `BLOB` through `sqlx::Any`, so a plain `String` decode fails
+  there (and even a cast-to-string of a `text` column comes back `BLOB`).
+  `AnyRowExt::get_text(col)` (and `get_text_opt` for a nullable column) decodes as
+  `String` on Postgres and SQLite and falls back to a byte read on MySQL:
+
+  ```rust
+  use laterite_core::AnyRowExt;
+
+  let title: String = row.get_text("title")?;
+  ```
+
+- **Cast to a string with `text_cast`.** A descriptor-driven screen casts every
+  selected column to a string so a value of any type reads back uniformly. MySQL
+  casts to `char`, Postgres and SQLite to `text`, so name the target with
+  `laterite_core::query::text_cast(backend)`:
+  `Expr::col(c).cast_as(Alias::new(text_cast(db.backend)))`.
+
+### Idempotent inserts
+
+To insert a row and ignore a duplicate (an "insert or nothing"), use
+`laterite_core::query::on_conflict_ignore(keys)` rather than
+`OnConflict::columns(keys).do_nothing()`: sea-query renders MySQL's `do_nothing`
+as invalid SQL, so the helper expresses the same intent in a form valid on every
+backend.
+
+### Case sensitivity of text keys
+
+MySQL's default collation compares strings case- and trailing-space-insensitively,
+while Postgres and SQLite are exact. A unique text key such as a username or email
+therefore behaves differently per backend unless you normalise it. For any
+user-facing key you look up or enforce uniqueness on, canonicalise it (lower-case
+and trim) on both write and lookup, as the auth store does for usernames and
+emails, so `Root` and `root ` resolve to one account everywhere.
+
+### Behaviour the helpers do not hide
+
+A few differences are inherent and worth knowing:
+
+- **SQLite foreign keys.** SQLite enforces foreign keys only when
+  `PRAGMA foreign_keys = ON`; `sqlx` sets this by default, so a foreign key rejects
+  on SQLite as it does on Postgres and MySQL. Do not disable it.
+- **`varchar` needs a length on MySQL.** Use `key_col` (a bounded `varchar`) or
+  `.text()`; a bare `ColumnDef::string()` (unbounded `varchar`) is a MySQL error.
+- **DDL is transactional only on Postgres and SQLite.** MySQL commits implicitly
+  after each schema statement, so a migration that fails partway cannot be rolled
+  back there. Keep each migration to one table or change where practical.
+
 ## Writing a portable query
+
+Never hand-write SQL with `?` placeholders: Postgres expects `$1`, `$2`, so a raw
+`?` query fails there. Always build through `sea-query` and the query helpers,
+which render both the SQL and the placeholders for the connection's backend.
 
 Build the statement with `sea-query` and run it through the query helpers, which
 render for the connection's backend and bind values portably:
