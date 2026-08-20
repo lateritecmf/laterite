@@ -10,6 +10,27 @@ screens, portable migrations, and role-based access, built on Axum and
 [![MariaDB](https://github.com/lateritecmf/laterite/actions/workflows/mysql.yml/badge.svg)](https://github.com/lateritecmf/laterite/actions/workflows/mysql.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
+## Quick start
+
+Install the command-line tool and scaffold an application:
+
+```
+cargo install laterite-cli
+lat new
+```
+
+`lat new` is a guided installer: it prompts for the application name, timezone,
+and database, sets up the database, applies the migrations, and creates the first
+administrator. Then run it:
+
+```
+cd acme
+cargo run
+```
+
+Open <http://127.0.0.1:8080/admin> and sign in. Run `lat doctor` from the app
+directory any time to check it is ready to serve.
+
 ## Highlights
 
 - **Descriptor-driven admin.** Lists, forms, filters, and navigation are serde
@@ -51,7 +72,10 @@ The full suite runs against all three on every push (the badges above).
 
 Each crate builds, lints, and tests standalone.
 
-## Build and test
+## Developing the framework
+
+To work on Laterite itself (rather than build an application with it), clone the
+repository and run the workspace:
 
 ```
 cargo build --workspace
