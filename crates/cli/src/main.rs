@@ -11,6 +11,7 @@ use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
+mod doctor;
 mod new;
 
 #[derive(Parser)]
@@ -29,6 +30,8 @@ struct Cli {
 enum Command {
     /// Scaffold and set up a new Laterite application (interactive).
     New(new::NewArgs),
+    /// Check that this application is set up to run (run from its directory).
+    Doctor,
     /// Manage backend (admin) users.
     Admin {
         #[command(subcommand)]
@@ -86,6 +89,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::New(args) => new::run(args).await,
+        Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
     }
 }
