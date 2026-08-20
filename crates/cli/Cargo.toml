@@ -1,6 +1,6 @@
 [package]
 name = "laterite-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "The Laterite command-line tool (lat): admin bootstrap and operations"
 edition.workspace = true
 license.workspace = true
