@@ -286,7 +286,7 @@ fn builtin_permissions() -> Vec<Permission> {
 /// # Ok(()) }
 /// ```
 pub fn builtin_migrations() -> Vec<laterite_core::MigrationSet> {
-    vec![laterite_auth::migrations(), laterite_settings::migrations()]
+    vec![laterite_auth::migrations(), settings::migrations()]
 }
 
 /// Builds the admin router. `app_resources` are the application's own list/form

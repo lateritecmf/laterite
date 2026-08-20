@@ -1,16 +1,22 @@
-//! Descriptor-driven settings screens.
+//! Descriptor-driven settings screens, and the settings store behind them.
 //!
 //! A module registers a [`SettingsItem`] for each settings model it wants an
-//! operator to edit: its storage `code` (the `laterite_settings::SettingsModel`
-//! `CODE`), a `category` it groups under, and the fields to render. The
-//! framework mounts one index that lists every registered item grouped by
-//! category, and one generic form per item that reads and writes the model's
-//! JSON value through `laterite-settings`. No per-model controller is needed,
-//! exactly as a single settings controller serves every settings model.
+//! operator to edit: its storage `code` (the [`store::SettingsModel`] `CODE`), a
+//! `category` it groups under, and the fields to render. The framework mounts one
+//! index that lists every registered item grouped by category, and one generic
+//! form per item that reads and writes the model's JSON value through the
+//! [`store`]. No per-model controller is needed, exactly as a single settings
+//! controller serves every settings model.
 //!
 //! Values are stored as one JSON object per code. Field names are JSON keys, not
 //! SQL identifiers, and the value is written through a parameterized upsert, so
 //! nothing here builds SQL from user input.
+
+pub mod migrations;
+pub mod store;
+
+pub use migrations::{migrations, MODULE_ID};
+pub use store::{get, load, save, set, SettingsError, SettingsModel};
 
 use std::collections::HashMap;
 
@@ -118,7 +124,7 @@ pub(crate) async fn edit_form(
     item: &SettingsItem,
     shell: crate::Shell,
 ) -> Response {
-    let stored = match laterite_settings::get(&state.db, &item.code).await {
+    let stored = match store::get(&state.db, &item.code).await {
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
@@ -133,7 +139,7 @@ pub(crate) async fn update(
     shell: crate::Shell,
 ) -> Response {
     let value = collect(item, &data);
-    match laterite_settings::set(&state.db, &item.code, &value).await {
+    match store::set(&state.db, &item.code, &value).await {
         Ok(()) => Redirect::to("/admin/settings").into_response(),
         Err(_) => render(build(
             item,
@@ -322,7 +328,7 @@ mod tests {
     /// A fresh test database with the settings table migrated in, on whichever
     /// backend the run targets. Hold the returned guard for the test's lifetime.
     async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
-        laterite_core::testing::connect_test(&[laterite_settings::migrations()]).await
+        laterite_core::testing::connect_test(&[migrations()]).await
     }
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -430,10 +436,7 @@ mod tests {
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
 
-        let stored = laterite_settings::get(&db, "test.log")
-            .await
-            .unwrap()
-            .unwrap();
+        let stored = store::get(&db, "test.log").await.unwrap().unwrap();
         assert_eq!(stored["log_events"], serde_json::json!(true));
         assert_eq!(stored["log_requests"], serde_json::json!(false));
         assert_eq!(stored["retention_days"], serde_json::json!("30"));

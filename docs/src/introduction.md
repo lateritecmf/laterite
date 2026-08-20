@@ -10,8 +10,7 @@ The framework is assembled from small crates, each owning one concern:
 | --- | --- |
 | `laterite-core` | Module registration and the migration runner |
 | `laterite-auth` | Backend users, roles, sessions, and permissions |
-| `laterite-admin` | Descriptor-driven list and form screens |
-| `laterite-settings` | Typed settings models stored as JSONB |
+| `laterite-admin` | Descriptor-driven list and form screens, and typed settings |
 | `laterite-cli` | Administrative commands (create user, reset password) |
 
 ## How this guide is organized

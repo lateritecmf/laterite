@@ -66,8 +66,7 @@ The full suite runs against all three on every push (the badges above).
 | --- | --- |
 | `laterite-core` | kernel: config, errors, the `Db` handle, the migration engine, the query layer |
 | `laterite-auth` | backend users, Argon2id credentials, sessions, and permissions |
-| `laterite-settings` | typed settings models stored as JSON |
-| `laterite-admin` | the Axum admin router, descriptor screens, and session middleware |
+| `laterite-admin` | the Axum admin router, descriptor screens, settings, and session middleware |
 | `laterite-cli` | `lat`, the command-line tool |
 
 Each crate builds, lints, and tests standalone.
@@ -87,7 +86,7 @@ MariaDB, point the harness at a server and enable that backend's feature:
 
 ```
 LATERITE_TEST_DATABASE_URL=postgres://user@localhost/postgres \
-  cargo test -p laterite-auth -p laterite-settings -p laterite-admin --features postgres
+  cargo test -p laterite-auth -p laterite-admin --features postgres
 ```
 
 ## Documentation

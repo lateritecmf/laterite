@@ -2,12 +2,12 @@
 
 use laterite_core::strata::*;
 
-use crate::Settings;
+use super::store::Settings;
 
-/// The stable migration namespace for this module.
+/// The stable migration namespace for the settings store.
 pub const MODULE_ID: &str = "laterite.settings";
 
-/// This module's migrations, for registration with the application's runner.
+/// The settings migrations, for registration with the application's runner.
 pub fn migrations() -> MigrationSet {
     MigrationSet::new(MODULE_ID, vec![Box::new(CreateSettings)])
 }

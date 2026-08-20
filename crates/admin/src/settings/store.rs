@@ -1,20 +1,16 @@
-//! Laterite settings: typed settings models stored as one JSON blob per code.
+//! The settings store: typed settings models stored as one JSON blob per code.
 //!
 //! A settings model is a plain serde struct, stored as one JSON value keyed by
 //! a stable code, with compile-time-typed access. A generic, untyped get/set is
-//! also provided for the admin settings controller, which renders and saves any
+//! also provided for the settings controller, which renders and saves any
 //! registered settings item without knowing its concrete type. The JSON is
 //! stored as text, so the store is portable across backends.
-
-pub mod migrations;
 
 use chrono::{SecondsFormat, Utc};
 use laterite_core::strata::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use thiserror::Error;
-
-pub use migrations::{migrations, MODULE_ID};
 
 #[derive(Iden)]
 pub(crate) enum Settings {
@@ -104,10 +100,10 @@ mod tests {
     use super::*;
     use serde::Deserialize;
 
-    /// A fresh test database with this module's migrations applied, on whichever
+    /// A fresh test database with the settings migration applied, on whichever
     /// backend the run targets. Hold the returned guard for the test's lifetime.
     async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
-        laterite_core::testing::connect_test(&[migrations()]).await
+        laterite_core::testing::connect_test(&[super::super::migrations::migrations()]).await
     }
 
     #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
