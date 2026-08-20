@@ -1125,11 +1125,11 @@ dependencies = [
  "chrono-tz",
  "laterite-auth",
  "laterite-core",
- "laterite-settings",
  "sea-query",
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.20",
  "tokio",
  "tower",
 ]
@@ -1185,21 +1185,6 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "laterite-settings"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "laterite-core",
- "sea-query",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.20",
- "tokio",
 ]
 
 [[package]]

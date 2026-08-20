@@ -6,7 +6,7 @@ settings model is a plain Rust struct. It is stored as a single JSON value keyed
 by a stable code, so adding or removing a field never needs a database
 migration, and access to it is checked by the compiler.
 
-This is provided by the `laterite-settings` crate.
+This is provided by the `laterite-admin` crate, in its `settings` module.
 
 ## Define a settings model
 
@@ -15,7 +15,7 @@ Derive `Serialize`, `Deserialize`, and `Default`, then implement
 stored value that predates a new field still deserializes:
 
 ```rust
-use laterite_settings::SettingsModel;
+use laterite_admin::settings::SettingsModel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -51,7 +51,7 @@ model's `Default` rather than an error, so callers never handle an "unset"
 case:
 
 ```rust
-let settings: SiteSettings = laterite_settings::load(&pool).await?;
+let settings: SiteSettings = laterite_admin::settings::load(&db).await?;
 println!("{}", settings.title);
 ```
 
@@ -63,7 +63,7 @@ let settings = SiteSettings {
     tagline: "We build things".into(),
     maintenance_mode: false,
 };
-laterite_settings::save(&pool, &settings).await?;
+laterite_admin::settings::save(&db, &settings).await?;
 ```
 
 ## Read and write, untyped
@@ -73,8 +73,8 @@ knowing its concrete type. For that path, `get` and `set` work over a raw
 `serde_json::Value` keyed by code:
 
 ```rust
-let value = laterite_settings::get(&pool, SiteSettings::CODE).await?;
-laterite_settings::set(&pool, "acme.site", &value.unwrap_or_default()).await?;
+let value = laterite_admin::settings::get(&db, SiteSettings::CODE).await?;
+laterite_admin::settings::set(&db, "acme.site", &value.unwrap_or_default()).await?;
 ```
 
 ## Editing settings in the admin
