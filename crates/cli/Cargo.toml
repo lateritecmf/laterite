@@ -13,14 +13,25 @@ path = "src/main.rs"
 [dependencies]
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
+laterite-admin = { workspace = true }
 anyhow = { workspace = true }
+chrono-tz = { workspace = true }
 clap = { workspace = true }
+dialoguer = { workspace = true }
 rand = { workspace = true }
 rpassword = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 
 [features]
-default = []
-postgres = ["laterite-core/postgres", "laterite-auth/postgres"]
-mysql = ["laterite-core/mysql", "laterite-auth/mysql"]
-sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite"]
+# The `lat` tool is a developer tool, not a deployed application, so it enables
+# every driver by default: `lat new` must be able to connect to whichever
+# database the user chooses. A generated application stays lean, compiling only
+# the one driver it selects.
+default = ["postgres", "mysql", "sqlite"]
+postgres = ["laterite-core/postgres", "laterite-auth/postgres", "laterite-admin/postgres"]
+mysql = ["laterite-core/mysql", "laterite-auth/mysql", "laterite-admin/mysql"]
+sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite", "laterite-admin/sqlite"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

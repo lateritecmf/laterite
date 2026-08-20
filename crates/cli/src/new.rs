@@ -1,0 +1,589 @@
+//! `lat new`: the interactive application installer.
+//!
+//! Guides an operator from nothing to a running Laterite application: it asks
+//! for the application name, timezone, and database, connects to (and offers to
+//! create) that database, scaffolds a project wired to the framework, applies
+//! the built-in migrations, and creates the first administrator. It mirrors the
+//! one-command setup a batteries-included framework is expected to provide.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{bail, Context, Result};
+use clap::Args;
+use dialoguer::theme::ColorfulTheme;
+use dialoguer::{Confirm, FuzzySelect, Input, Password, Select};
+use laterite_auth::{AuthConfig, AuthService, NewOperator};
+use laterite_core::{Db, DbBackend};
+use sqlx::any::AnyPoolOptions;
+use sqlx::AnyPool;
+
+#[derive(Args)]
+pub struct NewArgs {
+    /// The application name (a valid crate name). Prompted if omitted.
+    pub name: Option<String>,
+}
+
+/// The database connection the installer assembled.
+struct Connection {
+    backend: DbBackend,
+    /// The URL written to the app's git-ignored `config/local.toml`. For SQLite
+    /// this is a path relative to the app root, so the app finds the file when it
+    /// runs from its own directory.
+    config_url: String,
+    /// Maintenance URL used to create the database (server backends only).
+    admin_url: Option<String>,
+    /// The database name to create if missing (server backends only).
+    db_name: Option<String>,
+    /// The SQLite file relative to the app root (SQLite only), used to resolve
+    /// the file inside the scaffolded directory at install time.
+    sqlite_relpath: Option<String>,
+}
+
+impl Connection {
+    /// The URL the installer connects with. For SQLite it resolves the file
+    /// inside the freshly-scaffolded app directory (the config keeps the path
+    /// relative); for server backends it is the same URL the app uses.
+    fn install_url(&self, app_dir: &Path) -> String {
+        match &self.sqlite_relpath {
+            Some(rel) => format!("sqlite://{}?mode=rwc", app_dir.join(rel).display()),
+            None => self.config_url.clone(),
+        }
+    }
+}
+
+pub async fn run(args: NewArgs) -> Result<()> {
+    let theme = ColorfulTheme::default();
+    println!("Setting up a new Laterite application.\n");
+
+    let name = app_name(&theme, args.name)?;
+    let dir = PathBuf::from(&name);
+    if dir.exists() {
+        bail!("a file or directory named '{name}' already exists here");
+    }
+    // The current directory must be writable to scaffold the project into it.
+    if !is_writable(Path::new(".")) {
+        bail!("the current directory is not writable; run this where you can create '{name}'");
+    }
+    // The generated app is a Rust project; warn (not fail) if the toolchain is
+    // absent, since it is needed to build and run what we scaffold.
+    if !has_cargo() {
+        eprintln!(
+            "Warning: `cargo` was not found on PATH. Install the Rust toolchain \
+             (https://rustup.rs) to build and run the generated app.\n"
+        );
+    }
+
+    let timezone = timezone(&theme)?;
+    let conn = connection(&theme, &name)?;
+
+    // Scaffold first so the app's storage directory exists before a SQLite
+    // database is created inside it.
+    scaffold(&dir, &name, &timezone, &conn).context("could not scaffold the project")?;
+    println!("Scaffolded ./{name}");
+
+    // Connect, offering to create the database if it does not exist yet.
+    let db = connect(&theme, &conn, &dir)
+        .await
+        .context("could not reach the database")?;
+    println!("Connected to the database.");
+
+    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
+        .await
+        .context("could not apply the framework migrations")?;
+    println!("Applied the framework migrations.");
+
+    create_admin(&theme, &db)
+        .await
+        .context("could not create the administrator")?;
+
+    println!("\nDone. Next steps:\n");
+    println!("    cd {name}");
+    println!("    cargo run");
+    println!("\nThen open http://127.0.0.1:8080/admin and sign in.");
+    Ok(())
+}
+
+fn app_name(theme: &ColorfulTheme, provided: Option<String>) -> Result<String> {
+    if let Some(name) = provided {
+        validate_crate_name(&name).map_err(|e| anyhow::anyhow!(e))?;
+        return Ok(name);
+    }
+    let name: String = Input::with_theme(theme)
+        .with_prompt("Application name")
+        .validate_with(|s: &String| validate_crate_name(s))
+        .interact_text()?;
+    Ok(name)
+}
+
+/// A valid Cargo package name: lower-case letters, digits, and `-`/`_`, starting
+/// with a letter. Also serves as the database name, so it stays conservative.
+fn validate_crate_name(s: &str) -> Result<(), String> {
+    let ok = !s.is_empty()
+        && s.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    if ok {
+        Ok(())
+    } else {
+        Err("use lower-case letters, digits, - or _, starting with a letter".to_string())
+    }
+}
+
+fn timezone(theme: &ColorfulTheme) -> Result<String> {
+    // Fuzzy-search the whole IANA database: type to filter (e.g. "kolk"), then
+    // arrow-select. The result is always a valid zone, so no separate validation.
+    let zones: Vec<&str> = chrono_tz::TZ_VARIANTS.iter().map(|tz| tz.name()).collect();
+    let default = zones.iter().position(|z| *z == "UTC").unwrap_or(0);
+    let choice = FuzzySelect::with_theme(theme)
+        .with_prompt("Timezone (type to search)")
+        .items(&zones)
+        .default(default)
+        .interact()?;
+    Ok(zones[choice].to_string())
+}
+
+fn connection(theme: &ColorfulTheme, app: &str) -> Result<Connection> {
+    let backend = match Select::with_theme(theme)
+        .with_prompt("Database")
+        .items(&["PostgreSQL", "MySQL / MariaDB", "SQLite"])
+        .default(0)
+        .interact()?
+    {
+        0 => DbBackend::Postgres,
+        1 => DbBackend::Mysql,
+        _ => DbBackend::Sqlite,
+    };
+
+    match backend {
+        DbBackend::Sqlite => {
+            // Convention over configuration: the database lives in the app's
+            // storage directory, alongside other runtime data. `mode=rwc`
+            // creates it if missing.
+            let rel = "storage/database.db";
+            Ok(Connection {
+                backend,
+                config_url: format!("sqlite://{rel}?mode=rwc"),
+                admin_url: None,
+                db_name: None,
+                sqlite_relpath: Some(rel.to_string()),
+            })
+        }
+        DbBackend::Postgres | DbBackend::Mysql => {
+            let (scheme, default_port, maintenance) = match backend {
+                DbBackend::Postgres => ("postgres", 5432, "postgres"),
+                _ => ("mysql", 3306, "mysql"),
+            };
+            let host: String = Input::with_theme(theme)
+                .with_prompt("Host")
+                .default("localhost".to_string())
+                .interact_text()?;
+            let port: u16 = Input::with_theme(theme)
+                .with_prompt("Port")
+                .default(default_port)
+                .interact_text()?;
+            let db_name: String = Input::with_theme(theme)
+                .with_prompt("Database name")
+                .default(app.replace('-', "_"))
+                .validate_with(|s: &String| validate_ident(s))
+                .interact_text()?;
+            let user: String = Input::with_theme(theme)
+                .with_prompt("User")
+                .default(scheme.to_string())
+                .interact_text()?;
+            let password = Password::with_theme(theme)
+                .with_prompt("Password (leave blank for none)")
+                .allow_empty_password(true)
+                .interact()?;
+
+            Ok(Connection {
+                backend,
+                config_url: server_url(scheme, &user, &password, &host, port, &db_name),
+                admin_url: Some(server_url(
+                    scheme,
+                    &user,
+                    &password,
+                    &host,
+                    port,
+                    maintenance,
+                )),
+                db_name: Some(db_name),
+                sqlite_relpath: None,
+            })
+        }
+    }
+}
+
+/// A safe SQL identifier for a database name (it is interpolated into
+/// `CREATE DATABASE`, which cannot be parameterized).
+fn validate_ident(s: &str) -> Result<(), String> {
+    let ok = !s.is_empty()
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic());
+    if ok {
+        Ok(())
+    } else {
+        Err("use letters, digits, or _, starting with a letter".to_string())
+    }
+}
+
+fn server_url(scheme: &str, user: &str, password: &str, host: &str, port: u16, db: &str) -> String {
+    if password.is_empty() {
+        format!("{scheme}://{user}@{host}:{port}/{db}")
+    } else {
+        format!("{scheme}://{user}:{password}@{host}:{port}/{db}")
+    }
+}
+
+async fn connect(theme: &ColorfulTheme, conn: &Connection, app_dir: &Path) -> Result<Db> {
+    sqlx::any::install_default_drivers();
+    let url = conn.install_url(app_dir);
+    match try_pool(&url).await {
+        Ok(pool) => Ok(Db::new(pool, conn.backend)),
+        Err(err) => {
+            // The most common reason a server connection fails at setup is that
+            // the database has not been created yet; offer to create it.
+            let (Some(admin_url), Some(db_name)) = (&conn.admin_url, &conn.db_name) else {
+                return Err(err.into());
+            };
+            println!("Could not connect: {err}");
+            let create = Confirm::with_theme(theme)
+                .with_prompt(format!("Create database '{db_name}'?"))
+                .default(true)
+                .interact()?;
+            if !create {
+                bail!("database '{db_name}' is required");
+            }
+            let admin = try_pool(admin_url)
+                .await
+                .context("could not connect to the server to create the database")?;
+            sqlx::query(&format!("create database {db_name}"))
+                .execute(&admin)
+                .await
+                .context("could not create the database")?;
+            admin.close().await;
+            let pool = try_pool(&url)
+                .await
+                .context("could not connect after creating the database")?;
+            Ok(Db::new(pool, conn.backend))
+        }
+    }
+}
+
+async fn try_pool(url: &str) -> Result<AnyPool, sqlx::Error> {
+    AnyPoolOptions::new().max_connections(1).connect(url).await
+}
+
+async fn create_admin(theme: &ColorfulTheme, db: &Db) -> Result<()> {
+    println!("\nCreate the first administrator:");
+    let username: String = Input::with_theme(theme)
+        .with_prompt("Username")
+        .default("admin".to_string())
+        .interact_text()?;
+    let email: String = Input::with_theme(theme)
+        .with_prompt("Email")
+        .interact_text()?;
+    let first_name: String = Input::with_theme(theme)
+        .with_prompt("First name")
+        .interact_text()?;
+    let password = Password::with_theme(theme)
+        .with_prompt("Password")
+        .with_confirmation("Confirm password", "the passwords do not match")
+        .interact()?;
+
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    auth.create_superuser(NewOperator {
+        username: &username,
+        email: &email,
+        first_name: &first_name,
+        last_name: None,
+        password: &password,
+        timezone: None,
+    })
+    .await?;
+    println!("Created administrator '{username}'.");
+    Ok(())
+}
+
+fn scaffold(dir: &Path, name: &str, timezone: &str, conn: &Connection) -> Result<()> {
+    fs::create_dir_all(dir.join("src"))?;
+    fs::create_dir_all(dir.join("config"))?;
+    // Runtime data (the SQLite database, and future cache and logs) lives here.
+    // It must be writable at runtime, so set 755 and verify.
+    let storage = dir.join("storage");
+    fs::create_dir_all(&storage)?;
+    set_dir_mode(&storage, 0o755)?;
+    if !is_writable(&storage) {
+        bail!(
+            "the storage directory is not writable: {}",
+            storage.display()
+        );
+    }
+
+    let feature = match conn.backend {
+        DbBackend::Postgres => "postgres",
+        DbBackend::Mysql => "mysql",
+        DbBackend::Sqlite => "sqlite",
+    };
+
+    write(dir.join("Cargo.toml"), &cargo_toml(name, feature))?;
+    write(dir.join("src/main.rs"), MAIN_RS)?;
+    write(dir.join("src/migrations.rs"), MIGRATIONS_RS)?;
+    write(dir.join("config/default.toml"), &default_toml(timezone))?;
+    write(dir.join("config/local.toml"), &local_toml(&conn.config_url))?;
+    write(dir.join(".gitignore"), GITIGNORE)?;
+    write(dir.join("README.md"), &readme(name))?;
+    // Track the otherwise-empty storage directory, but not its contents.
+    write(dir.join("storage/.gitkeep"), "")?;
+    Ok(())
+}
+
+fn write(path: PathBuf, contents: &str) -> Result<()> {
+    fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))
+}
+
+/// Whether `dir` is writable, probed by creating and removing a temporary file.
+fn is_writable(dir: &Path) -> bool {
+    let probe = dir.join(format!(".laterite-write-probe-{}", std::process::id()));
+    match fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Whether the Rust toolchain is available to build the generated app.
+fn has_cargo() -> bool {
+    Command::new("cargo")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Sets a directory's permission bits (Unix only; a no-op elsewhere). Runtime
+/// data directories are created `755`, matching the conventional mask.
+#[cfg(unix)]
+fn set_dir_mode(path: &Path, mode: u32) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("setting permissions on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_dir_mode(_path: &Path, _mode: u32) -> Result<()> {
+    Ok(())
+}
+
+fn cargo_toml(name: &str, feature: &str) -> String {
+    format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2021"
+
+# Stand alone as its own workspace root, so the app builds even when it is
+# created inside another Cargo workspace's directory tree.
+[workspace]
+
+[dependencies]
+# The backend feature on laterite-core links its sqlx driver; the other crates
+# use it through sqlx::Any, so one feature selects the database everywhere.
+laterite-core = {{ version = "0.1", features = ["{feature}"] }}
+laterite-auth = "0.1"
+laterite-admin = "0.1"
+anyhow = "1"
+axum = "0.8"
+serde = {{ version = "1", features = ["derive"] }}
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"#
+    )
+}
+
+const MAIN_RS: &str = r#"//! A Laterite application: loads configuration, connects to the database,
+//! applies migrations, and serves the admin.
+
+use std::path::Path;
+
+use serde::Deserialize;
+
+mod migrations;
+
+/// The application configuration, loaded from `config/`.
+#[derive(Deserialize)]
+struct AppConfig {
+    server: laterite_core::config::ServerConfig,
+    database: laterite_core::config::DatabaseConfig,
+    #[serde(default)]
+    backend: laterite_core::config::BackendConfig,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let config: AppConfig = laterite_core::config::load(Path::new("config"), "APP")?;
+    let db = laterite_core::db::connect(&config.database).await?;
+
+    // The framework's built-in migrations plus this application's own.
+    let mut sets = laterite_admin::builtin_migrations();
+    sets.extend(migrations::migrations());
+    laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
+
+    let auth =
+        laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default());
+    let admin_config = laterite_admin::AdminConfig {
+        secure_cookie: config.backend.secure_cookie,
+        timezone: config.backend.timezone.clone(),
+    };
+    let router = laterite_admin::router(
+        auth,
+        db,
+        Vec::new(), // application resources (list/form screens)
+        Vec::new(), // application settings models
+        Vec::new(), // application permissions
+        admin_config,
+    );
+
+    let listener = tokio::net::TcpListener::bind(&config.server.listen).await?;
+    println!("Laterite admin on http://{}/admin", config.server.listen);
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+"#;
+
+const MIGRATIONS_RS: &str = r#"//! This application's own migrations. Return the module migration sets here as
+//! the schema grows; they run after the framework's built-in migrations.
+
+pub fn migrations() -> Vec<laterite_core::MigrationSet> {
+    Vec::new()
+}
+"#;
+
+fn default_toml(timezone: &str) -> String {
+    format!(
+        r#"# Committed defaults. Secrets (the database URL) live in local.toml, which is
+# git-ignored. Override any value with APP__SECTION__KEY environment variables.
+
+[server]
+listen = "127.0.0.1:8080"
+
+[backend]
+timezone = "{timezone}"
+secure_cookie = false
+"#
+    )
+}
+
+fn local_toml(url: &str) -> String {
+    format!(
+        r#"# Local, git-ignored configuration. Holds the database connection.
+
+[database]
+url = "{url}"
+"#
+    )
+}
+
+const GITIGNORE: &str = r#"/target
+/config/local.toml
+/storage/*
+!/storage/.gitkeep
+"#;
+
+fn readme(name: &str) -> String {
+    format!(
+        r#"# {name}
+
+A Laterite application.
+
+## Run
+
+    cargo run
+
+Then open http://127.0.0.1:8080/admin and sign in.
+
+## Configuration
+
+`config/default.toml` holds non-secret defaults. `config/local.toml` (git-ignored)
+holds the database URL. Override any value with `APP__SECTION__KEY` environment
+variables, for example `APP__DATABASE__URL`.
+"#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crate_names_are_validated() {
+        assert!(validate_crate_name("acme").is_ok());
+        assert!(validate_crate_name("acme-blog").is_ok());
+        assert!(validate_crate_name("acme_blog2").is_ok());
+        assert!(validate_crate_name("Acme").is_err()); // upper-case
+        assert!(validate_crate_name("2acme").is_err()); // leading digit
+        assert!(validate_crate_name("acme blog").is_err()); // space
+        assert!(validate_crate_name("").is_err());
+    }
+
+    #[test]
+    fn database_idents_reject_injection() {
+        assert!(validate_ident("acme_blog").is_ok());
+        assert!(validate_ident("acme; drop database x").is_err());
+        assert!(validate_ident("acme-blog").is_err()); // hyphen not valid unquoted
+        assert!(validate_ident("1acme").is_err());
+    }
+
+    #[test]
+    fn server_url_includes_password_only_when_set() {
+        assert_eq!(
+            server_url("postgres", "acme", "", "localhost", 5432, "acme"),
+            "postgres://acme@localhost:5432/acme"
+        );
+        assert_eq!(
+            server_url("mysql", "root", "secret", "127.0.0.1", 3306, "acme"),
+            "mysql://root:secret@127.0.0.1:3306/acme"
+        );
+    }
+
+    #[test]
+    fn scaffold_writes_a_wired_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("acme");
+        let conn = Connection {
+            backend: DbBackend::Sqlite,
+            config_url: "sqlite://storage/database.db?mode=rwc".to_string(),
+            admin_url: None,
+            db_name: None,
+            sqlite_relpath: Some("storage/database.db".to_string()),
+        };
+        scaffold(&dir, "acme", "Asia/Kolkata", &conn).unwrap();
+
+        for f in [
+            "Cargo.toml",
+            "src/main.rs",
+            "src/migrations.rs",
+            "config/default.toml",
+            "config/local.toml",
+            ".gitignore",
+            "README.md",
+            "storage/.gitkeep",
+        ] {
+            assert!(dir.join(f).exists(), "{f} should be generated");
+        }
+        let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("features = [\"sqlite\"]"));
+        assert!(cargo.contains("name = \"acme\""));
+        // Its own workspace root, so it builds inside another workspace's tree.
+        assert!(cargo.contains("[workspace]"));
+        let default = std::fs::read_to_string(dir.join("config/default.toml")).unwrap();
+        assert!(default.contains("timezone = \"Asia/Kolkata\""));
+        // The secret URL lives only in the git-ignored local config.
+        assert!(!default.contains("sqlite://"));
+        let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();
+        // The database sits in the app's storage folder, path relative to the app.
+        assert!(local.contains("sqlite://storage/database.db"));
+    }
+}
