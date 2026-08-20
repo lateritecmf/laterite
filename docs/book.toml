@@ -9,8 +9,9 @@ src = "src"
 default-theme = "light"
 preferred-dark-theme = "coal"
 additional-css = ["theme/laterite.css"]
-git-repository-url = "https://github.com/lateritecmf/core"
-edit-url-template = "https://github.com/lateritecmf/core/edit/main/docs/{path}"
+site-url = "/docs/"
+git-repository-url = "https://github.com/lateritecmf/laterite"
+edit-url-template = "https://github.com/lateritecmf/laterite/edit/main/docs/{path}"
 smart-punctuation = true
 
 [output.html.playground]
