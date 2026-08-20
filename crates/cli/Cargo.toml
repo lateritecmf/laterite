@@ -20,6 +20,7 @@ clap = { workspace = true }
 dialoguer = { workspace = true }
 rand = { workspace = true }
 rpassword = { workspace = true }
+serde = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 

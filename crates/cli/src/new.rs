@@ -344,7 +344,7 @@ fn write(path: PathBuf, contents: &str) -> Result<()> {
 }
 
 /// Whether `dir` is writable, probed by creating and removing a temporary file.
-fn is_writable(dir: &Path) -> bool {
+pub(crate) fn is_writable(dir: &Path) -> bool {
     let probe = dir.join(format!(".laterite-write-probe-{}", std::process::id()));
     match fs::File::create(&probe) {
         Ok(_) => {
