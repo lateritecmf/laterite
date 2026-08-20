@@ -1,0 +1,12 @@
+[package]
+name = "laterite-web"
+version = "0.1.0"
+description = "Laterite CMF public web layer: static-site generation, page metadata, canonical URLs, and sitemaps"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = { workspace = true }
