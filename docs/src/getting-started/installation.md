@@ -29,7 +29,10 @@ lat new
 
 It asks for:
 
-- the **application name** (a crate name, such as `acme`),
+- the **application name** (any text, such as `Acme Blog`). The installer
+  derives a project slug from it (`acme-blog`) for the crate, directory, and
+  database, so you never slugify by hand. The name itself is saved in config and
+  shown as the admin brand,
 - a **display timezone** (type to search the IANA list),
 - a **database** (PostgreSQL, MySQL/MariaDB, or SQLite) and its connection
   details, offering to create the database if it does not exist,
@@ -54,7 +57,7 @@ convention:
 acme/
 ├── Cargo.toml
 ├── config/
-│   ├── default.toml     # committed defaults (listen address, timezone)
+│   ├── default.toml     # committed defaults (app name, listen address, timezone)
 │   └── local.toml       # git-ignored; holds the database URL
 ├── src/
 │   ├── main.rs          # loads config, connects, migrates, serves the admin
@@ -89,6 +92,21 @@ axum::serve(listener, router).await?;
 The three vectors are the application's own resources, [settings
 models](../extend/settings.md), and [permissions](../extend/permissions.md); an
 application with none yet passes them empty.
+
+## The application name and brand
+
+The name you entered is saved in `config/default.toml`:
+
+```toml
+[app]
+name = "Acme Blog"
+```
+
+It is shown as the brand across the admin (the top nav, the sign-in screen, page
+titles). It is the baseline: an administrator can override it under **Settings →
+Branding**, and that setting takes precedence. When both are blank the brand
+falls back to `Laterite`. This mirrors the config-then-setting layering: the
+config value is the default, the setting overrides it.
 
 ## Check the setup
 

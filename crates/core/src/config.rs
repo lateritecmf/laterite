@@ -25,6 +25,25 @@ pub struct ServerConfig {
     pub listen: String,
 }
 
+/// Application-level metadata. The `name` is the human-readable application
+/// name, the baseline for the admin brand: a `BrandSetting` in the admin can
+/// override it, but this is the default when none is set.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AppMeta {
+    /// The display name of the application (e.g. `"Acme Blog"`). Shown as the
+    /// admin brand unless overridden by a brand setting.
+    pub name: String,
+}
+
+impl Default for AppMeta {
+    fn default() -> Self {
+        Self {
+            name: "Laterite".to_string(),
+        }
+    }
+}
+
 /// Deployment-level backend settings. Per-install brand and per-operator preferences
 /// live in the settings and preferences stores, not here.
 #[derive(Debug, Clone, Deserialize)]

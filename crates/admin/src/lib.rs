@@ -19,7 +19,7 @@ mod sql;
 mod users;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use askama::Template;
 use axum::extract::{Path, Query, Request, State};
@@ -46,6 +46,13 @@ pub(crate) struct AdminState {
     permissions: Arc<Vec<Permission>>,
     secure_cookie: bool,
     timezone: Tz,
+    /// The configured application name (the baseline brand). A brand setting
+    /// overrides it; see [`AdminState::brand`].
+    app_name: String,
+    /// The resolved brand name, cached across requests so the brand setting is
+    /// not read from the database on every page. Invalidated when the setting is
+    /// saved. `None` means "not resolved yet".
+    brand_cache: Arc<RwLock<Option<String>>>,
 }
 
 impl AdminState {
@@ -59,7 +66,32 @@ impl AdminState {
             permissions: Arc::new(builtin_permissions()),
             secure_cookie: false,
             timezone: Tz::UTC,
+            app_name: "Laterite".to_string(),
+            brand_cache: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// The brand name shown across the admin: the [`settings::BrandSetting`]
+    /// `app_name` when set, otherwise the configured application name. The
+    /// resolved value is cached until [`AdminState::invalidate_brand`] clears it.
+    async fn brand(&self) -> String {
+        {
+            let cached = self.brand_cache.read().unwrap().clone();
+            if let Some(name) = cached {
+                return name;
+            }
+        }
+        let resolved = match settings::store::load::<settings::BrandSetting>(&self.db).await {
+            Ok(brand) if !brand.app_name.trim().is_empty() => brand.app_name,
+            _ => self.app_name.clone(),
+        };
+        *self.brand_cache.write().unwrap() = Some(resolved.clone());
+        resolved
+    }
+
+    /// Clears the cached brand so the next resolution re-reads the setting.
+    fn invalidate_brand(&self) {
+        *self.brand_cache.write().unwrap() = None;
     }
 }
 
@@ -74,6 +106,10 @@ pub struct AdminConfig {
     /// Storage is UTC; this only affects rendering. Invalid or empty falls back
     /// to UTC. An operator's own preference overrides it (later).
     pub timezone: String,
+    /// The application name, shown as the admin brand. This is the baseline; a
+    /// `BrandSetting` in the admin overrides it. Typically the configured
+    /// `app.name`. Empty falls back to `Laterite`.
+    pub app_name: String,
 }
 
 impl Default for AdminConfig {
@@ -81,6 +117,7 @@ impl Default for AdminConfig {
         Self {
             secure_cookie: false,
             timezone: "UTC".to_string(),
+            app_name: "Laterite".to_string(),
         }
     }
 }
@@ -100,6 +137,10 @@ struct NavLink {
 /// rebuilding it. Templates embed it as `shell` and `base.html` renders it.
 #[derive(Clone)]
 pub(crate) struct Shell {
+    /// The brand name shown in the top nav and drawer, resolved once per request
+    /// (the brand setting, or the configured application name). See
+    /// [`AdminState::brand`].
+    brand: String,
     nav: Vec<NavView>,
     full_name: String,
     initial: String,
@@ -115,6 +156,7 @@ pub(crate) struct Shell {
 
 impl Shell {
     fn new(
+        brand: String,
         nav: &[NavLink],
         user: &AuthenticatedUser,
         default_tz: Tz,
@@ -128,6 +170,7 @@ impl Shell {
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "?".to_string());
         Shell {
+            brand,
             nav: nav
                 .iter()
                 .map(|n| NavView {
@@ -147,6 +190,7 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn test() -> Self {
         Shell {
+            brand: "Laterite".to_string(),
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
@@ -268,6 +312,11 @@ fn builtin_permissions() -> Vec<Permission> {
             label: "Manage roles".to_string(),
             group: "Backend".to_string(),
         },
+        Permission {
+            code: "backend.manage_branding".to_string(),
+            label: "Manage branding".to_string(),
+            group: "Backend".to_string(),
+        },
     ]
 }
 
@@ -329,6 +378,11 @@ pub fn router(
     });
     resources.extend(app_resources);
 
+    let app_name = if config.app_name.trim().is_empty() {
+        "Laterite".to_string()
+    } else {
+        config.app_name.clone()
+    };
     let state = AdminState {
         auth,
         db,
@@ -337,6 +391,8 @@ pub fn router(
         permissions: Arc::new(permissions),
         secure_cookie: config.secure_cookie,
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
+        app_name,
+        brand_cache: Arc::new(RwLock::new(None)),
     };
 
     let mut protected = Router::new().route("/admin", get(dashboard));
@@ -551,7 +607,9 @@ async fn require_auth(
             let path = request.uri().path().to_string();
             let (sidebar, active_nav) =
                 resolve_nav_context(&state.nav, &state.settings, &user.permissions, &path);
+            let brand = state.brand().await;
             let shell = Shell::new(
+                brand,
                 &state.nav,
                 &user,
                 state.timezone,
@@ -570,7 +628,10 @@ async fn login_form(State(state): State<AdminState>) -> Response {
     // A fresh install with no operators goes to first-run setup instead.
     match state.auth.has_any_operator().await {
         Ok(false) => Redirect::to("/admin/setup").into_response(),
-        Ok(true) => render(LoginTemplate { error: None }),
+        Ok(true) => render(LoginTemplate {
+            brand: state.brand().await,
+            error: None,
+        }),
         Err(_) => render_error(),
     }
 }
@@ -596,6 +657,7 @@ async fn login_submit(
             (jar.add(cookie), Redirect::to("/admin")).into_response()
         }
         Err(_) => render(LoginTemplate {
+            brand: state.brand().await,
             error: Some("Invalid username or password.".to_string()),
         }),
     }
@@ -627,7 +689,7 @@ struct SetupForm {
 async fn setup_form(State(state): State<AdminState>) -> Response {
     match state.auth.has_any_operator().await {
         Ok(true) => Redirect::to("/admin/login").into_response(),
-        Ok(false) => render(setup_view(state.timezone, None)),
+        Ok(false) => render(setup_view(state.brand().await, state.timezone, None)),
         Err(_) => render_error(),
     }
 }
@@ -652,6 +714,7 @@ async fn setup_submit(
     if username.is_empty() || email.is_empty() || first_name.is_empty() || form.password.is_empty()
     {
         return render(setup_view(
+            state.brand().await,
             state.timezone,
             Some("Username, first name, email, and password are all required."),
         ));
@@ -659,6 +722,7 @@ async fn setup_submit(
     // The setup select always carries a value, but guard against a bad one.
     if tz.parse::<Tz>().is_err() {
         return render(setup_view(
+            state.brand().await,
             state.timezone,
             Some("That is not a recognised timezone."),
         ));
@@ -674,6 +738,7 @@ async fn setup_submit(
     };
     if state.auth.create_superuser(new).await.is_err() {
         return render(setup_view(
+            state.brand().await,
             state.timezone,
             Some("Could not create the account. The username or email may already be taken."),
         ));
@@ -695,7 +760,7 @@ async fn setup_submit(
 
 /// Builds the setup view, its timezone select defaulting to the deployment
 /// default so the first administrator can accept or change it.
-fn setup_view(default_tz: Tz, error: Option<&str>) -> SetupTemplate {
+fn setup_view(brand: String, default_tz: Tz, error: Option<&str>) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
         .iter()
@@ -705,6 +770,7 @@ fn setup_view(default_tz: Tz, error: Option<&str>) -> SetupTemplate {
         })
         .collect();
     SetupTemplate {
+        brand,
         zones,
         error: error.map(|e| e.to_string()),
     }
@@ -921,6 +987,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             link: Some("/admin/roles".to_string()),
             fields: Vec::new(),
         },
+        settings::brand::settings_item(),
     ]
 }
 
@@ -969,6 +1036,7 @@ fn roles_list_config() -> list::ListConfig {
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
+    brand: String,
     error: Option<String>,
 }
 
@@ -982,6 +1050,7 @@ struct DashboardTemplate {
 #[derive(Template)]
 #[template(path = "setup.html")]
 struct SetupTemplate {
+    brand: String,
     zones: Vec<TzOption>,
     error: Option<String>,
 }
@@ -1083,6 +1152,50 @@ mod tests {
                 "{table} should exist after builtin_migrations"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn brand_setting_overrides_config_and_blank_falls_back() {
+        let (db, _guard) = laterite_core::testing::connect_test(&[settings::migrations()]).await;
+        let state = AdminState {
+            auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
+            db: db.clone(),
+            nav: Arc::new(Vec::new()),
+            settings: Arc::new(Vec::new()),
+            permissions: Arc::new(builtin_permissions()),
+            secure_cookie: false,
+            timezone: Tz::UTC,
+            app_name: "Configured Name".to_string(),
+            brand_cache: Arc::new(RwLock::new(None)),
+        };
+
+        // With no brand setting, the configured application name is the brand.
+        assert_eq!(state.brand().await, "Configured Name");
+
+        // A brand setting overrides the configured name (cache re-reads after
+        // invalidation).
+        settings::store::save(
+            &db,
+            &settings::BrandSetting {
+                app_name: "Acme Corp".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        state.invalidate_brand();
+        assert_eq!(state.brand().await, "Acme Corp");
+
+        // A blank brand setting falls back to the configured name.
+        settings::store::save(
+            &db,
+            &settings::BrandSetting {
+                app_name: "   ".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        state.invalidate_brand();
+        assert_eq!(state.brand().await, "Configured Name");
     }
 
     fn settings_item(code: &str, permission: Option<&str>) -> settings::SettingsItem {

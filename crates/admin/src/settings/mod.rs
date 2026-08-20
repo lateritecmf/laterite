@@ -12,9 +12,11 @@
 //! SQL identifiers, and the value is written through a parameterized upsert, so
 //! nothing here builds SQL from user input.
 
+pub mod brand;
 pub mod migrations;
 pub mod store;
 
+pub use brand::BrandSetting;
 pub use migrations::{migrations, MODULE_ID};
 pub use store::{get, load, save, set, SettingsError, SettingsModel};
 
@@ -140,7 +142,14 @@ pub(crate) async fn update(
 ) -> Response {
     let value = collect(item, &data);
     match store::set(&state.db, &item.code, &value).await {
-        Ok(()) => Redirect::to("/admin/settings").into_response(),
+        Ok(()) => {
+            // The brand is cached for display; a save to it must invalidate the
+            // cache so the next page reflects the new name.
+            if item.code == brand::BrandSetting::CODE {
+                state.invalidate_brand();
+            }
+            Redirect::to("/admin/settings").into_response()
+        }
         Err(_) => render(build(
             item,
             Some("Could not save. Please try again.".to_string()),

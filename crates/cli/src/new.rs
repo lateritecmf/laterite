@@ -21,7 +21,8 @@ use sqlx::AnyPool;
 
 #[derive(Args)]
 pub struct NewArgs {
-    /// The application name (a valid crate name). Prompted if omitted.
+    /// The application name (any text). Prompted if omitted. A crate and
+    /// directory slug is derived from it automatically.
     pub name: Option<String>,
 }
 
@@ -57,7 +58,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
     let theme = ColorfulTheme::default();
     println!("Setting up a new Laterite application.\n");
 
-    let name = app_name(&theme, args.name)?;
+    let (display_name, name) = app_meta(&theme, args.name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
         bail!("a file or directory named '{name}' already exists here");
@@ -80,7 +81,8 @@ pub async fn run(args: NewArgs) -> Result<()> {
 
     // Scaffold first so the app's storage directory exists before a SQLite
     // database is created inside it.
-    scaffold(&dir, &name, &timezone, &conn).context("could not scaffold the project")?;
+    scaffold(&dir, &name, &display_name, &timezone, &conn)
+        .context("could not scaffold the project")?;
     println!("Scaffolded ./{name}");
 
     // Connect, offering to create the database if it does not exist yet.
@@ -105,16 +107,60 @@ pub async fn run(args: NewArgs) -> Result<()> {
     Ok(())
 }
 
-fn app_name(theme: &ColorfulTheme, provided: Option<String>) -> Result<String> {
-    if let Some(name) = provided {
-        validate_crate_name(&name).map_err(|e| anyhow::anyhow!(e))?;
-        return Ok(name);
+/// Prompts for the human-readable application name and derives a project slug
+/// (a valid crate, directory, and database name) from it. The display name is
+/// saved in config and shown as the admin brand; the slug names the crate,
+/// directory, and default database, so the operator never has to slugify by hand.
+fn app_meta(theme: &ColorfulTheme, provided: Option<String>) -> Result<(String, String)> {
+    let display = match provided {
+        Some(name) => name,
+        None => Input::with_theme(theme)
+            .with_prompt("Application name")
+            .validate_with(|s: &String| {
+                if s.trim().is_empty() {
+                    Err("enter an application name")
+                } else if slugify(s).is_empty() {
+                    Err("the name needs at least one letter or digit")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact_text()?,
+    };
+    let display = display.trim().to_string();
+    let slug = slugify(&display);
+    // Use the derived slug when it is a valid crate name; otherwise (e.g. it
+    // would start with a digit) ask for one rather than guess.
+    let slug = if validate_crate_name(&slug).is_ok() {
+        println!("Project directory and crate name: {slug}");
+        slug
+    } else {
+        Input::with_theme(theme)
+            .with_prompt("Project name (letters, digits, - or _, starting with a letter)")
+            .validate_with(|s: &String| validate_crate_name(s))
+            .interact_text()?
+    };
+    Ok((display, slug))
+}
+
+/// Slugifies a display name: lower-case, with each run of non-alphanumeric
+/// characters collapsed to a single `-`, and no leading or trailing `-`.
+/// `"Acme Blog"` becomes `"acme-blog"`.
+fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for c in name.trim().to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(c);
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
     }
-    let name: String = Input::with_theme(theme)
-        .with_prompt("Application name")
-        .validate_with(|s: &String| validate_crate_name(s))
-        .interact_text()?;
-    Ok(name)
+    slug
 }
 
 /// A valid Cargo package name: lower-case letters, digits, and `-`/`_`, starting
@@ -306,7 +352,13 @@ async fn create_admin(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     Ok(())
 }
 
-fn scaffold(dir: &Path, name: &str, timezone: &str, conn: &Connection) -> Result<()> {
+fn scaffold(
+    dir: &Path,
+    name: &str,
+    display_name: &str,
+    timezone: &str,
+    conn: &Connection,
+) -> Result<()> {
     fs::create_dir_all(dir.join("src"))?;
     fs::create_dir_all(dir.join("config"))?;
     // Runtime data (the SQLite database, and future cache and logs) lives here.
@@ -330,10 +382,13 @@ fn scaffold(dir: &Path, name: &str, timezone: &str, conn: &Connection) -> Result
     write(dir.join("Cargo.toml"), &cargo_toml(name, feature))?;
     write(dir.join("src/main.rs"), MAIN_RS)?;
     write(dir.join("src/migrations.rs"), MIGRATIONS_RS)?;
-    write(dir.join("config/default.toml"), &default_toml(timezone))?;
+    write(
+        dir.join("config/default.toml"),
+        &default_toml(display_name, timezone),
+    )?;
     write(dir.join("config/local.toml"), &local_toml(&conn.config_url))?;
     write(dir.join(".gitignore"), GITIGNORE)?;
-    write(dir.join("README.md"), &readme(name))?;
+    write(dir.join("README.md"), &readme(display_name))?;
     // Track the otherwise-empty storage directory, but not its contents.
     write(dir.join("storage/.gitkeep"), "")?;
     Ok(())
@@ -415,6 +470,8 @@ mod migrations;
 /// The application configuration, loaded from `config/`.
 #[derive(Deserialize)]
 struct AppConfig {
+    #[serde(default)]
+    app: laterite_core::config::AppMeta,
     server: laterite_core::config::ServerConfig,
     database: laterite_core::config::DatabaseConfig,
     #[serde(default)]
@@ -436,6 +493,7 @@ async fn main() -> anyhow::Result<()> {
     let admin_config = laterite_admin::AdminConfig {
         secure_cookie: config.backend.secure_cookie,
         timezone: config.backend.timezone.clone(),
+        app_name: config.app.name.clone(),
     };
     let router = laterite_admin::router(
         auth,
@@ -461,10 +519,18 @@ pub fn migrations() -> Vec<laterite_core::MigrationSet> {
 }
 "#;
 
-fn default_toml(timezone: &str) -> String {
+fn default_toml(app_name: &str, timezone: &str) -> String {
+    // The display name is written as a TOML basic string, so escape backslashes
+    // and quotes.
+    let app_name = app_name.replace('\\', "\\\\").replace('"', "\\\"");
     format!(
         r#"# Committed defaults. Secrets (the database URL) live in local.toml, which is
 # git-ignored. Override any value with APP__SECTION__KEY environment variables.
+
+[app]
+# The application name, shown as the admin brand. A brand setting in the admin
+# can override it.
+name = "{app_name}"
 
 [server]
 listen = "127.0.0.1:8080"
@@ -529,6 +595,20 @@ mod tests {
     }
 
     #[test]
+    fn slugify_derives_crate_slugs_from_display_names() {
+        assert_eq!(slugify("Acme Blog"), "acme-blog");
+        assert_eq!(slugify("  Acme   Blog!!  "), "acme-blog");
+        assert_eq!(slugify("Acme"), "acme");
+        assert_eq!(slugify("My App 2"), "my-app-2");
+        assert_eq!(slugify("---"), "");
+        assert_eq!(slugify(""), "");
+        // Every common display name slugifies to a valid crate name.
+        assert!(validate_crate_name(&slugify("Acme Blog")).is_ok());
+        // A leading digit is left for the caller to re-prompt on.
+        assert!(slugify("123 Shop").starts_with("123"));
+    }
+
+    #[test]
     fn database_idents_reject_injection() {
         assert!(validate_ident("acme_blog").is_ok());
         assert!(validate_ident("acme; drop database x").is_err());
@@ -559,7 +639,7 @@ mod tests {
             db_name: None,
             sqlite_relpath: Some("storage/database.db".to_string()),
         };
-        scaffold(&dir, "acme", "Asia/Kolkata", &conn).unwrap();
+        scaffold(&dir, "acme", "Acme Blog", "Asia/Kolkata", &conn).unwrap();
 
         for f in [
             "Cargo.toml",
@@ -580,6 +660,9 @@ mod tests {
         assert!(cargo.contains("[workspace]"));
         let default = std::fs::read_to_string(dir.join("config/default.toml")).unwrap();
         assert!(default.contains("timezone = \"Asia/Kolkata\""));
+        // The display name is saved as the app name (the admin brand default).
+        assert!(default.contains("[app]"));
+        assert!(default.contains("name = \"Acme Blog\""));
         // The secret URL lives only in the git-ignored local config.
         assert!(!default.contains("sqlite://"));
         let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();
