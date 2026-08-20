@@ -15,6 +15,10 @@
 - [Permissions](extend/permissions.md)
 - [Database Portability](extend/database-portability.md)
 
+# The Public Web
+
+- [Static Site Generation](web/static-sites.md)
+
 # Reference
 
 - [API Reference](reference/api.md)
