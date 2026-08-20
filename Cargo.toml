@@ -12,7 +12,7 @@ repository = "https://github.com/lateritecmf/laterite"
 # the version is what cargo emits as the crates.io dependency when publishing.
 laterite-core = { path = "crates/core", version = "0.1.0" }
 laterite-auth = { path = "crates/auth", version = "0.1.0" }
-laterite-admin = { path = "crates/admin", version = "0.1.0" }
+laterite-admin = { path = "crates/admin", version = "0.1.1" }
 laterite-web = { path = "crates/web", version = "0.1.0" }
 anyhow = "1"
 argon2 = "0.5"
