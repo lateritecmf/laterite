@@ -1160,6 +1160,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "dialoguer",
+ "iana-time-zone",
  "laterite-admin",
  "laterite-auth",
  "laterite-core",
