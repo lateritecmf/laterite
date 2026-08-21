@@ -111,6 +111,60 @@ async fn branding_form_prefills_the_configured_name() {
 }
 
 #[tokio::test]
+async fn powered_by_laterite_attribution_is_shown() {
+    let (db, _guard) = test_db().await;
+
+    // The first-run setup screen carries the attribution (unauthenticated).
+    let (status, html) = get(app(db.clone(), "Acme"), "/admin/setup").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Powered by Laterite"),
+        "setup shows attribution"
+    );
+    assert!(
+        html.contains("https://laterite.rs"),
+        "attribution links to the site"
+    );
+
+    // The in-app user menu (base.html) carries it on an authenticated page.
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    auth.create_superuser(NewOperator {
+        username: "root",
+        email: "root@acme.test",
+        first_name: "Root",
+        last_name: None,
+        password: "rootpw12345",
+        timezone: None,
+    })
+    .await
+    .unwrap();
+    let token = auth
+        .authenticate("root", "rootpw12345", &RequestContext::default())
+        .await
+        .unwrap()
+        .token;
+    let resp = app(db, "Acme")
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/admin")
+                .header("cookie", format!("laterite_session={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        html.contains("Powered by Laterite"),
+        "the in-app user menu shows the attribution"
+    );
+}
+
+#[tokio::test]
 async fn brand_setting_overrides_the_configured_name() {
     let (db, _guard) = test_db().await;
     save(
