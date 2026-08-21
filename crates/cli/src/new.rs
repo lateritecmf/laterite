@@ -510,9 +510,9 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
             admin = root.join("crates/admin").display().to_string(),
         ),
         None => format!(
-            "laterite-core = {{ version = \"0.1\", features = [\"{feature}\"] }}\n\
-             laterite-auth = \"0.1\"\n\
-             laterite-admin = \"0.1\""
+            "laterite-core = {{ version = \"0.2\", features = [\"{feature}\"] }}\n\
+             laterite-auth = \"0.2\"\n\
+             laterite-admin = \"0.2\""
         ),
     };
     format!(
@@ -688,8 +688,8 @@ mod tests {
     #[test]
     fn cargo_toml_uses_published_versions_by_default() {
         let toml = cargo_toml("acme", "sqlite", None);
-        assert!(toml.contains("laterite-core = { version = \"0.1\", features = [\"sqlite\"] }"));
-        assert!(toml.contains("laterite-admin = \"0.1\""));
+        assert!(toml.contains("laterite-core = { version = \"0.2\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("laterite-admin = \"0.2\""));
         assert!(!toml.contains("path ="));
     }
 
