@@ -1,9 +1,10 @@
 //! `lat`: the Laterite command-line tool.
 //!
-//! First surface: admin bootstrap. Creating the first operator and recovering
-//! access must be reliable and must never depend on a configured mail server,
-//! so `admin reset-password` sets a password directly. Every command reports
-//! what it did and returns a non-zero exit code on failure.
+//! It scaffolds and sets up an application (`lat new`), checks that a project is
+//! ready to serve (`lat doctor`), and manages administrators. Creating the first
+//! administrator and recovering access must be reliable and must never depend on
+//! a configured mail server, so `admin reset-password` sets a password directly.
+//! Every command reports what it did and returns a non-zero exit code on failure.
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
