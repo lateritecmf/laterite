@@ -37,7 +37,8 @@ pub(crate) fn settings_item() -> SettingsItem {
         icon: None,
         permission: Some("backend.manage_branding".to_string()),
         link: None,
-        fields: vec![SettingsField::text("app_name", "Application name")
-            .help("Shown as the admin brand. Leave blank to use the configured application name.")],
+        fields: vec![SettingsField::text("app_name", "Application name").help(
+            "Shown as the admin brand. Clearing it falls back to the configured application name.",
+        )],
     }
 }
