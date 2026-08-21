@@ -126,10 +126,13 @@ pub(crate) async fn edit_form(
     item: &SettingsItem,
     shell: crate::Shell,
 ) -> Response {
-    let stored = match store::get(&state.db, &item.code).await {
+    let mut stored = match store::get(&state.db, &item.code).await {
         Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
         Err(_) => return render_error(),
     };
+    // Prefill unset fields from config so they show the current effective value
+    // rather than opening blank. Display only; nothing is written.
+    prefill_from_config(item, &mut stored, &state.app_name);
     render(build(item, None, &stored, &shell))
 }
 
@@ -221,6 +224,29 @@ pub(crate) fn sidebar_groups(
     groups
 }
 
+/// Prefills unset display fields from configuration before the form renders, so
+/// a field shows the current effective value rather than opening blank. The
+/// brand's application name prefills from the configured `app.name` when no brand
+/// setting is saved. This is display only: it writes nothing, so a later config
+/// change still propagates (persisting it would freeze the value). It is not a
+/// database seeder; that is a separate, deferred capability.
+fn prefill_from_config(item: &SettingsItem, stored: &mut Value, app_name: &str) {
+    if item.code != brand::BrandSetting::CODE {
+        return;
+    }
+    if let Value::Object(map) = stored {
+        let blank = map
+            .get("app_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .is_empty();
+        if blank {
+            map.insert("app_name".to_string(), Value::String(app_name.to_string()));
+        }
+    }
+}
+
 fn build(
     item: &SettingsItem,
     error: Option<String>,
@@ -308,6 +334,23 @@ struct SettingsFormTemplate {
 mod tests {
     use super::*;
     use laterite_core::Db;
+
+    #[test]
+    fn brand_form_prefills_app_name_from_config_when_unset() {
+        let brand = brand::settings_item();
+        // Unset: the field prefills from the configured application name.
+        let mut unset = Value::Object(Map::new());
+        prefill_from_config(&brand, &mut unset, "Configured Name");
+        assert_eq!(unset["app_name"], serde_json::json!("Configured Name"));
+        // Already set: the stored value is left untouched.
+        let mut set = serde_json::json!({ "app_name": "Acme" });
+        prefill_from_config(&brand, &mut set, "Configured Name");
+        assert_eq!(set["app_name"], serde_json::json!("Acme"));
+        // A non-brand item is not prefilled.
+        let mut other = Value::Object(Map::new());
+        prefill_from_config(&item(), &mut other, "Configured Name");
+        assert!(other.get("app_name").is_none());
+    }
 
     fn item() -> SettingsItem {
         SettingsItem {
