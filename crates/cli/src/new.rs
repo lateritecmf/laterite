@@ -223,13 +223,29 @@ fn timezone(theme: &ColorfulTheme) -> Result<String> {
     // Fuzzy-search the whole IANA database: type to filter (e.g. "kolk"), then
     // arrow-select. The result is always a valid zone, so no separate validation.
     let zones: Vec<&str> = chrono_tz::TZ_VARIANTS.iter().map(|tz| tz.name()).collect();
-    let default = zones.iter().position(|z| *z == "UTC").unwrap_or(0);
+    // Pre-fill the search with the system timezone (or UTC) so the prompt opens
+    // filtered to it and highlighted, pointing at the likely answer. A plain
+    // default index does not scroll a long fuzzy list into view; the query does.
+    // The operator accepts it with Enter, or clears the text to pick any zone.
+    let initial = detected_zone(&zones).unwrap_or("UTC");
     let choice = FuzzySelect::with_theme(theme)
         .with_prompt("Timezone (type to search)")
         .items(&zones)
-        .default(default)
+        .with_initial_text(initial)
         .interact()?;
     Ok(zones[choice].to_string())
+}
+
+/// The system IANA timezone, if it is detected and is a known zone. Used to
+/// pre-fill the timezone search.
+fn detected_zone<'a>(zones: &[&'a str]) -> Option<&'a str> {
+    let system = iana_time_zone::get_timezone().ok()?;
+    match_zone(zones, &system)
+}
+
+/// The entry of `zones` equal to `name`, if any.
+fn match_zone<'a>(zones: &[&'a str], name: &str) -> Option<&'a str> {
+    zones.iter().copied().find(|&z| z == name)
 }
 
 fn connection(theme: &ColorfulTheme, app: &str) -> Result<Connection> {
@@ -703,6 +719,18 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(resolved.is_absolute());
+    }
+
+    #[test]
+    fn match_zone_finds_known_zones() {
+        let zones = ["UTC", "Asia/Kolkata", "America/New_York"];
+        assert_eq!(match_zone(&zones, "Asia/Kolkata"), Some("Asia/Kolkata"));
+        assert_eq!(
+            match_zone(&zones, "America/New_York"),
+            Some("America/New_York")
+        );
+        // An unknown name matches nothing, so the caller falls back to UTC.
+        assert_eq!(match_zone(&zones, "Not/AZone"), None);
     }
 
     #[test]

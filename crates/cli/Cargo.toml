@@ -17,6 +17,7 @@ laterite-admin = { workspace = true }
 anyhow = { workspace = true }
 chrono-tz = { workspace = true }
 clap = { workspace = true }
+iana-time-zone = { workspace = true }
 dialoguer = { workspace = true }
 rand = { workspace = true }
 rpassword = { workspace = true }
