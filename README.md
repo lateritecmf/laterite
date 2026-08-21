@@ -89,6 +89,22 @@ LATERITE_TEST_DATABASE_URL=postgres://user@localhost/postgres \
   cargo test -p laterite-auth -p laterite-admin --features postgres
 ```
 
+### Testing the installer against local changes
+
+To try `lat new` (and the app it generates) against your working tree rather
+than the published crates, install the CLI from source and point it at the
+checkout:
+
+```
+cargo install --path crates/cli --force
+lat new --framework-path /path/to/this/checkout
+```
+
+The generated app then uses path dependencies to your local crates, so it builds
+against unreleased changes with no publish. Set `LATERITE_FRAMEWORK_PATH` to make
+it the default for a shell session. Without the flag, `lat new` uses the
+published crates, as it does for everyone else.
+
 ## Documentation
 
 The guide is an mdBook under `docs/`; the API reference is rustdoc on each crate

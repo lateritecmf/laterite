@@ -24,6 +24,13 @@ pub struct NewArgs {
     /// The application name (any text). Prompted if omitted. A crate and
     /// directory slug is derived from it automatically.
     pub name: Option<String>,
+
+    /// Build the generated app against a local framework checkout at this path
+    /// (the directory that contains `crates/`), using path dependencies instead
+    /// of the published crates. For developing Laterite itself; also read from
+    /// the `LATERITE_FRAMEWORK_PATH` environment variable.
+    #[arg(long, env = "LATERITE_FRAMEWORK_PATH")]
+    pub framework_path: Option<PathBuf>,
 }
 
 /// The database connection the installer assembled.
@@ -58,6 +65,14 @@ pub async fn run(args: NewArgs) -> Result<()> {
     let theme = ColorfulTheme::default();
     println!("Setting up a new Laterite application.\n");
 
+    let framework = framework_path(args.framework_path)?;
+    if let Some(root) = &framework {
+        println!(
+            "Development mode: building the app against the framework at {}\n",
+            root.display()
+        );
+    }
+
     let (display_name, name) = app_meta(&theme, args.name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
@@ -81,8 +96,15 @@ pub async fn run(args: NewArgs) -> Result<()> {
 
     // Scaffold first so the app's storage directory exists before a SQLite
     // database is created inside it.
-    scaffold(&dir, &name, &display_name, &timezone, &conn)
-        .context("could not scaffold the project")?;
+    scaffold(
+        &dir,
+        &name,
+        &display_name,
+        &timezone,
+        &conn,
+        framework.as_deref(),
+    )
+    .context("could not scaffold the project")?;
     println!("Scaffolded ./{name}");
 
     // Connect, offering to create the database if it does not exist yet.
@@ -161,6 +183,26 @@ fn slugify(name: &str) -> String {
         }
     }
     slug
+}
+
+/// Resolves the optional framework checkout to an absolute path and checks it
+/// looks like a Laterite source tree, so the generated app can path-depend on it.
+/// The path is made absolute because it is written into the app's `Cargo.toml`,
+/// which cargo resolves relative to the app directory, not the current one.
+fn framework_path(provided: Option<PathBuf>) -> Result<Option<PathBuf>> {
+    let Some(path) = provided else {
+        return Ok(None);
+    };
+    let abs = path
+        .canonicalize()
+        .with_context(|| format!("framework path does not exist: {}", path.display()))?;
+    if !abs.join("crates/core").is_dir() {
+        bail!(
+            "{} does not look like a Laterite checkout (no crates/core directory)",
+            abs.display()
+        );
+    }
+    Ok(Some(abs))
 }
 
 /// A valid Cargo package name: lower-case letters, digits, and `-`/`_`, starting
@@ -358,6 +400,7 @@ fn scaffold(
     display_name: &str,
     timezone: &str,
     conn: &Connection,
+    framework: Option<&Path>,
 ) -> Result<()> {
     fs::create_dir_all(dir.join("src"))?;
     fs::create_dir_all(dir.join("config"))?;
@@ -379,7 +422,10 @@ fn scaffold(
         DbBackend::Sqlite => "sqlite",
     };
 
-    write(dir.join("Cargo.toml"), &cargo_toml(name, feature))?;
+    write(
+        dir.join("Cargo.toml"),
+        &cargo_toml(name, feature, framework),
+    )?;
     write(dir.join("src/main.rs"), MAIN_RS)?;
     write(dir.join("src/migrations.rs"), MIGRATIONS_RS)?;
     write(
@@ -433,7 +479,26 @@ fn set_dir_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
-fn cargo_toml(name: &str, feature: &str) -> String {
+fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
+    // The backend feature on laterite-core links its sqlx driver; the other
+    // crates use it through sqlx::Any, so one feature selects the database
+    // everywhere. In development mode the framework is a local checkout, so the
+    // crates are path dependencies rather than the published versions.
+    let laterite_deps = match framework {
+        Some(root) => format!(
+            "laterite-core = {{ path = {core:?}, features = [\"{feature}\"] }}\n\
+             laterite-auth = {{ path = {auth:?} }}\n\
+             laterite-admin = {{ path = {admin:?} }}",
+            core = root.join("crates/core").display().to_string(),
+            auth = root.join("crates/auth").display().to_string(),
+            admin = root.join("crates/admin").display().to_string(),
+        ),
+        None => format!(
+            "laterite-core = {{ version = \"0.1\", features = [\"{feature}\"] }}\n\
+             laterite-auth = \"0.1\"\n\
+             laterite-admin = \"0.1\""
+        ),
+    };
     format!(
         r#"[package]
 name = "{name}"
@@ -445,11 +510,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# The backend feature on laterite-core links its sqlx driver; the other crates
-# use it through sqlx::Any, so one feature selects the database everywhere.
-laterite-core = {{ version = "0.1", features = ["{feature}"] }}
-laterite-auth = "0.1"
-laterite-admin = "0.1"
+{laterite_deps}
 anyhow = "1"
 axum = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
@@ -609,6 +670,42 @@ mod tests {
     }
 
     #[test]
+    fn cargo_toml_uses_published_versions_by_default() {
+        let toml = cargo_toml("acme", "sqlite", None);
+        assert!(toml.contains("laterite-core = { version = \"0.1\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("laterite-admin = \"0.1\""));
+        assert!(!toml.contains("path ="));
+    }
+
+    #[test]
+    fn cargo_toml_uses_path_deps_in_dev_mode() {
+        let root = Path::new("/opt/laterite");
+        let toml = cargo_toml("acme", "postgres", Some(root));
+        // Path dependencies to the local checkout, with the backend feature kept.
+        assert!(toml.contains(
+            r#"laterite-core = { path = "/opt/laterite/crates/core", features = ["postgres"] }"#
+        ));
+        assert!(toml.contains(r#"laterite-auth = { path = "/opt/laterite/crates/auth" }"#));
+        assert!(toml.contains(r#"laterite-admin = { path = "/opt/laterite/crates/admin" }"#));
+        assert!(!toml.contains("version = \"0.1\""));
+    }
+
+    #[test]
+    fn framework_path_requires_a_real_checkout() {
+        // None passes through as None.
+        assert!(framework_path(None).unwrap().is_none());
+        // A directory without crates/core is rejected.
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(framework_path(Some(tmp.path().to_path_buf())).is_err());
+        // A directory that looks like a checkout resolves to an absolute path.
+        std::fs::create_dir_all(tmp.path().join("crates/core")).unwrap();
+        let resolved = framework_path(Some(tmp.path().to_path_buf()))
+            .unwrap()
+            .unwrap();
+        assert!(resolved.is_absolute());
+    }
+
+    #[test]
     fn database_idents_reject_injection() {
         assert!(validate_ident("acme_blog").is_ok());
         assert!(validate_ident("acme; drop database x").is_err());
@@ -639,7 +736,7 @@ mod tests {
             db_name: None,
             sqlite_relpath: Some("storage/database.db".to_string()),
         };
-        scaffold(&dir, "acme", "Acme Blog", "Asia/Kolkata", &conn).unwrap();
+        scaffold(&dir, "acme", "Acme Blog", "Asia/Kolkata", &conn, None).unwrap();
 
         for f in [
             "Cargo.toml",
