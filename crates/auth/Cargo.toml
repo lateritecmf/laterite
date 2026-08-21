@@ -1,6 +1,6 @@
 [package]
 name = "laterite-auth"
-version = "0.1.0"
+version = "0.2.0"
 description = "Laterite CMF backend user authentication: Argon2id credentials, sessions, and role-based permissions"
 edition.workspace = true
 license.workspace = true

@@ -1115,7 +1115,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-admin"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "askama",
@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-auth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "config",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tempfile",
 ]
