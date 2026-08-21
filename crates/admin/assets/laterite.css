@@ -140,6 +140,9 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-usermenu__name{padding:8px 10px 6px;font-size:var(--fs-12);color:var(--text-muted);border-bottom:1px solid var(--border-subtle);margin-bottom:4px}
 .lat-usermenu__item{display:block;width:100%;text-align:left;padding:8px 10px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:transparent;border:0;border-radius:var(--radius-control);cursor:pointer;text-decoration:none}
 .lat-usermenu__item:hover{background:var(--accent-subtle)}
+.lat-usermenu__poweredby{display:flex;align-items:center;gap:6px;margin-top:4px;padding:8px 10px;border-top:1px solid var(--border-subtle);font-family:var(--font-body);font-size:var(--fs-11);color:var(--text-subtle);text-decoration:none}
+.lat-usermenu__poweredby img{width:14px;height:14px;opacity:.7}
+.lat-usermenu__poweredby:hover{color:var(--text-muted)}
 .lat-modebtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;font-size:16px;border-radius:var(--radius-control);border:1px solid rgba(244,237,228,.22);background:transparent;color:var(--bone-200);cursor:pointer;transition:var(--transition-control)}
 .lat-modebtn:hover{background:var(--alpha-bone-08)}
 
@@ -272,7 +275,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 
 /* Login (two-column) */
 .lat-login{min-height:100vh;display:flex;background:var(--surface-page)}
-.lat-login__form{width:var(--login-form-col-w);flex:0 0 var(--login-form-col-w);display:flex;flex-direction:column;justify-content:center;padding:48px 56px;background:var(--surface-page)}
+.lat-login__form{position:relative;width:var(--login-form-col-w);flex:0 0 var(--login-form-col-w);display:flex;flex-direction:column;justify-content:center;padding:48px 56px;background:var(--surface-page)}
 .lat-login__inner{width:100%;max-width:372px}
 .lat-login__brand{display:flex;align-items:center;gap:12px;margin-bottom:30px}
 .lat-login__brand img{height:44px}
@@ -280,6 +283,9 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-login__title{font-family:var(--font-display);font-size:22px;font-weight:500;letter-spacing:-.02em;color:var(--text-heading);margin:0}
 .lat-login__lead{font-size:var(--fs-14);color:var(--text-muted);margin:8px 0 28px}
 .lat-login__forgot{margin-top:20px;font-size:var(--fs-13);color:var(--text-muted)}
+.lat-poweredby{position:absolute;left:56px;bottom:36px;display:inline-flex;align-items:center;gap:6px;font-family:var(--font-body);font-size:var(--fs-12);color:var(--text-subtle);text-decoration:none}
+.lat-poweredby img{width:14px;height:14px;opacity:.75}
+.lat-poweredby:hover{color:var(--text-muted)}
 .lat-login__hero{flex:1 1 auto;position:relative;min-width:0;overflow:hidden;background:var(--ferro-900)}
 .lat-hero-blob{position:absolute;border-radius:50%;filter:blur(90px);animation:lat-blob var(--blob-d,22s) var(--ease-standard) infinite}
 .lat-hero-blob--1{top:-12%;left:4%;width:620px;height:620px;background:rgba(196,78,47,.72);--blob-d:19s}
@@ -293,6 +299,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-login__hero{display:none}
 .lat-login__form{width:100%;flex:1 1 auto;padding:32px 24px}
 .lat-login__inner{margin:0 auto}
+.lat-poweredby{left:24px;bottom:24px}
 }
 
 /* Below --bp-md: collapse the inline nav into the off-canvas drawer */
