@@ -19,3 +19,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --features sqlite -- -D warnings
+
+  # Each crate's README is generated from its doc comment; fail if a committed
+  # README is stale (the doc changed but scripts/gen-readmes.sh was not re-run).
+  readmes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-readme
+      - run: bash scripts/gen-readmes.sh
+      - name: Per-crate READMEs must be regenerated and committed
+        run: git diff --exit-code -- crates/*/README.md
