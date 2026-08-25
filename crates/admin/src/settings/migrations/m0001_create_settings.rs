@@ -1,21 +1,14 @@
-//! The settings schema, as a portable migration.
+//! Create the settings store table.
 
 use laterite_core::strata::*;
 
-use super::store::Settings;
+use crate::settings::store::Settings;
 
-/// The stable migration namespace for the settings store.
-pub const MODULE_ID: &str = "laterite.settings";
-
-/// The settings migrations, for registration with the application's runner.
-pub fn migrations() -> MigrationSet {
-    MigrationSet::new(MODULE_ID, vec![Box::new(CreateSettings)])
-}
-
-struct CreateSettings;
+/// Creates the settings store table.
+pub struct Migration;
 
 #[async_trait(?Send)]
-impl Migration for CreateSettings {
+impl laterite_core::Migration for Migration {
     fn name(&self) -> &str {
         "0001_create_settings"
     }

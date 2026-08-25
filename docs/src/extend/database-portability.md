@@ -21,8 +21,33 @@ brings in the whole migration and query toolkit at once, the `Migration` trait
 and its `async_trait` macro, the schema and query builders, the `Db` handle, and
 the polyfills (`bool_col`, `AnyRowExt`). A migration file starts with that single
 line. Better still, generate the file with the scaffolding command,
-`lat make migration <name>`, which writes the skeleton with `strata` already
-imported, so imports are never your concern.
+`lat make:migration <description>`, which writes the skeleton with `strata`
+already imported, so imports are never your concern.
+
+## One migration per file
+
+Each migration is a single file that does one thing, kept under a module's
+`src/migrations/` directory and named `m<NNNN>_<description>.rs` (the leading `m`
+lets the name start with a digit). The file declares a `pub struct Migration`
+implementing the `Migration` trait: a stable `name`, an `up`, and an optional
+`down`.
+
+The directory's `mod.rs` is the manifest. It lists the files in apply order with
+the `migration_set!` macro, which declares each as a submodule and generates the
+module's stable `MODULE_ID` and its `migrations()` set:
+
+```rust
+laterite_core::migration_set! {
+    module_id: "acme.blog",
+    m0001_create_posts,
+    m0002_create_comments,
+}
+```
+
+The list is the module's version history. Append new entries at the end; never
+reorder or rename a shipped one, since applied migrations are tracked by
+`(module_id, name)`. `lat make:migration <description>` finds the next number,
+writes the file, and adds it to the manifest for you.
 
 ## Portable representations
 

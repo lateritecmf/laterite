@@ -443,7 +443,8 @@ fn scaffold(
         &cargo_toml(name, feature, framework),
     )?;
     write(dir.join("src/main.rs"), MAIN_RS)?;
-    write(dir.join("src/migrations.rs"), MIGRATIONS_RS)?;
+    fs::create_dir_all(dir.join("src/migrations"))?;
+    write(dir.join("src/migrations/mod.rs"), &migrations_mod_rs(name))?;
     write(
         dir.join("config/default.toml"),
         &default_toml(display_name, timezone),
@@ -562,7 +563,7 @@ async fn main() -> anyhow::Result<()> {
 
     // The framework's built-in migrations plus this application's own.
     let mut sets = laterite_admin::builtin_migrations();
-    sets.extend(migrations::migrations());
+    sets.push(migrations::migrations());
     laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
 
     let auth =
@@ -588,13 +589,26 @@ async fn main() -> anyhow::Result<()> {
 }
 "#;
 
-const MIGRATIONS_RS: &str = r#"//! This application's own migrations. Return the module migration sets here as
-//! the schema grows; they run after the framework's built-in migrations.
+/// This application's migration manifest. Each migration is one file in
+/// `src/migrations/`, listed in the `migration_set!` block in apply order.
+/// `lat make:migration <description>` scaffolds a new file and lists it here.
+/// The `module_id` is the application slug, the stable namespace its applied
+/// migrations are tracked under.
+fn migrations_mod_rs(module_id: &str) -> String {
+    format!(
+        r#"//! This application's own migrations.
+//!
+//! Each migration is one file in this directory, listed below in apply order.
+//! Scaffold a new one with `lat make:migration <description>`. They run after
+//! the framework's built-in migrations. Append new entries at the end; never
+//! reorder or rename a shipped one.
 
-pub fn migrations() -> Vec<laterite_core::MigrationSet> {
-    Vec::new()
+laterite_core::migration_set! {{
+    module_id: "{module_id}",
+}}
+"#
+    )
 }
-"#;
 
 fn default_toml(app_name: &str, timezone: &str) -> String {
     // The display name is written as a TOML basic string, so escape backslashes
@@ -769,7 +783,7 @@ mod tests {
         for f in [
             "Cargo.toml",
             "src/main.rs",
-            "src/migrations.rs",
+            "src/migrations/mod.rs",
             "config/default.toml",
             "config/local.toml",
             ".gitignore",
@@ -778,6 +792,11 @@ mod tests {
         ] {
             assert!(dir.join(f).exists(), "{f} should be generated");
         }
+        // The migration manifest carries the app slug as its module id, ready
+        // for `lat make:migration` to extend.
+        let manifest = std::fs::read_to_string(dir.join("src/migrations/mod.rs")).unwrap();
+        assert!(manifest.contains("migration_set!"));
+        assert!(manifest.contains("module_id: \"acme\""));
         let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("features = [\"sqlite\"]"));
         assert!(cargo.contains("name = \"acme\""));

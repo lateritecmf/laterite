@@ -199,6 +199,46 @@ impl MigrationSet {
     }
 }
 
+/// Declares a module's migration set from one-file migrations.
+///
+/// Each migration lives in its own file under the module's `migrations/`
+/// directory, named `m<name>.rs` and exposing a `pub struct Migration` that
+/// implements [`Migration`]. This macro, invoked in the directory's `mod.rs`,
+/// lists them in apply order: it declares each file as a submodule and generates
+/// the module's `MODULE_ID` constant and its `migrations()` function returning the
+/// ordered [`MigrationSet`]. The list is the version history; append to its end,
+/// never reorder or rename a shipped entry.
+///
+/// The `m` prefix lets a name start with a digit (a bare `0001_...` is not a
+/// valid Rust identifier). Scaffold new entries with `lat make:migration`.
+///
+/// ```ignore
+/// // src/migrations/mod.rs
+/// laterite_core::migration_set! {
+///     module_id: "acme.blog",
+///     m0001_create_posts,
+///     m0002_create_comments,
+/// }
+/// ```
+#[macro_export]
+macro_rules! migration_set {
+    (module_id: $id:literal, $($m:ident,)*) => {
+        $( mod $m; )*
+
+        /// The stable migration namespace for this module. Never change it once
+        /// migrations have shipped: applied history is keyed on it.
+        pub const MODULE_ID: &str = $id;
+
+        /// This module's migrations, in apply order.
+        pub fn migrations() -> $crate::MigrationSet {
+            $crate::MigrationSet::new(
+                MODULE_ID,
+                ::std::vec![ $( ::std::boxed::Box::new($m::Migration), )* ],
+            )
+        }
+    };
+}
+
 #[derive(Iden)]
 enum LateriteMigrations {
     Table,

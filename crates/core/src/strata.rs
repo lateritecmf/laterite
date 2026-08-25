@@ -6,8 +6,8 @@
 //! query builders, the `Db` handle, and the portability polyfills (`bool_col`,
 //! `key_col`, `AnyRowExt`). Importing the general structure is enough; you should not have
 //! to reach for individual items or remember which representation a type needs on
-//! which backend. The `make migration` scaffolding writes a file with this import
-//! already in place.
+//! which backend. The `lat make:migration` scaffolding writes a file with this
+//! import already in place.
 
 pub use async_trait::async_trait;
 
