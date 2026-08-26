@@ -212,6 +212,11 @@ impl MigrationSet {
 /// The `m` prefix lets a name start with a digit (a bare `0001_...` is not a
 /// valid Rust identifier). Scaffold new entries with `lat make:migration`.
 ///
+/// The `module_id` is the module's stable identity: a lowercase `vendor.package`
+/// code mirroring the crate name (crate `acme-blog`, id `acme.blog`). It
+/// namespaces applied-migration history, so keep it stable and never adopt
+/// another module's.
+///
 /// ```ignore
 /// // src/migrations/mod.rs
 /// laterite_core::migration_set! {

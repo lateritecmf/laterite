@@ -13,6 +13,7 @@ use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
 mod doctor;
+mod make;
 mod new;
 
 #[derive(Parser)]
@@ -31,6 +32,9 @@ struct Cli {
 enum Command {
     /// Scaffold and set up a new Laterite application (interactive).
     New(new::NewArgs),
+    /// Scaffold a new migration file in this crate's src/migrations/ directory.
+    #[command(name = "make:migration")]
+    MakeMigration(make::MakeMigrationArgs),
     /// Check that this application is set up to run (run from its directory).
     Doctor,
     /// Manage backend (admin) users.
@@ -90,6 +94,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::New(args) => new::run(args).await,
+        Command::MakeMigration(args) => make::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
     }
