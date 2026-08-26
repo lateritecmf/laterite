@@ -4,8 +4,9 @@ block in the crate source and run scripts/gen-readmes.sh. -->
 
 Laterite admin: the operator-facing web surface.
 
-An Axum router mounted at `/admin`: a login screen and session cookie
-verified against `laterite-auth`, and descriptor-driven screens.
+An Axum router mounted under a configurable path (default `/admin`, set by
+[`AdminConfig::path`]): a login screen and session cookie verified against
+`laterite-auth`, and descriptor-driven screens.
 
 Screens are **resources**: a module declares a [`Resource`] (a
 [`list::ListConfig`], optionally a [`form::FormConfig`], a base path, and a
