@@ -97,13 +97,18 @@ checkout:
 
 ```
 cargo install --path crates/cli --force
+
+# Point lat at this checkout per command:
 lat new --framework-path /path/to/this/checkout
+
+# ...or set it once for the whole shell session:
+export LATERITE_FRAMEWORK_PATH=/path/to/this/checkout
+lat new
 ```
 
 The generated app then uses path dependencies to your local crates, so it builds
-against unreleased changes with no publish. Set `LATERITE_FRAMEWORK_PATH` to make
-it the default for a shell session. Without the flag, `lat new` uses the
-published crates, as it does for everyone else.
+against unreleased changes with no publish. Without the flag or the environment
+variable, `lat new` uses the published crates, as it does for everyone else.
 
 ## Documentation
 
