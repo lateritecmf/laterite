@@ -16,8 +16,13 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     laterite_core::testing::connect_test(&laterite_admin::builtin_migrations()).await
 }
 
-/// The admin router with a configured application name and nothing else.
+/// The admin router with a configured application name, mounted at `/admin`.
 fn app(db: Db, app_name: &str) -> Router {
+    app_at(db, app_name, "/admin")
+}
+
+/// The admin router mounted at a specific path, for the panel-relocation test.
+fn app_at(db: Db, app_name: &str, path: &str) -> Router {
     let auth = AuthService::new(db.clone(), AuthConfig::default());
     router(
         auth,
@@ -29,6 +34,7 @@ fn app(db: Db, app_name: &str) -> Router {
             secure_cookie: false,
             timezone: "UTC".to_string(),
             app_name: app_name.to_string(),
+            path: path.to_string(),
         },
     )
 }
@@ -162,6 +168,36 @@ async fn powered_by_laterite_attribution_is_shown() {
         html.contains("Powered by Laterite"),
         "the in-app user menu shows the attribution"
     );
+}
+
+#[tokio::test]
+async fn custom_admin_path_moves_the_whole_panel() {
+    let (db, _guard) = test_db().await;
+
+    // Mounted at /manage, the first-run setup screen answers there, and every
+    // link it renders (form action, assets) points under the configured mount.
+    let (status, html) = get(app_at(db.clone(), "Acme", "/manage"), "/manage/setup").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Acme"),
+        "the panel renders under the new mount"
+    );
+    assert!(
+        html.contains(r#"action="/manage/setup""#),
+        "the form posts under the mount"
+    );
+    assert!(
+        html.contains("/manage/assets/laterite.css"),
+        "assets load under the mount"
+    );
+    assert!(
+        !html.contains("/admin/"),
+        "nothing points at the default mount"
+    );
+
+    // The default path no longer serves the panel once it has moved.
+    let (status, _) = get(app_at(db, "Acme", "/manage"), "/admin/setup").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

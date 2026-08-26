@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Set up {{ brand }}</title>
-  <link rel="icon" type="image/svg+xml" href="/admin/assets/mark.svg">
-  <link rel="stylesheet" href="/admin/assets/laterite.css">
+  <link rel="icon" type="image/svg+xml" href="{{ base }}/assets/mark.svg">
+  <link rel="stylesheet" href="{{ base }}/assets/laterite.css">
   <script>(function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();</script>
 </head>
 <body>
@@ -13,13 +13,13 @@
     <div class="lat-login__form">
       <div class="lat-login__inner">
         <div class="lat-login__brand">
-          <img src="/admin/assets/mark.png" alt="">
+          <img src="{{ base }}/assets/mark.png" alt="">
           <h1>{{ brand }}</h1>
         </div>
         <h2 class="lat-login__title">Create the first administrator</h2>
         <p class="lat-login__lead">This install has no accounts yet. Set one up to sign in.</p>
         {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-        <form method="post" action="/admin/setup">
+        <form method="post" action="{{ base }}/setup">
           <div class="lat-field">
             <label class="lat-field__label" for="username">Username</label>
             <input class="lat-input" type="text" id="username" name="username" autocomplete="username" autofocus required>
@@ -50,7 +50,7 @@
           <button class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" type="submit" style="margin-top:20px">Create administrator</button>
         </form>
       </div>
-      <a class="lat-poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="/admin/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
+      <a class="lat-poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ base }}/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
     </div>
     <div class="lat-login__hero" aria-hidden="true">
       <div class="lat-hero-blob lat-hero-blob--1"></div>

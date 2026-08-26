@@ -9,7 +9,7 @@
 <div class="lat-card__label" style="margin-bottom:10px">Manage</div>
 <div class="lat-grid">
   {% for item in shell.nav %}
-  {% if item.path != "/admin" %}
+  {% if item.path != shell.base %}
   <a class="lat-card" href="{{ item.path }}" style="text-decoration:none;color:inherit">
     <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-16);color:var(--text-heading)">{{ item.label }}</div>
     <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">Open {{ item.label }} &rarr;</div>

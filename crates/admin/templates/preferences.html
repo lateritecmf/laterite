@@ -5,7 +5,7 @@
 <div class="lat-card" style="max-width:620px">
   {% if saved %}<div class="lat-alert lat-alert--ok">Your preferences were saved.</div>{% endif %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-  <form method="post" action="/admin/preferences">
+  <form method="post" action="{{ shell.base }}/preferences">
     <div class="lat-field">
       <label class="lat-field__label" for="timezone">Display timezone</label>
       <select class="lat-input" id="timezone" name="timezone">

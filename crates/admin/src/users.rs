@@ -74,7 +74,7 @@ pub(crate) async fn edit_form(
         &state,
         shell,
         &editor.permissions,
-        format!("/admin/users/{id}/edit"),
+        format!("{}/users/{id}/edit", state.admin_path),
         full_name(&first_name, last_name.as_deref()),
         username,
         email,
@@ -115,7 +115,7 @@ pub(crate) async fn update(
     };
     // A superuser has no editable overrides; nothing to save.
     if row.get_bool("is_superuser").unwrap_or(false) {
-        return Redirect::to("/admin/users").into_response();
+        return Redirect::to(&format!("{}/users", state.admin_path)).into_response();
     }
     let target_id = match id.parse::<i64>() {
         Ok(target_id) => target_id,
@@ -148,7 +148,7 @@ pub(crate) async fn update(
     }
 
     match state.auth.set_user_permissions(target_id, &overrides).await {
-        Ok(()) => Redirect::to("/admin/users").into_response(),
+        Ok(()) => Redirect::to(&format!("{}/users", state.admin_path)).into_response(),
         Err(_) => render_error(),
     }
 }
@@ -226,7 +226,7 @@ fn build(
     UsersFormTemplate {
         shell,
         action,
-        cancel_path: "/admin/users".to_string(),
+        cancel_path: format!("{}/users", state.admin_path),
         full_name,
         username,
         email,

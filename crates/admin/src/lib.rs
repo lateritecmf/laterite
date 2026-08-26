@@ -1,7 +1,8 @@
 //! Laterite admin: the operator-facing web surface.
 //!
-//! An Axum router mounted at `/admin`: a login screen and session cookie
-//! verified against `laterite-auth`, and descriptor-driven screens.
+//! An Axum router mounted under a configurable path (default `/admin`, set by
+//! [`AdminConfig::path`]): a login screen and session cookie verified against
+//! `laterite-auth`, and descriptor-driven screens.
 //!
 //! Screens are **resources**: a module declares a [`Resource`] (a
 //! [`list::ListConfig`], optionally a [`form::FormConfig`], a base path, and a
@@ -44,6 +45,10 @@ pub(crate) struct AdminState {
     nav: Arc<Vec<NavLink>>,
     settings: Arc<Vec<settings::SettingsItem>>,
     permissions: Arc<Vec<Permission>>,
+    /// The URL path the panel is mounted under, without a trailing slash (e.g.
+    /// `/admin`). Every route, redirect, link, and the session-cookie scope is
+    /// built from it, so one config value moves the whole panel.
+    admin_path: Arc<str>,
     secure_cookie: bool,
     timezone: Tz,
     /// The configured application name (the baseline brand). A brand setting
@@ -64,6 +69,7 @@ impl AdminState {
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
+            admin_path: Arc::from("/admin"),
             secure_cookie: false,
             timezone: Tz::UTC,
             app_name: "Laterite".to_string(),
@@ -110,6 +116,10 @@ pub struct AdminConfig {
     /// `BrandSetting` in the admin overrides it. Typically the configured
     /// `app.name`. Empty falls back to `Laterite`.
     pub app_name: String,
+    /// The URL path the panel is mounted under (typically the configured
+    /// `backend.path`). A leading slash is added if missing and a trailing slash
+    /// is stripped; empty falls back to `/admin`.
+    pub path: String,
 }
 
 impl Default for AdminConfig {
@@ -118,6 +128,7 @@ impl Default for AdminConfig {
             secure_cookie: false,
             timezone: "UTC".to_string(),
             app_name: "Laterite".to_string(),
+            path: "/admin".to_string(),
         }
     }
 }
@@ -137,6 +148,10 @@ struct NavLink {
 /// rebuilding it. Templates embed it as `shell` and `base.html` renders it.
 #[derive(Clone)]
 pub(crate) struct Shell {
+    /// The admin mount path (e.g. `/admin`), so shared chrome (asset links, the
+    /// brand link, sign-out and preferences) builds URLs under the configured
+    /// panel path rather than a hardcoded `/admin`.
+    pub(crate) base: String,
     /// The brand name shown in the top nav and drawer, resolved once per request
     /// (the brand setting, or the configured application name). See
     /// [`AdminState::brand`].
@@ -156,6 +171,7 @@ pub(crate) struct Shell {
 
 impl Shell {
     fn new(
+        base: &str,
         brand: String,
         nav: &[NavLink],
         user: &AuthenticatedUser,
@@ -170,6 +186,7 @@ impl Shell {
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "?".to_string());
         Shell {
+            base: base.to_string(),
             brand,
             nav: nav
                 .iter()
@@ -190,6 +207,7 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn test() -> Self {
         Shell {
+            base: "/admin".to_string(),
             brand: "Laterite".to_string(),
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
@@ -206,18 +224,28 @@ impl Shell {
 /// list, forms and sub-pages). The matching item is returned so the sidebar can
 /// highlight it. `visible` is the operator's permitted items, so a linked
 /// resource they cannot see never claims the context.
-fn settings_context(visible: &[settings::SettingsItem], path: &str) -> (bool, Option<String>) {
-    if path == "/admin/settings" {
+fn settings_context(
+    visible: &[settings::SettingsItem],
+    admin_path: &str,
+    path: &str,
+) -> (bool, Option<String>) {
+    let settings_root = format!("{admin_path}/settings");
+    if path == settings_root {
         (true, None)
-    } else if let Some(code) = path.strip_prefix("/admin/settings/") {
+    } else if let Some(code) = path.strip_prefix(&format!("{settings_root}/")) {
         (true, Some(code.to_string()))
     } else {
-        // A linked resource: the settings item whose link is the longest prefix
-        // of this path owns the context (so /admin/roles/5/edit still resolves).
+        // A linked resource: the settings item whose resolved link is the longest
+        // prefix of this path owns the context (so /admin/roles/5/edit resolves).
+        // Links are stored relative to the admin root, so resolve each here.
         let active = visible
             .iter()
-            .filter_map(|i| i.link.as_deref().map(|link| (link, &i.code)))
-            .filter(|(link, _)| path == *link || path.starts_with(&format!("{link}/")))
+            .filter_map(|i| {
+                i.link
+                    .as_deref()
+                    .map(|link| (format!("{admin_path}{link}"), &i.code))
+            })
+            .filter(|(link, _)| path == link.as_str() || path.starts_with(&format!("{link}/")))
             .max_by_key(|(link, _)| link.len())
             .map(|(_, code)| code.clone());
         (active.is_some(), active)
@@ -231,13 +259,18 @@ fn settings_context(visible: &[settings::SettingsItem], path: &str) -> (bool, Op
 /// `/admin` root is every path's ancestor, so it lights the Dashboard tab only
 /// on an exact match: a screen belonging to no section (Preferences, say) lights
 /// nothing rather than falling back to Dashboard.
-fn active_nav_path(nav: &[NavLink], in_settings_context: bool, path: &str) -> Option<String> {
+fn active_nav_path(
+    nav: &[NavLink],
+    admin_path: &str,
+    in_settings_context: bool,
+    path: &str,
+) -> Option<String> {
     if in_settings_context {
-        return Some("/admin/settings".to_string());
+        return Some(format!("{admin_path}/settings"));
     }
     nav.iter()
         .filter(|n| {
-            path == n.path || (n.path != "/admin" && path.starts_with(&format!("{}/", n.path)))
+            path == n.path || (n.path != admin_path && path.starts_with(&format!("{}/", n.path)))
         })
         .max_by_key(|n| n.path.len())
         .map(|n| n.path.clone())
@@ -250,17 +283,18 @@ fn active_nav_path(nav: &[NavLink], in_settings_context: bool, path: &str) -> Op
 fn resolve_nav_context(
     nav: &[NavLink],
     items: &[settings::SettingsItem],
+    admin_path: &str,
     perms: &PermissionSet,
     path: &str,
 ) -> (Vec<settings::CategoryView>, Option<String>) {
     let visible = visible_settings(items, perms);
-    let (in_context, active) = settings_context(&visible, path);
+    let (in_context, active) = settings_context(&visible, admin_path, path);
     let sidebar = if in_context {
-        settings::sidebar_groups(&visible, active.as_deref())
+        settings::sidebar_groups(&visible, admin_path, active.as_deref())
     } else {
         Vec::new()
     };
-    let active_nav = active_nav_path(nav, in_context, path);
+    let active_nav = active_nav_path(nav, admin_path, in_context, path);
     (sidebar, active_nav)
 }
 
@@ -276,6 +310,11 @@ fn resolve_display_tz(preference: Option<&str>, default_tz: Tz) -> Tz {
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
 /// under `base_path` and shown in the menu as `nav_label`.
 pub struct Resource {
+    /// The path the resource mounts at, relative to the admin root and starting
+    /// with a slash (e.g. `/products`). The framework prepends the configured
+    /// admin mount, so a resource never hardcodes it and survives a moved panel.
+    /// The list's `edit_base` and the form's `base_path` are resolved the same
+    /// way.
     pub base_path: String,
     pub nav_label: String,
     pub list: list::ListConfig,
@@ -350,7 +389,17 @@ pub fn router(
     app_permissions: Vec<Permission>,
     config: AdminConfig,
 ) -> Router {
+    let admin_path = normalize_admin_path(&config.path);
+
     let mut resources = builtin_resources();
+    let mut app_resources = app_resources;
+    // Descriptor paths are authored relative to the admin root; resolve them to
+    // full paths under the configured mount so routes, the menu, and every link
+    // built from them agree.
+    for resource in resources.iter_mut().chain(app_resources.iter_mut()) {
+        prefix_resource(&admin_path, resource);
+    }
+
     let mut settings = builtin_settings();
     settings.extend(app_settings);
     let mut permissions = builtin_permissions();
@@ -361,7 +410,7 @@ pub fn router(
     // menu), not main-menu tabs.
     let mut nav = vec![NavLink {
         label: "Dashboard".to_string(),
-        path: "/admin".to_string(),
+        path: admin_path.clone(),
         icon: Some("layout-dashboard"),
     }];
     for resource in &app_resources {
@@ -373,7 +422,7 @@ pub fn router(
     }
     nav.push(NavLink {
         label: "Settings".to_string(),
-        path: "/admin/settings".to_string(),
+        path: format!("{admin_path}/settings"),
         icon: Some("settings"),
     });
     resources.extend(app_resources);
@@ -389,13 +438,14 @@ pub fn router(
         nav: Arc::new(nav),
         settings: Arc::new(settings),
         permissions: Arc::new(permissions),
+        admin_path: Arc::from(admin_path.as_str()),
         secure_cookie: config.secure_cookie,
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
     };
 
-    let mut protected = Router::new().route("/admin", get(dashboard));
+    let mut protected = Router::new().route(&admin_path, get(dashboard));
     for resource in &resources {
         protected = protected.merge(mount_resource(resource));
     }
@@ -403,9 +453,12 @@ pub fn router(
     // gated by the same permission as its list.
     protected = protected.merge(guard_with_permission(
         Router::new()
-            .route("/admin/roles/new", get(roles::new_form).post(roles::create))
             .route(
-                "/admin/roles/{id}/edit",
+                &format!("{admin_path}/roles/new"),
+                get(roles::new_form).post(roles::create),
+            )
+            .route(
+                &format!("{admin_path}/roles/{{id}}/edit"),
                 get(roles::edit_form).post(roles::update),
             ),
         "backend.manage_roles",
@@ -414,35 +467,71 @@ pub fn router(
     // the same permission as its list.
     protected = protected.merge(guard_with_permission(
         Router::new().route(
-            "/admin/users/{id}/edit",
+            &format!("{admin_path}/users/{{id}}/edit"),
             get(users::edit_form).post(users::update),
         ),
         "backend.manage_users",
     ));
     protected = protected
-        .route("/admin/settings", get(settings_index))
+        .route(&format!("{admin_path}/settings"), get(settings_index))
         .route(
-            "/admin/settings/{code}",
+            &format!("{admin_path}/settings/{{code}}"),
             get(settings_edit).post(settings_update),
         )
         .route(
-            "/admin/preferences",
+            &format!("{admin_path}/preferences"),
             get(preferences_form).post(preferences_update),
         )
-        .route("/admin/logout", post(logout));
+        .route(&format!("{admin_path}/logout"), post(logout));
 
     protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         // Public routes (not covered by the guard above): the login and first-run
         // setup screens and the embedded stylesheet and fonts (needed before
         // authentication).
-        .route("/admin/login", get(login_form).post(login_submit))
-        .route("/admin/setup", get(setup_form).post(setup_submit))
-        .route("/admin/assets/laterite.css", get(asset_css))
-        .route("/admin/assets/mark.svg", get(asset_mark))
-        .route("/admin/assets/mark.png", get(asset_mark_png))
-        .route("/admin/assets/fonts/{file}", get(asset_font))
+        .route(
+            &format!("{admin_path}/login"),
+            get(login_form).post(login_submit),
+        )
+        .route(
+            &format!("{admin_path}/setup"),
+            get(setup_form).post(setup_submit),
+        )
+        .route(&format!("{admin_path}/assets/laterite.css"), get(asset_css))
+        .route(&format!("{admin_path}/assets/mark.svg"), get(asset_mark))
+        .route(
+            &format!("{admin_path}/assets/mark.png"),
+            get(asset_mark_png),
+        )
+        .route(
+            &format!("{admin_path}/assets/fonts/{{file}}"),
+            get(asset_font),
+        )
         .with_state(state)
+}
+
+/// Normalises a configured admin path: a single leading slash, no trailing
+/// slash, falling back to `/admin` when empty. `manage`, `/manage`, and
+/// `/manage/` all become `/manage`.
+fn normalize_admin_path(path: &str) -> String {
+    let trimmed = path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        "/admin".to_string()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+/// Resolves a resource's authored-relative paths (`base_path`, the list's
+/// `edit_base`, the form's `base_path`) to full paths under the admin mount.
+fn prefix_resource(admin_path: &str, resource: &mut Resource) {
+    resource.base_path = format!("{admin_path}{}", resource.base_path);
+    if let Some(edit_base) = &mut resource.list.edit_base {
+        *edit_base = format!("{admin_path}{edit_base}");
+    }
+    if let Some(form) = &mut resource.form {
+        form.base_path = format!("{admin_path}{}", form.base_path);
+    }
 }
 
 /// Serves the embedded brick mark (SVG badge, used for the favicon).
@@ -605,10 +694,16 @@ async fn require_auth(
     match identity {
         Some(user) => {
             let path = request.uri().path().to_string();
-            let (sidebar, active_nav) =
-                resolve_nav_context(&state.nav, &state.settings, &user.permissions, &path);
+            let (sidebar, active_nav) = resolve_nav_context(
+                &state.nav,
+                &state.settings,
+                &state.admin_path,
+                &user.permissions,
+                &path,
+            );
             let brand = state.brand().await;
             let shell = Shell::new(
+                &state.admin_path,
                 brand,
                 &state.nav,
                 &user,
@@ -620,15 +715,16 @@ async fn require_auth(
             request.extensions_mut().insert(shell);
             next.run(request).await
         }
-        None => Redirect::to("/admin/login").into_response(),
+        None => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
     }
 }
 
 async fn login_form(State(state): State<AdminState>) -> Response {
     // A fresh install with no operators goes to first-run setup instead.
     match state.auth.has_any_operator().await {
-        Ok(false) => Redirect::to("/admin/setup").into_response(),
+        Ok(false) => Redirect::to(&format!("{}/setup", state.admin_path)).into_response(),
         Ok(true) => render(LoginTemplate {
+            base: state.admin_path.to_string(),
             brand: state.brand().await,
             error: None,
         }),
@@ -653,21 +749,22 @@ async fn login_submit(
         .await
     {
         Ok(session) => {
-            let cookie = session_cookie(session.token, state.secure_cookie);
-            (jar.add(cookie), Redirect::to("/admin")).into_response()
+            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
+            (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => render(LoginTemplate {
+            base: state.admin_path.to_string(),
             brand: state.brand().await,
             error: Some("Invalid username or password.".to_string()),
         }),
     }
 }
 
-/// Builds the session cookie, scoped to the admin and flagged `Secure` behind
-/// HTTPS. Shared by login and first-run setup.
-fn session_cookie(token: String, secure: bool) -> Cookie<'static> {
+/// Builds the session cookie, scoped to the admin mount and flagged `Secure`
+/// behind HTTPS. Shared by login and first-run setup.
+fn session_cookie(token: String, admin_path: &str, secure: bool) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, token))
-        .path("/admin")
+        .path(admin_path.to_string())
         .http_only(true)
         .secure(secure)
         .same_site(SameSite::Lax)
@@ -688,8 +785,13 @@ struct SetupForm {
 /// install can create its first administrator without the CLI.
 async fn setup_form(State(state): State<AdminState>) -> Response {
     match state.auth.has_any_operator().await {
-        Ok(true) => Redirect::to("/admin/login").into_response(),
-        Ok(false) => render(setup_view(state.brand().await, state.timezone, None)),
+        Ok(true) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
+        Ok(false) => render(setup_view(
+            &state.admin_path,
+            state.brand().await,
+            state.timezone,
+            None,
+        )),
         Err(_) => render_error(),
     }
 }
@@ -701,7 +803,7 @@ async fn setup_submit(
 ) -> Response {
     // Setup only ever creates the first operator; once one exists it is closed.
     match state.auth.has_any_operator().await {
-        Ok(true) => return Redirect::to("/admin/login").into_response(),
+        Ok(true) => return Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
         Ok(false) => {}
         Err(_) => return render_error(),
     }
@@ -714,6 +816,7 @@ async fn setup_submit(
     if username.is_empty() || email.is_empty() || first_name.is_empty() || form.password.is_empty()
     {
         return render(setup_view(
+            &state.admin_path,
             state.brand().await,
             state.timezone,
             Some("Username, first name, email, and password are all required."),
@@ -722,6 +825,7 @@ async fn setup_submit(
     // The setup select always carries a value, but guard against a bad one.
     if tz.parse::<Tz>().is_err() {
         return render(setup_view(
+            &state.admin_path,
             state.brand().await,
             state.timezone,
             Some("That is not a recognised timezone."),
@@ -738,6 +842,7 @@ async fn setup_submit(
     };
     if state.auth.create_superuser(new).await.is_err() {
         return render(setup_view(
+            &state.admin_path,
             state.brand().await,
             state.timezone,
             Some("Could not create the account. The username or email may already be taken."),
@@ -751,16 +856,21 @@ async fn setup_submit(
         .await
     {
         Ok(session) => {
-            let cookie = session_cookie(session.token, state.secure_cookie);
-            (jar.add(cookie), Redirect::to("/admin")).into_response()
+            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
+            (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
-        Err(_) => Redirect::to("/admin/login").into_response(),
+        Err(_) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
     }
 }
 
 /// Builds the setup view, its timezone select defaulting to the deployment
 /// default so the first administrator can accept or change it.
-fn setup_view(brand: String, default_tz: Tz, error: Option<&str>) -> SetupTemplate {
+fn setup_view(
+    admin_path: &str,
+    brand: String,
+    default_tz: Tz,
+    error: Option<&str>,
+) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
         .iter()
@@ -770,6 +880,7 @@ fn setup_view(brand: String, default_tz: Tz, error: Option<&str>) -> SetupTempla
         })
         .collect();
     SetupTemplate {
+        base: admin_path.to_string(),
         brand,
         zones,
         error: error.map(|e| e.to_string()),
@@ -780,8 +891,14 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let _ = state.auth.logout(cookie.value()).await;
     }
-    let removal = Cookie::build((SESSION_COOKIE, "")).path("/admin").build();
-    (jar.remove(removal), Redirect::to("/admin/login")).into_response()
+    let removal = Cookie::build((SESSION_COOKIE, ""))
+        .path(state.admin_path.to_string())
+        .build();
+    (
+        jar.remove(removal),
+        Redirect::to(&format!("{}/login", state.admin_path)),
+    )
+        .into_response()
 }
 
 async fn dashboard(
@@ -904,7 +1021,9 @@ async fn preferences_update(
         ));
     };
     match state.auth.set_user_timezone(user.user.id, stored).await {
-        Ok(()) => Redirect::to("/admin/preferences?saved=1").into_response(),
+        Ok(()) => {
+            Redirect::to(&format!("{}/preferences?saved=1", state.admin_path)).into_response()
+        }
         Err(_) => render_error(),
     }
 }
@@ -942,14 +1061,14 @@ fn preferences_view(
 fn builtin_resources() -> Vec<Resource> {
     vec![
         Resource {
-            base_path: "/admin/users".to_string(),
+            base_path: "/users".to_string(),
             nav_label: "Backend Users".to_string(),
             list: backend_users_list_config(),
             form: None,
             permission: Some("backend.manage_users".to_string()),
         },
         Resource {
-            base_path: "/admin/roles".to_string(),
+            base_path: "/roles".to_string(),
             nav_label: "Roles".to_string(),
             list: roles_list_config(),
             // The create/edit form is the dedicated permission editor (see the
@@ -973,7 +1092,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             order: 10,
             icon: Some("users".to_string()),
             permission: Some("backend.manage_users".to_string()),
-            link: Some("/admin/users".to_string()),
+            link: Some("/users".to_string()),
             fields: Vec::new(),
         },
         settings::SettingsItem {
@@ -984,7 +1103,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             order: 20,
             icon: Some("shield".to_string()),
             permission: Some("backend.manage_roles".to_string()),
-            link: Some("/admin/roles".to_string()),
+            link: Some("/roles".to_string()),
             fields: Vec::new(),
         },
         settings::brand::settings_item(),
@@ -1010,7 +1129,7 @@ fn backend_users_list_config() -> list::ListConfig {
         id_field: "id".to_string(),
         // Rows link to the per-user permission editor; users are created from the
         // CLI or first-run setup, so no "New" screen here.
-        edit_base: Some("/admin/users".to_string()),
+        edit_base: Some("/users".to_string()),
         creatable: false,
     }
 }
@@ -1028,7 +1147,7 @@ fn roles_list_config() -> list::ListConfig {
         order_dir: list::SortDir::Desc,
         per_page: 25,
         id_field: "id".to_string(),
-        edit_base: Some("/admin/roles".to_string()),
+        edit_base: Some("/roles".to_string()),
         creatable: true,
     }
 }
@@ -1036,6 +1155,8 @@ fn roles_list_config() -> list::ListConfig {
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
+    /// The admin mount path, so pre-auth asset and form URLs match the panel.
+    base: String,
     brand: String,
     error: Option<String>,
 }
@@ -1050,6 +1171,8 @@ struct DashboardTemplate {
 #[derive(Template)]
 #[template(path = "setup.html")]
 struct SetupTemplate {
+    /// The admin mount path, so pre-auth asset and form URLs match the panel.
+    base: String,
     brand: String,
     zones: Vec<TzOption>,
     error: Option<String>,
@@ -1163,6 +1286,7 @@ mod tests {
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
+            admin_path: Arc::from("/admin"),
             secure_cookie: false,
             timezone: Tz::UTC,
             app_name: "Configured Name".to_string(),
@@ -1240,7 +1364,7 @@ mod tests {
     fn context_sidebar_follows_settings_links() {
         let items = builtin_settings();
         let superuser = PermissionSet::new(true, Vec::<String>::new());
-        let sidebar = |path: &str| resolve_nav_context(&[], &items, &superuser, path).0;
+        let sidebar = |path: &str| resolve_nav_context(&[], &items, "/admin", &superuser, path).0;
         let active_path = |path: &str| -> Option<String> {
             sidebar(path)
                 .into_iter()
@@ -1289,27 +1413,33 @@ mod tests {
 
         // Dashboard lights only on an exact match, never as a prefix of deeper paths.
         assert_eq!(
-            active_nav_path(&nav, false, "/admin").as_deref(),
+            active_nav_path(&nav, "/admin", false, "/admin").as_deref(),
             Some("/admin")
         );
         // A section keeps its own tab active across its sub-pages.
         assert_eq!(
-            active_nav_path(&nav, false, "/admin/pages/7/edit").as_deref(),
+            active_nav_path(&nav, "/admin", false, "/admin/pages/7/edit").as_deref(),
             Some("/admin/pages")
         );
         // A sibling section that merely shares a prefix does not steal the tab.
-        assert_eq!(active_nav_path(&nav, false, "/admin/pages-archive"), None);
+        assert_eq!(
+            active_nav_path(&nav, "/admin", false, "/admin/pages-archive"),
+            None
+        );
         // A screen under no section (reached from the user menu) lights nothing,
         // rather than the root falling back to Dashboard.
-        assert_eq!(active_nav_path(&nav, false, "/admin/preferences"), None);
+        assert_eq!(
+            active_nav_path(&nav, "/admin", false, "/admin/preferences"),
+            None
+        );
         // The settings context lights Settings, including for a linked resource
         // whose path lives outside /admin/settings.
         assert_eq!(
-            active_nav_path(&nav, true, "/admin/users").as_deref(),
+            active_nav_path(&nav, "/admin", true, "/admin/users").as_deref(),
             Some("/admin/settings")
         );
         assert_eq!(
-            active_nav_path(&nav, true, "/admin/settings").as_deref(),
+            active_nav_path(&nav, "/admin", true, "/admin/settings").as_deref(),
             Some("/admin/settings")
         );
     }

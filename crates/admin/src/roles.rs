@@ -22,7 +22,8 @@ pub(crate) async fn new_form(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
 ) -> Response {
-    render(build(&state, "/admin/roles/new", None, "", "", &[], shell))
+    let action = format!("{}/roles/new", state.admin_path);
+    render(build(&state, &action, None, "", "", &[], shell))
 }
 
 /// Persists a new role, then redirects to the list.
@@ -33,10 +34,11 @@ pub(crate) async fn create(
 ) -> Response {
     let (code, name, perms) = parse(&pairs);
     let perms = registered_only(perms, &state.permissions);
+    let action = format!("{}/roles/new", state.admin_path);
     if code.is_empty() || name.is_empty() {
         return render(build(
             &state,
-            "/admin/roles/new",
+            &action,
             Some("Code and name are required."),
             &code,
             &name,
@@ -45,10 +47,10 @@ pub(crate) async fn create(
         ));
     }
     match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
-        Ok(_) => Redirect::to("/admin/roles").into_response(),
+        Ok(_) => Redirect::to(&format!("{}/roles", state.admin_path)).into_response(),
         Err(_) => render(build(
             &state,
-            "/admin/roles/new",
+            &action,
             Some("Could not save. The code may already be in use."),
             &code,
             &name,
@@ -64,7 +66,7 @@ pub(crate) async fn edit_form(
     Extension(shell): Extension<Shell>,
     Path(id): Path<String>,
 ) -> Response {
-    let action = format!("/admin/roles/{id}/edit");
+    let action = format!("{}/roles/{id}/edit", state.admin_path);
     // Scope the builder so it drops before the await, keeping the future `Send`.
     let (sql, values) = {
         let stmt = Query::select()
@@ -108,7 +110,7 @@ pub(crate) async fn update(
 ) -> Response {
     let (code, name, perms) = parse(&pairs);
     let perms = registered_only(perms, &state.permissions);
-    let action = format!("/admin/roles/{id}/edit");
+    let action = format!("{}/roles/{id}/edit", state.admin_path);
     if code.is_empty() || name.is_empty() {
         return render(build(
             &state,
@@ -140,7 +142,7 @@ pub(crate) async fn update(
         .execute(&state.db.pool)
         .await
     {
-        Ok(_) => Redirect::to("/admin/roles").into_response(),
+        Ok(_) => Redirect::to(&format!("{}/roles", state.admin_path)).into_response(),
         Err(_) => render(build(
             &state,
             &action,
@@ -214,7 +216,7 @@ fn build(
         shell,
         title: "Role".to_string(),
         action: action.to_string(),
-        cancel_path: "/admin/roles".to_string(),
+        cancel_path: format!("{}/roles", state.admin_path),
         error: error.map(str::to_string),
         code: code.to_string(),
         name: name.to_string(),

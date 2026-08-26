@@ -56,6 +56,11 @@ pub struct BackendConfig {
     /// `Asia/Kolkata`). Storage is always UTC; this only affects how dates render.
     /// An operator's own preference overrides it (later); it falls back to UTC.
     pub timezone: String,
+    /// The URL path the admin panel is mounted under, without a trailing slash
+    /// (default `/admin`). Change it to move or obscure the panel (`/manage`,
+    /// `/backend`). A leading slash is added if missing and a trailing slash is
+    /// stripped; an empty value falls back to `/admin`.
+    pub path: String,
 }
 
 impl Default for BackendConfig {
@@ -63,6 +68,7 @@ impl Default for BackendConfig {
         Self {
             secure_cookie: false,
             timezone: "UTC".to_string(),
+            path: "/admin".to_string(),
         }
     }
 }

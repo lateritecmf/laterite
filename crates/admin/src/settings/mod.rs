@@ -105,11 +105,14 @@ pub struct SettingsItem {
 }
 
 impl SettingsItem {
-    /// Where this item leads: its link target if set, else its settings form.
-    pub fn path(&self) -> String {
-        self.link
-            .clone()
-            .unwrap_or_else(|| format!("/admin/settings/{}", self.code))
+    /// Where this item leads, resolved under the admin mount (`admin_path`): its
+    /// `link` target if set, else its own settings form. Both `link` and the form
+    /// path are authored relative to the admin root, so this prepends the mount.
+    pub fn path(&self, admin_path: &str) -> String {
+        match &self.link {
+            Some(link) => format!("{admin_path}{link}"),
+            None => format!("{admin_path}/settings/{}", self.code),
+        }
     }
 }
 
@@ -151,7 +154,7 @@ pub(crate) async fn update(
             if item.code == brand::BrandSetting::CODE {
                 state.invalidate_brand();
             }
-            Redirect::to("/admin/settings").into_response()
+            Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
         }
         Err(_) => render(build(
             item,
@@ -190,6 +193,7 @@ fn is_checked(raw: Option<&String>) -> bool {
 /// is a later refinement.
 pub(crate) fn sidebar_groups(
     items: &[SettingsItem],
+    admin_path: &str,
     active_code: Option<&str>,
 ) -> Vec<CategoryView> {
     let mut by_category: HashMap<&str, Vec<&SettingsItem>> = HashMap::new();
@@ -208,7 +212,7 @@ pub(crate) fn sidebar_groups(
                     .map(|i| ItemView {
                         label: i.label.clone(),
                         description: i.description.clone(),
-                        path: i.path(),
+                        path: i.path(admin_path),
                         icon: crate::icons::svg(i.icon.as_deref()),
                         active: active_code == Some(i.code.as_str()),
                     })
@@ -274,12 +278,12 @@ fn build(
         })
         .collect();
     SettingsFormTemplate {
-        shell: shell.clone(),
         title: item.label.clone(),
         description: item.description.clone(),
-        action: item.path(),
+        action: item.path(&shell.base),
         error,
         fields,
+        shell: shell.clone(),
     }
 }
 
@@ -427,7 +431,7 @@ mod tests {
                 fields: vec![],
             },
         ];
-        let groups = sidebar_groups(&items, None);
+        let groups = sidebar_groups(&items, "/admin", None);
         // "Logs" (min order 5) comes before "System" (min order 10).
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
@@ -441,7 +445,7 @@ mod tests {
     #[test]
     fn group_marks_only_the_active_item() {
         let items = vec![item()];
-        let groups = sidebar_groups(&items, Some("test.log"));
+        let groups = sidebar_groups(&items, "/admin", Some("test.log"));
         let active: Vec<&str> = groups
             .iter()
             .flat_map(|g| &g.items)
@@ -453,7 +457,9 @@ mod tests {
 
     #[test]
     fn settings_model_item_path_is_its_form() {
-        assert_eq!(item().path(), "/admin/settings/test.log");
+        assert_eq!(item().path("/admin"), "/admin/settings/test.log");
+        // The mount is honoured, so a relocated panel keeps consistent links.
+        assert_eq!(item().path("/manage"), "/manage/settings/test.log");
     }
 
     #[test]
@@ -466,7 +472,7 @@ mod tests {
         assert!(admins.link.is_some());
         assert!(admins.fields.is_empty());
         // links to the resource list, not a settings form
-        assert_eq!(admins.path(), "/admin/users");
+        assert_eq!(admins.path("/admin"), "/admin/users");
         assert!(crate::builtin_settings()
             .iter()
             .any(|i| i.code == "backend.roles"));

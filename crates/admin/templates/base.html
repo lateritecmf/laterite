@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ shell.brand }}{% endblock %}</title>
-  <link rel="icon" type="image/svg+xml" href="/admin/assets/mark.svg">
-  <link rel="stylesheet" href="/admin/assets/laterite.css">
+  <link rel="icon" type="image/svg+xml" href="{{ shell.base }}/assets/mark.svg">
+  <link rel="stylesheet" href="{{ shell.base }}/assets/laterite.css">
   <script>
     (function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();
     function latModeGlyph(m){return m==='light'?'☀':m==='dark'?'☾':'◐';}
@@ -16,8 +16,8 @@
 <body class="lat-app">
   <header class="lat-topnav">
     <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label="Menu">&#9776;</button>
-    <a class="lat-topnav__brand" href="/admin">
-      <img src="/admin/assets/mark.png" alt="">
+    <a class="lat-topnav__brand" href="{{ shell.base }}">
+      <img src="{{ shell.base }}/assets/mark.png" alt="">
       <span class="lat-topnav__wordmark">{{ shell.brand }}</span>
     </a>
     <nav class="lat-topnav__nav">
@@ -30,9 +30,9 @@
         <summary class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</summary>
         <div class="lat-usermenu__panel">
           <div class="lat-usermenu__name">{{ shell.full_name }}</div>
-          <a class="lat-usermenu__item" href="/admin/preferences">Preferences</a>
-          <form method="post" action="/admin/logout"><button class="lat-usermenu__item" type="submit">Sign out</button></form>
-          <a class="lat-usermenu__poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="/admin/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
+          <a class="lat-usermenu__item" href="{{ shell.base }}/preferences">Preferences</a>
+          <form method="post" action="{{ shell.base }}/logout"><button class="lat-usermenu__item" type="submit">Sign out</button></form>
+          <a class="lat-usermenu__poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ shell.base }}/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
         </div>
       </details>
     </div>
@@ -40,7 +40,7 @@
   <div class="lat-drawer" id="lat-menu">
     <div class="lat-drawer__backdrop" onclick="latToggleMenu()"></div>
     <nav class="lat-drawer__panel">
-      <div class="lat-drawer__brand"><img src="/admin/assets/mark.png" alt=""><span>{{ shell.brand }}</span></div>
+      <div class="lat-drawer__brand"><img src="{{ shell.base }}/assets/mark.png" alt=""><span>{{ shell.brand }}</span></div>
       {% for item in shell.nav %}<a class="lat-drawer__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
     </nav>
   </div>

@@ -572,6 +572,7 @@ async fn main() -> anyhow::Result<()> {
         secure_cookie: config.backend.secure_cookie,
         timezone: config.backend.timezone.clone(),
         app_name: config.app.name.clone(),
+        path: config.backend.path.clone(),
     };
     let router = laterite_admin::router(
         auth,
