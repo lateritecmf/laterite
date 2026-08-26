@@ -92,6 +92,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
     }
 
     let timezone = timezone(&theme)?;
+    let listen = listen_address(&theme)?;
     let conn = connection(&theme, &name)?;
 
     // Scaffold first so the app's storage directory exists before a SQLite
@@ -101,6 +102,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
         &name,
         &display_name,
         &timezone,
+        &listen,
         &conn,
         framework.as_deref(),
     )
@@ -122,10 +124,11 @@ pub async fn run(args: NewArgs) -> Result<()> {
         .await
         .context("could not create the administrator")?;
 
+    let admin_url = format!("{}/admin", laterite_core::config::base_url(None, &listen));
     println!("\nDone. Next steps:\n");
     println!("    cd {name}");
-    println!("    cargo run");
-    println!("\nThen open http://127.0.0.1:8080/admin and sign in.");
+    println!("    cargo run          # or: lat serve");
+    println!("\nThen open {admin_url} and sign in.");
     Ok(())
 }
 
@@ -234,6 +237,34 @@ fn timezone(theme: &ColorfulTheme) -> Result<String> {
         .with_initial_text(initial)
         .interact()?;
     Ok(zones[choice].to_string())
+}
+
+/// Prompts for the HTTP bind address (`host:port`), defaulting to a loopback
+/// address so a fresh app is reachable only locally until deliberately opened up.
+fn listen_address(theme: &ColorfulTheme) -> Result<String> {
+    let listen: String = Input::with_theme(theme)
+        .with_prompt("Listen address (host:port)")
+        .default("127.0.0.1:8080".to_string())
+        .validate_with(|input: &String| valid_listen(input))
+        .interact_text()?;
+    Ok(listen)
+}
+
+/// Accepts a `host:port` bind string: a non-empty host and a numeric port. The
+/// host may be an IP or a name (`localhost`), since the server resolves it at
+/// bind time; a bracketed IPv6 host (`[::1]:8080`) is accepted too.
+fn valid_listen(input: &str) -> std::result::Result<(), String> {
+    let (host, port) = input
+        .rsplit_once(':')
+        .ok_or_else(|| "use host:port, for example 127.0.0.1:8080".to_string())?;
+    if host.is_empty() {
+        return Err("the host part is empty".to_string());
+    }
+    match port.parse::<u16>() {
+        Ok(0) => Err("port 0 is not a fixed address".to_string()),
+        Ok(_) => Ok(()),
+        Err(_) => Err(format!("'{port}' is not a valid port")),
+    }
 }
 
 /// The system IANA timezone, if it is detected and is a known zone. Used to
@@ -415,6 +446,7 @@ fn scaffold(
     name: &str,
     display_name: &str,
     timezone: &str,
+    listen: &str,
     conn: &Connection,
     framework: Option<&Path>,
 ) -> Result<()> {
@@ -447,7 +479,7 @@ fn scaffold(
     write(dir.join("src/migrations/mod.rs"), &migrations_mod_rs(name))?;
     write(
         dir.join("config/default.toml"),
-        &default_toml(display_name, timezone),
+        &default_toml(display_name, timezone, listen),
     )?;
     write(dir.join("config/local.toml"), &local_toml(&conn.config_url))?;
     write(dir.join(".gitignore"), GITIGNORE)?;
@@ -584,7 +616,9 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(&config.server.listen).await?;
-    println!("Laterite admin on http://{}/admin", config.server.listen);
+    let base = laterite_core::config::base_url(config.app.url.as_deref(), &config.server.listen);
+    let admin_path = laterite_admin::normalize_path(&config.backend.path);
+    println!("Laterite admin on {base}{admin_path}");
     axum::serve(listener, router).await?;
     Ok(())
 }
@@ -611,7 +645,7 @@ laterite_core::migration_set! {{
     )
 }
 
-fn default_toml(app_name: &str, timezone: &str) -> String {
+fn default_toml(app_name: &str, timezone: &str, listen: &str) -> String {
     // The display name is written as a TOML basic string, so escape backslashes
     // and quotes.
     let app_name = app_name.replace('\\', "\\\\").replace('"', "\\\"");
@@ -623,13 +657,20 @@ fn default_toml(app_name: &str, timezone: &str) -> String {
 # The application name, shown as the admin brand. A brand setting in the admin
 # can override it.
 name = "{app_name}"
+# The public base URL absolute links build on (the admin banner, later emails and
+# share cards). When unset it is derived from the bind address below. Set it to
+# your real origin behind a proxy or a local domain, e.g. "https://acme.test".
+# url = "https://acme.example"
 
 [server]
-listen = "127.0.0.1:8080"
+listen = "{listen}"
 
 [backend]
 timezone = "{timezone}"
 secure_cookie = false
+# The URL path the admin panel mounts under (default "/admin"). Move or obscure
+# it by setting, e.g., "/manage".
+# path = "/admin"
 "#
     )
 }
@@ -779,7 +820,16 @@ mod tests {
             db_name: None,
             sqlite_relpath: Some("storage/database.db".to_string()),
         };
-        scaffold(&dir, "acme", "Acme Blog", "Asia/Kolkata", &conn, None).unwrap();
+        scaffold(
+            &dir,
+            "acme",
+            "Acme Blog",
+            "Asia/Kolkata",
+            "0.0.0.0:9090",
+            &conn,
+            None,
+        )
+        .unwrap();
 
         for f in [
             "Cargo.toml",
@@ -805,6 +855,8 @@ mod tests {
         assert!(cargo.contains("[workspace]"));
         let default = std::fs::read_to_string(dir.join("config/default.toml")).unwrap();
         assert!(default.contains("timezone = \"Asia/Kolkata\""));
+        // The chosen bind address is written into the server config.
+        assert!(default.contains("listen = \"0.0.0.0:9090\""));
         // The display name is saved as the app name (the admin brand default).
         assert!(default.contains("[app]"));
         assert!(default.contains("name = \"Acme Blog\""));
@@ -813,5 +865,19 @@ mod tests {
         let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();
         // The database sits in the app's storage folder, path relative to the app.
         assert!(local.contains("sqlite://storage/database.db"));
+    }
+
+    #[test]
+    fn listen_validation_accepts_host_port_and_rejects_junk() {
+        assert!(valid_listen("127.0.0.1:8080").is_ok());
+        assert!(valid_listen("0.0.0.0:80").is_ok());
+        assert!(valid_listen("localhost:3000").is_ok());
+        assert!(valid_listen("[::1]:8080").is_ok());
+        // Missing port, empty host, non-numeric or out-of-range port, and port 0.
+        assert!(valid_listen("127.0.0.1").is_err());
+        assert!(valid_listen(":8080").is_err());
+        assert!(valid_listen("localhost:http").is_err());
+        assert!(valid_listen("localhost:70000").is_err());
+        assert!(valid_listen("127.0.0.1:0").is_err());
     }
 }

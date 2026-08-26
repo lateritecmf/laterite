@@ -389,7 +389,7 @@ pub fn router(
     app_permissions: Vec<Permission>,
     config: AdminConfig,
 ) -> Router {
-    let admin_path = normalize_admin_path(&config.path);
+    let admin_path = normalize_path(&config.path);
 
     let mut resources = builtin_resources();
     let mut app_resources = app_resources;
@@ -512,8 +512,9 @@ pub fn router(
 
 /// Normalises a configured admin path: a single leading slash, no trailing
 /// slash, falling back to `/admin` when empty. `manage`, `/manage`, and
-/// `/manage/` all become `/manage`.
-fn normalize_admin_path(path: &str) -> String {
+/// `/manage/` all become `/manage`. Shared by [`router`] and any caller building
+/// the panel's URL (for example a startup banner), so the two never drift.
+pub fn normalize_path(path: &str) -> String {
     let trimmed = path.trim().trim_matches('/');
     if trimmed.is_empty() {
         "/admin".to_string()

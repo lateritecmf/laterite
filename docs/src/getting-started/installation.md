@@ -34,6 +34,7 @@ It asks for:
   database, so you never slugify by hand. The name itself is saved in config and
   shown as the admin brand,
 - a **display timezone** (type to search the IANA list),
+- a **listen address** (`host:port`, default `127.0.0.1:8080`),
 - a **database** (PostgreSQL, MySQL/MariaDB, or SQLite) and its connection
   details, offering to create the database if it does not exist,
 - the **first administrator** (username, email, password).
@@ -43,10 +44,15 @@ administrator. When it finishes:
 
 ```bash
 cd acme
-cargo run
+cargo run          # or: lat serve
 ```
 
 Open <http://127.0.0.1:8080/admin> and sign in.
+
+`lat serve` runs the app from its directory and can override the bind address
+without editing config: `lat serve --port 3000`, `lat serve --host 0.0.0.0`, or
+`lat serve --listen 0.0.0.0:3000`. It passes the override through the standard
+`APP__SERVER__LISTEN` environment variable.
 
 ## What it generates
 

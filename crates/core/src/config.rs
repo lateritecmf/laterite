@@ -34,13 +34,44 @@ pub struct AppMeta {
     /// The display name of the application (e.g. `"Acme Blog"`). Shown as the
     /// admin brand unless overridden by a brand setting.
     pub name: String,
+    /// The application's public base URL (scheme and host, with any port), such
+    /// as `https://acme.example`. It is the canonical origin absolute links build
+    /// on, distinct from the server bind address (they differ behind a proxy or a
+    /// local `.test` domain). When unset, [`base_url`] derives it from the bind
+    /// address.
+    pub url: Option<String>,
 }
 
 impl Default for AppMeta {
     fn default() -> Self {
         Self {
             name: "Laterite".to_string(),
+            url: None,
         }
+    }
+}
+
+/// The application's public base URL, without a trailing slash: the configured
+/// `url` when set and non-empty, otherwise derived from the server bind address
+/// as `http://<listen>`. A wildcard bind host (`0.0.0.0` or `[::]`) is shown via
+/// loopback so the result is browsable. Absolute links (the admin URL in the
+/// startup banner, and later notifications and share cards) build on this.
+pub fn base_url(url: Option<&str>, listen: &str) -> String {
+    match url.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(url) => url.trim_end_matches('/').to_string(),
+        None => format!("http://{}", browsable_host(listen)),
+    }
+}
+
+/// Rewrites a wildcard bind host to a loopback address so a bind string like
+/// `0.0.0.0:8080` yields a URL a browser can actually open.
+fn browsable_host(listen: &str) -> String {
+    if let Some(port) = listen.strip_prefix("0.0.0.0") {
+        format!("127.0.0.1{port}")
+    } else if let Some(port) = listen.strip_prefix("[::]") {
+        format!("[::1]{port}")
+    } else {
+        listen.to_string()
     }
 }
 
@@ -156,6 +187,25 @@ mod tests {
         let c: C = load(dir.path(), "LATERITE_BE_SET").unwrap();
         assert!(c.backend.secure_cookie);
         assert_eq!(c.backend.timezone, "Asia/Kolkata");
+    }
+
+    #[test]
+    fn base_url_prefers_config_then_derives_from_listen() {
+        // Configured URL wins and loses any trailing slash.
+        assert_eq!(
+            base_url(Some("https://acme.example/"), "127.0.0.1:8080"),
+            "https://acme.example"
+        );
+        // Blank configured URL falls through to the derived form.
+        assert_eq!(
+            base_url(Some("  "), "127.0.0.1:9000"),
+            "http://127.0.0.1:9000"
+        );
+        // No URL: derive from the bind address.
+        assert_eq!(base_url(None, "127.0.0.1:8080"), "http://127.0.0.1:8080");
+        // A wildcard bind host is shown via loopback so the URL is browsable.
+        assert_eq!(base_url(None, "0.0.0.0:8080"), "http://127.0.0.1:8080");
+        assert_eq!(base_url(None, "[::]:8080"), "http://[::1]:8080");
     }
 
     #[test]

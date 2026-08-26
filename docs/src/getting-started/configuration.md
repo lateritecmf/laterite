@@ -22,6 +22,10 @@ over all files, which suits secrets and container deployments.
 ## Sections
 
 ```toml
+[app]
+name = "Acme Blog"               # display name, the baseline admin brand
+# url = "https://acme.example"   # public base URL for absolute links; derived from listen when unset
+
 [server]
 listen = "127.0.0.1:8080"        # HTTP bind address
 
