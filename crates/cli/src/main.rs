@@ -13,6 +13,7 @@ use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
 mod doctor;
+mod domain;
 mod make;
 mod new;
 mod serve;
@@ -38,6 +39,8 @@ enum Command {
     MakeMigration(make::MakeMigrationArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
+    /// Set up local wildcard domains (*.test -> 127.0.0.1) for development.
+    Domain(domain::DomainArgs),
     /// Check that this application is set up to run (run from its directory).
     Doctor,
     /// Manage backend (admin) users.
@@ -99,6 +102,7 @@ async fn main() -> Result<()> {
         Command::New(args) => new::run(args).await,
         Command::MakeMigration(args) => make::run(args),
         Command::Serve(args) => serve::run(args),
+        Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
     }

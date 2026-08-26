@@ -6,6 +6,7 @@
 
 - [Installation](getting-started/installation.md)
 - [Configuration](getting-started/configuration.md)
+- [Friendly Local Domains](getting-started/local-domains.md)
 - [Live Reload in Development](getting-started/live-reload.md)
 - [Dates and Timezones](getting-started/dates-and-timezones.md)
 
