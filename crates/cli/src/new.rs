@@ -574,7 +574,7 @@ mod migrations;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     laterite_admin::Bootstrap::new("config")
-        .app_migrations(vec![migrations::migrations()])
+        .module(migrations::AppModule)
         // .resources(...).settings(...).permissions(...)
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
         .serve()
@@ -598,6 +598,19 @@ fn migrations_mod_rs(module_id: &str) -> String {
 
 laterite_core::migration_set! {{
     module_id: "{module_id}",
+}}
+
+/// This application as a registerable module. Pass it to `Bootstrap::module`;
+/// its migrations run after the framework's built-in ones.
+pub struct AppModule;
+
+impl laterite_core::Module for AppModule {{
+    fn id(&self) -> &'static str {{
+        MODULE_ID
+    }}
+    fn migrations(&self) -> laterite_core::MigrationSet {{
+        migrations()
+    }}
 }}
 "#
     )

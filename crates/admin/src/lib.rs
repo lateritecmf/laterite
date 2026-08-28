@@ -380,7 +380,17 @@ fn builtin_permissions() -> Vec<Permission> {
 /// # Ok(()) }
 /// ```
 pub fn builtin_migrations() -> Vec<laterite_core::MigrationSet> {
-    vec![laterite_auth::migrations(), settings::migrations()]
+    builtin_modules().iter().map(|m| m.migrations()).collect()
+}
+
+/// The framework's built-in modules, in registration order. `Bootstrap`
+/// registers these before an app's own modules, so the admin's tables migrate
+/// first.
+pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
+    vec![
+        Box::new(laterite_auth::AuthModule),
+        Box::new(settings::SettingsModule),
+    ]
 }
 
 /// Builds the admin router. `app_resources` are the application's own list/form

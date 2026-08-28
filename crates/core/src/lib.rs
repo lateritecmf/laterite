@@ -19,4 +19,5 @@ pub mod testing;
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
+pub use module::{Module, ModuleRegistry};
 pub use query::AnyRowExt;

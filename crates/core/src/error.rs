@@ -20,6 +20,15 @@ pub enum CoreError {
     #[error("migration '{name}' in module '{module}' cannot be reversed")]
     Irreversible { module: String, name: String },
 
+    #[error("module '{module}' registered more than once")]
+    DuplicateModule { module: String },
+
+    #[error("module '{module}' depends on unregistered module '{dependency}'")]
+    UnknownModuleDependency { module: String, dependency: String },
+
+    #[error("dependency cycle through module '{module}'")]
+    ModuleDependencyCycle { module: String },
+
     #[error("not found: {0}")]
     NotFound(String),
 

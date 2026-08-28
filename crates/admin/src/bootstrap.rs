@@ -11,11 +11,11 @@ use std::path::PathBuf;
 use axum::Router;
 use laterite_auth::{AuthConfig, AuthService};
 use laterite_core::config::{self, AppMeta, BackendConfig, DatabaseConfig, ServerConfig};
-use laterite_core::{Db, MigrationSet};
+use laterite_core::{Db, Module, ModuleRegistry};
 use serde::Deserialize;
 
 use crate::settings::SettingsItem;
-use crate::{builtin_migrations, normalize_path, router, AdminConfig, Permission, Resource};
+use crate::{builtin_modules, normalize_path, router, AdminConfig, Permission, Resource};
 
 /// Default env-var prefix for config overrides (`LAT__SECTION__KEY`). Tooling like
 /// `lat serve` relies on it; override per app with [`Bootstrap::env_prefix`].
@@ -53,7 +53,7 @@ type ExtendFn = Box<dyn FnOnce(Router, &BootstrapCtx) -> Router>;
 pub struct Bootstrap {
     config_dir: PathBuf,
     env_prefix: String,
-    app_migrations: Vec<MigrationSet>,
+    app_modules: Vec<Box<dyn Module>>,
     resources: Vec<Resource>,
     settings: Vec<SettingsItem>,
     permissions: Vec<Permission>,
@@ -68,7 +68,7 @@ impl Bootstrap {
         Self {
             config_dir: config_dir.into(),
             env_prefix: DEFAULT_ENV_PREFIX.to_string(),
-            app_migrations: Vec::new(),
+            app_modules: Vec::new(),
             resources: Vec::new(),
             settings: Vec::new(),
             permissions: Vec::new(),
@@ -82,9 +82,17 @@ impl Bootstrap {
         self
     }
 
-    /// The app's migration sets, run after the built-in ones.
-    pub fn app_migrations(mut self, sets: Vec<MigrationSet>) -> Self {
-        self.app_migrations = sets;
+    /// Registers one of the app's modules (plugins), after the built-in ones. A
+    /// module's migrations run after those of the modules it names in
+    /// `depends_on`.
+    pub fn module(mut self, module: impl Module) -> Self {
+        self.app_modules.push(Box::new(module));
+        self
+    }
+
+    /// Registers several app modules at once.
+    pub fn modules(mut self, modules: Vec<Box<dyn Module>>) -> Self {
+        self.app_modules.extend(modules);
         self
     }
 
@@ -121,8 +129,14 @@ impl Bootstrap {
 
         let db = laterite_core::db::connect(&config.database).await?;
 
-        let mut sets = builtin_migrations();
-        sets.extend(self.app_migrations);
+        let mut registry = ModuleRegistry::new();
+        for module in builtin_modules() {
+            registry.register_boxed(module);
+        }
+        for module in self.app_modules {
+            registry.register_boxed(module);
+        }
+        let sets = registry.ordered_migration_sets()?;
         laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
 
         let auth = AuthService::new(db.clone(), config.auth.clone());

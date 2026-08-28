@@ -20,6 +20,18 @@ pub use brand::BrandSetting;
 pub use migrations::{migrations, MODULE_ID};
 pub use store::{get, load, save, set, SettingsError, SettingsModel};
 
+/// The `laterite.settings` module: the framework's settings store table.
+pub struct SettingsModule;
+
+impl laterite_core::Module for SettingsModule {
+    fn id(&self) -> &'static str {
+        MODULE_ID
+    }
+    fn migrations(&self) -> laterite_core::MigrationSet {
+        migrations()
+    }
+}
+
 use std::collections::HashMap;
 
 use askama::Template;

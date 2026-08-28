@@ -28,3 +28,15 @@ pub use permission::PermissionSet;
 pub use service::{
     AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator, RequestContext,
 };
+
+/// The `laterite.auth` module: the framework's backend-user auth tables.
+pub struct AuthModule;
+
+impl laterite_core::Module for AuthModule {
+    fn id(&self) -> &'static str {
+        MODULE_ID
+    }
+    fn migrations(&self) -> laterite_core::MigrationSet {
+        migrations()
+    }
+}
