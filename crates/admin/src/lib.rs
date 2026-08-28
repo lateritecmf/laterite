@@ -10,7 +10,11 @@
 //! adds it to the menu. This is the extension point that lets an application
 //! contribute its own admin screens. The framework's own screens (users, roles)
 //! are just built-in resources.
+//!
+//! An application usually boots through [`Bootstrap`], which loads config,
+//! connects, migrates, and serves this router in one call.
 
+pub mod bootstrap;
 pub mod form;
 mod icons;
 pub mod list;
@@ -18,6 +22,8 @@ mod roles;
 pub mod settings;
 mod sql;
 mod users;
+
+pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

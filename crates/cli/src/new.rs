@@ -529,23 +529,19 @@ fn set_dir_mode(_path: &Path, _mode: u32) -> Result<()> {
 }
 
 fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
-    // The backend feature on laterite-core links its sqlx driver; the other
-    // crates use it through sqlx::Any, so one feature selects the database
-    // everywhere. In development mode the framework is a local checkout, so the
-    // crates are path dependencies rather than the published versions.
+    // The driver feature on laterite-admin links the sqlx driver everywhere (via
+    // core and auth). laterite-core is a direct dep for the app's own migrations.
+    // In dev mode the framework is a local checkout, so path deps, not versions.
     let laterite_deps = match framework {
         Some(root) => format!(
-            "laterite-core = {{ path = {core:?}, features = [\"{feature}\"] }}\n\
-             laterite-auth = {{ path = {auth:?} }}\n\
-             laterite-admin = {{ path = {admin:?} }}",
+            "laterite-core = {{ path = {core:?} }}\n\
+             laterite-admin = {{ path = {admin:?}, features = [\"{feature}\"] }}",
             core = root.join("crates/core").display().to_string(),
-            auth = root.join("crates/auth").display().to_string(),
             admin = root.join("crates/admin").display().to_string(),
         ),
         None => format!(
-            "laterite-core = {{ version = \"0.2\", features = [\"{feature}\"] }}\n\
-             laterite-auth = \"0.2\"\n\
-             laterite-admin = \"0.2\""
+            "laterite-core = \"0.2\"\n\
+             laterite-admin = {{ version = \"0.2\", features = [\"{feature}\"] }}"
         ),
     };
     format!(
@@ -561,66 +557,28 @@ edition = "2021"
 [dependencies]
 {laterite_deps}
 anyhow = "1"
-axum = "0.8"
-serde = {{ version = "1", features = ["derive"] }}
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
 "#
     )
 }
 
-const MAIN_RS: &str = r#"//! A Laterite application: loads configuration, connects to the database,
-//! applies migrations, and serves the admin.
-
-use std::path::Path;
-
-use serde::Deserialize;
+const MAIN_RS: &str = r#"//! A Laterite application.
+//!
+//! `main` hands off to the framework's `Bootstrap`, which loads configuration,
+//! connects the database, runs the built-in and this application's migrations,
+//! and serves the admin. Register the application's own resources, settings,
+//! permissions, and routes (a public API, web pages) on the builder as it grows.
 
 mod migrations;
 
-/// The application configuration, loaded from `config/`.
-#[derive(Deserialize)]
-struct AppConfig {
-    #[serde(default)]
-    app: laterite_core::config::AppMeta,
-    server: laterite_core::config::ServerConfig,
-    database: laterite_core::config::DatabaseConfig,
-    #[serde(default)]
-    backend: laterite_core::config::BackendConfig,
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config: AppConfig = laterite_core::config::load(Path::new("config"), "APP")?;
-    let db = laterite_core::db::connect(&config.database).await?;
-
-    // The framework's built-in migrations plus this application's own.
-    let mut sets = laterite_admin::builtin_migrations();
-    sets.push(migrations::migrations());
-    laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
-
-    let auth =
-        laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default());
-    let admin_config = laterite_admin::AdminConfig {
-        secure_cookie: config.backend.secure_cookie,
-        timezone: config.backend.timezone.clone(),
-        app_name: config.app.name.clone(),
-        path: config.backend.path.clone(),
-    };
-    let router = laterite_admin::router(
-        auth,
-        db,
-        Vec::new(), // application resources (list/form screens)
-        Vec::new(), // application settings models
-        Vec::new(), // application permissions
-        admin_config,
-    );
-
-    let listener = tokio::net::TcpListener::bind(&config.server.listen).await?;
-    let base = laterite_core::config::base_url(config.app.url.as_deref(), &config.server.listen);
-    let admin_path = laterite_admin::normalize_path(&config.backend.path);
-    println!("Laterite admin on {base}{admin_path}");
-    axum::serve(listener, router).await?;
-    Ok(())
+    laterite_admin::Bootstrap::new("config")
+        .app_migrations(vec![migrations::migrations()])
+        // .resources(...).settings(...).permissions(...)
+        // .extend(|router, ctx| router.merge(my_api(ctx.db())))
+        .serve()
+        .await
 }
 "#;
 
@@ -651,7 +609,7 @@ fn default_toml(app_name: &str, timezone: &str, listen: &str) -> String {
     let app_name = app_name.replace('\\', "\\\\").replace('"', "\\\"");
     format!(
         r#"# Committed defaults. Secrets (the database URL) live in local.toml, which is
-# git-ignored. Override any value with APP__SECTION__KEY environment variables.
+# git-ignored. Override any value with LAT__SECTION__KEY environment variables.
 
 [app]
 # The application name, shown as the admin brand. A brand setting in the admin
@@ -706,8 +664,8 @@ Then open http://127.0.0.1:8080/admin and sign in.
 ## Configuration
 
 `config/default.toml` holds non-secret defaults. `config/local.toml` (git-ignored)
-holds the database URL. Override any value with `APP__SECTION__KEY` environment
-variables, for example `APP__DATABASE__URL`.
+holds the database URL. Override any value with `LAT__SECTION__KEY` environment
+variables, for example `LAT__DATABASE__URL`.
 "#
     )
 }
@@ -744,22 +702,23 @@ mod tests {
     #[test]
     fn cargo_toml_uses_published_versions_by_default() {
         let toml = cargo_toml("acme", "sqlite", None);
-        assert!(toml.contains("laterite-core = { version = \"0.2\", features = [\"sqlite\"] }"));
-        assert!(toml.contains("laterite-admin = \"0.2\""));
+        assert!(toml.contains("laterite-core = \"0.2\""));
+        assert!(toml.contains("laterite-admin = { version = \"0.2\", features = [\"sqlite\"] }"));
         assert!(!toml.contains("path ="));
+        // laterite-auth is no longer a direct dependency (Bootstrap owns auth).
+        assert!(!toml.contains("laterite-auth"));
     }
 
     #[test]
     fn cargo_toml_uses_path_deps_in_dev_mode() {
         let root = Path::new("/opt/laterite");
         let toml = cargo_toml("acme", "postgres", Some(root));
-        // Path dependencies to the local checkout, with the backend feature kept.
+        // Path dependencies to the local checkout, with the driver feature on admin.
+        assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
         assert!(toml.contains(
-            r#"laterite-core = { path = "/opt/laterite/crates/core", features = ["postgres"] }"#
+            r#"laterite-admin = { path = "/opt/laterite/crates/admin", features = ["postgres"] }"#
         ));
-        assert!(toml.contains(r#"laterite-auth = { path = "/opt/laterite/crates/auth" }"#));
-        assert!(toml.contains(r#"laterite-admin = { path = "/opt/laterite/crates/admin" }"#));
-        assert!(!toml.contains("version = \"0.1\""));
+        assert!(!toml.contains("laterite-auth"));
     }
 
     #[test]

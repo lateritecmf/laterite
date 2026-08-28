@@ -66,38 +66,33 @@ acme/
 │   ├── default.toml     # committed defaults (app name, listen address, timezone)
 │   └── local.toml       # git-ignored; holds the database URL
 ├── src/
-│   ├── main.rs          # loads config, connects, migrates, serves the admin
-│   └── migrations.rs    # this application's own migrations (empty to start)
+│   ├── main.rs          # hands off to Bootstrap: config, connect, migrate, serve
+│   └── migrations/      # this application's own migrations (empty to start)
 └── storage/             # runtime data (the SQLite file, and later cache/logs)
 ```
 
-`src/main.rs` is the whole application (abbreviated):
+`src/main.rs` is the whole application. It hands off to `Bootstrap`, which loads
+config, connects the database, runs the built-in and application migrations, and
+serves the admin:
 
 ```rust
-let config: AppConfig = laterite_core::config::load(Path::new("config"), "APP")?;
-let db = laterite_core::db::connect(&config.database).await?;
-
-// The framework's built-in migrations, then this application's own.
-let mut sets = laterite_admin::builtin_migrations();
-sets.extend(migrations::migrations());
-laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
-
-let auth =
-    laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default());
-let router = laterite_admin::router(
-    auth,
-    db,
-    Vec::new(), // application resources (list/form screens)
-    Vec::new(), // application settings models
-    Vec::new(), // application permissions
-    admin_config,
-);
-axum::serve(listener, router).await?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    laterite_admin::Bootstrap::new("config")
+        .app_migrations(vec![migrations::migrations()])
+        // .resources(...).settings(...).permissions(...)
+        // .extend(|router, ctx| router.merge(my_api(ctx.db())))
+        .serve()
+        .await
+}
 ```
 
-The three vectors are the application's own resources, [settings
-models](../extend/settings.md), and [permissions](../extend/permissions.md); an
-application with none yet passes them empty.
+Keeping the boot behind `Bootstrap` means framework internals can change without
+touching `main.rs`. The builder is where an application registers its own resources (list/form
+screens), [settings models](../extend/settings.md), and
+[permissions](../extend/permissions.md), and `extend` merges its own routes (a
+public API, web pages) onto the admin router; an application with none yet
+registers nothing.
 
 ## The application name and brand
 

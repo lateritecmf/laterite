@@ -15,6 +15,9 @@ adds it to the menu. This is the extension point that lets an application
 contribute its own admin screens. The framework's own screens (users, roles)
 are just built-in resources.
 
+An application usually boots through [`Bootstrap`], which loads config,
+connects, migrates, and serves this router in one call.
+
 ## Part of Laterite
 
 This crate is part of [Laterite](https://github.com/lateritecmf/laterite), a

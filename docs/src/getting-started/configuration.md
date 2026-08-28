@@ -13,7 +13,8 @@ apply in order, later overriding earlier:
 2. `<APP_ENV>.toml` (optional): environment-specific overrides. `APP_ENV` selects the file and
    defaults to `development`. Create `staging.toml`, `production.toml`, `testing.toml`, and so on.
 3. `local.toml` (optional): personal developer overrides, kept out of version control.
-4. Environment variables `PREFIX__SECTION__KEY`: override any value (e.g. `ACME__DATABASE__URL`).
+4. Environment variables `LAT__SECTION__KEY`: override any value (e.g. `LAT__DATABASE__URL`). `LAT`
+   is the default prefix; an application can set its own to namespace its variables.
 
 So `APP_ENV=production` loads `default.toml` then `production.toml`. A `secure_cookie = true` in
 `production.toml` turns the Secure cookie on only in that environment; environment variables win

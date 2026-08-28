@@ -2,7 +2,7 @@
 //!
 //! A Laterite application is a standalone binary that serves itself, so this is
 //! a thin convenience over `cargo run`: it translates `--host`/`--port`/`--listen`
-//! into the `APP__SERVER__LISTEN` override the config layer already honours, so a
+//! into the `LAT__SERVER__LISTEN` override the config layer already honours, so a
 //! quick bind-address change needs no config edit. With no flags it runs the app
 //! on its configured address.
 
@@ -46,7 +46,11 @@ pub fn run(args: ServeArgs) -> Result<()> {
         cmd.arg("--release");
     }
     if let Some(listen) = &listen {
-        cmd.env("APP__SERVER__LISTEN", listen);
+        // Override via the standard config prefix; a custom-prefix app reads its own.
+        cmd.env(
+            format!("{}__SERVER__LISTEN", laterite_admin::DEFAULT_ENV_PREFIX),
+            listen,
+        );
         println!("Overriding the bind address: {listen}");
     }
 
@@ -94,9 +98,12 @@ fn current_listen() -> String {
     struct ServeConfig {
         server: laterite_core::config::ServerConfig,
     }
-    laterite_core::config::load::<ServeConfig>(Path::new("config"), "APP")
-        .map(|c| c.server.listen)
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+    laterite_core::config::load::<ServeConfig>(
+        Path::new("config"),
+        laterite_admin::DEFAULT_ENV_PREFIX,
+    )
+    .map(|c| c.server.listen)
+    .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
 }
 
 #[cfg(test)]

@@ -15,11 +15,13 @@ axum = { workspace = true }
 axum-extra = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+listenfd = { workspace = true }
 sea-query = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 
 [features]
 default = []
@@ -29,5 +31,6 @@ sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite"]
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["testing"] }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
