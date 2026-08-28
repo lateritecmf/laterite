@@ -30,13 +30,18 @@ pub enum WidgetKind {
     Textarea,
 }
 
-/// One editable field: the column, its label, its widget, and whether required.
+/// One editable field: the column, its label, its widget, whether required, and
+/// whether it holds translatable content.
 #[derive(Debug, Clone)]
 pub struct FormField {
     pub name: String,
     pub label: String,
     pub widget: WidgetKind,
     pub required: bool,
+    /// Marks a field whose value is translatable content. A reserved seam: the
+    /// framework stores the value verbatim; a content-translation plugin reads
+    /// the flag to manage per-locale values.
+    pub translatable: bool,
 }
 
 impl FormField {
@@ -46,6 +51,7 @@ impl FormField {
             label: label.to_string(),
             widget: WidgetKind::Text,
             required: false,
+            translatable: false,
         }
     }
 
@@ -58,6 +64,12 @@ impl FormField {
 
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    /// Marks this field as translatable content (see [`FormField::translatable`]).
+    pub fn translatable(mut self) -> Self {
+        self.translatable = true;
         self
     }
 }

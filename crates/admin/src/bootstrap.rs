@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use axum::Router;
 use laterite_auth::{AuthConfig, AuthService};
 use laterite_core::config::{self, AppMeta, BackendConfig, DatabaseConfig, ServerConfig};
-use laterite_core::{CapabilitySet, Db, Module, ModuleRegistry};
+use laterite_core::{CapabilitySet, Db, Module, ModuleRegistry, Translator};
 use serde::Deserialize;
 
 use crate::settings::SettingsItem;
@@ -40,6 +40,7 @@ pub struct AppConfig {
 pub struct BootstrapCtx {
     db: Db,
     capabilities: CapabilitySet,
+    translator: Translator,
 }
 
 impl BootstrapCtx {
@@ -52,6 +53,12 @@ impl BootstrapCtx {
     /// optional features.
     pub fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
+    }
+
+    /// The UI-string translator for the configured locale, for an app's routes
+    /// to resolve their own strings.
+    pub fn translator(&self) -> &Translator {
+        &self.translator
     }
 }
 
@@ -166,7 +173,11 @@ impl Bootstrap {
         );
 
         if let Some(extend) = self.extend {
-            let ctx = BootstrapCtx { db, capabilities };
+            let ctx = BootstrapCtx {
+                db,
+                capabilities,
+                translator: Translator::new(&config.app.locale),
+            };
             app = extend(app, &ctx);
         }
 

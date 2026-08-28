@@ -40,6 +40,9 @@ pub struct AppMeta {
     /// local `.test` domain). When unset, [`base_url`] derives it from the bind
     /// address.
     pub url: Option<String>,
+    /// The application's default locale (BCP 47, e.g. `"en"`): the active locale
+    /// for UI-string translation until per-request locale selection exists.
+    pub locale: String,
 }
 
 impl Default for AppMeta {
@@ -47,6 +50,7 @@ impl Default for AppMeta {
         Self {
             name: "Laterite".to_string(),
             url: None,
+            locale: "en".to_string(),
         }
     }
 }
