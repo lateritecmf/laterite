@@ -33,6 +33,20 @@ pub trait Module: Send + Sync + 'static {
     fn depends_on(&self) -> &'static [&'static str] {
         &[]
     }
+
+    /// Database capabilities this module cannot work without. The application
+    /// refuses to boot if one is unavailable, with a clear error naming the
+    /// module and capability, instead of failing deep inside a migration.
+    fn requires_db_capabilities(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Database capabilities this module uses when present and does without when
+    /// absent. Query the boot-time [`CapabilitySet`](crate::capabilities::CapabilitySet)
+    /// to gate the enhanced path (for example trigram fuzzy search).
+    fn optional_db_capabilities(&self) -> &'static [&'static str] {
+        &[]
+    }
 }
 
 /// Ordered collection of registered modules.

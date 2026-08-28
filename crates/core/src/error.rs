@@ -29,6 +29,15 @@ pub enum CoreError {
     #[error("dependency cycle through module '{module}'")]
     ModuleDependencyCycle { module: String },
 
+    #[error(
+        "module '{module}' requires database capability '{capability}', unavailable on {backend}"
+    )]
+    MissingDbCapability {
+        module: String,
+        capability: String,
+        backend: String,
+    },
+
     #[error("not found: {0}")]
     NotFound(String),
 

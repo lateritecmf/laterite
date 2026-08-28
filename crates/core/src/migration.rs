@@ -47,6 +47,15 @@ impl DbBackend {
             )))
         }
     }
+
+    /// The backend's lowercase name, as used in connection URLs.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::Mysql => "mysql",
+            Self::Sqlite => "sqlite",
+        }
+    }
 }
 
 /// A portable boolean column, stored as a 0/1 integer. Use this in a migration

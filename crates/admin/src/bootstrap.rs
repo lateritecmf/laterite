@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use axum::Router;
 use laterite_auth::{AuthConfig, AuthService};
 use laterite_core::config::{self, AppMeta, BackendConfig, DatabaseConfig, ServerConfig};
-use laterite_core::{Db, Module, ModuleRegistry};
+use laterite_core::{CapabilitySet, Db, Module, ModuleRegistry};
 use serde::Deserialize;
 
 use crate::settings::SettingsItem;
@@ -35,15 +35,23 @@ pub struct AppConfig {
     pub backend: BackendConfig,
 }
 
-/// Passed to [`Bootstrap::extend`] so an app's own routes can share the database.
+/// Passed to [`Bootstrap::extend`] so an app's own routes can share the database
+/// and the detected database capabilities.
 pub struct BootstrapCtx {
     db: Db,
+    capabilities: CapabilitySet,
 }
 
 impl BootstrapCtx {
     /// The connected database, for an app's routes to build their state on.
     pub fn db(&self) -> Db {
         self.db.clone()
+    }
+
+    /// The database capabilities available on this deployment, for gating
+    /// optional features.
+    pub fn capabilities(&self) -> &CapabilitySet {
+        &self.capabilities
     }
 }
 
@@ -136,6 +144,8 @@ impl Bootstrap {
         for module in self.app_modules {
             registry.register_boxed(module);
         }
+        let capabilities =
+            laterite_core::capabilities::check(&db.pool, db.backend, &registry).await?;
         let sets = registry.ordered_migration_sets()?;
         laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
 
@@ -156,7 +166,7 @@ impl Bootstrap {
         );
 
         if let Some(extend) = self.extend {
-            let ctx = BootstrapCtx { db };
+            let ctx = BootstrapCtx { db, capabilities };
             app = extend(app, &ctx);
         }
 

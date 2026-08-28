@@ -5,6 +5,7 @@
 //! loading, the framework error taxonomy, database connectivity and
 //! migrations, module registration, and pagination primitives.
 
+pub mod capabilities;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;
 
+pub use capabilities::CapabilitySet;
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
