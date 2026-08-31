@@ -8,6 +8,7 @@
 //! `register`, and the app adds extra routes via [`Bootstrap::extend`].
 
 use std::collections::{HashMap, HashSet};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 
 use axum::Router;
@@ -83,6 +84,7 @@ pub struct Bootstrap {
     config_dir: PathBuf,
     env_prefix: String,
     app_modules: Vec<Box<dyn Module>>,
+    plugin_modules: Vec<Box<dyn Module>>,
     extend: Option<ExtendFn>,
 }
 
@@ -95,6 +97,7 @@ impl Bootstrap {
             config_dir: config_dir.into(),
             env_prefix: DEFAULT_ENV_PREFIX.to_string(),
             app_modules: Vec::new(),
+            plugin_modules: Vec::new(),
             extend: None,
         }
     }
@@ -105,18 +108,21 @@ impl Bootstrap {
         self
     }
 
-    /// Registers one of the app's modules (plugins), after the built-in ones. A
-    /// module's migrations and contributions (resources, permissions, settings)
-    /// run after those of the modules it names in `requires`. The module supplies
-    /// its admin surfaces from its `register` method.
+    /// Registers one of the application's own modules, after the built-in ones. Its
+    /// migrations and contributions run after those of the modules it names in
+    /// `requires`. App modules are load-critical: a failure at boot aborts, rather
+    /// than being quarantined like a plugin registered with [`Bootstrap::modules`].
     pub fn module(mut self, module: impl Module) -> Self {
         self.app_modules.push(Box::new(module));
         self
     }
 
-    /// Registers several app modules at once.
+    /// Registers a set of plugins, typically the generated `plugins-manifest`.
+    /// Plugins are isolated at boot: one that fails to migrate or register is
+    /// quarantined (logged and skipped, taking its dependents with it) rather than
+    /// aborting the whole application.
     pub fn modules(mut self, modules: Vec<Box<dyn Module>>) -> Self {
-        self.app_modules.extend(modules);
+        self.plugin_modules.extend(modules);
         self
     }
 
@@ -135,11 +141,23 @@ impl Bootstrap {
 
         let db = laterite_core::db::connect(&config.database).await?;
 
+        // Plugins (registered via `modules`) are quarantine-eligible; built-ins and
+        // the app's own modules are load-critical. Capture the plugin ids before the
+        // modules move into the registry.
+        let plugin_ids: HashSet<String> = self
+            .plugin_modules
+            .iter()
+            .map(|m| m.id().to_string())
+            .collect();
+
         let mut registry = ModuleRegistry::new();
         for module in builtin_modules() {
             registry.register_boxed(module);
         }
         for module in self.app_modules {
+            registry.register_boxed(module);
+        }
+        for module in self.plugin_modules {
             registry.register_boxed(module);
         }
         let capabilities =
@@ -176,15 +194,51 @@ impl Bootstrap {
             .filter(|m| !skipped.contains_key(m.id().as_str()))
             .collect();
 
-        let sets: Vec<_> = active.iter().map(|m| m.migrations()).collect();
-        laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
-
-        // Collect each active module's contributions in dependency order, then hand
-        // the typed sets to the router.
+        // Load each active module in dependency order: migrate its tables, then
+        // register its contributions. A plugin that fails either step is quarantined
+        // (its partial contributions rolled back) and its dependents skipped; a
+        // built-in or app module failing is fatal.
         let mut contributions = Registry::new();
+        let mut failed: HashMap<String, String> = HashMap::new();
         for module in &active {
-            contributions.set_owner(module.id());
-            module.register(&mut contributions);
+            let mid = module.id();
+            let id = mid.as_str();
+            let eligible = plugin_ids.contains(id);
+
+            if let Some(dep) = module
+                .requires()
+                .iter()
+                .find(|r| failed.contains_key(r.as_str()))
+            {
+                let reason = format!("requires {}, which failed to load", dep.as_str());
+                println!("Plugin '{id}' off: {reason}");
+                failed.insert(id.to_string(), reason);
+                continue;
+            }
+
+            match laterite_core::migration::run(&db.pool, db.backend, &[module.migrations()]).await
+            {
+                Ok(()) => {}
+                Err(e) if !eligible => return Err(e.into()),
+                Err(e) => {
+                    let reason = format!("migration failed: {e}");
+                    eprintln!("Plugin '{id}' quarantined: {reason}");
+                    failed.insert(id.to_string(), reason);
+                    continue;
+                }
+            }
+
+            contributions.set_owner(mid);
+            let registered = catch_unwind(AssertUnwindSafe(|| module.register(&mut contributions)));
+            if let Err(panic) = registered {
+                contributions.purge_owner(mid);
+                if !eligible {
+                    resume_unwind(panic);
+                }
+                let reason = "register panicked".to_string();
+                eprintln!("Plugin '{id}' quarantined: {reason}");
+                failed.insert(id.to_string(), reason);
+            }
         }
         let resources = contributions.take::<Resource>();
         let settings = contributions.take::<SettingsItem>();

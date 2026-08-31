@@ -146,6 +146,16 @@ impl Registry {
             .map(|e| *e.item.downcast::<T>().expect("keyed by TypeId::of::<T>"))
             .collect()
     }
+
+    /// Drops every contribution stamped with `owner`, across all types. Rolls back
+    /// a module's partial contributions when its `register` fails, so a quarantined
+    /// module leaves nothing behind.
+    pub fn purge_owner(&mut self, owner: ModuleId) {
+        for entries in self.by_type.values_mut() {
+            entries.retain(|e| e.owner != owner);
+        }
+        self.by_type.retain(|_, entries| !entries.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +217,21 @@ mod tests {
             },
         );
         assert_eq!(r.items::<Widget>(), vec![&Widget("override")]);
+    }
+
+    #[test]
+    fn purge_owner_drops_only_that_owners_contributions() {
+        let mut r = Registry::new();
+        r.set_owner(A);
+        r.add(Widget("a"));
+        r.add(7u32);
+        r.set_owner(B);
+        r.add(Widget("b"));
+
+        r.purge_owner(A);
+        // B's widget survives; A's widget and A's u32 (its whole bucket) are gone.
+        assert_eq!(r.items::<Widget>(), vec![&Widget("b")]);
+        assert!(r.items::<u32>().is_empty());
     }
 
     #[test]
