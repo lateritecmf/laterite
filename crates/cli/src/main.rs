@@ -16,6 +16,7 @@ mod doctor;
 mod domain;
 mod make;
 mod new;
+mod plugin;
 mod serve;
 
 #[derive(Parser)]
@@ -47,6 +48,11 @@ enum Command {
     Admin {
         #[command(subcommand)]
         command: AdminCommand,
+    },
+    /// Manage this application's plugins (the plugins/ folder tree).
+    Plugin {
+        #[command(subcommand)]
+        command: plugin::PluginCommand,
     },
 }
 
@@ -105,6 +111,7 @@ async fn main() -> Result<()> {
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
+        Command::Plugin { command } => plugin::run(command),
     }
 }
 

@@ -24,6 +24,8 @@ rpassword = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+# `plugin sync` reads each plugin's Cargo.toml to verify its crate name.
+toml = "0.8"
 
 [features]
 # The `lat` tool is a developer tool, not a deployed application, so it enables

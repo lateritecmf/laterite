@@ -85,6 +85,21 @@ pub async fn run() -> Result<()> {
         }
     }
 
+    // If the app uses the plugin layout, the generated manifest must match the
+    // plugins/ tree, or a plugin is silently missing from the next build.
+    match crate::plugin::manifest_in_sync() {
+        Ok(Some(true)) => ok &= check("plugins-manifest is in sync", true),
+        Ok(Some(false)) => {
+            ok &= check("plugins-manifest is in sync (run `lat plugin sync`)", false)
+        }
+        Ok(None) => {} // the app does not use the plugin layout
+        Err(err) => {
+            report(false, "plugins-manifest is in sync");
+            println!("    {err}");
+            ok = false;
+        }
+    }
+
     println!();
     if ok {
         println!("All checks passed.");
