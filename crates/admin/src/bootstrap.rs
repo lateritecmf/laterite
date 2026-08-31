@@ -141,6 +141,17 @@ impl Bootstrap {
 
         let db = laterite_core::db::connect(&config.database).await?;
 
+        // Create the plugin-registry table up front so the operator's enable/disable
+        // choices can be read before deciding what loads. The built-in PluginsModule
+        // carries this same migration, applied idempotently in the load loop below.
+        laterite_core::migration::run(
+            &db.pool,
+            db.backend,
+            &[crate::plugins::PluginsModule.migrations()],
+        )
+        .await?;
+        let db_disabled = crate::plugins::disabled_ids(&db).await?;
+
         // Plugins (registered via `modules`) are quarantine-eligible; built-ins and
         // the app's own modules are load-critical. Capture the plugin ids before the
         // modules move into the registry.
@@ -177,11 +188,9 @@ impl Bootstrap {
             .map(|m| m.id().to_string())
             .collect();
         let mut disabled: HashSet<String> = HashSet::new();
-        for id in &config.plugins.disabled {
+        for id in config.plugins.disabled.iter().chain(db_disabled.iter()) {
             if builtins.contains(id) {
-                eprintln!(
-                    "Ignoring '{id}' in plugins.disabled: built-in modules cannot be disabled."
-                );
+                eprintln!("Ignoring request to disable built-in module '{id}'.");
             } else {
                 disabled.insert(id.clone());
             }
@@ -301,7 +310,7 @@ fn skip_plan(ordered: &[&dyn Module], disabled: &HashSet<String>) -> HashMap<Str
     for module in ordered {
         let id = module.id().as_str();
         if disabled.contains(id) {
-            skipped.insert(id.to_string(), "disabled in config".to_string());
+            skipped.insert(id.to_string(), "disabled".to_string());
             continue;
         }
         if let Some(dep) = module
@@ -392,10 +401,7 @@ mod tests {
         let skipped = skip_plan(&ordered, &disabled);
 
         // a is off by config; b then c cascade off; d is unaffected.
-        assert_eq!(
-            skipped.get("acme.a").map(String::as_str),
-            Some("disabled in config")
-        );
+        assert_eq!(skipped.get("acme.a").map(String::as_str), Some("disabled"));
         assert!(skipped["acme.b"].contains("requires acme.a"));
         assert!(skipped["acme.c"].contains("requires acme.b"));
         assert!(!skipped.contains_key("acme.d"));

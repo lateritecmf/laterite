@@ -18,6 +18,7 @@ pub mod bootstrap;
 pub mod form;
 mod icons;
 pub mod list;
+mod plugins;
 mod roles;
 pub mod settings;
 mod sql;
@@ -416,6 +417,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
     vec![
         Box::new(laterite_auth::AuthModule),
         Box::new(settings::SettingsModule),
+        Box::new(plugins::PluginsModule),
     ]
 }
 
