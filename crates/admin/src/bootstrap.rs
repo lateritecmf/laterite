@@ -7,6 +7,7 @@
 //! migrations and admin surfaces (resources, permissions, settings) from its
 //! `register`, and the app adds extra routes via [`Bootstrap::extend`].
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use axum::Router;
@@ -34,6 +35,18 @@ pub struct AppConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub backend: BackendConfig,
+    #[serde(default)]
+    pub plugins: PluginsConfig,
+}
+
+/// Deployment control over which plugins load. A disabled plugin's migrations do
+/// not run and it contributes nothing; any plugin that `requires` a disabled one
+/// is skipped in turn. Built-in modules cannot be disabled.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PluginsConfig {
+    /// Module ids to disable at boot, e.g. `disabled = ["rainmill.location"]`.
+    #[serde(default)]
+    pub disabled: Vec<String>,
 }
 
 /// Passed to [`Bootstrap::extend`] so an app's own routes can share the database
@@ -136,13 +149,40 @@ impl Bootstrap {
         // registration so a module's tables and contributions follow its
         // requirements'.
         let ordered = registry.ordered()?;
-        let sets: Vec<_> = ordered.iter().map(|m| m.migrations()).collect();
+
+        // Narrow to the modules that will actually load. Config can disable a
+        // plugin, and any plugin that requires a disabled one is skipped in turn.
+        // The registry itself is untouched, so ordered()'s dependency checks still
+        // hold; this only decides what migrates and registers.
+        let builtins: HashSet<String> = builtin_modules()
+            .iter()
+            .map(|m| m.id().to_string())
+            .collect();
+        let mut disabled: HashSet<String> = HashSet::new();
+        for id in &config.plugins.disabled {
+            if builtins.contains(id) {
+                eprintln!(
+                    "Ignoring '{id}' in plugins.disabled: built-in modules cannot be disabled."
+                );
+            } else {
+                disabled.insert(id.clone());
+            }
+        }
+        let skipped = skip_plan(&ordered, &disabled);
+        report_plugins(&ordered, &skipped);
+        let active: Vec<&dyn Module> = ordered
+            .iter()
+            .copied()
+            .filter(|m| !skipped.contains_key(m.id().as_str()))
+            .collect();
+
+        let sets: Vec<_> = active.iter().map(|m| m.migrations()).collect();
         laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
 
-        // Collect each module's contributions in the same order, then hand the
-        // typed sets to the router.
+        // Collect each active module's contributions in dependency order, then hand
+        // the typed sets to the router.
         let mut contributions = Registry::new();
-        for module in &ordered {
+        for module in &active {
             contributions.set_owner(module.id());
             module.register(&mut contributions);
         }
@@ -197,9 +237,50 @@ async fn bind(listen: &str) -> anyhow::Result<tokio::net::TcpListener> {
     }
 }
 
+/// Given modules in dependency order (dependencies first) and the ids explicitly
+/// disabled, returns the ids to skip, each with a reason. One forward pass
+/// suffices because `ordered` places a module after everything it requires: an
+/// explicitly disabled module is skipped, and so is anything that requires an
+/// already-skipped one.
+fn skip_plan(ordered: &[&dyn Module], disabled: &HashSet<String>) -> HashMap<String, String> {
+    let mut skipped: HashMap<String, String> = HashMap::new();
+    for module in ordered {
+        let id = module.id().as_str();
+        if disabled.contains(id) {
+            skipped.insert(id.to_string(), "disabled in config".to_string());
+            continue;
+        }
+        if let Some(dep) = module
+            .requires()
+            .iter()
+            .find(|r| skipped.contains_key(r.as_str()))
+        {
+            skipped.insert(
+                id.to_string(),
+                format!("requires {}, which is off", dep.as_str()),
+            );
+        }
+    }
+    skipped
+}
+
+/// Prints one line per skipped plugin, in dependency order. Silent when every
+/// module loads, so a normal boot stays quiet.
+fn report_plugins(ordered: &[&dyn Module], skipped: &HashMap<String, String>) {
+    if skipped.is_empty() {
+        return;
+    }
+    for module in ordered {
+        if let Some(reason) = skipped.get(module.id().as_str()) {
+            println!("Plugin '{}' off: {reason}", module.id());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use laterite_core::ModuleId;
 
     #[test]
     fn env_prefix_defaults_and_overrides() {
@@ -226,5 +307,43 @@ mod tests {
         assert_eq!(cfg.backend.path, "/admin");
         assert!(!cfg.backend.secure_cookie);
         assert!(cfg.app.url.is_none());
+    }
+
+    struct M(&'static str, &'static [ModuleId]);
+    impl Module for M {
+        fn id(&self) -> ModuleId {
+            ModuleId::new(self.0)
+        }
+        fn requires(&self) -> &'static [ModuleId] {
+            self.1
+        }
+    }
+
+    #[test]
+    fn skip_plan_disables_config_ids_and_cascades_to_dependents() {
+        const NONE: [ModuleId; 0] = [];
+        const REQ_A: [ModuleId; 1] = [ModuleId::new("acme.a")];
+        const REQ_B: [ModuleId; 1] = [ModuleId::new("acme.b")];
+        // Dependency order (deps first): a, b (requires a), c (requires b), and an
+        // independent d.
+        let (a, b, c, d) = (
+            M("acme.a", &NONE),
+            M("acme.b", &REQ_A),
+            M("acme.c", &REQ_B),
+            M("acme.d", &NONE),
+        );
+        let ordered: Vec<&dyn Module> = vec![&a, &b, &c, &d];
+
+        let disabled: HashSet<String> = ["acme.a".to_string()].into_iter().collect();
+        let skipped = skip_plan(&ordered, &disabled);
+
+        // a is off by config; b then c cascade off; d is unaffected.
+        assert_eq!(
+            skipped.get("acme.a").map(String::as_str),
+            Some("disabled in config")
+        );
+        assert!(skipped["acme.b"].contains("requires acme.a"));
+        assert!(skipped["acme.c"].contains("requires acme.b"));
+        assert!(!skipped.contains_key("acme.d"));
     }
 }
