@@ -575,7 +575,7 @@ mod migrations;
 async fn main() -> anyhow::Result<()> {
     laterite_admin::Bootstrap::new("config")
         .module(migrations::AppModule)
-        // .resources(...).settings(...).permissions(...)
+        // Register admin screens, permissions, and settings in AppModule::register().
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
         .serve()
         .await
@@ -605,8 +605,8 @@ laterite_core::migration_set! {{
 pub struct AppModule;
 
 impl laterite_core::Module for AppModule {{
-    fn id(&self) -> &'static str {{
-        MODULE_ID
+    fn id(&self) -> laterite_core::ModuleId {{
+        laterite_core::ModuleId::new(MODULE_ID)
     }}
     fn migrations(&self) -> laterite_core::MigrationSet {{
         migrations()

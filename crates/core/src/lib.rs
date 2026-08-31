@@ -14,6 +14,7 @@ pub mod migration;
 pub mod module;
 pub mod pagination;
 pub mod query;
+pub mod registry;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -23,5 +24,6 @@ pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use i18n::Translator;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
-pub use module::{Module, ModuleRegistry};
+pub use module::{Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
+pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};

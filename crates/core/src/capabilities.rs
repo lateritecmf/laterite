@@ -20,7 +20,7 @@ use sqlx::AnyPool;
 
 use crate::error::{CoreError, CoreResult};
 use crate::migration::DbBackend;
-use crate::module::ModuleRegistry;
+use crate::module::{Capability, ModuleRegistry};
 
 /// The database capabilities found available at boot. Query it to gate optional
 /// features.
@@ -51,18 +51,28 @@ pub async fn check(
 ) -> CoreResult<CapabilitySet> {
     let mut wanted: BTreeSet<&str> = BTreeSet::new();
     for module in registry.iter() {
-        wanted.extend(module.requires_db_capabilities());
-        wanted.extend(module.optional_db_capabilities());
+        wanted.extend(
+            module
+                .requires_db_capabilities()
+                .iter()
+                .map(Capability::as_str),
+        );
+        wanted.extend(
+            module
+                .optional_db_capabilities()
+                .iter()
+                .map(Capability::as_str),
+        );
     }
 
     let available = detect(pool, backend, &wanted).await?;
 
     for module in registry.iter() {
         for cap in module.requires_db_capabilities() {
-            if !available.contains(cap) {
+            if !available.contains(cap.as_str()) {
                 return Err(CoreError::MissingDbCapability {
                     module: module.id().to_string(),
-                    capability: cap.to_string(),
+                    capability: cap.as_str().to_string(),
                     backend: backend.name().to_string(),
                 });
             }
@@ -99,7 +109,7 @@ async fn detect<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::Module;
+    use crate::module::{Module, ModuleId};
 
     async fn sqlite_pool() -> AnyPool {
         sqlx::any::install_default_drivers();
@@ -111,29 +121,29 @@ mod tests {
     }
 
     /// A test module: id, required capabilities, optional capabilities.
-    struct Needs(
-        &'static str,
-        &'static [&'static str],
-        &'static [&'static str],
-    );
+    struct Needs(ModuleId, &'static [Capability], &'static [Capability]);
 
     impl Module for Needs {
-        fn id(&self) -> &'static str {
+        fn id(&self) -> ModuleId {
             self.0
         }
-        fn requires_db_capabilities(&self) -> &'static [&'static str] {
+        fn requires_db_capabilities(&self) -> &'static [Capability] {
             self.1
         }
-        fn optional_db_capabilities(&self) -> &'static [&'static str] {
+        fn optional_db_capabilities(&self) -> &'static [Capability] {
             self.2
         }
     }
+
+    const POSTGIS: &[Capability] = &[Capability::new("postgis")];
+    const PG_TRGM: &[Capability] = &[Capability::new("pg_trgm")];
+    const NO_CAPS: &[Capability] = &[];
 
     #[tokio::test]
     async fn required_capability_unavailable_errors() {
         let pool = sqlite_pool().await;
         let mut reg = ModuleRegistry::new();
-        reg.register(Needs("acme.geo", &["postgis"], &[]));
+        reg.register(Needs(ModuleId::new("acme.blog"), POSTGIS, NO_CAPS));
         let err = check(&pool, DbBackend::Sqlite, &reg).await.unwrap_err();
         assert!(matches!(err, CoreError::MissingDbCapability { .. }));
     }
@@ -142,7 +152,7 @@ mod tests {
     async fn no_requirements_ok_and_absent_optional_not_in_set() {
         let pool = sqlite_pool().await;
         let mut reg = ModuleRegistry::new();
-        reg.register(Needs("acme.location", &[], &["pg_trgm"]));
+        reg.register(Needs(ModuleId::new("acme.shop"), NO_CAPS, PG_TRGM));
         let caps = check(&pool, DbBackend::Sqlite, &reg).await.unwrap();
         assert!(!caps.has("pg_trgm"));
     }

@@ -41,6 +41,32 @@ use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, 
 use laterite_core::Db;
 use serde::Deserialize;
 
+/// Typed contribution channels for the framework's admin surfaces, as an
+/// extension trait over the generic [`laterite_core::Registry`]. A module
+/// contributes its admin screens, permissions, and settings from its `register`;
+/// a wrong-type contribution is a compile error, not one silently ignored. The
+/// generic `add`/`items` underneath remains for open, plugin-defined points.
+pub trait AdminRegistry {
+    /// Adds a list/form resource (an admin screen).
+    fn add_resource(&mut self, resource: Resource);
+    /// Adds a permission, offered in the role editor.
+    fn add_permission(&mut self, permission: Permission);
+    /// Adds a settings model.
+    fn add_settings(&mut self, item: settings::SettingsItem);
+}
+
+impl AdminRegistry for laterite_core::Registry {
+    fn add_resource(&mut self, resource: Resource) {
+        self.add(resource);
+    }
+    fn add_permission(&mut self, permission: Permission) {
+        self.add(permission);
+    }
+    fn add_settings(&mut self, item: settings::SettingsItem) {
+        self.add(item);
+    }
+}
+
 const SESSION_COOKIE: &str = "laterite_session";
 
 /// Shared state for the admin router. Constructed by [`router`].

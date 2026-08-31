@@ -24,8 +24,8 @@ pub use store::{get, load, save, set, SettingsError, SettingsModel};
 pub struct SettingsModule;
 
 impl laterite_core::Module for SettingsModule {
-    fn id(&self) -> &'static str {
-        MODULE_ID
+    fn id(&self) -> laterite_core::ModuleId {
+        laterite_core::ModuleId::new(MODULE_ID)
     }
     fn migrations(&self) -> laterite_core::MigrationSet {
         migrations()

@@ -3,15 +3,16 @@
 //!
 //! [`Bootstrap`] keeps an application's `main` small and stable: framework
 //! internals (config fields, the migration runner, router assembly) change here,
-//! not in every app. An app supplies only its own migrations, resources,
-//! settings, permissions, and extra routes (via [`Bootstrap::extend`]).
+//! not in every app. An app registers its own modules; each module supplies its
+//! migrations and admin surfaces (resources, permissions, settings) from its
+//! `register`, and the app adds extra routes via [`Bootstrap::extend`].
 
 use std::path::PathBuf;
 
 use axum::Router;
 use laterite_auth::{AuthConfig, AuthService};
 use laterite_core::config::{self, AppMeta, BackendConfig, DatabaseConfig, ServerConfig};
-use laterite_core::{CapabilitySet, Db, Module, ModuleRegistry, Translator};
+use laterite_core::{CapabilitySet, Db, Module, ModuleRegistry, Registry, Translator};
 use serde::Deserialize;
 
 use crate::settings::SettingsItem;
@@ -69,9 +70,6 @@ pub struct Bootstrap {
     config_dir: PathBuf,
     env_prefix: String,
     app_modules: Vec<Box<dyn Module>>,
-    resources: Vec<Resource>,
-    settings: Vec<SettingsItem>,
-    permissions: Vec<Permission>,
     extend: Option<ExtendFn>,
 }
 
@@ -84,9 +82,6 @@ impl Bootstrap {
             config_dir: config_dir.into(),
             env_prefix: DEFAULT_ENV_PREFIX.to_string(),
             app_modules: Vec::new(),
-            resources: Vec::new(),
-            settings: Vec::new(),
-            permissions: Vec::new(),
             extend: None,
         }
     }
@@ -98,8 +93,9 @@ impl Bootstrap {
     }
 
     /// Registers one of the app's modules (plugins), after the built-in ones. A
-    /// module's migrations run after those of the modules it names in
-    /// `depends_on`.
+    /// module's migrations and contributions (resources, permissions, settings)
+    /// run after those of the modules it names in `requires`. The module supplies
+    /// its admin surfaces from its `register` method.
     pub fn module(mut self, module: impl Module) -> Self {
         self.app_modules.push(Box::new(module));
         self
@@ -108,24 +104,6 @@ impl Bootstrap {
     /// Registers several app modules at once.
     pub fn modules(mut self, modules: Vec<Box<dyn Module>>) -> Self {
         self.app_modules.extend(modules);
-        self
-    }
-
-    /// The app's admin resources (list/form screens).
-    pub fn resources(mut self, resources: Vec<Resource>) -> Self {
-        self.resources = resources;
-        self
-    }
-
-    /// The app's settings models.
-    pub fn settings(mut self, settings: Vec<SettingsItem>) -> Self {
-        self.settings = settings;
-        self
-    }
-
-    /// The permissions the app defines, shown in the role editor.
-    pub fn permissions(mut self, permissions: Vec<Permission>) -> Self {
-        self.permissions = permissions;
         self
     }
 
@@ -153,8 +131,24 @@ impl Bootstrap {
         }
         let capabilities =
             laterite_core::capabilities::check(&db.pool, db.backend, &registry).await?;
-        let sets = registry.ordered_migration_sets()?;
+
+        // The modules in dependency order, driving both migrations and
+        // registration so a module's tables and contributions follow its
+        // requirements'.
+        let ordered = registry.ordered()?;
+        let sets: Vec<_> = ordered.iter().map(|m| m.migrations()).collect();
         laterite_core::migration::run(&db.pool, db.backend, &sets).await?;
+
+        // Collect each module's contributions in the same order, then hand the
+        // typed sets to the router.
+        let mut contributions = Registry::new();
+        for module in &ordered {
+            contributions.set_owner(module.id());
+            module.register(&mut contributions);
+        }
+        let resources = contributions.take::<Resource>();
+        let settings = contributions.take::<SettingsItem>();
+        let permissions = contributions.take::<Permission>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
         let admin_config = AdminConfig {
@@ -166,9 +160,9 @@ impl Bootstrap {
         let mut app = router(
             auth,
             db.clone(),
-            self.resources,
-            self.settings,
-            self.permissions,
+            resources,
+            settings,
+            permissions,
             admin_config,
         );
 

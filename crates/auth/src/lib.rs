@@ -33,8 +33,8 @@ pub use service::{
 pub struct AuthModule;
 
 impl laterite_core::Module for AuthModule {
-    fn id(&self) -> &'static str {
-        MODULE_ID
+    fn id(&self) -> laterite_core::ModuleId {
+        laterite_core::ModuleId::new(MODULE_ID)
     }
     fn migrations(&self) -> laterite_core::MigrationSet {
         migrations()
