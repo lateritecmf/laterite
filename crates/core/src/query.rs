@@ -27,6 +27,16 @@ pub trait AnyRowExt {
     /// The nullable counterpart to [`get_text`], for a `text` column that may be
     /// `NULL`.
     fn get_text_opt(&self, column: &str) -> Result<Option<String>, sqlx::Error>;
+
+    /// Reads an integer column as `i64`, portably. `sqlx::Any` reports SQLite
+    /// integers as `i64` but Postgres `INTEGER` as `i32`, so a fixed width fails
+    /// on one backend; this tries `i64` then falls back to `i32`. Use for any
+    /// integer column whatever its declared width, so a column need not be widened
+    /// to `bigint` just to be read back.
+    fn get_int(&self, column: &str) -> Result<i64, sqlx::Error>;
+
+    /// The nullable counterpart to [`get_int`].
+    fn get_int_opt(&self, column: &str) -> Result<Option<i64>, sqlx::Error>;
 }
 
 impl AnyRowExt for AnyRow {
@@ -48,6 +58,20 @@ impl AnyRowExt for AnyRow {
                 .try_get::<Option<Vec<u8>>, _>(column)?
                 .map(|b| decode_utf8(column, b))
                 .transpose(),
+        }
+    }
+
+    fn get_int(&self, column: &str) -> Result<i64, sqlx::Error> {
+        match self.try_get::<i64, _>(column) {
+            Ok(v) => Ok(v),
+            Err(_) => Ok(i64::from(self.try_get::<i32, _>(column)?)),
+        }
+    }
+
+    fn get_int_opt(&self, column: &str) -> Result<Option<i64>, sqlx::Error> {
+        match self.try_get::<Option<i64>, _>(column) {
+            Ok(v) => Ok(v),
+            Err(_) => Ok(self.try_get::<Option<i32>, _>(column)?.map(i64::from)),
         }
     }
 }
