@@ -18,6 +18,7 @@ pub mod registry;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod validation;
 
 pub use capabilities::CapabilitySet;
 pub use db::Db;
@@ -27,3 +28,4 @@ pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schem
 pub use module::{Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
+pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

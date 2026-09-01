@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 config = { workspace = true }
+email_address = "0.2.9"
 sea-query = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
@@ -29,5 +30,6 @@ sqlite = ["sqlx/sqlite"]
 testing = ["dep:tokio", "dep:url", "dep:uuid"]
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile = { workspace = true }
 tokio = { workspace = true }
