@@ -9,12 +9,8 @@
     {% include "_csrf.html" %}
     {% for field in fields %}
     <div class="lat-field">
-      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
-      {% if field.textarea %}
-      <textarea class="lat-input" id="{{ field.name }}" name="{{ field.name }}"{% if field.required %} required{% endif %}>{{ field.value }}</textarea>
-      {% else %}
-      <input class="lat-input" type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}"{% if field.required %} required{% endif %}>
-      {% endif %}
+      <label class="lat-field__label" for="{{ field.id }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
+      {{ field.control|safe }}
       {% for message in field.errors %}<p class="lat-field__error">{{ message }}</p>{% endfor %}
     </div>
     {% endfor %}

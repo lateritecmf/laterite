@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sea_query::{Alias, Expr, Query};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::query::{bind_values, build, text_cast};
 use crate::{CoreResult, Db};
@@ -24,14 +24,18 @@ use crate::{CoreResult, Db};
 /// Whether a submission creates a new record or updates an existing one. A
 /// [`Rule::Unique`] check ignores the edited row on update, and
 /// [`Rule::RequiredOn`] fires for one mode only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     Create,
     Update,
 }
 
-/// A single rule applied to one field's submitted value.
-#[derive(Debug, Clone)]
+/// A single rule applied to one field's submitted value. Serde-serialisable so
+/// a descriptor (later YAML) can author rules by name (`required`, `email`,
+/// `max_length`, ...).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Rule {
     /// Non-empty after trimming, in every mode.
     Required,

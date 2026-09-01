@@ -25,47 +25,56 @@ use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
 use laterite_core::{AnyRowExt, ErrorBag};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
+use serde::{Deserialize, Serialize};
 
+use crate::field::{render_field, FieldCx, FieldValue, OverrideScope, ResolvedOptions, Surface};
 use crate::sql::valid_ident;
 use crate::{not_found, render, render_error, AdminState};
 
-#[derive(Debug, Clone, Copy)]
-pub enum WidgetKind {
-    Text,
-    Textarea,
-}
-
-/// One editable field: the column, its label, its widget, the validation rules it
-/// carries, and whether it holds translatable content.
-#[derive(Debug, Clone)]
+/// One editable field: the column, its label, its field-type key (resolved
+/// through the field-type registry), typed options for that type, the validation
+/// rules it carries, and whether it holds translatable content. A serde
+/// descriptor, so it is authorable as data (later YAML) as well as by builder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormField {
     pub name: String,
     pub label: String,
-    pub widget: WidgetKind,
+    /// The field-type registry key (`text`, `textarea`, or a plugin's
+    /// `vendor.name`), resolved to behaviour at render time (see [`crate::field`]).
+    #[serde(rename = "type")]
+    pub field_type: String,
+    /// Per-type options, typed by the field type. Absent (null) for scalar types.
+    #[serde(default)]
+    pub options: serde_json::Value,
     /// Validation rules run on submit (see [`laterite_core::validation`]).
+    #[serde(default)]
     pub rules: Vec<Rule>,
     /// Marks a field whose value is translatable content. A reserved seam: the
     /// framework stores the value verbatim; a content-translation plugin reads
     /// the flag to manage per-locale values.
+    #[serde(default)]
     pub translatable: bool,
 }
 
 impl FormField {
-    pub fn text(name: &str, label: &str) -> Self {
+    /// A field of a registered type by key.
+    pub fn of(name: &str, label: &str, field_type: &str) -> Self {
         Self {
             name: name.to_string(),
             label: label.to_string(),
-            widget: WidgetKind::Text,
+            field_type: field_type.to_string(),
+            options: serde_json::Value::Null,
             rules: Vec::new(),
             translatable: false,
         }
     }
 
+    pub fn text(name: &str, label: &str) -> Self {
+        Self::of(name, label, "text")
+    }
+
     pub fn textarea(name: &str, label: &str) -> Self {
-        Self {
-            widget: WidgetKind::Textarea,
-            ..Self::text(name, label)
-        }
+        Self::of(name, label, "textarea")
     }
 
     /// Requires a non-empty value in every mode.
@@ -149,8 +158,9 @@ impl FormConfig {
 }
 
 /// Renders an empty create form.
-pub(crate) fn new_form(config: &FormConfig, shell: crate::Shell) -> Response {
+pub(crate) fn new_form(state: &AdminState, config: &FormConfig, shell: crate::Shell) -> Response {
     render(build(
+        state,
         config,
         &format!("{}/new", config.base_path),
         None,
@@ -192,7 +202,7 @@ pub(crate) async fn create(
         // the cross-surface "validation failure" status.
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(config, &action, None, &data, &bag, &shell)),
+            render(build(state, config, &action, None, &data, &bag, &shell)),
         )
             .into_response();
     }
@@ -219,6 +229,7 @@ pub(crate) async fn create(
     {
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
+            state,
             config,
             &action,
             Some("Could not save. Check the values and try again.".to_string()),
@@ -283,6 +294,7 @@ pub(crate) async fn edit_form(
         .collect();
 
     render(build(
+        state,
         config,
         &format!("{}/{}/edit", config.base_path, id),
         None,
@@ -325,7 +337,7 @@ pub(crate) async fn update(
         // the cross-surface "validation failure" status.
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(config, &action, None, &data, &bag, &shell)),
+            render(build(state, config, &action, None, &data, &bag, &shell)),
         )
             .into_response();
     }
@@ -353,6 +365,7 @@ pub(crate) async fn update(
     {
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
+            state,
             config,
             &action,
             Some("Could not save. Check the values and try again.".to_string()),
@@ -364,6 +377,7 @@ pub(crate) async fn update(
 }
 
 fn build(
+    state: &AdminState,
     config: &FormConfig,
     action: &str,
     error: Option<String>,
@@ -371,32 +385,61 @@ fn build(
     bag: &ErrorBag,
     shell: &crate::Shell,
 ) -> FormTemplate {
+    let fields = config
+        .fields
+        .iter()
+        .map(|f| {
+            let value = FieldValue::Text(values.get(&f.name).cloned().unwrap_or_default());
+            // Scalar types carry no options; typed options land with the first
+            // optioned type.
+            let opts = ResolvedOptions::none();
+            let cx = FieldCx {
+                name: &f.name,
+                id: &f.name,
+                label: &f.label,
+                value: &value,
+                required: f.is_required(),
+                opts: &opts,
+            };
+            let control = match state.field_types.get(&f.field_type) {
+                Some(ft) => {
+                    let scope = OverrideScope {
+                        surface: Surface::Field,
+                        view_key: &f.field_type,
+                        resource: Some(&config.base_path),
+                        field: Some(&f.name),
+                    };
+                    render_field(ft.as_ref(), state.overrides.as_ref(), &scope, &cx).into_string()
+                }
+                // An unregistered type key is a misconfiguration; render nothing.
+                None => String::new(),
+            };
+            FieldView {
+                id: f.name.clone(),
+                label: f.label.clone(),
+                control,
+                required: f.is_required(),
+                errors: bag.messages(&f.name).to_vec(),
+            }
+        })
+        .collect();
     FormTemplate {
         shell: shell.clone(),
         title: config.title.clone(),
         action: action.to_string(),
         cancel_path: config.base_path.clone(),
         error,
-        fields: config
-            .fields
-            .iter()
-            .map(|f| FieldView {
-                name: f.name.clone(),
-                label: f.label.clone(),
-                value: values.get(&f.name).cloned().unwrap_or_default(),
-                textarea: matches!(f.widget, WidgetKind::Textarea),
-                required: f.is_required(),
-                errors: bag.messages(&f.name).to_vec(),
-            })
-            .collect(),
+        fields,
     }
 }
 
 struct FieldView {
-    name: String,
+    /// DOM id for the control and its label's `for`.
+    id: String,
     label: String,
-    value: String,
-    textarea: bool,
+    /// The control HTML, rendered by the field-type registry (override-aware).
+    /// The framework owns the surrounding chrome (label, required marker, errors).
+    control: String,
     required: bool,
     errors: Vec<String>,
 }

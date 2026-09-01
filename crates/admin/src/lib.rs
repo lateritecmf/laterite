@@ -16,7 +16,9 @@
 
 pub mod bootstrap;
 mod error;
+pub mod field;
 pub mod form;
+pub mod html;
 mod icons;
 pub mod list;
 pub mod plugins;
@@ -98,6 +100,13 @@ pub(crate) struct AdminState {
     /// not read from the database on every page. Invalidated when the setting is
     /// saved. `None` means "not resolved yet".
     brand_cache: Arc<RwLock<Option<String>>>,
+    /// The field-type registry (built-ins plus contributions): resolves a form
+    /// descriptor's type key to its rendering + behaviour. See [`field`].
+    field_types: Arc<field::FieldRegistry>,
+    /// The admin view-override resolver, default [`field::NoOverrides`] (the
+    /// compiled path). A theme layer injects a runtime-template-backed resolver
+    /// so users can override a field's presentation from outside the plugin.
+    overrides: Arc<dyn field::OverrideResolver>,
 }
 
 impl AdminState {
@@ -115,6 +124,8 @@ impl AdminState {
             timezone: Tz::UTC,
             app_name: "Laterite".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
+            field_types: Arc::new(field::builtin_registry()),
+            overrides: Arc::new(field::NoOverrides),
         }
     }
 
@@ -521,6 +532,8 @@ pub fn router(
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
+        field_types: Arc::new(field::builtin_registry()),
+        overrides: Arc::new(field::NoOverrides),
     };
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
@@ -732,10 +745,12 @@ fn mount_resource(resource: &Resource) -> Router<AdminState> {
         let (new_cfg, create_cfg) = (form_cfg.clone(), form_cfg.clone());
         router = router.route(
             &format!("{base}/new"),
-            get(move |Extension(shell): Extension<Shell>| {
-                let cfg = new_cfg.clone();
-                async move { form::new_form(&cfg, shell) }
-            })
+            get(
+                move |State(state): State<AdminState>, Extension(shell): Extension<Shell>| {
+                    let cfg = new_cfg.clone();
+                    async move { form::new_form(&state, &cfg, shell) }
+                },
+            )
             .post(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
@@ -1476,6 +1491,8 @@ mod tests {
             timezone: Tz::UTC,
             app_name: "Configured Name".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
+            field_types: Arc::new(field::builtin_registry()),
+            overrides: Arc::new(field::NoOverrides),
         };
 
         // With no brand setting, the configured application name is the brand.
