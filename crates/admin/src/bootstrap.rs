@@ -161,7 +161,26 @@ impl Bootstrap {
         )
         .await?;
         crate::plugins::record_roster(&db, plugin_ids.iter().map(String::as_str)).await?;
+
+        // Crash-loop journal: reconcile the previous boot's load markers against
+        // this binary's fingerprint. A plugin whose init took the whole process
+        // down under this same binary is auto-quarantined so it is not retried
+        // into the same crash; a quarantine recorded under a different binary is
+        // lifted, giving a fresh build another chance.
+        let fingerprint = crate::plugins::binary_fingerprint();
+        let reconcile = crate::plugins::reconcile_boot(&db, &fingerprint).await?;
+        for id in &reconcile.crashed {
+            eprintln!(
+                "Plugin '{id}' quarantined: {}.",
+                crate::plugins::CRASH_REASON
+            );
+        }
+        for id in &reconcile.cleared {
+            println!("Plugin '{id}' quarantine lifted: the binary changed since it failed.");
+        }
+
         let db_disabled = crate::plugins::disabled_ids(&db).await?;
+        let quarantined = crate::plugins::quarantined(&db).await?;
 
         let mut registry = ModuleRegistry::new();
         for module in builtin_modules() {
@@ -189,15 +208,22 @@ impl Bootstrap {
             .iter()
             .map(|m| m.id().to_string())
             .collect();
-        let mut disabled: HashSet<String> = HashSet::new();
+        let mut seed: HashMap<String, String> = HashMap::new();
         for id in config.plugins.disabled.iter().chain(db_disabled.iter()) {
             if builtins.contains(id) {
                 eprintln!("Ignoring request to disable built-in module '{id}'.");
             } else {
-                disabled.insert(id.clone());
+                seed.insert(id.clone(), "disabled".to_string());
             }
         }
-        let skipped = skip_plan(&ordered, &disabled);
+        // Quarantined plugins are skipped like disabled ones, but keep the
+        // system's reason. A built-in never carries a quarantine, but guard anyway.
+        for (id, reason) in &quarantined {
+            if !builtins.contains(id) {
+                seed.insert(id.clone(), format!("quarantined: {reason}"));
+            }
+        }
+        let skipped = skip_plan(&ordered, &seed);
         report_plugins(&ordered, &skipped);
         let active: Vec<&dyn Module> = ordered
             .iter()
@@ -227,6 +253,14 @@ impl Bootstrap {
                 continue;
             }
 
+            // Journal the attempt before any of the plugin's own code runs, so an
+            // uncatchable crash during migrate or register leaves a marker the next
+            // boot will find. Only plugins are journaled: a built-in or app module
+            // crashing is a fatal bug to fix, not something to quarantine.
+            if eligible {
+                crate::plugins::mark_loading(&db, id, &fingerprint).await?;
+            }
+
             match laterite_core::migration::run(&db.pool, db.backend, &[module.migrations()]).await
             {
                 Ok(()) => {}
@@ -234,6 +268,7 @@ impl Bootstrap {
                 Err(e) => {
                     let reason = format!("migration failed: {e}");
                     eprintln!("Plugin '{id}' quarantined: {reason}");
+                    crate::plugins::quarantine(&db, id, &reason, &fingerprint).await?;
                     failed.insert(id.to_string(), reason);
                     continue;
                 }
@@ -241,14 +276,24 @@ impl Bootstrap {
 
             contributions.set_owner(mid);
             let registered = catch_unwind(AssertUnwindSafe(|| module.register(&mut contributions)));
-            if let Err(panic) = registered {
-                contributions.purge_owner(mid);
-                if !eligible {
-                    resume_unwind(panic);
+            match registered {
+                // Init succeeded: clear the marker so this plugin is not blamed for
+                // a crash later in the boot.
+                Ok(()) => {
+                    if eligible {
+                        crate::plugins::clear_loading(&db, id).await?;
+                    }
                 }
-                let reason = "register panicked".to_string();
-                eprintln!("Plugin '{id}' quarantined: {reason}");
-                failed.insert(id.to_string(), reason);
+                Err(panic) => {
+                    contributions.purge_owner(mid);
+                    if !eligible {
+                        resume_unwind(panic);
+                    }
+                    let reason = "register panicked".to_string();
+                    eprintln!("Plugin '{id}' quarantined: {reason}");
+                    crate::plugins::quarantine(&db, id, &reason, &fingerprint).await?;
+                    failed.insert(id.to_string(), reason);
+                }
             }
         }
         let resources = contributions.take::<Resource>();
@@ -302,17 +347,17 @@ async fn bind(listen: &str) -> anyhow::Result<tokio::net::TcpListener> {
     }
 }
 
-/// Given modules in dependency order (dependencies first) and the ids explicitly
-/// disabled, returns the ids to skip, each with a reason. One forward pass
-/// suffices because `ordered` places a module after everything it requires: an
-/// explicitly disabled module is skipped, and so is anything that requires an
-/// already-skipped one.
-fn skip_plan(ordered: &[&dyn Module], disabled: &HashSet<String>) -> HashMap<String, String> {
+/// Given modules in dependency order (dependencies first) and a `seed` of ids
+/// already known to be off (disabled or quarantined) each with its reason,
+/// returns the full set to skip, each with a reason. One forward pass suffices
+/// because `ordered` places a module after everything it requires: a seeded
+/// module is skipped, and so is anything that requires an already-skipped one.
+fn skip_plan(ordered: &[&dyn Module], seed: &HashMap<String, String>) -> HashMap<String, String> {
     let mut skipped: HashMap<String, String> = HashMap::new();
     for module in ordered {
         let id = module.id().as_str();
-        if disabled.contains(id) {
-            skipped.insert(id.to_string(), "disabled".to_string());
+        if let Some(reason) = seed.get(id) {
+            skipped.insert(id.to_string(), reason.clone());
             continue;
         }
         if let Some(dep) = module
@@ -399,10 +444,12 @@ mod tests {
         );
         let ordered: Vec<&dyn Module> = vec![&a, &b, &c, &d];
 
-        let disabled: HashSet<String> = ["acme.a".to_string()].into_iter().collect();
-        let skipped = skip_plan(&ordered, &disabled);
+        let seed: HashMap<String, String> = [("acme.a".to_string(), "disabled".to_string())]
+            .into_iter()
+            .collect();
+        let skipped = skip_plan(&ordered, &seed);
 
-        // a is off by config; b then c cascade off; d is unaffected.
+        // a is off by the seed; b then c cascade off; d is unaffected.
         assert_eq!(skipped.get("acme.a").map(String::as_str), Some("disabled"));
         assert!(skipped["acme.b"].contains("requires acme.a"));
         assert!(skipped["acme.c"].contains("requires acme.b"));

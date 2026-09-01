@@ -41,8 +41,12 @@ impl Module for PluginsModule {
 /// an absent row also means enabled); `version` and `created_at` record the
 /// installed version and first-seen time (filled by the install flow); the
 /// `quarantined_*` columns are the system's verdict, set when a plugin fails to
-/// load. Applied migrations are tracked separately in `laterite_migrations`, so
-/// there is no per-plugin history table here.
+/// load, with `quarantined_fingerprint` recording the binary it failed under so a
+/// new binary can lift it. `load_fingerprint` is the crash-journal marker: set to
+/// the current binary's fingerprint just before a plugin's init runs and cleared
+/// right after it succeeds, so a value still present at the next boot means that
+/// plugin's init took the whole process down. Applied migrations are tracked
+/// separately in `laterite_migrations`, so there is no per-plugin history here.
 #[derive(Iden)]
 enum LateritePlugins {
     Table,
@@ -51,6 +55,8 @@ enum LateritePlugins {
     Version,
     QuarantinedReason,
     QuarantinedAt,
+    QuarantinedFingerprint,
+    LoadFingerprint,
     CreatedAt,
     UpdatedAt,
 }
@@ -72,6 +78,8 @@ impl Migration for CreatePlugins {
                 .col(ColumnDef::new(LateritePlugins::Version).text())
                 .col(ColumnDef::new(LateritePlugins::QuarantinedReason).text())
                 .col(ColumnDef::new(LateritePlugins::QuarantinedAt).text())
+                .col(ColumnDef::new(LateritePlugins::QuarantinedFingerprint).text())
+                .col(ColumnDef::new(LateritePlugins::LoadFingerprint).text())
                 .col(ColumnDef::new(LateritePlugins::CreatedAt).text())
                 .col(ColumnDef::new(LateritePlugins::UpdatedAt).text().not_null())
                 .to_owned(),
@@ -214,6 +222,205 @@ async fn insert_row(db: &Db, id: &str, enabled: bool, now: &str) -> anyhow::Resu
     Ok(())
 }
 
+/// Reason recorded when a plugin is auto-quarantined because its init crashed
+/// the previous boot (a crash no `catch_unwind` could catch).
+pub const CRASH_REASON: &str = "init crashed the previous boot";
+
+/// Fingerprint of the running binary (its size and modification time): stable
+/// across restarts of the same executable, changed by a rebuild or redeploy. The
+/// journal uses it to tell "the same binary crashed again" from "a new binary may
+/// be fixed". Falls back to a constant when the executable cannot be inspected.
+pub fn binary_fingerprint() -> String {
+    match std::env::current_exe().and_then(std::fs::metadata) {
+        Ok(meta) => {
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("{}-{}", meta.len(), mtime)
+        }
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+/// Durably records that `plugin_id`'s init is about to run under `fingerprint`.
+/// Written before the plugin migrates or registers, so a hard crash leaves the
+/// marker for the next boot's [`reconcile_boot`] to find.
+pub async fn mark_loading(db: &Db, plugin_id: &str, fingerprint: &str) -> anyhow::Result<()> {
+    update_one(
+        db,
+        plugin_id,
+        Query::update()
+            .value(LateritePlugins::LoadFingerprint, fingerprint)
+            .to_owned(),
+    )
+    .await
+}
+
+/// Clears the load marker once a plugin's init has succeeded.
+pub async fn clear_loading(db: &Db, plugin_id: &str) -> anyhow::Result<()> {
+    update_one(
+        db,
+        plugin_id,
+        Query::update()
+            .value(LateritePlugins::LoadFingerprint, Option::<&str>::None)
+            .to_owned(),
+    )
+    .await
+}
+
+/// Persists a quarantine against `plugin_id`: the reason, the time, and the
+/// binary `fingerprint` it failed under (so a later, different binary lifts it).
+/// Also clears any load marker, since the attempt is now resolved. A quarantined
+/// plugin is skipped at boot until it is re-enabled or the binary changes.
+pub async fn quarantine(
+    db: &Db,
+    plugin_id: &str,
+    reason: &str,
+    fingerprint: &str,
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    update_one(
+        db,
+        plugin_id,
+        Query::update()
+            .value(LateritePlugins::QuarantinedReason, reason)
+            .value(LateritePlugins::QuarantinedAt, now)
+            .value(LateritePlugins::QuarantinedFingerprint, fingerprint)
+            .value(LateritePlugins::LoadFingerprint, Option::<&str>::None)
+            .to_owned(),
+    )
+    .await
+}
+
+/// Lifts a plugin's quarantine (clears the reason, time, and fingerprint).
+async fn clear_quarantine(db: &Db, plugin_id: &str) -> anyhow::Result<()> {
+    update_one(
+        db,
+        plugin_id,
+        Query::update()
+            .value(LateritePlugins::QuarantinedReason, Option::<&str>::None)
+            .value(LateritePlugins::QuarantinedAt, Option::<&str>::None)
+            .value(
+                LateritePlugins::QuarantinedFingerprint,
+                Option::<&str>::None,
+            )
+            .to_owned(),
+    )
+    .await
+}
+
+/// Applies an update to one plugin row, stamping `updated_at` and scoping to
+/// `plugin_id`. The caller supplies the column values to set.
+async fn update_one(
+    db: &Db,
+    plugin_id: &str,
+    mut stmt: sea_query::UpdateStatement,
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    stmt.table(LateritePlugins::Table)
+        .value(LateritePlugins::UpdatedAt, now)
+        .and_where(Expr::col(LateritePlugins::PluginId).eq(plugin_id));
+    let (sql, values) = build(db.backend, stmt);
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// The ids and reasons of currently-quarantined plugins. The boot skips these and
+/// reports the reason.
+pub async fn quarantined(db: &Db) -> anyhow::Result<Vec<(String, String)>> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                LateritePlugins::PluginId,
+                LateritePlugins::QuarantinedReason,
+            ])
+            .from(LateritePlugins::Table)
+            .and_where(Expr::col(LateritePlugins::QuarantinedReason).is_not_null())
+            .order_by(LateritePlugins::PluginId, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let id = r.get_text("plugin_id").unwrap_or_default();
+            let reason = r
+                .get_text_opt("quarantined_reason")
+                .unwrap_or_default()
+                .unwrap_or_default();
+            (id, reason)
+        })
+        .collect())
+}
+
+/// What [`reconcile_boot`] changed, for the boot log.
+pub struct ReconcileReport {
+    /// Plugins auto-quarantined because their init crashed the previous boot.
+    pub crashed: Vec<String>,
+    /// Plugins whose quarantine was lifted because the binary changed.
+    pub cleared: Vec<String>,
+}
+
+/// Reconciles the journal against the current binary `fingerprint` at boot,
+/// before deciding what loads:
+///
+/// - A load marker equal to `fingerprint` means that plugin's init took the
+///   process down last boot under this same binary: quarantine it.
+/// - A load marker from a different binary is a stale attempt: clear it and let
+///   the plugin try again.
+/// - A quarantine recorded under a different binary is lifted: a new build may
+///   have fixed the fault.
+pub async fn reconcile_boot(db: &Db, fingerprint: &str) -> anyhow::Result<ReconcileReport> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                LateritePlugins::PluginId,
+                LateritePlugins::LoadFingerprint,
+                LateritePlugins::QuarantinedReason,
+                LateritePlugins::QuarantinedFingerprint,
+            ])
+            .from(LateritePlugins::Table)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+
+    let mut crashed = Vec::new();
+    let mut cleared = Vec::new();
+    for r in &rows {
+        let id = r.get_text("plugin_id").unwrap_or_default();
+        let load_fp = r.get_text_opt("load_fingerprint").unwrap_or_default();
+        let q_reason = r.get_text_opt("quarantined_reason").unwrap_or_default();
+        let q_fp = r
+            .get_text_opt("quarantined_fingerprint")
+            .unwrap_or_default();
+
+        if load_fp.as_deref() == Some(fingerprint) {
+            quarantine(db, &id, CRASH_REASON, fingerprint).await?;
+            crashed.push(id);
+            continue;
+        }
+        if load_fp.is_some() {
+            clear_loading(db, &id).await?;
+        }
+        if q_reason.is_some() && q_fp.as_deref() != Some(fingerprint) {
+            clear_quarantine(db, &id).await?;
+            cleared.push(id);
+        }
+    }
+    Ok(ReconcileReport { crashed, cleared })
+}
+
 /// One plugin row as the screen shows it: its id, installed version, and a
 /// status. `quarantined` (a reason recorded by the system) outranks the
 /// operator's `enabled` intent, since a quarantined plugin does not load however
@@ -330,5 +537,67 @@ mod tests {
         let shop = plugins.iter().find(|p| p.id == "acme.shop").unwrap();
         assert!(!blog.enabled, "existing disabled state preserved");
         assert!(shop.enabled, "new plugin defaults enabled");
+    }
+
+    #[tokio::test]
+    async fn a_load_marker_from_the_same_binary_quarantines_the_plugin() {
+        let (db, _guard) =
+            laterite_core::testing::connect_test(&[PluginsModule.migrations()]).await;
+        record_roster(&db, ["acme.crash"]).await.unwrap();
+        // The previous boot marked it loading under fp1 and never cleared it: its
+        // init took the process down. This boot runs the same binary.
+        mark_loading(&db, "acme.crash", "fp1").await.unwrap();
+        let report = reconcile_boot(&db, "fp1").await.unwrap();
+        assert_eq!(report.crashed, vec!["acme.crash".to_string()]);
+        assert!(report.cleared.is_empty());
+        let q = quarantined(&db).await.unwrap();
+        assert_eq!(
+            q,
+            vec![("acme.crash".to_string(), CRASH_REASON.to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cleanly_loaded_plugin_is_not_quarantined() {
+        let (db, _guard) =
+            laterite_core::testing::connect_test(&[PluginsModule.migrations()]).await;
+        record_roster(&db, ["acme.ok"]).await.unwrap();
+        mark_loading(&db, "acme.ok", "fp1").await.unwrap();
+        clear_loading(&db, "acme.ok").await.unwrap();
+        let report = reconcile_boot(&db, "fp1").await.unwrap();
+        assert!(report.crashed.is_empty());
+        assert!(quarantined(&db).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_load_marker_from_an_old_binary_is_cleared_not_quarantined() {
+        let (db, _guard) =
+            laterite_core::testing::connect_test(&[PluginsModule.migrations()]).await;
+        record_roster(&db, ["acme.p"]).await.unwrap();
+        // Marked under an old binary; the running binary differs, so the marker is
+        // stale (a fresh build), not a same-binary crash.
+        mark_loading(&db, "acme.p", "old-fp").await.unwrap();
+        let report = reconcile_boot(&db, "new-fp").await.unwrap();
+        assert!(report.crashed.is_empty());
+        assert!(quarantined(&db).await.unwrap().is_empty());
+        // The marker was cleared, so reconciling again finds nothing to act on.
+        let again = reconcile_boot(&db, "new-fp").await.unwrap();
+        assert!(again.crashed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn quarantine_persists_under_the_same_binary_and_lifts_on_a_new_one() {
+        let (db, _guard) =
+            laterite_core::testing::connect_test(&[PluginsModule.migrations()]).await;
+        record_roster(&db, ["acme.q"]).await.unwrap();
+        quarantine(&db, "acme.q", "boom", "fp1").await.unwrap();
+        // Same binary: the quarantine stands.
+        let same = reconcile_boot(&db, "fp1").await.unwrap();
+        assert!(same.cleared.is_empty());
+        assert_eq!(quarantined(&db).await.unwrap().len(), 1);
+        // A new binary may have fixed the fault: the quarantine is lifted.
+        let changed = reconcile_boot(&db, "fp2").await.unwrap();
+        assert_eq!(changed.cleared, vec!["acme.q".to_string()]);
+        assert!(quarantined(&db).await.unwrap().is_empty());
     }
 }
