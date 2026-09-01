@@ -105,7 +105,7 @@ impl Registry {
             .unwrap_or(0);
         let mut resolved: Vec<&Entry> = entries[start..].iter().collect();
         // Stable sort, so equal priorities keep insertion (dependency) order.
-        resolved.sort_by(|a, b| b.priority.cmp(&a.priority));
+        resolved.sort_by_key(|a| std::cmp::Reverse(a.priority));
         resolved
             .into_iter()
             .map(|e| Contribution {
@@ -141,7 +141,7 @@ impl Registry {
             .unwrap_or(0);
         let mut kept: Vec<Entry> = entries.into_iter().skip(start).collect();
         // Stable sort, so equal priorities keep insertion (dependency) order.
-        kept.sort_by(|a, b| b.priority.cmp(&a.priority));
+        kept.sort_by_key(|a| std::cmp::Reverse(a.priority));
         kept.into_iter()
             .map(|e| *e.item.downcast::<T>().expect("keyed by TypeId::of::<T>"))
             .collect()
