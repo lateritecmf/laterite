@@ -3,7 +3,6 @@
 {% block content %}
 <div class="lat-toolbar"><h1>Preferences</h1></div>
 <div class="lat-card" style="max-width:620px">
-  {% if saved %}<div class="lat-alert lat-alert--ok">Your preferences were saved.</div>{% endif %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ shell.base }}/preferences">
     {% include "_csrf.html" %}

@@ -1159,25 +1159,13 @@ async fn settings_update(
     }
 }
 
-#[derive(Deserialize)]
-struct PreferencesQuery {
-    saved: Option<String>,
-}
-
 /// The self-service Preferences screen for the signed-in operator.
 async fn preferences_form(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
-    Query(query): Query<PreferencesQuery>,
 ) -> Response {
-    render(preferences_view(
-        &shell,
-        &user,
-        state.timezone,
-        query.saved.is_some(),
-        None,
-    ))
+    render(preferences_view(&shell, &user, state.timezone, None))
 }
 
 #[derive(Deserialize)]
@@ -1189,6 +1177,7 @@ async fn preferences_update(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
     Form(form): Form<PreferencesForm>,
 ) -> Response {
     let trimmed = form.timezone.trim();
@@ -1202,13 +1191,13 @@ async fn preferences_update(
             &shell,
             &user,
             state.timezone,
-            false,
             Some("That is not a recognised timezone."),
         ));
     };
     match state.auth.set_user_timezone(user.user.id, stored).await {
         Ok(()) => {
-            Redirect::to(&format!("{}/preferences?saved=1", state.admin_path)).into_response()
+            session.push_flash(session::FlashLevel::Success, "Preferences saved.");
+            Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
         }
         Err(_) => render_error(),
     }
@@ -1221,7 +1210,6 @@ fn preferences_view(
     shell: &Shell,
     user: &AuthenticatedUser,
     default_tz: Tz,
-    saved: bool,
     error: Option<&str>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
@@ -1238,7 +1226,6 @@ fn preferences_view(
         effective_tz: shell.tz.name().to_string(),
         default_tz: default_tz.name().to_string(),
         inherits: current.is_none(),
-        saved,
         error: error.map(|e| e.to_string()),
     }
 }
@@ -1386,7 +1373,6 @@ struct PreferencesTemplate {
     default_tz: String,
     /// Whether the operator currently inherits the default (no preference set).
     inherits: bool,
-    saved: bool,
     error: Option<String>,
 }
 
