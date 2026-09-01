@@ -103,6 +103,9 @@ pub(crate) struct AdminState {
     /// The field-type registry (built-ins plus contributions): resolves a form
     /// descriptor's type key to its rendering + behaviour. See [`field`].
     field_types: Arc<field::FieldRegistry>,
+    /// The column-type registry: resolves a list column's type key to its cell
+    /// rendering. Sibling to `field_types`; shares the override resolver.
+    column_types: Arc<list::ColumnRegistry>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -125,6 +128,7 @@ impl AdminState {
             app_name: "Laterite".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
+            column_types: Arc::new(list::builtin_column_registry()),
             overrides: Arc::new(field::NoOverrides),
         }
     }
@@ -533,6 +537,7 @@ pub fn router(
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field::builtin_registry()),
+        column_types: Arc::new(list::builtin_column_registry()),
         overrides: Arc::new(field::NoOverrides),
     };
 
@@ -1492,6 +1497,7 @@ mod tests {
             app_name: "Configured Name".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
+            column_types: Arc::new(list::builtin_column_registry()),
             overrides: Arc::new(field::NoOverrides),
         };
 

@@ -17,7 +17,7 @@
       {% else %}
       {% for row in rows %}
       <tr>
-        {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+        {% for cell in row.cells %}<td>{{ cell|safe }}</td>{% endfor %}
         {% if let Some(base) = edit_base %}<td class="lat-table__actions"><a href="{{ base }}/{{ row.id }}/edit">Edit</a></td>{% endif %}
       </tr>
       {% endfor %}

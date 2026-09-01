@@ -8,6 +8,9 @@
 //! The admin is inherently generic, so unlike the typed, compile-time-checked
 //! queries in `laterite-auth`, list queries are built and checked at runtime.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use askama::Template;
 use axum::response::Response;
 use chrono::DateTime;
@@ -15,8 +18,10 @@ use chrono_tz::Tz;
 use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
 use laterite_core::{AnyRowExt, Db};
 use sea_query::{Alias, Expr, Order, Query};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+use crate::field::{OverrideResolver, OverrideScope, Surface};
+use crate::html::Markup;
 use crate::sql::valid_ident;
 use crate::{render, render_error, AdminState};
 
@@ -28,29 +33,14 @@ pub enum SortDir {
     Desc,
 }
 
-/// How a list column's raw value is rendered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ColumnKind {
-    /// A plain string (the default).
-    #[default]
-    Text,
-    /// A UTC timestamp shown as date and time in the display timezone.
-    DateTime,
-    /// A UTC timestamp shown as a date in the display timezone.
-    Date,
-    /// A UTC timestamp shown as a time in the display timezone.
-    Time,
-    /// A boolean shown as Yes/No.
-    Bool,
-}
-
-/// One column of a list view: the source field, its display label, and how the
-/// value is rendered.
+/// One column of a list view: the source field, its display label, and its
+/// column-type key (resolved through the column-type registry).
 #[derive(Debug, Clone)]
 pub struct ListColumn {
     pub field: String,
     pub label: String,
-    pub kind: ColumnKind,
+    /// The column-type registry key (`text`, `date`, `boolean`, `status_pill`, ...).
+    pub column_type: String,
 }
 
 impl ListColumn {
@@ -58,33 +48,243 @@ impl ListColumn {
         Self {
             field: field.to_string(),
             label: label.to_string(),
-            kind: ColumnKind::Text,
+            column_type: "text".to_string(),
         }
     }
 
-    /// Render this column as a date and time in the display timezone.
-    pub fn datetime(mut self) -> Self {
-        self.kind = ColumnKind::DateTime;
+    fn of(mut self, column_type: &str) -> Self {
+        self.column_type = column_type.to_string();
         self
     }
 
-    /// Render this column as a date in the display timezone.
-    pub fn date(mut self) -> Self {
-        self.kind = ColumnKind::Date;
-        self
+    /// Render as a date and time in the display timezone.
+    pub fn datetime(self) -> Self {
+        self.of("datetime")
     }
+    /// Render as a date in the display timezone.
+    pub fn date(self) -> Self {
+        self.of("date")
+    }
+    /// Render as a time in the display timezone.
+    pub fn time(self) -> Self {
+        self.of("time")
+    }
+    /// Render a boolean as Yes/No.
+    pub fn yes_no(self) -> Self {
+        self.of("boolean")
+    }
+    /// Render as a coloured status pill.
+    pub fn pill(self) -> Self {
+        self.of("status_pill")
+    }
+}
 
-    /// Render this column as a time in the display timezone.
-    pub fn time(mut self) -> Self {
-        self.kind = ColumnKind::Time;
-        self
-    }
+/// The per-cell state a column type renders from: the raw (text-cast) value and
+/// the display timezone for date formatting.
+pub struct CellCx<'a> {
+    pub value: &'a str,
+    pub tz: Tz,
+}
 
-    /// Render this boolean column as Yes/No.
-    pub fn yes_no(mut self) -> Self {
-        self.kind = ColumnKind::Bool;
-        self
+/// A rendered cell's serialisable payload: raw value, display text, and any
+/// richer data (a status pill's slug), so an override presents the same data.
+#[derive(Serialize)]
+pub struct CellVm {
+    pub view_key: String,
+    pub value: String,
+    pub display: String,
+    pub data: serde_json::Value,
+}
+
+/// A column type: how a list cell renders. The list counterpart of a field type,
+/// sharing [`Markup`] and the override resolver ([`Surface::Column`]).
+pub trait ColumnType: Send + Sync + 'static {
+    fn view_key(&self) -> &'static str;
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm;
+    fn render_default(&self, vm: &CellVm) -> Markup;
+}
+
+/// The column-type registry, keyed by [`ColumnType::view_key`].
+pub type ColumnRegistry = HashMap<String, Arc<dyn ColumnType>>;
+
+/// Renders a cell: an override if the resolver supplies one, else the default.
+pub(crate) fn render_cell(
+    ct: &dyn ColumnType,
+    resolver: &dyn OverrideResolver,
+    scope: &OverrideScope<'_>,
+    cx: &CellCx<'_>,
+) -> Markup {
+    let vm = ct.view_model(cx);
+    match resolver.render_override(scope, &serde_json::to_value(&vm).unwrap_or_default()) {
+        Some(Ok(html)) => Markup::from_override(html),
+        Some(Err(_)) | None => ct.render_default(&vm),
     }
+}
+
+pub(crate) fn builtin_column_types() -> Vec<Arc<dyn ColumnType>> {
+    vec![
+        Arc::new(TextColumn),
+        Arc::new(DateTimeColumn),
+        Arc::new(DateColumn),
+        Arc::new(TimeColumn),
+        Arc::new(BoolColumn),
+        Arc::new(StatusPillColumn),
+    ]
+}
+
+/// The column registry seeded with the built-in types.
+pub(crate) fn builtin_column_registry() -> ColumnRegistry {
+    builtin_column_types()
+        .into_iter()
+        .map(|c| (c.view_key().to_string(), c))
+        .collect()
+}
+
+#[derive(Template)]
+#[template(path = "cells/text.html")]
+struct CellTextTmpl<'a> {
+    display: &'a str,
+}
+
+/// The view-model for a text-like cell: raw value plus its display text.
+fn text_cell(view_key: &str, value: &str, display: String) -> CellVm {
+    CellVm {
+        view_key: view_key.to_string(),
+        value: value.to_string(),
+        display,
+        data: serde_json::Value::Null,
+    }
+}
+
+fn render_text(vm: &CellVm) -> Markup {
+    Markup::from_template(&CellTextTmpl {
+        display: &vm.display,
+    })
+    .unwrap_or_default()
+}
+
+/// Formats a stored UTC RFC3339 timestamp in `tz`; an unparseable value passes
+/// through unchanged.
+fn format_ts(raw: &str, tz: Tz, pattern: &str) -> String {
+    match DateTime::parse_from_rfc3339(raw) {
+        Ok(dt) => dt.with_timezone(&tz).format(pattern).to_string(),
+        Err(_) => raw.to_string(),
+    }
+}
+
+struct TextColumn;
+impl ColumnType for TextColumn {
+    fn view_key(&self) -> &'static str {
+        "text"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        text_cell("text", cx.value, cx.value.to_string())
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        render_text(vm)
+    }
+}
+
+struct DateTimeColumn;
+impl ColumnType for DateTimeColumn {
+    fn view_key(&self) -> &'static str {
+        "datetime"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        text_cell(
+            "datetime",
+            cx.value,
+            format_ts(cx.value, cx.tz, "%-d %b %Y, %H:%M"),
+        )
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        render_text(vm)
+    }
+}
+
+struct DateColumn;
+impl ColumnType for DateColumn {
+    fn view_key(&self) -> &'static str {
+        "date"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        text_cell("date", cx.value, format_ts(cx.value, cx.tz, "%-d %b %Y"))
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        render_text(vm)
+    }
+}
+
+struct TimeColumn;
+impl ColumnType for TimeColumn {
+    fn view_key(&self) -> &'static str {
+        "time"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        text_cell("time", cx.value, format_ts(cx.value, cx.tz, "%H:%M"))
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        render_text(vm)
+    }
+}
+
+struct BoolColumn;
+impl ColumnType for BoolColumn {
+    fn view_key(&self) -> &'static str {
+        "boolean"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        let display = match cx.value {
+            "1" | "true" => "Yes",
+            "0" | "false" | "" => "No",
+            other => other,
+        };
+        text_cell("boolean", cx.value, display.to_string())
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        render_text(vm)
+    }
+}
+
+#[derive(Template)]
+#[template(path = "cells/status.html")]
+struct CellStatusTmpl<'a> {
+    label: &'a str,
+    slug: &'a str,
+}
+
+/// A status shown as a coloured pill: the first Markup-bearing cell.
+struct StatusPillColumn;
+impl ColumnType for StatusPillColumn {
+    fn view_key(&self) -> &'static str {
+        "status_pill"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        CellVm {
+            view_key: "status_pill".to_string(),
+            value: cx.value.to_string(),
+            display: cx.value.to_string(),
+            data: serde_json::json!({ "slug": status_slug(cx.value) }),
+        }
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        let slug = vm.data.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+        Markup::from_template(&CellStatusTmpl {
+            label: &vm.display,
+            slug,
+        })
+        .unwrap_or_default()
+    }
+}
+
+/// A CSS-safe modifier from a status value (lowercased, non-alphanumerics to `-`).
+fn status_slug(value: &str) -> String {
+    value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// A list view descriptor: which table, which columns, default ordering, page
@@ -200,34 +400,6 @@ fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
     row.get_text_opt(column).ok().flatten().unwrap_or_default()
 }
 
-/// Formats a raw cell value for display according to its column kind. Timestamps
-/// are stored UTC; date/time kinds convert to `tz` and format human-readably.
-/// Unparseable values fall through unchanged.
-fn format_cell(raw: &str, kind: ColumnKind, tz: Tz) -> String {
-    match kind {
-        ColumnKind::Text => raw.to_string(),
-        ColumnKind::Bool => match raw {
-            "1" | "true" => "Yes".to_string(),
-            "0" | "false" | "" => "No".to_string(),
-            other => other.to_string(),
-        },
-        ColumnKind::DateTime | ColumnKind::Date | ColumnKind::Time => {
-            match DateTime::parse_from_rfc3339(raw) {
-                Ok(dt) => {
-                    let local = dt.with_timezone(&tz);
-                    let pattern = match kind {
-                        ColumnKind::Date => "%-d %b %Y",
-                        ColumnKind::Time => "%H:%M",
-                        _ => "%-d %b %Y, %H:%M",
-                    };
-                    local.format(pattern).to_string()
-                }
-                Err(_) => raw.to_string(),
-            }
-        }
-    }
-}
-
 /// Renders a list view for the given config.
 pub(crate) async fn handle(
     state: &AdminState,
@@ -249,7 +421,25 @@ pub(crate) async fn handle(
                         .cells
                         .iter()
                         .zip(&config.columns)
-                        .map(|(raw, col)| format_cell(raw, col.kind, shell.tz))
+                        .map(|(raw, col)| {
+                            let cx = CellCx {
+                                value: raw,
+                                tz: shell.tz,
+                            };
+                            let scope = OverrideScope {
+                                surface: Surface::Column,
+                                view_key: &col.column_type,
+                                resource: Some(&config.entity),
+                                field: Some(&col.field),
+                            };
+                            match state.column_types.get(&col.column_type) {
+                                Some(ct) => {
+                                    render_cell(ct.as_ref(), state.overrides.as_ref(), &scope, &cx)
+                                        .into_string()
+                                }
+                                None => String::new(),
+                            }
+                        })
                         .collect(),
                 })
                 .collect();
@@ -305,26 +495,39 @@ mod tests {
     }
 
     #[test]
-    fn formats_cells_by_kind() {
+    fn column_types_format_their_cell_display() {
         let ist: Tz = "Asia/Kolkata".parse().unwrap();
+        let display =
+            |ct: &dyn ColumnType, value: &str, tz: Tz| ct.view_model(&CellCx { value, tz }).display;
         // 10:00 UTC is 15:30 in Asia/Kolkata (UTC+5:30)
         assert_eq!(
-            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::DateTime, ist),
+            display(&DateTimeColumn, "2026-08-13T10:00:00+00:00", ist),
             "13 Aug 2026, 15:30"
         );
         assert_eq!(
-            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::Date, Tz::UTC),
+            display(&DateColumn, "2026-08-13T10:00:00+00:00", Tz::UTC),
             "13 Aug 2026"
         );
         assert_eq!(
-            format_cell("2026-08-13T10:00:00+00:00", ColumnKind::Time, ist),
+            display(&TimeColumn, "2026-08-13T10:00:00+00:00", ist),
             "15:30"
         );
-        assert_eq!(format_cell("true", ColumnKind::Bool, Tz::UTC), "Yes");
-        assert_eq!(format_cell("false", ColumnKind::Bool, Tz::UTC), "No");
-        assert_eq!(format_cell("root", ColumnKind::Text, Tz::UTC), "root");
-        // unparseable timestamp falls through unchanged
-        assert_eq!(format_cell("n/a", ColumnKind::DateTime, Tz::UTC), "n/a");
+        assert_eq!(display(&BoolColumn, "true", Tz::UTC), "Yes");
+        assert_eq!(display(&BoolColumn, "false", Tz::UTC), "No");
+        assert_eq!(display(&TextColumn, "root", Tz::UTC), "root");
+        // An unparseable timestamp falls through unchanged.
+        assert_eq!(display(&DateTimeColumn, "n/a", Tz::UTC), "n/a");
+    }
+
+    #[test]
+    fn status_pill_renders_a_slugged_markup_span() {
+        let vm = StatusPillColumn.view_model(&CellCx {
+            value: "In Progress",
+            tz: Tz::UTC,
+        });
+        let html = StatusPillColumn.render_default(&vm).into_string();
+        assert!(html.contains(r#"class="lat-status lat-status--in-progress""#));
+        assert!(html.contains(">In Progress<"));
     }
 
     /// A fresh test database with the auth tables migrated in, on whichever
