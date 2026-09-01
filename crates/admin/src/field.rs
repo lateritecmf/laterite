@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use laterite_core::validation::Rule;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::html::Markup;
 
@@ -39,7 +39,8 @@ impl FieldValue {
 }
 
 /// Per-type options, resolved once at boot from the descriptor's options blob
-/// into a typed value cached for rendering. `text`/`textarea` carry none.
+/// into a typed value cached for rendering (the text field resolves its input
+/// variant, select its option list; textarea carries none).
 #[derive(Default)]
 pub struct ResolvedOptions(Option<Arc<dyn Any + Send + Sync>>);
 
@@ -106,7 +107,7 @@ pub trait FieldType: Send + Sync + 'static {
     }
 
     /// Rules this type always contributes, merged before the descriptor's own
-    /// (e.g. an `email` type contributes [`Rule::Email`]).
+    /// (e.g. the text field's `email` input contributes [`Rule::Email`]).
     fn intrinsic_rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
         Vec::new()
     }
@@ -196,9 +197,15 @@ pub(crate) fn render_field(
     }
 }
 
-/// The framework's built-in field types.
+/// The framework's built-in field types. The text field is constructed with the
+/// built-in input-type registry it delegates to.
 pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
-    vec![Arc::new(TextField), Arc::new(TextareaField)]
+    let inputs = Arc::new(builtin_input_registry());
+    vec![
+        Arc::new(TextField::new(inputs)),
+        Arc::new(TextareaField),
+        Arc::new(SelectField),
+    ]
 }
 
 /// The field registry seeded with the built-in types, keyed by [`FieldType::view_key`].
@@ -209,6 +216,75 @@ pub(crate) fn builtin_registry() -> FieldRegistry {
         .collect()
 }
 
+/// An input variant of the text field: its HTML `type` and the rules it
+/// contributes. The extension point a plugin adds to (a currency input, say) to
+/// build on the text field instead of reimplementing an input. Rendering addons
+/// (a currency symbol, a copy button) and per-field flags join as defaulted
+/// methods with the asset/island machinery.
+pub trait InputType: Send + Sync + 'static {
+    /// The registry key naming this input (`text`, `email`, `url`, `currency`).
+    fn key(&self) -> &'static str;
+    /// The HTML `type` attribute.
+    fn html_type(&self) -> &'static str {
+        "text"
+    }
+    /// Rules this input contributes (an `email` input adds [`Rule::Email`]).
+    fn rules(&self) -> Vec<Rule> {
+        Vec::new()
+    }
+}
+
+/// The registry the text field resolves its `input` option against.
+pub type InputRegistry = HashMap<String, Arc<dyn InputType>>;
+
+struct TextInput;
+impl InputType for TextInput {
+    fn key(&self) -> &'static str {
+        "text"
+    }
+}
+
+struct EmailInput;
+impl InputType for EmailInput {
+    fn key(&self) -> &'static str {
+        "email"
+    }
+    fn html_type(&self) -> &'static str {
+        "email"
+    }
+    fn rules(&self) -> Vec<Rule> {
+        vec![Rule::Email]
+    }
+}
+
+pub(crate) fn builtin_input_types() -> Vec<Arc<dyn InputType>> {
+    vec![Arc::new(TextInput), Arc::new(EmailInput)]
+}
+
+/// The input-type registry seeded with the built-in inputs.
+pub(crate) fn builtin_input_registry() -> InputRegistry {
+    builtin_input_types()
+        .into_iter()
+        .map(|i| (i.key().to_string(), i))
+        .collect()
+}
+
+/// The text field's typed options: which input variant to render.
+#[derive(Deserialize)]
+struct TextOptions {
+    #[serde(default = "default_input")]
+    input: String,
+}
+
+fn default_input() -> String {
+    "text".to_string()
+}
+
+/// The text field's resolved options: the input variant it renders as.
+struct TextResolved {
+    input: Arc<dyn InputType>,
+}
+
 #[derive(Template)]
 #[template(path = "fields/text.html")]
 struct TextTmpl<'a> {
@@ -216,24 +292,71 @@ struct TextTmpl<'a> {
     id: &'a str,
     value: &'a str,
     required: bool,
+    input_type: &'a str,
 }
 
-/// A single-line text input.
-pub(crate) struct TextField;
+/// A single-line text input. Its `input` option selects an [`InputType`] from
+/// the registry (text, email, ...; plugins add more) that drives the HTML type
+/// and intrinsic rules.
+pub(crate) struct TextField {
+    inputs: Arc<InputRegistry>,
+}
+
+impl TextField {
+    pub(crate) fn new(inputs: Arc<InputRegistry>) -> Self {
+        Self { inputs }
+    }
+    fn input_of<'a>(&self, opts: &'a ResolvedOptions) -> Option<&'a dyn InputType> {
+        opts.get::<TextResolved>().map(|r| r.input.as_ref())
+    }
+}
 
 impl FieldType for TextField {
     fn view_key(&self) -> &'static str {
         "text"
     }
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: TextOptions = if raw.is_null() {
+            TextOptions {
+                input: default_input(),
+            }
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        let input = self
+            .inputs
+            .get(&opts.input)
+            .cloned()
+            .ok_or_else(|| OptionsError(format!("unknown input type `{}`", opts.input)))?;
+        Ok(ResolvedOptions::new(TextResolved { input }))
+    }
+    fn intrinsic_rules(&self, opts: &ResolvedOptions) -> Vec<Rule> {
+        self.input_of(opts).map(|i| i.rules()).unwrap_or_default()
+    }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
-        scalar_vm("text", cx)
+        let html_type = self.input_of(cx.opts).map_or("text", |i| i.html_type());
+        FieldVm {
+            view_key: "text".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::json!({ "input_type": html_type }),
+        }
     }
     fn render_default(&self, vm: &FieldVm) -> Markup {
+        let input_type = vm
+            .data
+            .get("input_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("text");
         Markup::from_template(&TextTmpl {
             name: &vm.name,
             id: &vm.id,
             value: vm.value.as_text(),
             required: vm.required,
+            input_type,
         })
         .unwrap_or_default()
     }
@@ -269,6 +392,89 @@ impl FieldType for TextareaField {
     }
 }
 
+/// A `select` field's options: a list of value/label pairs.
+#[derive(Debug, Default, Deserialize)]
+struct SelectOptions {
+    #[serde(default)]
+    options: Vec<SelectOption>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SelectOption {
+    value: String,
+    /// Display text; defaults to the value when omitted.
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// One rendered option: label resolved, `selected` computed against the current
+/// value. Carried in the view-model so an override presents the same list.
+#[derive(Debug, Serialize, Deserialize)]
+struct OptionView {
+    value: String,
+    label: String,
+    selected: bool,
+}
+
+#[derive(Template)]
+#[template(path = "fields/select.html")]
+struct SelectTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    required: bool,
+    options: &'a [OptionView],
+}
+
+/// A dropdown over a fixed option list.
+pub(crate) struct SelectField;
+
+impl FieldType for SelectField {
+    fn view_key(&self) -> &'static str {
+        "select"
+    }
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: SelectOptions =
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let current = cx.value.as_text();
+        let views: Vec<OptionView> = cx
+            .opts
+            .get::<SelectOptions>()
+            .map(|o| {
+                o.options
+                    .iter()
+                    .map(|so| OptionView {
+                        value: so.value.clone(),
+                        label: so.label.clone().unwrap_or_else(|| so.value.clone()),
+                        selected: so.value == current,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        FieldVm {
+            view_key: "select".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::to_value(&views).unwrap_or_default(),
+        }
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let options: Vec<OptionView> = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&SelectTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            required: vm.required,
+            options: &options,
+        })
+        .unwrap_or_default()
+    }
+}
+
 /// The view-model common to scalar text-like fields (no per-type `data`).
 fn scalar_vm(view_key: &str, cx: &FieldCx<'_>) -> FieldVm {
     FieldVm {
@@ -297,12 +503,16 @@ mod tests {
         }
     }
 
+    fn text_field() -> TextField {
+        TextField::new(Arc::new(builtin_input_registry()))
+    }
+
     #[test]
     fn text_renders_its_value_escaped() {
         let opts = ResolvedOptions::none();
         let value = FieldValue::Text("a<b>&\"c".to_string());
         let markup = render_field(
-            &TextField,
+            &text_field(),
             &NoOverrides,
             &scope(),
             &cx("title", &value, &opts),
@@ -342,10 +552,56 @@ mod tests {
         // A resolver that never overrides yields the built-in markup unchanged.
         let opts = ResolvedOptions::none();
         let value = FieldValue::Text("x".to_string());
-        let vm = TextField.view_model(&cx("t", &value, &opts));
-        let direct = TextField.render_default(&vm);
-        let routed = render_field(&TextField, &NoOverrides, &scope(), &cx("t", &value, &opts));
+        let ft = text_field();
+        let vm = ft.view_model(&cx("t", &value, &opts));
+        let direct = ft.render_default(&vm);
+        let routed = render_field(&ft, &NoOverrides, &scope(), &cx("t", &value, &opts));
         assert_eq!(direct.as_str(), routed.as_str());
+    }
+
+    #[test]
+    fn text_input_email_sets_the_type_and_contributes_the_email_rule() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "input": "email" }))
+            .unwrap();
+        // The email input variant contributes the Email rule.
+        assert!(matches!(
+            field.intrinsic_rules(&opts).as_slice(),
+            [Rule::Email]
+        ));
+        let value = FieldValue::Text("a@b.test".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("email", &value, &opts));
+        assert!(markup.as_str().contains(r#"type="email""#));
+    }
+
+    #[test]
+    fn text_default_input_is_plain_text_with_no_extra_rule() {
+        let field = text_field();
+        let opts = field.resolve_options(&serde_json::Value::Null).unwrap();
+        assert!(field.intrinsic_rules(&opts).is_empty());
+        let value = FieldValue::Text("hi".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("name", &value, &opts));
+        assert!(markup.as_str().contains(r#"type="text""#));
+    }
+
+    #[test]
+    fn select_renders_options_with_the_current_value_selected() {
+        let raw = serde_json::json!({
+            "options": [{"value": "open", "label": "Open"}, {"value": "closed"}]
+        });
+        let opts = SelectField.resolve_options(&raw).unwrap();
+        let value = FieldValue::Text("closed".to_string());
+        let markup = render_field(
+            &SelectField,
+            &NoOverrides,
+            &scope(),
+            &cx("status", &value, &opts),
+        );
+        let html = markup.as_str();
+        assert!(html.contains(r#"<option value="open">Open</option>"#));
+        // The current value is selected; a missing label falls back to the value.
+        assert!(html.contains(r#"<option value="closed" selected>closed</option>"#));
     }
 
     fn scope<'a>() -> OverrideScope<'a> {

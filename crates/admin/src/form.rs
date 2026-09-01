@@ -7,9 +7,10 @@
 //! ([`laterite_core::validation`]); a failure re-renders the form with per-field
 //! messages instead of writing.
 //!
-//! This first slice supports scalar text fields (text and textarea widgets),
-//! which is enough for the roles screen it is dogfooded on. Typed and
-//! transforming fields (switches, selects, password hashing) are later widgets.
+//! Field types resolve through the registry ([`crate::field`]); `text`,
+//! `textarea`, `email`, and `select` ship built-in. Fields needing a typed
+//! stored value (a switch over a bool column, password hashing, relations)
+//! arrive with the typed-save contract.
 //!
 //! The primary key is a `bigint` auto-increment column the database assigns, so
 //! create inserts only the descriptor's fields and never sets the id. An entity
@@ -77,6 +78,12 @@ impl FormField {
         Self::of(name, label, "textarea")
     }
 
+    /// Sets the field type's typed options (the type validates them at render).
+    pub fn options(mut self, options: serde_json::Value) -> Self {
+        self.options = options;
+        self
+    }
+
     /// Requires a non-empty value in every mode.
     pub fn required(mut self) -> Self {
         self.rules.push(Rule::Required);
@@ -120,14 +127,6 @@ impl FormField {
         self.translatable = true;
         self
     }
-
-    /// Whether the field shows the required marker: any `Required` or
-    /// `RequiredOn` rule.
-    fn is_required(&self) -> bool {
-        self.rules
-            .iter()
-            .any(|r| matches!(r, Rule::Required | Rule::RequiredOn(_)))
-    }
 }
 
 /// A form descriptor: which table, its editable fields, the id column, and the
@@ -147,14 +146,40 @@ impl FormConfig {
             && valid_ident(&self.id_field)
             && self.fields.iter().all(|f| valid_ident(&f.name))
     }
+}
 
-    /// The validation rules for this form's fields, in field order.
-    fn field_rules(&self) -> Vec<FieldRules> {
-        self.fields
-            .iter()
-            .map(|f| FieldRules::new(f.name.clone(), f.label.clone(), f.rules.clone()))
-            .collect()
+/// Resolves a field's options and merges its type's intrinsic rules ahead of the
+/// descriptor's own (so an `email` type's `Email` rule applies without repeating
+/// it). Options are resolved per render for now; a boot cache can follow.
+fn resolved(state: &AdminState, f: &FormField) -> (ResolvedOptions, Vec<Rule>) {
+    match state.field_types.get(&f.field_type) {
+        Some(ft) => {
+            let opts = ft.resolve_options(&f.options).unwrap_or_default();
+            let mut rules = ft.intrinsic_rules(&opts);
+            rules.extend(f.rules.clone());
+            (opts, rules)
+        }
+        None => (ResolvedOptions::default(), f.rules.clone()),
     }
+}
+
+/// The merged validation rules for every field, in order.
+fn merged_field_rules(state: &AdminState, config: &FormConfig) -> Vec<FieldRules> {
+    config
+        .fields
+        .iter()
+        .map(|f| {
+            let (_, rules) = resolved(state, f);
+            FieldRules::new(f.name.clone(), f.label.clone(), rules)
+        })
+        .collect()
+}
+
+/// Whether any rule marks the field required.
+fn has_required(rules: &[Rule]) -> bool {
+    rules
+        .iter()
+        .any(|r| matches!(r, Rule::Required | Rule::RequiredOn(_)))
 }
 
 /// Renders an empty create form.
@@ -187,7 +212,7 @@ pub(crate) async fn create(
         &state.db,
         &config.entity,
         &config.id_field,
-        &config.field_rules(),
+        &merged_field_rules(state, config),
         &data,
         Mode::Create,
         None,
@@ -322,7 +347,7 @@ pub(crate) async fn update(
         &state.db,
         &config.entity,
         &config.id_field,
-        &config.field_rules(),
+        &merged_field_rules(state, config),
         &data,
         Mode::Update,
         Some(&id),
@@ -390,15 +415,14 @@ fn build(
         .iter()
         .map(|f| {
             let value = FieldValue::Text(values.get(&f.name).cloned().unwrap_or_default());
-            // Scalar types carry no options; typed options land with the first
-            // optioned type.
-            let opts = ResolvedOptions::none();
+            let (opts, rules) = resolved(state, f);
+            let required = has_required(&rules);
             let cx = FieldCx {
                 name: &f.name,
                 id: &f.name,
                 label: &f.label,
                 value: &value,
-                required: f.is_required(),
+                required,
                 opts: &opts,
             };
             let control = match state.field_types.get(&f.field_type) {
@@ -418,7 +442,7 @@ fn build(
                 id: f.name.clone(),
                 label: f.label.clone(),
                 control,
-                required: f.is_required(),
+                required,
                 errors: bag.messages(&f.name).to_vec(),
             }
         })
@@ -659,5 +683,45 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(count(&db).await, 1);
         assert!(body_of(resp).await.contains("already taken"));
+    }
+
+    #[tokio::test]
+    async fn text_email_input_rejects_a_bad_address_via_its_intrinsic_rule() {
+        let (db, _guard) = test_db().await;
+        let st = state(db.clone());
+        // The `name` column is a text field with the `email` input, which
+        // contributes Rule::Email without the descriptor listing it.
+        let cfg = FormConfig {
+            entity: "samples".to_string(),
+            title: "Sample".to_string(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![
+                FormField::text("code", "Code").required(),
+                FormField::of("name", "Email", "text")
+                    .options(serde_json::json!({ "input": "email" }))
+                    .required(),
+            ],
+        };
+
+        let resp = create(
+            &st,
+            &cfg,
+            data(&[("code", "c1"), ("name", "nope")]),
+            crate::Shell::test(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(count(&db).await, 0);
+
+        let resp = create(
+            &st,
+            &cfg,
+            data(&[("code", "c1"), ("name", "a@b.test")]),
+            crate::Shell::test(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(count(&db).await, 1);
     }
 }
