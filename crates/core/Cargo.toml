@@ -15,7 +15,7 @@ serde = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
-url = { workspace = true, optional = true }
+url = { workspace = true }
 uuid = { workspace = true, optional = true }
 
 [features]
@@ -27,7 +27,7 @@ mysql = ["sqlx/mysql"]
 sqlite = ["sqlx/sqlite"]
 # The multi-backend test harness (`laterite_core::testing`). Enabled by crates'
 # dev-dependencies, never in a production build.
-testing = ["dep:tokio", "dep:url", "dep:uuid"]
+testing = ["dep:tokio", "dep:uuid"]
 
 [dev-dependencies]
 serde_json.workspace = true

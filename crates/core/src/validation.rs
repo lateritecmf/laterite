@@ -50,6 +50,8 @@ pub enum Rule {
     Email,
     /// Parses as a number (integer or decimal). Skipped when empty.
     Numeric,
+    /// A syntactically valid absolute URL with a host. Skipped when empty.
+    Url,
     /// The value must not already exist in this field's column of the target
     /// table. On update, the edited row is ignored.
     Unique,
@@ -145,6 +147,9 @@ pub fn validate_fields(
                 Rule::Numeric if !trimmed.is_empty() && trimmed.parse::<f64>().is_err() => {
                     bag.add(&f.field, format!("{} must be a number.", f.label));
                 }
+                Rule::Url if !trimmed.is_empty() && !is_url(trimmed) => {
+                    bag.add(&f.field, format!("{} must be a valid URL.", f.label));
+                }
                 _ => {}
             }
         }
@@ -222,6 +227,12 @@ fn is_email(s: &str) -> bool {
     email_address::EmailAddress::is_valid(s)
 }
 
+/// Whether `s` is a syntactically valid absolute URL with a host, delegated to
+/// the `url` crate. Scheme-agnostic: an input type may narrow to http(s).
+fn is_url(s: &str) -> bool {
+    url::Url::parse(s).is_ok_and(|u| u.has_host())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +269,22 @@ mod tests {
         assert!(validate_fields(&fields, &data(&[("qty", "")]), Mode::Create).is_empty());
         let bag = validate_fields(&fields, &data(&[("qty", "abc")]), Mode::Create);
         assert_eq!(bag.messages("qty").len(), 1);
+    }
+
+    #[test]
+    fn url_rejects_non_urls_and_skips_blanks() {
+        let fields = [FieldRules::new("site", "Site", vec![Rule::Url])];
+        assert!(validate_fields(
+            &fields,
+            &data(&[("site", "https://example.com/x")]),
+            Mode::Create
+        )
+        .is_empty());
+        // Blank is skipped (pair with Required to forbid a missing value).
+        assert!(validate_fields(&fields, &data(&[("site", "")]), Mode::Create).is_empty());
+        // Schemeless / relative values fail.
+        let bag = validate_fields(&fields, &data(&[("site", "example.com")]), Mode::Create);
+        assert_eq!(bag.messages("site").len(), 1);
     }
 
     #[test]
