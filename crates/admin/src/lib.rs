@@ -696,6 +696,14 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             },
         ),
         (
+            "laterite.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                cache: "no-cache",
+                bytes: include_bytes!("../assets/laterite.js"),
+            },
+        ),
+        (
             "mark.svg",
             AdminAsset {
                 mime: "image/svg+xml",
