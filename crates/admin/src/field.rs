@@ -257,8 +257,36 @@ impl InputType for EmailInput {
     }
 }
 
+struct TelInput;
+impl InputType for TelInput {
+    fn key(&self) -> &'static str {
+        "tel"
+    }
+    fn html_type(&self) -> &'static str {
+        "tel"
+    }
+}
+
+struct NumberInput;
+impl InputType for NumberInput {
+    fn key(&self) -> &'static str {
+        "number"
+    }
+    fn html_type(&self) -> &'static str {
+        "number"
+    }
+    fn rules(&self) -> Vec<Rule> {
+        vec![Rule::Numeric]
+    }
+}
+
 pub(crate) fn builtin_input_types() -> Vec<Arc<dyn InputType>> {
-    vec![Arc::new(TextInput), Arc::new(EmailInput)]
+    vec![
+        Arc::new(TextInput),
+        Arc::new(EmailInput),
+        Arc::new(TelInput),
+        Arc::new(NumberInput),
+    ]
 }
 
 /// The input-type registry seeded with the built-in inputs.
@@ -583,6 +611,33 @@ mod tests {
         let value = FieldValue::Text("hi".to_string());
         let markup = render_field(&field, &NoOverrides, &scope(), &cx("name", &value, &opts));
         assert!(markup.as_str().contains(r#"type="text""#));
+    }
+
+    #[test]
+    fn text_number_input_sets_the_type_and_numeric_rule() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "input": "number" }))
+            .unwrap();
+        assert!(matches!(
+            field.intrinsic_rules(&opts).as_slice(),
+            [Rule::Numeric]
+        ));
+        let value = FieldValue::Text("42".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("qty", &value, &opts));
+        assert!(markup.as_str().contains(r#"type="number""#));
+    }
+
+    #[test]
+    fn text_tel_input_sets_the_type_with_no_rule() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "input": "tel" }))
+            .unwrap();
+        assert!(field.intrinsic_rules(&opts).is_empty());
+        let value = FieldValue::Text(String::new());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("phone", &value, &opts));
+        assert!(markup.as_str().contains(r#"type="tel""#));
     }
 
     #[test]

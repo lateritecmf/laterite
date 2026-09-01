@@ -48,6 +48,8 @@ pub enum Rule {
     MaxLength(usize),
     /// A syntactically plausible email address. Skipped when empty.
     Email,
+    /// Parses as a number (integer or decimal). Skipped when empty.
+    Numeric,
     /// The value must not already exist in this field's column of the target
     /// table. On update, the edited row is ignored.
     Unique,
@@ -139,6 +141,9 @@ pub fn validate_fields(
                         &f.field,
                         format!("{} must be a valid email address.", f.label),
                     );
+                }
+                Rule::Numeric if !trimmed.is_empty() && trimmed.parse::<f64>().is_err() => {
+                    bag.add(&f.field, format!("{} must be a number.", f.label));
                 }
                 _ => {}
             }
@@ -244,6 +249,15 @@ mod tests {
         assert!(bag.messages("name")[0].contains("at most 5"));
         assert_eq!(bag.messages("email").len(), 1);
         assert!(bag.messages("email")[0].contains("valid email"));
+    }
+
+    #[test]
+    fn numeric_rejects_non_numbers_and_skips_blanks() {
+        let fields = [FieldRules::new("qty", "Qty", vec![Rule::Numeric])];
+        assert!(validate_fields(&fields, &data(&[("qty", "12.5")]), Mode::Create).is_empty());
+        assert!(validate_fields(&fields, &data(&[("qty", "")]), Mode::Create).is_empty());
+        let bag = validate_fields(&fields, &data(&[("qty", "abc")]), Mode::Create);
+        assert_eq!(bag.messages("qty").len(), 1);
     }
 
     #[test]
