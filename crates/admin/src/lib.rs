@@ -106,6 +106,8 @@ pub(crate) struct AdminState {
     /// The column-type registry: resolves a list column's type key to its cell
     /// rendering. Sibling to `field_types`; shares the override resolver.
     column_types: Arc<list::ColumnRegistry>,
+    /// Embedded admin assets served under `{admin}/assets/` (see [`AdminAsset`]).
+    assets: Arc<AssetRegistry>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -129,6 +131,7 @@ impl AdminState {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            assets: Arc::new(builtin_assets()),
             overrides: Arc::new(field::NoOverrides),
         }
     }
@@ -538,6 +541,7 @@ pub fn router(
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field::builtin_registry()),
         column_types: Arc::new(list::builtin_column_registry()),
+        assets: Arc::new(builtin_assets()),
         overrides: Arc::new(field::NoOverrides),
     };
 
@@ -604,16 +608,7 @@ pub fn router(
             &format!("{admin_path}/setup"),
             get(setup_form).post(setup_submit),
         )
-        .route(&format!("{admin_path}/assets/laterite.css"), get(asset_css))
-        .route(&format!("{admin_path}/assets/mark.svg"), get(asset_mark))
-        .route(
-            &format!("{admin_path}/assets/mark.png"),
-            get(asset_mark_png),
-        )
-        .route(
-            &format!("{admin_path}/assets/fonts/{{file}}"),
-            get(asset_font),
-        )
+        .route(&format!("{admin_path}/assets/{{*path}}"), get(serve_asset))
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
         // The CSRF origin gate wraps every route (login and setup included); the
@@ -669,62 +664,97 @@ fn prefix_resource(admin_path: &str, resource: &mut Resource) {
     }
 }
 
-/// Serves the embedded brick mark (SVG badge, used for the favicon).
-async fn asset_mark() -> Response {
-    (
-        [(header::CONTENT_TYPE, "image/svg+xml")],
-        include_str!("../assets/mark.svg"),
-    )
-        .into_response()
+/// One embedded admin asset served by [`serve_asset`].
+pub(crate) struct AdminAsset {
+    pub mime: &'static str,
+    pub cache: &'static str,
+    pub bytes: &'static [u8],
 }
 
-/// Serves the embedded brick mark (PNG, the visible logo).
-async fn asset_mark_png() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "image/png"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-        ],
-        &include_bytes!("../assets/mark.png")[..],
-    )
-        .into_response()
-}
+/// Admin assets served under `{admin}/assets/`, keyed by path. An open registry:
+/// field types and plugins contribute their own (wired when the first one does).
+pub(crate) type AssetRegistry = HashMap<&'static str, AdminAsset>;
 
-/// Serves the embedded admin stylesheet.
-async fn asset_css() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            // The stylesheet is embedded in the binary, so it changes only when
-            // the binary does. Revalidating on each load keeps a browser from
-            // serving a stale copy after an upgrade.
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        include_str!("../assets/laterite.css"),
-    )
-        .into_response()
-}
+const ASSET_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
-/// Serves an embedded webfont by file name.
-async fn asset_font(Path(file): Path<String>) -> Response {
-    let bytes: &[u8] = match file.as_str() {
-        "space-grotesk-500.woff2" => &include_bytes!("../assets/fonts/space-grotesk-500.woff2")[..],
-        "space-grotesk-600.woff2" => &include_bytes!("../assets/fonts/space-grotesk-600.woff2")[..],
-        "space-grotesk-700.woff2" => &include_bytes!("../assets/fonts/space-grotesk-700.woff2")[..],
-        "ibm-plex-sans-400.woff2" => &include_bytes!("../assets/fonts/ibm-plex-sans-400.woff2")[..],
-        "ibm-plex-sans-600.woff2" => &include_bytes!("../assets/fonts/ibm-plex-sans-600.woff2")[..],
-        "ibm-plex-mono-400.woff2" => &include_bytes!("../assets/fonts/ibm-plex-mono-400.woff2")[..],
-        "ibm-plex-mono-600.woff2" => &include_bytes!("../assets/fonts/ibm-plex-mono-600.woff2")[..],
-        _ => return not_found(),
-    };
-    (
-        [
-            (header::CONTENT_TYPE, "font/woff2"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
-        ],
+/// The framework's built-in assets: the stylesheet, brand marks, and webfonts.
+/// The stylesheet is `no-cache` (it changes with the binary and is referenced at
+/// a stable URL); fonts and marks are content-stable, so immutable.
+pub(crate) fn builtin_assets() -> AssetRegistry {
+    let font = |bytes: &'static [u8]| AdminAsset {
+        mime: "font/woff2",
+        cache: ASSET_IMMUTABLE,
         bytes,
-    )
-        .into_response()
+    };
+    HashMap::from([
+        (
+            "laterite.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                cache: "no-cache",
+                bytes: include_bytes!("../assets/laterite.css"),
+            },
+        ),
+        (
+            "mark.svg",
+            AdminAsset {
+                mime: "image/svg+xml",
+                cache: ASSET_IMMUTABLE,
+                bytes: include_bytes!("../assets/mark.svg"),
+            },
+        ),
+        (
+            "mark.png",
+            AdminAsset {
+                mime: "image/png",
+                cache: ASSET_IMMUTABLE,
+                bytes: include_bytes!("../assets/mark.png"),
+            },
+        ),
+        (
+            "fonts/space-grotesk-500.woff2",
+            font(include_bytes!("../assets/fonts/space-grotesk-500.woff2")),
+        ),
+        (
+            "fonts/space-grotesk-600.woff2",
+            font(include_bytes!("../assets/fonts/space-grotesk-600.woff2")),
+        ),
+        (
+            "fonts/space-grotesk-700.woff2",
+            font(include_bytes!("../assets/fonts/space-grotesk-700.woff2")),
+        ),
+        (
+            "fonts/ibm-plex-sans-400.woff2",
+            font(include_bytes!("../assets/fonts/ibm-plex-sans-400.woff2")),
+        ),
+        (
+            "fonts/ibm-plex-sans-600.woff2",
+            font(include_bytes!("../assets/fonts/ibm-plex-sans-600.woff2")),
+        ),
+        (
+            "fonts/ibm-plex-mono-400.woff2",
+            font(include_bytes!("../assets/fonts/ibm-plex-mono-400.woff2")),
+        ),
+        (
+            "fonts/ibm-plex-mono-600.woff2",
+            font(include_bytes!("../assets/fonts/ibm-plex-mono-600.woff2")),
+        ),
+    ])
+}
+
+/// Serves an embedded admin asset by path (public; no auth).
+async fn serve_asset(State(state): State<AdminState>, Path(path): Path<String>) -> Response {
+    match state.assets.get(path.as_str()) {
+        Some(asset) => (
+            [
+                (header::CONTENT_TYPE, asset.mime),
+                (header::CACHE_CONTROL, asset.cache),
+            ],
+            asset.bytes,
+        )
+            .into_response(),
+        None => not_found(),
+    }
 }
 
 /// Builds a resource's list, create, and edit routes as generic handlers that
@@ -1498,6 +1528,7 @@ mod tests {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            assets: Arc::new(builtin_assets()),
             overrides: Arc::new(field::NoOverrides),
         };
 
