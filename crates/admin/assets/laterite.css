@@ -213,6 +213,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-facts dt{font-size:var(--fs-11);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted);margin-bottom:2px}
 .lat-facts dd{margin:0;font-size:var(--fs-13);color:var(--text-body)}
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
+.lat-field__error{font-size:var(--fs-12);color:var(--danger);margin:4px 0 0}
 
 /* Cards */
 .lat-card{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:var(--card-pad)}

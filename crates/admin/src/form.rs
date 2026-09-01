@@ -3,6 +3,9 @@
 //! A [`FormConfig`] describes a table and its editable fields. Generic handlers
 //! render an empty form (new), a populated form (edit), and persist via dynamic
 //! insert/update SQL built from the descriptor. Values are always parameterized.
+//! A submission is checked by the framework validation engine
+//! ([`laterite_core::validation`]); a failure re-renders the form with per-field
+//! messages instead of writing.
 //!
 //! This first slice supports scalar text fields (text and textarea widgets),
 //! which is enough for the roles screen it is dogfooded on. Typed and
@@ -18,7 +21,8 @@ use std::collections::HashMap;
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
-use laterite_core::AnyRowExt;
+use laterite_core::validation::{validate, FieldRules, Mode, Rule};
+use laterite_core::{AnyRowExt, ErrorBag};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::sql::valid_ident;
@@ -30,14 +34,15 @@ pub enum WidgetKind {
     Textarea,
 }
 
-/// One editable field: the column, its label, its widget, whether required, and
-/// whether it holds translatable content.
+/// One editable field: the column, its label, its widget, the validation rules it
+/// carries, and whether it holds translatable content.
 #[derive(Debug, Clone)]
 pub struct FormField {
     pub name: String,
     pub label: String,
     pub widget: WidgetKind,
-    pub required: bool,
+    /// Validation rules run on submit (see [`laterite_core::validation`]).
+    pub rules: Vec<Rule>,
     /// Marks a field whose value is translatable content. A reserved seam: the
     /// framework stores the value verbatim; a content-translation plugin reads
     /// the flag to manage per-locale values.
@@ -50,7 +55,7 @@ impl FormField {
             name: name.to_string(),
             label: label.to_string(),
             widget: WidgetKind::Text,
-            required: false,
+            rules: Vec::new(),
             translatable: false,
         }
     }
@@ -62,8 +67,41 @@ impl FormField {
         }
     }
 
+    /// Requires a non-empty value in every mode.
     pub fn required(mut self) -> Self {
-        self.required = true;
+        self.rules.push(Rule::Required);
+        self
+    }
+
+    /// Requires a non-empty value in one mode only (for example a password set on
+    /// create but left unchanged on edit).
+    pub fn required_on(mut self, mode: Mode) -> Self {
+        self.rules.push(Rule::RequiredOn(mode));
+        self
+    }
+
+    /// Requires the value to be unique in this field's column (a DB probe that
+    /// ignores the edited row on update).
+    pub fn unique(mut self) -> Self {
+        self.rules.push(Rule::Unique);
+        self
+    }
+
+    /// Caps the value's length.
+    pub fn max_length(mut self, n: usize) -> Self {
+        self.rules.push(Rule::MaxLength(n));
+        self
+    }
+
+    /// Requires at least `n` characters when the value is non-empty.
+    pub fn min_length(mut self, n: usize) -> Self {
+        self.rules.push(Rule::MinLength(n));
+        self
+    }
+
+    /// Requires a syntactically valid email address.
+    pub fn email(mut self) -> Self {
+        self.rules.push(Rule::Email);
         self
     }
 
@@ -71,6 +109,14 @@ impl FormField {
     pub fn translatable(mut self) -> Self {
         self.translatable = true;
         self
+    }
+
+    /// Whether the field shows the required marker: any `Required` or
+    /// `RequiredOn` rule.
+    fn is_required(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|r| matches!(r, Rule::Required | Rule::RequiredOn(_)))
     }
 }
 
@@ -92,14 +138,12 @@ impl FormConfig {
             && self.fields.iter().all(|f| valid_ident(&f.name))
     }
 
-    fn missing_required(&self, data: &HashMap<String, String>) -> Option<&FormField> {
-        self.fields.iter().find(|f| {
-            f.required
-                && data
-                    .get(&f.name)
-                    .map(|v| v.trim().is_empty())
-                    .unwrap_or(true)
-        })
+    /// The validation rules for this form's fields, in field order.
+    fn field_rules(&self) -> Vec<FieldRules> {
+        self.fields
+            .iter()
+            .map(|f| FieldRules::new(f.name.clone(), f.label.clone(), f.rules.clone()))
+            .collect()
     }
 }
 
@@ -110,11 +154,13 @@ pub(crate) fn new_form(config: &FormConfig, shell: crate::Shell) -> Response {
         &format!("{}/new", config.base_path),
         None,
         &HashMap::new(),
+        &ErrorBag::default(),
         &shell,
     ))
 }
 
-/// Persists a new record, then redirects to the list.
+/// Persists a new record, then redirects to the list. Re-renders with per-field
+/// errors when validation fails.
 pub(crate) async fn create(
     state: &AdminState,
     config: &FormConfig,
@@ -124,14 +170,24 @@ pub(crate) async fn create(
     if !config.idents_valid() {
         return render_error();
     }
-    if let Some(field) = config.missing_required(&data) {
-        return render(build(
-            config,
-            &format!("{}/new", config.base_path),
-            Some(format!("{} is required.", field.label)),
-            &data,
-            &shell,
-        ));
+    let action = format!("{}/new", config.base_path);
+
+    let bag = match validate(
+        &state.db,
+        &config.entity,
+        &config.id_field,
+        &config.field_rules(),
+        &data,
+        Mode::Create,
+        None,
+    )
+    .await
+    {
+        Ok(bag) => bag,
+        Err(_) => return render_error(),
+    };
+    if !bag.is_empty() {
+        return render(build(config, &action, None, &data, &bag, &shell));
     }
 
     // The primary key is a database-assigned auto-increment id, so the insert
@@ -157,9 +213,10 @@ pub(crate) async fn create(
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
             config,
-            &format!("{}/new", config.base_path),
+            &action,
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
+            &ErrorBag::default(),
             &shell,
         )),
     }
@@ -223,11 +280,13 @@ pub(crate) async fn edit_form(
         &format!("{}/{}/edit", config.base_path, id),
         None,
         &values,
+        &ErrorBag::default(),
         &shell,
     ))
 }
 
-/// Persists an edited record, then redirects to the list.
+/// Persists an edited record, then redirects to the list. Re-renders with
+/// per-field errors when validation fails.
 pub(crate) async fn update(
     state: &AdminState,
     config: &FormConfig,
@@ -238,14 +297,24 @@ pub(crate) async fn update(
     if !config.idents_valid() {
         return render_error();
     }
-    if let Some(field) = config.missing_required(&data) {
-        return render(build(
-            config,
-            &format!("{}/{}/edit", config.base_path, id),
-            Some(format!("{} is required.", field.label)),
-            &data,
-            &shell,
-        ));
+    let action = format!("{}/{}/edit", config.base_path, id);
+
+    let bag = match validate(
+        &state.db,
+        &config.entity,
+        &config.id_field,
+        &config.field_rules(),
+        &data,
+        Mode::Update,
+        Some(&id),
+    )
+    .await
+    {
+        Ok(bag) => bag,
+        Err(_) => return render_error(),
+    };
+    if !bag.is_empty() {
+        return render(build(config, &action, None, &data, &bag, &shell));
     }
 
     // Scope the builder so it drops before the await, keeping the future `Send`.
@@ -272,9 +341,10 @@ pub(crate) async fn update(
         Ok(_) => Redirect::to(&config.base_path).into_response(),
         Err(_) => render(build(
             config,
-            &format!("{}/{}/edit", config.base_path, id),
+            &action,
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
+            &ErrorBag::default(),
             &shell,
         )),
     }
@@ -285,6 +355,7 @@ fn build(
     action: &str,
     error: Option<String>,
     values: &HashMap<String, String>,
+    bag: &ErrorBag,
     shell: &crate::Shell,
 ) -> FormTemplate {
     FormTemplate {
@@ -301,7 +372,8 @@ fn build(
                 label: f.label.clone(),
                 value: values.get(&f.name).cloned().unwrap_or_default(),
                 textarea: matches!(f.widget, WidgetKind::Textarea),
-                required: f.required,
+                required: f.is_required(),
+                errors: bag.messages(&f.name).to_vec(),
             })
             .collect(),
     }
@@ -313,6 +385,7 @@ struct FieldView {
     value: String,
     textarea: bool,
     required: bool,
+    errors: Vec<String>,
 }
 
 #[derive(Template)]
@@ -329,6 +402,7 @@ struct FormTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
     use laterite_core::strata::{
         async_trait, ColumnDef, CoreResult, Migration, MigrationSet, Schema, Table,
     };
@@ -370,7 +444,7 @@ mod tests {
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![
-                FormField::text("code", "Code").required(),
+                FormField::text("code", "Code").required().unique(),
                 FormField::text("name", "Name").required(),
             ],
         }
@@ -409,6 +483,20 @@ mod tests {
         row.get_text_opt("v").ok().flatten()
     }
 
+    async fn body_of(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    async fn count(db: &Db) -> i64 {
+        sqlx::query_scalar("select count(*) from samples")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+    }
+
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
             .iter()
@@ -429,7 +517,7 @@ mod tests {
             crate::Shell::test(),
         )
         .await;
-        assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
 
         assert_eq!(
             fetch_text(&db, "name", "editor").await.as_deref(),
@@ -454,6 +542,7 @@ mod tests {
             .await
             .expect("row should exist after create");
 
+        // The code is unchanged, so its unique rule must ignore the edited row.
         let resp = update(
             &st,
             &cfg,
@@ -462,7 +551,7 @@ mod tests {
             crate::Shell::test(),
         )
         .await;
-        assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
 
         assert_eq!(
             fetch_text(&db, "name", "editor").await.as_deref(),
@@ -471,7 +560,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_requires_required_fields() {
+    async fn create_re_renders_with_a_required_message_and_inserts_nothing() {
         let (db, _guard) = test_db().await;
         let cfg = config();
         let st = state(db.clone());
@@ -483,12 +572,36 @@ mod tests {
             crate::Shell::test(),
         )
         .await;
-        // Re-renders the form (200), does not redirect, and inserts nothing.
-        assert_eq!(resp.status(), axum::http::StatusCode::OK);
-        let count: i64 = sqlx::query_scalar("select count(*) from samples")
-            .fetch_one(&db.pool)
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
+        // Re-renders the form (200), does not redirect.
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(count(&db).await, 0);
+        // The per-field message is rendered.
+        assert!(body_of(resp).await.contains("Code is required."));
+    }
+
+    #[tokio::test]
+    async fn create_rejects_a_duplicate_unique_value() {
+        let (db, _guard) = test_db().await;
+        let cfg = config();
+        let st = state(db.clone());
+        create(
+            &st,
+            &cfg,
+            data(&[("code", "editor"), ("name", "Editor")]),
+            crate::Shell::test(),
+        )
+        .await;
+
+        // A second row with the same code is refused by the unique rule.
+        let resp = create(
+            &st,
+            &cfg,
+            data(&[("code", "editor"), ("name", "Other")]),
+            crate::Shell::test(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(count(&db).await, 1);
+        assert!(body_of(resp).await.contains("already taken"));
     }
 }
