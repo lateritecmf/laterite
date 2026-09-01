@@ -141,17 +141,6 @@ impl Bootstrap {
 
         let db = laterite_core::db::connect(&config.database).await?;
 
-        // Create the plugin-registry table up front so the operator's enable/disable
-        // choices can be read before deciding what loads. The built-in PluginsModule
-        // carries this same migration, applied idempotently in the load loop below.
-        laterite_core::migration::run(
-            &db.pool,
-            db.backend,
-            &[crate::plugins::PluginsModule.migrations()],
-        )
-        .await?;
-        let db_disabled = crate::plugins::disabled_ids(&db).await?;
-
         // Plugins (registered via `modules`) are quarantine-eligible; built-ins and
         // the app's own modules are load-critical. Capture the plugin ids before the
         // modules move into the registry.
@@ -160,6 +149,19 @@ impl Bootstrap {
             .iter()
             .map(|m| m.id().to_string())
             .collect();
+
+        // Create the plugin-registry table, record the compiled plugins in it, and
+        // read the operator's disabled set, all before deciding what loads. The
+        // built-in PluginsModule carries this same migration, applied idempotently in
+        // the load loop below.
+        laterite_core::migration::run(
+            &db.pool,
+            db.backend,
+            &[crate::plugins::PluginsModule.migrations()],
+        )
+        .await?;
+        crate::plugins::record_roster(&db, plugin_ids.iter().map(String::as_str)).await?;
+        let db_disabled = crate::plugins::disabled_ids(&db).await?;
 
         let mut registry = ModuleRegistry::new();
         for module in builtin_modules() {

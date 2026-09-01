@@ -18,7 +18,7 @@ pub mod bootstrap;
 pub mod form;
 mod icons;
 pub mod list;
-mod plugins;
+pub mod plugins;
 mod roles;
 pub mod settings;
 mod sql;
