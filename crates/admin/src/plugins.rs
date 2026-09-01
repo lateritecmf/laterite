@@ -4,9 +4,23 @@
 //! is the enable/disable service (applied on the next boot), and `list_plugins`
 //! feeds the admin screen. The `quarantined_*` columns hold the system's verdict
 //! (written by a later slice).
+//!
+//! The admin screen (`index`, `toggle`) lists the roster and lets an operator
+//! flip a plugin on or off; the change is an intent stored here and applied on
+//! the next boot, so the screen says so plainly.
+
+use askama::Template;
+use axum::extract::State;
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::{Extension, Form};
 
 use laterite_core::strata::*;
 use laterite_core::{Module, ModuleId};
+
+use crate::{render, render_error, AdminState, Shell};
+
+/// Permission gating the plugins screen and its toggle action.
+pub(crate) const MANAGE_PERMISSION: &str = "backend.manage_plugins";
 
 /// Stable id of this built-in module.
 pub const MODULE_ID: &str = "laterite.plugins";
@@ -198,6 +212,83 @@ async fn insert_row(db: &Db, id: &str, enabled: bool, now: &str) -> anyhow::Resu
         .execute(&db.pool)
         .await?;
     Ok(())
+}
+
+/// One plugin row as the screen shows it: its id, installed version, and a
+/// status. `quarantined` (a reason recorded by the system) outranks the
+/// operator's `enabled` intent, since a quarantined plugin does not load however
+/// it is set.
+struct PluginView {
+    id: String,
+    version: String,
+    enabled: bool,
+    quarantined: bool,
+    quarantined_reason: String,
+    /// The label the toggle button carries: "Disable" for a live plugin,
+    /// "Enable" otherwise.
+    action_label: &'static str,
+    /// The state the toggle posts: the opposite of the current intent.
+    action_target: bool,
+}
+
+impl PluginView {
+    fn from_row(row: PluginRow) -> Self {
+        PluginView {
+            version: row.version.unwrap_or_else(|| "--".to_string()),
+            quarantined: row.quarantined_reason.is_some(),
+            quarantined_reason: row.quarantined_reason.unwrap_or_default(),
+            action_label: if row.enabled { "Disable" } else { "Enable" },
+            action_target: !row.enabled,
+            enabled: row.enabled,
+            id: row.id,
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "plugins.html")]
+struct PluginsTemplate {
+    shell: Shell,
+    /// The POST target for a toggle, under the admin mount.
+    toggle_action: String,
+    plugins: Vec<PluginView>,
+}
+
+/// Renders the plugins screen: the full roster with each plugin's state and a
+/// toggle. Gated by [`MANAGE_PERMISSION`] at the route.
+pub(crate) async fn index(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+) -> Response {
+    let rows = match list_plugins(&state.db).await {
+        Ok(rows) => rows,
+        Err(_) => return render_error(),
+    };
+    render(PluginsTemplate {
+        shell,
+        toggle_action: format!("{}/plugins/toggle", state.admin_path),
+        plugins: rows.into_iter().map(PluginView::from_row).collect(),
+    })
+}
+
+/// The toggle form: which plugin, and the state to set (`1` on, `0` off).
+#[derive(serde::Deserialize)]
+pub(crate) struct ToggleForm {
+    plugin_id: String,
+    enable: i32,
+}
+
+/// Records a plugin's new enable/disable intent and returns to the list. The
+/// change applies on the next boot (see [`set_enabled`]).
+pub(crate) async fn toggle(
+    State(state): State<AdminState>,
+    Form(form): Form<ToggleForm>,
+) -> Response {
+    let back = format!("{}/plugins", state.admin_path);
+    match set_enabled(&state.db, &form.plugin_id, form.enable != 0).await {
+        Ok(()) => Redirect::to(&back).into_response(),
+        Err(_) => render_error(),
+    }
 }
 
 #[cfg(test)]

@@ -61,6 +61,7 @@ superuser:
 | --- | --- |
 | `backend.manage_users` | The backend users list. |
 | `backend.manage_roles` | The roles list and the role editor. |
+| `backend.manage_plugins` | The plugins screen (enable and disable installed plugins). |
 
 ## Roles and per-user overrides
 

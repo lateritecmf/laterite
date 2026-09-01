@@ -389,6 +389,11 @@ fn builtin_permissions() -> Vec<Permission> {
             label: "Manage branding".to_string(),
             group: "Backend".to_string(),
         },
+        Permission {
+            code: plugins::MANAGE_PERMISSION.to_string(),
+            label: "Manage plugins".to_string(),
+            group: "Backend".to_string(),
+        },
     ]
 }
 
@@ -515,6 +520,17 @@ pub fn router(
             get(users::edit_form).post(users::update),
         ),
         "backend.manage_users",
+    ));
+    // The plugins screen lists the installed plugins and toggles each on or off
+    // (an intent applied on the next boot), gated by its own permission.
+    protected = protected.merge(guard_with_permission(
+        Router::new()
+            .route(&format!("{admin_path}/plugins"), get(plugins::index))
+            .route(
+                &format!("{admin_path}/plugins/toggle"),
+                post(plugins::toggle),
+            ),
+        plugins::MANAGE_PERMISSION,
     ));
     protected = protected
         .route(&format!("{admin_path}/settings"), get(settings_index))
@@ -1152,6 +1168,17 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             fields: Vec::new(),
         },
         settings::brand::settings_item(),
+        settings::SettingsItem {
+            code: "backend.plugins".to_string(),
+            label: "Plugins".to_string(),
+            description: "Enable or disable installed plugins.".to_string(),
+            category: "System".to_string(),
+            order: 10,
+            icon: Some("plug".to_string()),
+            permission: Some(plugins::MANAGE_PERMISSION.to_string()),
+            link: Some("/plugins".to_string()),
+            fields: Vec::new(),
+        },
     ]
 }
 

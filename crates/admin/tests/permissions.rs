@@ -68,6 +68,22 @@ async fn resource_routes_enforce_their_permission() {
     .unwrap();
     store::assign_role(&pool, mgr_id, role_id).await.unwrap();
 
+    // A user granted only `backend.manage_plugins`, to prove that route is gated
+    // by its own permission and not by the users/roles grants.
+    let hash = password::hash_password("plugpw123456").unwrap();
+    let plug_id = store::create_user(&pool, "plug", "plug@acme.test", "Plug", None, &hash, false)
+        .await
+        .unwrap();
+    let plug_role = store::create_role(
+        &pool,
+        "plugin_mgr",
+        "Plugin Manager",
+        &["backend.manage_plugins".to_string()],
+    )
+    .await
+    .unwrap();
+    store::assign_role(&pool, plug_id, plug_role).await.unwrap();
+
     // A user with no grants at all.
     let hash = password::hash_password("plainpw12345").unwrap();
     store::create_user(
@@ -84,6 +100,7 @@ async fn resource_routes_enforce_their_permission() {
 
     let root = login(&svc, "root", "rootpw12345").await;
     let mgr = login(&svc, "mgr", "mgrpw12345").await;
+    let plug = login(&svc, "plug", "plugpw123456").await;
     let plain = login(&svc, "plain", "plainpw12345").await;
 
     // A fresh router per request: `oneshot` consumes the service.
@@ -128,6 +145,27 @@ async fn resource_routes_enforce_their_permission() {
         .unwrap()
         .status();
     assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The plugins screen has its own permission: its holder reaches it, the user
+    // manager (a different grant) does not, and the superuser always does.
+    let status = app()
+        .oneshot(get("/admin/plugins", Some(&plug)))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::OK);
+    let status = app()
+        .oneshot(get("/admin/plugins", Some(&mgr)))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let status = app()
+        .oneshot(get("/admin/plugins", Some(&root)))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::OK);
 
     // An unauthenticated request is sent to login, not forbidden.
     let status = app()

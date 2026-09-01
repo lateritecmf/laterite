@@ -223,6 +223,13 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-alert{background:var(--danger-subtle);color:var(--danger-700);padding:10px 12px;border-radius:var(--radius-md);font-size:var(--fs-13);margin-bottom:16px}
 .lat-alert--ok{background:var(--success-subtle);color:var(--success)}
 
+/* Status pill (a coloured dot plus a label, used in list rows) */
+.lat-status{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-12);font-weight:var(--fw-medium)}
+.lat-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.lat-status--on{color:var(--success)}
+.lat-status--off{color:var(--text-muted)}
+.lat-status--quarantined{color:var(--danger)}
+
 /* Page toolbar + breadcrumb */
 .lat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
 .lat-toolbar h1{font-size:var(--fs-24);margin:0;margin-right:auto}
