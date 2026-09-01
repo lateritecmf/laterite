@@ -1,1 +1,9 @@
-<input class="lat-input" type="{{ input_type }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if required %} required{% endif %}>
+{%- if leading.is_empty() && trailing.is_empty() -%}
+<input class="lat-input" type="{{ input_type }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if required %} required{% endif %}{% for (k, v) in attrs %} {{ k }}="{{ v }}"{% endfor %}>
+{%- else -%}
+<div class="lat-input-group">
+{%- for a in leading %}{% if a.button %}<button type="button" class="lat-input-group__btn"{% if let Some(w) = a.widget.as_deref() %} data-lat-widget="{{ w }}"{% endif %} aria-label="{{ a.label }}">{{ a.label }}</button>{% else %}<span class="lat-input-group__affix">{{ a.label }}</span>{% endif %}{% endfor -%}
+<input class="lat-input" type="{{ input_type }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if required %} required{% endif %}{% for (k, v) in attrs %} {{ k }}="{{ v }}"{% endfor %}>
+{%- for a in trailing %}{% if a.button %}<button type="button" class="lat-input-group__btn"{% if let Some(w) = a.widget.as_deref() %} data-lat-widget="{{ w }}"{% endif %} aria-label="{{ a.label }}">{{ a.label }}</button>{% else %}<span class="lat-input-group__affix">{{ a.label }}</span>{% endif %}{% endfor -%}
+</div>
+{%- endif -%}

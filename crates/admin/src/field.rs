@@ -9,7 +9,7 @@
 //! join as defaulted methods when a type first needs them (backward-compatible).
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use askama::Template;
@@ -216,11 +216,34 @@ pub(crate) fn builtin_registry() -> FieldRegistry {
         .collect()
 }
 
-/// An input variant of the text field: its HTML `type` and the rules it
-/// contributes. The extension point a plugin adds to (a currency input, say) to
-/// build on the text field instead of reimplementing an input. Rendering addons
-/// (a currency symbol, a copy button) and per-field flags join as defaulted
-/// methods with the asset/island machinery.
+/// Where an adornment sits relative to the input.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    Leading,
+    Trailing,
+}
+
+/// A control placed beside the input (a copy button, a currency symbol): data in
+/// the view-model, never HTML, so an override re-presents it. The text template
+/// renders it into the input group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Adornment {
+    pub placement: Placement,
+    /// `true` renders a `<button>` (an action); `false` an inert affix `<span>`.
+    pub button: bool,
+    /// Visible text and accessible label.
+    pub label: String,
+    /// The `data-lat-widget` island wiring a button (bare like `copy` for core,
+    /// dotted `vendor.name` for a plugin). `None` for an inert affix.
+    pub widget: Option<String>,
+}
+
+/// An input variant of the text field: its HTML `type`, the rules it contributes,
+/// and how it parameterises the one text control (extra attributes, adjacent
+/// adornments). The extension point a plugin builds on (a currency input, say)
+/// instead of reimplementing a field. An input parameterises the single text
+/// control; anything needing different control markup is a [`FieldType`].
 pub trait InputType: Send + Sync + 'static {
     /// The registry key naming this input (`text`, `email`, `url`, `currency`).
     fn key(&self) -> &'static str;
@@ -228,8 +251,22 @@ pub trait InputType: Send + Sync + 'static {
     fn html_type(&self) -> &'static str {
         "text"
     }
+    /// Types this input's own keys from the field's options blob (the same blob
+    /// the field type reads) once at boot. Default: no options.
+    fn resolve_options(&self, _raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        Ok(ResolvedOptions::none())
+    }
     /// Rules this input contributes (an `email` input adds [`Rule::Email`]).
-    fn rules(&self) -> Vec<Rule> {
+    fn rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
+        Vec::new()
+    }
+    /// Extra `<input>` attributes (a number input's `min`/`max`/`step`). Names are
+    /// validated at boot and may not collide with the ones the template owns.
+    fn attributes(&self, _opts: &ResolvedOptions) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
+    /// Controls placed beside the input (a copy button, a currency symbol).
+    fn adornments(&self, _opts: &ResolvedOptions) -> Vec<Adornment> {
         Vec::new()
     }
 }
@@ -252,7 +289,7 @@ impl InputType for EmailInput {
     fn html_type(&self) -> &'static str {
         "email"
     }
-    fn rules(&self) -> Vec<Rule> {
+    fn rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
         vec![Rule::Email]
     }
 }
@@ -267,6 +304,17 @@ impl InputType for TelInput {
     }
 }
 
+/// A number input's optional bounds and step, emitted as `<input>` attributes.
+#[derive(Default, Deserialize)]
+struct NumberOptions {
+    #[serde(default)]
+    min: Option<f64>,
+    #[serde(default)]
+    max: Option<f64>,
+    #[serde(default)]
+    step: Option<f64>,
+}
+
 struct NumberInput;
 impl InputType for NumberInput {
     fn key(&self) -> &'static str {
@@ -275,8 +323,31 @@ impl InputType for NumberInput {
     fn html_type(&self) -> &'static str {
         "number"
     }
-    fn rules(&self) -> Vec<Rule> {
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: NumberOptions = if raw.is_null() {
+            NumberOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
         vec![Rule::Numeric]
+    }
+    fn attributes(&self, opts: &ResolvedOptions) -> BTreeMap<String, String> {
+        let mut attrs = BTreeMap::new();
+        if let Some(o) = opts.get::<NumberOptions>() {
+            if let Some(min) = o.min {
+                attrs.insert("min".to_string(), min.to_string());
+            }
+            if let Some(max) = o.max {
+                attrs.insert("max".to_string(), max.to_string());
+            }
+            if let Some(step) = o.step {
+                attrs.insert("step".to_string(), step.to_string());
+            }
+        }
+        attrs
     }
 }
 
@@ -297,6 +368,43 @@ pub(crate) fn builtin_input_registry() -> InputRegistry {
         .collect()
 }
 
+/// Attribute names the text template emits itself; an input may not re-declare
+/// them (HTML resolves a duplicate to the first, silently dropping the input's).
+const RESERVED_ATTRS: [&str; 6] = ["type", "id", "name", "value", "required", "class"];
+
+/// Validates an input's contributed attribute and widget names at boot. Names
+/// come from plugin code, so a bad one is a wiring bug caught at boot, not user
+/// input: an attribute name is lowercase kebab and unreserved; a widget name may
+/// carry a dotted plugin namespace.
+fn validate_contributions(
+    attrs: &BTreeMap<String, String>,
+    adornments: &[Adornment],
+) -> Result<(), OptionsError> {
+    for name in attrs.keys() {
+        if !is_name(name, false) {
+            return Err(OptionsError(format!("invalid attribute name `{name}`")));
+        }
+        if RESERVED_ATTRS.contains(&name.as_str()) {
+            return Err(OptionsError(format!("attribute `{name}` is reserved")));
+        }
+    }
+    for widget in adornments.iter().filter_map(|a| a.widget.as_deref()) {
+        if !is_name(widget, true) {
+            return Err(OptionsError(format!("invalid widget name `{widget}`")));
+        }
+    }
+    Ok(())
+}
+
+/// `^[a-z][a-z0-9-]*$`, plus `.` when `dotted` (for a widget's `vendor.name`).
+fn is_name(s: &str, dotted: bool) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+        && chars.all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || (dotted && c == '.')
+        })
+}
+
 /// The text field's typed options: which input variant to render.
 #[derive(Deserialize)]
 struct TextOptions {
@@ -308,9 +416,24 @@ fn default_input() -> String {
     "text".to_string()
 }
 
-/// The text field's resolved options: the input variant it renders as.
+/// The text field's resolved options: everything needed to render and validate,
+/// computed (and name-checked) once at boot from the selected input.
 struct TextResolved {
-    input: Arc<dyn InputType>,
+    html_type: &'static str,
+    attrs: BTreeMap<String, String>,
+    adornments: Vec<Adornment>,
+    rules: Vec<Rule>,
+}
+
+/// The text field's view-model payload. Additive over the prior `{input_type}`,
+/// so existing overrides keep working; this shape is the override contract.
+#[derive(Default, Serialize, Deserialize)]
+struct TextData {
+    input_type: String,
+    #[serde(default)]
+    attrs: BTreeMap<String, String>,
+    #[serde(default)]
+    adornments: Vec<Adornment>,
 }
 
 #[derive(Template)]
@@ -321,6 +444,9 @@ struct TextTmpl<'a> {
     value: &'a str,
     required: bool,
     input_type: &'a str,
+    attrs: &'a BTreeMap<String, String>,
+    leading: &'a [Adornment],
+    trailing: &'a [Adornment],
 }
 
 /// A single-line text input. Its `input` option selects an [`InputType`] from
@@ -333,9 +459,6 @@ pub(crate) struct TextField {
 impl TextField {
     pub(crate) fn new(inputs: Arc<InputRegistry>) -> Self {
         Self { inputs }
-    }
-    fn input_of<'a>(&self, opts: &'a ResolvedOptions) -> Option<&'a dyn InputType> {
-        opts.get::<TextResolved>().map(|r| r.input.as_ref())
     }
 }
 
@@ -356,13 +479,36 @@ impl FieldType for TextField {
             .get(&opts.input)
             .cloned()
             .ok_or_else(|| OptionsError(format!("unknown input type `{}`", opts.input)))?;
-        Ok(ResolvedOptions::new(TextResolved { input }))
+        // The input reads its own keys from the same blob, then contributes its
+        // control shape; the contributed names are validated before caching.
+        let input_opts = input.resolve_options(raw)?;
+        let attrs = input.attributes(&input_opts);
+        let adornments = input.adornments(&input_opts);
+        validate_contributions(&attrs, &adornments)?;
+        Ok(ResolvedOptions::new(TextResolved {
+            html_type: input.html_type(),
+            rules: input.rules(&input_opts),
+            attrs,
+            adornments,
+        }))
     }
     fn intrinsic_rules(&self, opts: &ResolvedOptions) -> Vec<Rule> {
-        self.input_of(opts).map(|i| i.rules()).unwrap_or_default()
+        opts.get::<TextResolved>()
+            .map(|r| r.rules.clone())
+            .unwrap_or_default()
     }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
-        let html_type = self.input_of(cx.opts).map_or("text", |i| i.html_type());
+        let data = match cx.opts.get::<TextResolved>() {
+            Some(r) => TextData {
+                input_type: r.html_type.to_string(),
+                attrs: r.attrs.clone(),
+                adornments: r.adornments.clone(),
+            },
+            None => TextData {
+                input_type: "text".to_string(),
+                ..TextData::default()
+            },
+        };
         FieldVm {
             view_key: "text".to_string(),
             name: cx.name.to_string(),
@@ -370,21 +516,24 @@ impl FieldType for TextField {
             label: cx.label.to_string(),
             required: cx.required,
             value: cx.value.clone(),
-            data: serde_json::json!({ "input_type": html_type }),
+            data: serde_json::to_value(data).unwrap_or_default(),
         }
     }
     fn render_default(&self, vm: &FieldVm) -> Markup {
-        let input_type = vm
-            .data
-            .get("input_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("text");
+        let data: TextData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        let (leading, trailing): (Vec<Adornment>, Vec<Adornment>) = data
+            .adornments
+            .into_iter()
+            .partition(|a| matches!(a.placement, Placement::Leading));
         Markup::from_template(&TextTmpl {
             name: &vm.name,
             id: &vm.id,
             value: vm.value.as_text(),
             required: vm.required,
-            input_type,
+            input_type: &data.input_type,
+            attrs: &data.attrs,
+            leading: &leading,
+            trailing: &trailing,
         })
         .unwrap_or_default()
     }
@@ -535,6 +684,17 @@ mod tests {
         TextField::new(Arc::new(builtin_input_registry()))
     }
 
+    /// An input that contributes a reserved attribute name, to prove boot rejects it.
+    struct BadAttrInput;
+    impl InputType for BadAttrInput {
+        fn key(&self) -> &'static str {
+            "bad"
+        }
+        fn attributes(&self, _opts: &ResolvedOptions) -> BTreeMap<String, String> {
+            BTreeMap::from([("class".to_string(), "x".to_string())])
+        }
+    }
+
     #[test]
     fn text_renders_its_value_escaped() {
         let opts = ResolvedOptions::none();
@@ -638,6 +798,45 @@ mod tests {
         let value = FieldValue::Text(String::new());
         let markup = render_field(&field, &NoOverrides, &scope(), &cx("phone", &value, &opts));
         assert!(markup.as_str().contains(r#"type="tel""#));
+    }
+
+    #[test]
+    fn text_number_input_emits_min_max_step_attributes() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(
+                &serde_json::json!({ "input": "number", "min": 0, "max": 10, "step": 2 }),
+            )
+            .unwrap();
+        // Rendering runs vm -> data -> render_default, so attributes surviving into
+        // the markup also proves the view-model serialize round-trip.
+        let value = FieldValue::Text("5".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("qty", &value, &opts));
+        let html = markup.as_str();
+        assert!(html.contains(r#"min="0""#), "{html}");
+        assert!(html.contains(r#"max="10""#), "{html}");
+        assert!(html.contains(r#"step="2""#), "{html}");
+    }
+
+    #[test]
+    fn text_input_reserved_attribute_name_aborts_resolve() {
+        let mut inputs = builtin_input_registry();
+        inputs.insert("bad".to_string(), Arc::new(BadAttrInput));
+        let field = TextField::new(Arc::new(inputs));
+        let Err(e) = field.resolve_options(&serde_json::json!({ "input": "bad" })) else {
+            panic!("expected a reserved-attribute rejection");
+        };
+        assert!(e.0.contains("class"), "{e}");
+    }
+
+    #[test]
+    fn attribute_and_widget_name_rules() {
+        assert!(is_name("min", false));
+        assert!(is_name("data-x", false));
+        assert!(!is_name("Min", false));
+        assert!(!is_name("min.x", false)); // a dot is not allowed in an attribute name
+        assert!(is_name("vendor.copy", true)); // but is in a widget name
+        assert!(!is_name("", false));
     }
 
     #[test]
