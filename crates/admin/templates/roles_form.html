@@ -6,6 +6,7 @@
 <div class="lat-card" style="max-width:620px">
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ action }}">
+    {% include "_csrf.html" %}
     <div class="lat-field">
       <label class="lat-field__label" for="code">Code<span class="lat-field__req">*</span></label>
       <input class="lat-input" type="text" id="code" name="code" value="{{ code }}" required>

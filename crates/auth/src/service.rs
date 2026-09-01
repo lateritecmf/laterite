@@ -104,6 +104,15 @@ pub struct AuthenticatedUser {
     pub permissions: PermissionSet,
 }
 
+/// A resolved live session: the authenticated identity plus the opaque data
+/// blob the surface stored on it (`None` until the surface writes one). Auth
+/// does not interpret the blob.
+#[derive(Debug, Clone)]
+pub struct ResolvedSession {
+    pub identity: AuthenticatedUser,
+    pub data: Option<String>,
+}
+
 impl AuthenticatedUser {
     /// Whether this identity holds `permission`.
     pub fn allows(&self, permission: &str) -> bool {
@@ -197,17 +206,18 @@ impl AuthService {
         Ok(IssuedSession { token, expires_at })
     }
 
-    /// Resolves a raw session token to an identity, refreshing its last-seen
-    /// time. Expired sessions, and sessions whose user was disabled or removed,
-    /// resolve to [`AuthError::SessionInvalid`].
-    pub async fn verify_session(&self, token: &str) -> Result<AuthenticatedUser, AuthError> {
+    /// Resolves a raw session token to an identity and its stored data blob,
+    /// refreshing last-seen. Expired sessions, and sessions whose user was
+    /// disabled or removed, resolve to [`AuthError::SessionInvalid`]. The blob
+    /// is read in the same query as the session, adding no round-trip.
+    pub async fn resolve_session(&self, token: &str) -> Result<ResolvedSession, AuthError> {
         let token_hash = hash_token(token);
         let now = Utc::now();
 
-        let user_id = store::find_valid_session(&self.db, &token_hash, now)
+        let session = store::find_valid_session(&self.db, &token_hash, now)
             .await?
             .ok_or(AuthError::SessionInvalid)?;
-        let user = store::find_active_user_by_id(&self.db, user_id)
+        let user = store::find_active_user_by_id(&self.db, session.user_id)
             .await?
             .ok_or(AuthError::SessionInvalid)?;
         store::touch_session(&self.db, &token_hash, now).await?;
@@ -229,7 +239,23 @@ impl AuthService {
         }
         let permissions = PermissionSet::with_overrides(user.is_superuser, grants, allow, deny);
 
-        Ok(AuthenticatedUser { user, permissions })
+        Ok(ResolvedSession {
+            identity: AuthenticatedUser { user, permissions },
+            data: session.data,
+        })
+    }
+
+    /// Resolves a raw session token to an identity. A thin wrapper over
+    /// [`AuthService::resolve_session`] for callers that need only the identity.
+    pub async fn verify_session(&self, token: &str) -> Result<AuthenticatedUser, AuthError> {
+        Ok(self.resolve_session(token).await?.identity)
+    }
+
+    /// Overwrites the opaque per-session data blob (the surface's serialised
+    /// state, e.g. CSRF token + flash). The surface writes only when its blob
+    /// changed, so an unchanged request adds no write.
+    pub async fn set_session_data(&self, token: &str, data: &str) -> Result<(), AuthError> {
+        store::set_session_data(&self.db, &hash_token(token), data).await
     }
 
     /// Invalidates a session. Unknown tokens are a no-op.
@@ -386,6 +412,30 @@ mod tests {
         assert_eq!(identity.user.username, "root");
         assert_eq!(identity.user.full_name(), "Test Operator");
         assert!(identity.allows("anything.superuser.can.do"));
+    }
+
+    #[tokio::test]
+    async fn session_data_blob_round_trips() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let session = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+
+        // A fresh session has no blob.
+        let resolved = svc.resolve_session(&session.token).await.unwrap();
+        assert_eq!(resolved.data, None);
+        assert_eq!(resolved.identity.user.username, "root");
+
+        // The surface writes its opaque state; the next resolve reads it back.
+        svc.set_session_data(&session.token, r#"{"v":1,"csrf":"abc"}"#)
+            .await
+            .unwrap();
+        let resolved = svc.resolve_session(&session.token).await.unwrap();
+        assert_eq!(resolved.data.as_deref(), Some(r#"{"v":1,"csrf":"abc"}"#));
     }
 
     #[tokio::test]

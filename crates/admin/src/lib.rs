@@ -21,17 +21,20 @@ mod icons;
 pub mod list;
 pub mod plugins;
 mod roles;
+mod session;
 pub mod settings;
 mod sql;
 mod users;
 
 pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
 pub use error::AdminError;
+pub use session::{FlashLevel, SessionHandle};
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use askama::Template;
+use axum::body::Body;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::header;
 use axum::middleware::{self, Next};
@@ -85,6 +88,8 @@ pub(crate) struct AdminState {
     /// built from it, so one config value moves the whole panel.
     admin_path: Arc<str>,
     secure_cookie: bool,
+    /// The public origin for the CSRF origin check (see [`AdminConfig::origin`]).
+    origin: Arc<str>,
     timezone: Tz,
     /// The configured application name (the baseline brand). A brand setting
     /// overrides it; see [`AdminState::brand`].
@@ -106,6 +111,7 @@ impl AdminState {
             permissions: Arc::new(builtin_permissions()),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
+            origin: Arc::from(""),
             timezone: Tz::UTC,
             app_name: "Laterite".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
@@ -155,6 +161,11 @@ pub struct AdminConfig {
     /// `backend.path`). A leading slash is added if missing and a trailing slash
     /// is stripped; empty falls back to `/admin`.
     pub path: String,
+    /// The public origin (scheme://host[:port], no trailing slash) the panel is
+    /// served from, for the CSRF origin check. Typically the configured
+    /// `app.url`; empty falls back to the request `Host` (dev only), so set it in
+    /// production.
+    pub origin: String,
 }
 
 impl Default for AdminConfig {
@@ -164,6 +175,7 @@ impl Default for AdminConfig {
             timezone: "UTC".to_string(),
             app_name: "Laterite".to_string(),
             path: "/admin".to_string(),
+            origin: String::new(),
         }
     }
 }
@@ -202,9 +214,17 @@ pub(crate) struct Shell {
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
+    /// The current session's CSRF token, auto-injected into every rendered form
+    /// (a hidden field) and into HTMX requests (a header), so a mutating request
+    /// carries it without the handler doing anything. See [`session`].
+    pub(crate) csrf_token: String,
+    /// Flash messages to show once on this render, taken from the session on a
+    /// full-page GET (redirect-after-POST delivers them here). See [`session`].
+    pub(crate) flash: Vec<session::Flash>,
 }
 
 impl Shell {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         base: &str,
         brand: String,
@@ -213,6 +233,8 @@ impl Shell {
         default_tz: Tz,
         sidebar: Vec<settings::CategoryView>,
         active_nav: Option<&str>,
+        csrf_token: String,
+        flash: Vec<session::Flash>,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -236,6 +258,8 @@ impl Shell {
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
             sidebar,
+            csrf_token,
+            flash,
         }
     }
 
@@ -249,6 +273,8 @@ impl Shell {
             initial: "T".to_string(),
             tz: Tz::UTC,
             sidebar: Vec::new(),
+            csrf_token: "test-csrf-token".to_string(),
+            flash: Vec::new(),
         }
     }
 }
@@ -491,6 +517,7 @@ pub fn router(
         permissions: Arc::new(permissions),
         admin_path: Arc::from(admin_path.as_str()),
         secure_cookie: config.secure_cookie,
+        origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
@@ -571,6 +598,12 @@ pub fn router(
         )
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
+        // The CSRF origin gate wraps every route (login and setup included); the
+        // panic layer is outermost so it catches everything.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            enforce_origin,
+        ))
         .layer(tower_http::catch_panic::CatchPanicLayer::custom(
             handle_panic,
         ))
@@ -763,44 +796,112 @@ fn guard_with_permission(router: Router<AdminState>, permission: &str) -> Router
     ))
 }
 
-/// Redirects unauthenticated requests to the login screen, and injects the
-/// resolved identity into request extensions for downstream handlers.
+/// The gate for authenticated admin routes. Resolves the session (identity plus
+/// its opaque blob), verifies CSRF on state-changing requests, injects the
+/// identity, shell, and a [`session::SessionHandle`] for handlers, and persists
+/// the session blob afterwards when a handler changed it. Unauthenticated
+/// requests redirect to the login screen.
 async fn require_auth(
     State(state): State<AdminState>,
     jar: CookieJar,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Response {
-    let identity = match jar.get(SESSION_COOKIE) {
-        Some(cookie) => state.auth.verify_session(cookie.value()).await.ok(),
-        None => None,
+    let login = format!("{}/login", state.admin_path);
+    let token = match jar.get(SESSION_COOKIE) {
+        Some(cookie) => cookie.value().to_string(),
+        None => return Redirect::to(&login).into_response(),
     };
-    match identity {
-        Some(user) => {
-            let path = request.uri().path().to_string();
-            let (sidebar, active_nav) = resolve_nav_context(
-                &state.nav,
-                &state.settings,
-                &state.admin_path,
-                &user.permissions,
-                &path,
+    let resolved = match state.auth.resolve_session(&token).await {
+        Ok(resolved) => resolved,
+        Err(_) => return Redirect::to(&login).into_response(),
+    };
+    let handle = session::SessionHandle::from_blob(resolved.data.as_deref());
+
+    // CSRF token check (the origin gate already ran on the whole router). A
+    // state-changing method must carry the session token in a header or the
+    // `_csrf` field; buffering the body serves plain forms and HTMX alike and
+    // fails closed when a form omitted the field.
+    let mut request = request;
+    let safe = session::is_safe_method(request.method());
+    if !safe {
+        let (parts, body) = request.into_parts();
+        let bytes = axum::body::to_bytes(body, MAX_FORM_BYTES)
+            .await
+            .unwrap_or_default();
+        let submitted = session::submitted_token(&parts.headers, &bytes);
+        if !session::token_matches(&handle.csrf_token(), submitted.as_deref()) {
+            tracing::warn!(
+                user_id = resolved.identity.user.id,
+                "admin CSRF check failed"
             );
-            let brand = state.brand().await;
-            let shell = Shell::new(
-                &state.admin_path,
-                brand,
-                &state.nav,
-                &user,
-                state.timezone,
-                sidebar,
-                active_nav.as_deref(),
-            );
-            request.extensions_mut().insert(user);
-            request.extensions_mut().insert(shell);
-            next.run(request).await
+            return error::csrf_rejected();
         }
-        None => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
+        request = Request::from_parts(parts, Body::from(bytes));
     }
+
+    // Deliver and clear any queued flash on a full-page render; a mutating
+    // request leaves it for the redirect target's GET.
+    let flash = if safe {
+        handle.take_flash()
+    } else {
+        Vec::new()
+    };
+    let user = resolved.identity;
+    let path = request.uri().path().to_string();
+    let (sidebar, active_nav) = resolve_nav_context(
+        &state.nav,
+        &state.settings,
+        &state.admin_path,
+        &user.permissions,
+        &path,
+    );
+    let brand = state.brand().await;
+    let shell = Shell::new(
+        &state.admin_path,
+        brand,
+        &state.nav,
+        &user,
+        state.timezone,
+        sidebar,
+        active_nav.as_deref(),
+        handle.csrf_token(),
+        flash,
+    );
+    request.extensions_mut().insert(user);
+    request.extensions_mut().insert(shell);
+    request.extensions_mut().insert(handle.clone());
+    let response = next.run(request).await;
+
+    // Persist the blob only when a handler changed it (flash set or consumed,
+    // token rotated, or a token freshly minted this request).
+    if let Some(blob) = handle.dirty_blob() {
+        if let Err(e) = state.auth.set_session_data(&token, &blob).await {
+            tracing::error!(error = %e, "persisting admin session failed");
+        }
+    }
+    response
+}
+
+/// Ceiling on a buffered admin form body for the CSRF check. Admin forms are
+/// small; a larger body is rejected rather than buffered.
+const MAX_FORM_BYTES: usize = 1024 * 1024;
+
+/// The primary CSRF gate, layered on the whole admin router: a state-changing
+/// request must come from our own origin (see [`session::origin_ok`]). This
+/// covers the login and setup screens, which are deliberately token-less (no
+/// session exists yet), so the origin check is their sole CSRF defense.
+async fn enforce_origin(State(state): State<AdminState>, request: Request, next: Next) -> Response {
+    if !session::is_safe_method(request.method())
+        && !session::origin_ok(request.headers(), &state.origin)
+    {
+        tracing::warn!(
+            path = request.uri().path(),
+            "admin CSRF origin check failed"
+        );
+        return error::csrf_rejected();
+    }
+    next.run(request).await
 }
 
 async fn login_form(State(state): State<AdminState>) -> Response {
@@ -1044,6 +1145,7 @@ async fn settings_update(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
     Path(code): Path<String>,
     Form(data): Form<HashMap<String, String>>,
 ) -> Response {
@@ -1052,7 +1154,7 @@ async fn settings_update(
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::update(&state, item, data, shell).await,
+        Some(item) => settings::update(&state, item, data, shell, &session).await,
         None => not_found(),
     }
 }
@@ -1384,6 +1486,7 @@ mod tests {
             permissions: Arc::new(builtin_permissions()),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
+            origin: Arc::from(""),
             timezone: Tz::UTC,
             app_name: "Configured Name".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),

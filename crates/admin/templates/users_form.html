@@ -18,6 +18,7 @@
   <div class="lat-alert lat-alert--ok">This user is a superuser and holds every permission, so there is nothing to override.</div>
   {% else %}
   <form method="post" action="{{ action }}">
+    {% include "_csrf.html" %}
     <div class="lat-field">
       <span class="lat-field__label">Permission overrides</span>
       <p class="lat-help">Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked.</p>

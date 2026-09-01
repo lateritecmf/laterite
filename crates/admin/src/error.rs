@@ -95,6 +95,19 @@ fn page(
     response
 }
 
+/// A 403 for a rejected mutation: a bad request origin or a missing/mismatched
+/// CSRF token. A distinct message from the generic forbidden page so the
+/// operator knows to reload and resubmit rather than that they lack permission.
+pub(crate) fn csrf_rejected() -> Response {
+    page(
+        ErrorKind::Forbidden,
+        StatusCode::FORBIDDEN,
+        "Request blocked",
+        "This form expired or its origin was not recognised. Go back, reload the page, and try again.",
+        None,
+    )
+}
+
 /// A masked 500 page with no known cause, for the legacy `render_error` helper
 /// whose call sites discarded the error. Prefer returning `AdminError` so the
 /// cause is logged.

@@ -81,6 +81,7 @@ pub(crate) async fn edit_form(
 pub(crate) async fn update(
     State(state): State<AdminState>,
     Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
     Path(id): Path<String>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Result<Response, AdminError> {
@@ -136,6 +137,7 @@ pub(crate) async fn update(
         .auth
         .set_user_permissions(target_id, &overrides)
         .await?;
+    session.push_flash(crate::session::FlashLevel::Success, "Permissions updated.");
     Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response())
 }
 

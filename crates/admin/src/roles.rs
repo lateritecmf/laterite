@@ -30,6 +30,7 @@ pub(crate) async fn new_form(
 pub(crate) async fn create(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(session): Extension<crate::session::SessionHandle>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
     let (code, name, perms) = parse(&pairs);
@@ -47,7 +48,10 @@ pub(crate) async fn create(
         ));
     }
     match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
-        Ok(_) => Redirect::to(&format!("{}/roles", state.admin_path)).into_response(),
+        Ok(_) => {
+            session.push_flash(crate::session::FlashLevel::Success, "Role created.");
+            Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
+        }
         Err(_) => render(build(
             &state,
             &action,
@@ -105,6 +109,7 @@ pub(crate) async fn edit_form(
 pub(crate) async fn update(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(session): Extension<crate::session::SessionHandle>,
     Path(id): Path<String>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -142,7 +147,10 @@ pub(crate) async fn update(
         .execute(&state.db.pool)
         .await
     {
-        Ok(_) => Redirect::to(&format!("{}/roles", state.admin_path)).into_response(),
+        Ok(_) => {
+            session.push_flash(crate::session::FlashLevel::Success, "Role updated.");
+            Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
+        }
         Err(_) => render(build(
             &state,
             &action,

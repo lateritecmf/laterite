@@ -311,11 +311,13 @@ impl Bootstrap {
         let permissions = contributions.take::<Permission>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
+        let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             timezone: config.backend.timezone.clone(),
             app_name: config.app.name.clone(),
             path: config.backend.path.clone(),
+            origin: origin.clone(),
         };
         let mut app = router(
             auth,
@@ -336,9 +338,8 @@ impl Bootstrap {
         }
 
         let listener = bind(&config.server.listen).await?;
-        let base = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let admin_path = normalize_path(&config.backend.path);
-        println!("{} on {base}{admin_path}", config.app.name);
+        println!("{} on {origin}{admin_path}", config.app.name);
         axum::serve(listener, app).await?;
         Ok(())
     }

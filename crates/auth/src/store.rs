@@ -240,16 +240,24 @@ pub async fn insert_session(
     Ok(())
 }
 
-/// Returns the owning user id of a non-expired session, if any.
+/// A resolved non-expired session: its owning user and opaque data blob.
+pub struct ValidSession {
+    pub user_id: i64,
+    pub data: Option<String>,
+}
+
+/// Returns a non-expired session (owner id plus its data blob), if any. The
+/// blob is read in the same query, so exposing session state costs no extra
+/// round-trip.
 pub async fn find_valid_session(
     db: &Db,
     token_hash: &str,
     now: DateTime<Utc>,
-) -> Result<Option<i64>, AuthError> {
+) -> Result<Option<ValidSession>, AuthError> {
     let (sql, values) = build(
         db.backend,
         Query::select()
-            .column(BackendSessions::BackendUserId)
+            .columns([BackendSessions::BackendUserId, BackendSessions::Data])
             .from(BackendSessions::Table)
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
             .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
@@ -259,9 +267,29 @@ pub async fn find_valid_session(
         .fetch_optional(&db.pool)
         .await?;
     match row {
-        Some(r) => Ok(Some(r.try_get::<i64, _>("backend_user_id")?)),
+        Some(r) => Ok(Some(ValidSession {
+            user_id: r.try_get::<i64, _>("backend_user_id")?,
+            data: r.get_text_opt("data")?,
+        })),
         None => Ok(None),
     }
+}
+
+/// Overwrites a session's opaque data blob. Callers write only when the blob
+/// changed, so an unchanged request adds no write.
+pub async fn set_session_data(db: &Db, token_hash: &str, data: &str) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendSessions::Table)
+            .value(BackendSessions::Data, data)
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn touch_session(db: &Db, token_hash: &str, now: DateTime<Utc>) -> Result<(), AuthError> {

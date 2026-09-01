@@ -6,6 +6,7 @@
   {% if !description.is_empty() %}<p style="color:var(--text-muted);font-size:var(--fs-13);margin:0 0 18px">{{ description }}</p>{% endif %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ action }}">
+    {% include "_csrf.html" %}
     {% for field in fields %}
     <div class="lat-field">
       {% if field.switch %}

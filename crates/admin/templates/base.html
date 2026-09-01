@@ -13,7 +13,7 @@
     function latToggleMenu(){var m=document.getElementById('lat-menu');if(m)m.classList.toggle('is-open');}
   </script>
 </head>
-<body class="lat-app">
+<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}'>
   <header class="lat-topnav">
     <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label="Menu">&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
@@ -31,7 +31,7 @@
         <div class="lat-usermenu__panel">
           <div class="lat-usermenu__name">{{ shell.full_name }}</div>
           <a class="lat-usermenu__item" href="{{ shell.base }}/preferences">Preferences</a>
-          <form method="post" action="{{ shell.base }}/logout"><button class="lat-usermenu__item" type="submit">Sign out</button></form>
+          <form method="post" action="{{ shell.base }}/logout">{% include "_csrf.html" %}<button class="lat-usermenu__item" type="submit">Sign out</button></form>
           <a class="lat-usermenu__poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ shell.base }}/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
         </div>
       </details>
@@ -65,6 +65,11 @@
     {% endif %}
     <main class="lat-main">
       <div class="lat-page">
+        {% if !shell.flash.is_empty() %}
+        <div class="lat-flashes">
+          {% for f in shell.flash %}<div class="lat-flash {{ f.level.class() }}">{{ f.text }}</div>{% endfor %}
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </main>

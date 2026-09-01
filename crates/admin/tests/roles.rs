@@ -24,12 +24,26 @@ async fn login(svc: &AuthService, username: &str, password: &str) -> String {
         .token
 }
 
+/// A known CSRF token the tests seed into the session (see [`seed_csrf`]).
+const CSRF: &str = "itest-csrf";
+
+/// Seeds the session with a known CSRF token so a POST can present it.
+async fn seed_csrf(svc: &AuthService, token: &str) {
+    svc.set_session_data(token, &format!(r#"{{"v":1,"csrf":"{CSRF}"}}"#))
+        .await
+        .unwrap();
+}
+
+/// A form POST carrying the session cookie plus the CSRF signals (same-origin
+/// and the seeded token in the header).
 fn post_form(path: &str, token: &str, body: &'static str) -> Request<Body> {
     Request::builder()
         .method("POST")
         .uri(path)
         .header("cookie", format!("{SESSION_COOKIE}={token}"))
         .header("content-type", "application/x-www-form-urlencoded")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", CSRF)
         .body(Body::from(body))
         .unwrap()
 }
@@ -50,6 +64,7 @@ async fn editor_saves_only_registered_permissions() {
     .await
     .unwrap();
     let root = login(&svc, "root", "rootpw12345").await;
+    seed_csrf(&svc, &root).await;
 
     let app = || {
         router(

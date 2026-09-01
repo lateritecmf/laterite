@@ -18,4 +18,5 @@ laterite_core::migration_set! {
     m0005_create_backend_access_log,
     m0006_add_backend_user_timezone,
     m0007_add_backend_user_permissions,
+    m0008_add_backend_session_data,
 }

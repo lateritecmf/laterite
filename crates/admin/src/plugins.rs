@@ -489,11 +489,23 @@ pub(crate) struct ToggleForm {
 /// change applies on the next boot (see [`set_enabled`]).
 pub(crate) async fn toggle(
     State(state): State<AdminState>,
+    Extension(session): Extension<crate::session::SessionHandle>,
     Form(form): Form<ToggleForm>,
 ) -> Response {
     let back = format!("{}/plugins", state.admin_path);
     match set_enabled(&state.db, &form.plugin_id, form.enable != 0).await {
-        Ok(()) => Redirect::to(&back).into_response(),
+        Ok(()) => {
+            let verb = if form.enable != 0 {
+                "enabled"
+            } else {
+                "disabled"
+            };
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                format!("Plugin {verb}. The change applies on the next restart."),
+            );
+            Redirect::to(&back).into_response()
+        }
         Err(_) => render_error(),
     }
 }

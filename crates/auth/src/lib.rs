@@ -27,6 +27,7 @@ pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
     AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator, RequestContext,
+    ResolvedSession,
 };
 
 /// The `laterite.auth` module: the framework's backend-user auth tables.

@@ -34,12 +34,26 @@ fn get(path: &str, token: &str) -> Request<Body> {
         .unwrap()
 }
 
+/// A known CSRF token the tests seed into the session (see [`seed_csrf`]).
+const CSRF: &str = "itest-csrf";
+
+/// Seeds the session with a known CSRF token so a POST can present it.
+async fn seed_csrf(svc: &AuthService, token: &str) {
+    svc.set_session_data(token, &format!(r#"{{"v":1,"csrf":"{CSRF}"}}"#))
+        .await
+        .unwrap();
+}
+
+/// A form POST carrying the session cookie plus the CSRF signals (same-origin
+/// and the seeded token in the header).
 fn post(path: &str, token: &str, body: String) -> Request<Body> {
     Request::builder()
         .method("POST")
         .uri(path)
         .header("cookie", format!("{SESSION_COOKIE}={token}"))
         .header("content-type", "application/x-www-form-urlencoded")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", CSRF)
         .body(Body::from(body))
         .unwrap()
 }
@@ -112,6 +126,7 @@ async fn allow_override_grants_access_beyond_roles() {
     let svc = AuthService::new(pool.clone(), AuthConfig::default());
     seed_superuser(&svc).await;
     let root = login(&svc, "root", "rootpw12345").await;
+    seed_csrf(&svc, &root).await;
 
     // A user with no roles cannot reach the users list.
     let user_id = plain_user(&pool, "grantee").await;
@@ -170,6 +185,7 @@ async fn editor_cannot_change_permissions_it_lacks() {
         .await
         .unwrap();
     let mgr = login(&svc, "mgr", "pw012345678").await;
+    seed_csrf(&svc, &mgr).await;
 
     // The manager edits another user, trying to grant a permission they do not
     // hold (manage_roles) and to deny one they do (manage_users).

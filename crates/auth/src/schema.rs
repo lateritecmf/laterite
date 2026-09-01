@@ -45,6 +45,9 @@ pub(crate) enum BackendSessions {
     CreatedAt,
     LastSeenAt,
     ExpiresAt,
+    /// Opaque per-session blob (a serialised string the surface owns, e.g. the
+    /// admin's CSRF token + flash). Auth never interprets it.
+    Data,
 }
 
 #[derive(Iden)]

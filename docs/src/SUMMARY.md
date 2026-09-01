@@ -16,6 +16,7 @@
 - [Permissions](extend/permissions.md)
 - [Validation](extend/validation.md)
 - [Errors](extend/errors.md)
+- [Sessions and CSRF](extend/sessions.md)
 - [Database Portability](extend/database-portability.md)
 
 # The Public Web

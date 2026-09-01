@@ -35,6 +35,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
             timezone: "UTC".to_string(),
             app_name: app_name.to_string(),
             path: path.to_string(),
+            origin: String::new(),
         },
     )
 }

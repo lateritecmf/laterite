@@ -33,6 +33,7 @@
         </td>
         <td class="lat-table__actions">
           <form method="post" action="{{ toggle_action }}">
+            {% include "_csrf.html" %}
             <input type="hidden" name="plugin_id" value="{{ p.id }}">
             <input type="hidden" name="enable" value="{% if p.action_target %}1{% else %}0{% endif %}">
             <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ p.action_label }}</button>

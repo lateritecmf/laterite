@@ -157,6 +157,7 @@ pub(crate) async fn update(
     item: &SettingsItem,
     data: HashMap<String, String>,
     shell: crate::Shell,
+    session: &crate::session::SessionHandle,
 ) -> Response {
     let value = collect(item, &data);
     match store::set(&state.db, &item.code, &value).await {
@@ -166,6 +167,7 @@ pub(crate) async fn update(
             if item.code == brand::BrandSetting::CODE {
                 state.invalidate_brand();
             }
+            session.push_flash(crate::session::FlashLevel::Success, "Settings saved.");
             Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
         }
         Err(_) => render(build(
@@ -502,6 +504,7 @@ mod tests {
             // log_requests is absent, as an unchecked checkbox would be.
             data(&[("log_events", "on"), ("retention_days", "30")]),
             crate::Shell::test(),
+            &crate::session::SessionHandle::from_blob(None),
         )
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
