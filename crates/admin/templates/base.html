@@ -11,9 +11,20 @@
     function latModeGlyph(m){return m==='light'?'☀':m==='dark'?'☾':'◐';}
     function latCycleMode(){var o=localStorage.getItem('lat-mode')||'auto';var n=o==='light'?'dark':o==='dark'?'auto':'light';localStorage.setItem('lat-mode',n);var d=n==='dark'||(n==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(n);}
     function latToggleMenu(){var m=document.getElementById('lat-menu');if(m)m.classList.toggle('is-open');}
+    function latDismissFlash(btn){var t=btn.closest('.lat-flash');if(!t)return;t.classList.add('is-leaving');setTimeout(function(){t.remove();},180);}
   </script>
 </head>
 <body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}'>
+  {% if !shell.flash.is_empty() %}
+  <div class="lat-flashes" role="status" aria-live="polite">
+    {% for f in shell.flash %}
+    <div class="lat-flash {{ f.level.class() }}">
+      <span class="lat-flash__text">{{ f.text }}</span>
+      <button type="button" class="lat-flash__close" aria-label="Dismiss" onclick="latDismissFlash(this)">&times;</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
   <header class="lat-topnav">
     <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label="Menu">&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
@@ -65,15 +76,14 @@
     {% endif %}
     <main class="lat-main">
       <div class="lat-page">
-        {% if !shell.flash.is_empty() %}
-        <div class="lat-flashes">
-          {% for f in shell.flash %}<div class="lat-flash {{ f.level.class() }}">{{ f.text }}</div>{% endfor %}
-        </div>
-        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </main>
   </div>
-  <script>(function(){var m=localStorage.getItem('lat-mode')||'auto';var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(m);})();</script>
+  <script>
+    (function(){var m=localStorage.getItem('lat-mode')||'auto';var e=document.getElementById('lat-mode-ico');if(e)e.textContent=latModeGlyph(m);})();
+    // Auto-dismiss non-error flashes after a few seconds; errors stay until closed.
+    (function(){document.querySelectorAll('.lat-flash').forEach(function(t){if(t.classList.contains('is-error'))return;setTimeout(function(){var b=t.querySelector('.lat-flash__close');if(b)latDismissFlash(b);},5000);});})();
+  </script>
 </body>
 </html>

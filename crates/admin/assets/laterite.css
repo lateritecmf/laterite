@@ -32,7 +32,7 @@
 --slate-50:#F1F3F4;--slate-100:#E4E7E9;--slate-200:#C7CCCF;--slate-300:#9AA2A7;
 --slate-400:#767E84;--slate-500:#5A6166;--slate-600:#464C50;--slate-700:#33383B;--slate-800:#242829;
 /* Semantic hues */
---green-100:#EBEBDB;--green-500:#5F6E3A;--green-700:#47522A;
+--green-100:#E3EDE6;--green-500:#2F5A3B;--green-700:#244832;
 --danger-100:#F6DCD7;--danger-500:#9E3220;--danger-700:#7A2517;
 /* Alpha utilities */
 --alpha-ferro-06:rgba(42,33,28,.06);--alpha-ferro-10:rgba(42,33,28,.10);--alpha-ferro-16:rgba(42,33,28,.16);
@@ -93,7 +93,7 @@
 --text-inverse:var(--ferro-800);--text-inverse-muted:var(--ferro-600);--text-link:var(--red-300);--text-link-hover:var(--red-200);
 --border-subtle:rgba(244,237,228,.09);--border-default:rgba(244,237,228,.14);--border-strong:rgba(244,237,228,.22);--border-input:rgba(244,237,228,.16);
 --accent-subtle:rgba(196,78,47,.14);--accent-quiet:rgba(196,78,47,.10);
---attention-subtle:rgba(217,142,50,.16);--attention-text:var(--ochre-300);--success-subtle:rgba(95,110,58,.22);--danger-subtle:rgba(158,50,32,.24);--neutral-badge:rgba(244,237,228,.10);
+--attention-subtle:rgba(217,142,50,.16);--attention-text:var(--ochre-300);--success-subtle:rgba(47,90,59,.22);--danger-subtle:rgba(158,50,32,.24);--neutral-badge:rgba(244,237,228,.10);
 }
 }
 
@@ -223,11 +223,16 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* Alerts */
 .lat-alert{background:var(--danger-subtle);color:var(--danger-700);padding:10px 12px;border-radius:var(--radius-md);font-size:var(--fs-13);margin-bottom:16px}
 .lat-alert--ok{background:var(--success-subtle);color:var(--success)}
-.lat-flashes{margin-bottom:16px;display:flex;flex-direction:column;gap:8px}
-.lat-flash{padding:10px 12px;border-radius:var(--radius-md);font-size:var(--fs-13)}
-.lat-flash.is-success{background:var(--success-subtle);color:var(--success)}
-.lat-flash.is-error{background:var(--danger-subtle);color:var(--danger-700)}
-.lat-flash.is-info{background:var(--neutral-badge);color:var(--text)}
+.lat-flashes{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:10px;width:min(520px,calc(100vw - 32px));pointer-events:none}
+.lat-flash{pointer-events:auto;position:relative;padding:12px 40px 12px 16px;border-radius:var(--radius-card);color:var(--text-on-accent);font-size:var(--fs-13);line-height:1.4;box-shadow:var(--shadow-lg);animation:lat-flash-in .18s var(--ease-standard)}
+.lat-flash.is-leaving{animation:lat-flash-out .18s var(--ease-standard) forwards}
+.lat-flash.is-success{background:var(--success)}
+.lat-flash.is-error{background:var(--danger-700)}
+.lat-flash.is-info{background:var(--slate-700)}
+.lat-flash__close{position:absolute;top:50%;right:8px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:none;border:0;padding:0;color:inherit;font-size:20px;line-height:1;cursor:pointer;opacity:.7;transition:opacity var(--dur-fast) var(--ease-standard)}
+.lat-flash__close:hover{opacity:1}
+@keyframes lat-flash-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes lat-flash-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-10px)}}
 
 /* Status pill (a coloured dot plus a label, used in list rows) */
 .lat-status{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-12);font-weight:var(--fw-medium)}
