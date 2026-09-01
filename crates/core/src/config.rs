@@ -43,6 +43,10 @@ pub struct AppMeta {
     /// The application's default locale (BCP 47, e.g. `"en"`): the active locale
     /// for UI-string translation until per-request locale selection exists.
     pub locale: String,
+    /// Debug mode: error pages include the internal cause. Off by default;
+    /// enable only in development. Read via [`debug`] where request context is
+    /// not available (error rendering).
+    pub debug: bool,
 }
 
 impl Default for AppMeta {
@@ -51,9 +55,24 @@ impl Default for AppMeta {
             name: "Laterite".to_string(),
             url: None,
             locale: "en".to_string(),
+            debug: false,
         }
     }
 }
+
+/// Records whether the deployment is in debug mode, once, at boot from the loaded
+/// config. Later calls are ignored (the first wins), so error rendering has a
+/// stable answer without threading config through every handler.
+pub fn set_debug(on: bool) {
+    let _ = DEBUG.set(on);
+}
+
+/// Whether the deployment is in debug mode (default `false` until [`set_debug`]).
+pub fn debug() -> bool {
+    *DEBUG.get().unwrap_or(&false)
+}
+
+static DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// The application's public base URL, without a trailing slash: the configured
 /// `url` when set and non-empty, otherwise derived from the server bind address

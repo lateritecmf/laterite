@@ -15,6 +15,7 @@
 //! connects, migrates, and serves this router in one call.
 
 pub mod bootstrap;
+mod error;
 pub mod form;
 mod icons;
 pub mod list;
@@ -25,13 +26,14 @@ mod sql;
 mod users;
 
 pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
+pub use error::AdminError;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use askama::Template;
 use axum::extract::{Path, Query, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::header;
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -567,7 +569,28 @@ pub fn router(
             &format!("{admin_path}/assets/fonts/{{file}}"),
             get(asset_font),
         )
+        // Unmatched URLs render the styled 404; a handler panic renders the 500.
+        .fallback(not_found_fallback)
+        .layer(tower_http::catch_panic::CatchPanicLayer::custom(
+            handle_panic,
+        ))
         .with_state(state)
+}
+
+/// Fallback for unmatched admin URLs: a styled 404.
+async fn not_found_fallback() -> AdminError {
+    AdminError::NotFound
+}
+
+/// Turns a handler panic into a logged, styled 500.
+fn handle_panic(err: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    let cause = err
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| err.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".to_string());
+    tracing::error!(panic = cause, "admin handler panicked");
+    error::masked_500()
 }
 
 /// Normalises a configured admin path: a single leading slash, no trailing
@@ -1284,20 +1307,21 @@ struct NavView {
 pub(crate) fn render<T: Template>(template: T) -> Response {
     match template.render() {
         Ok(html) => Html(html).into_response(),
-        Err(_) => render_error(),
+        // A render failure is unexpected: log the cause via AdminError, then mask.
+        Err(e) => AdminError::from(e).into_response(),
     }
 }
 
 pub(crate) fn render_error() -> Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response()
+    error::masked_500()
 }
 
 pub(crate) fn not_found() -> Response {
-    (StatusCode::NOT_FOUND, "Not found").into_response()
+    AdminError::NotFound.into_response()
 }
 
 pub(crate) fn forbidden() -> Response {
-    (StatusCode::FORBIDDEN, "Forbidden").into_response()
+    AdminError::Forbidden.into_response()
 }
 
 #[cfg(test)]

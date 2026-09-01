@@ -15,6 +15,7 @@
 - [Settings Models](extend/settings.md)
 - [Permissions](extend/permissions.md)
 - [Validation](extend/validation.md)
+- [Errors](extend/errors.md)
 - [Database Portability](extend/database-portability.md)
 
 # The Public Web

@@ -137,7 +137,17 @@ impl Bootstrap {
     /// `systemfd`-inherited socket in development, else binds the configured
     /// address.
     pub async fn serve(self) -> anyhow::Result<()> {
+        // Log subscriber (RUST_LOG, default below); try_init yields to an app's own.
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,sqlx=warn")),
+            )
+            .try_init();
+
         let config: AppConfig = config::load(&self.config_dir, &self.env_prefix)?;
+        // Debug gates the cause on error pages; the log records it regardless.
+        laterite_core::config::set_debug(config.app.debug);
 
         let db = laterite_core::db::connect(&config.database).await?;
 

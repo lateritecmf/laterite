@@ -24,7 +24,7 @@ use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::AnyRowExt;
 use sea_query::{Alias, Expr, Query};
 
-use crate::{not_found, render, render_error, AdminState, Permission, Shell};
+use crate::{render, AdminError, AdminState, Permission, Shell};
 
 /// Renders the edit form for a user, populated with their current overrides.
 pub(crate) async fn edit_form(
@@ -32,7 +32,7 @@ pub(crate) async fn edit_form(
     Extension(shell): Extension<Shell>,
     Extension(editor): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
-) -> Response {
+) -> Result<Response, AdminError> {
     // Scope the builder so it drops before the await, keeping the future `Send`.
     let (sql, values) = {
         let stmt = Query::select()
@@ -53,16 +53,10 @@ pub(crate) async fn edit_form(
             .to_owned();
         to_sql(state.db.backend, stmt)
     };
-    let row = match bind_values(sqlx::query(&sql), values)
+    let row = bind_values(sqlx::query(&sql), values)
         .fetch_optional(&state.db.pool)
-        .await
-    {
-        Ok(row) => row,
-        Err(_) => return render_error(),
-    };
-    let Some(row) = row else {
-        return not_found();
-    };
+        .await?
+        .ok_or(AdminError::NotFound)?;
     let username = row.get_text("username").unwrap_or_default();
     let first_name = row.get_text("first_name").unwrap_or_default();
     let last_name = row.get_text_opt("last_name").unwrap_or_default();
@@ -70,7 +64,7 @@ pub(crate) async fn edit_form(
     let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
-    render(build(
+    Ok(render(build(
         &state,
         shell,
         &editor.permissions,
@@ -80,7 +74,7 @@ pub(crate) async fn edit_form(
         email,
         is_superuser,
         &overrides,
-    ))
+    )))
 }
 
 /// Persists the changed overrides, then redirects to the list.
@@ -89,7 +83,7 @@ pub(crate) async fn update(
     Extension(editor): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
     Form(pairs): Form<Vec<(String, String)>>,
-) -> Response {
+) -> Result<Response, AdminError> {
     // Scope the builder so it drops before the await, keeping the future `Send`.
     let (sql, values) = {
         let stmt = Query::select()
@@ -103,24 +97,15 @@ pub(crate) async fn update(
             .to_owned();
         to_sql(state.db.backend, stmt)
     };
-    let row = match bind_values(sqlx::query(&sql), values)
+    let row = bind_values(sqlx::query(&sql), values)
         .fetch_optional(&state.db.pool)
-        .await
-    {
-        Ok(row) => row,
-        Err(_) => return render_error(),
-    };
-    let Some(row) = row else {
-        return not_found();
-    };
+        .await?
+        .ok_or(AdminError::NotFound)?;
     // A superuser has no editable overrides; nothing to save.
     if row.get_bool("is_superuser").unwrap_or(false) {
-        return Redirect::to(&format!("{}/users", state.admin_path)).into_response();
+        return Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response());
     }
-    let target_id = match id.parse::<i64>() {
-        Ok(target_id) => target_id,
-        Err(_) => return not_found(),
-    };
+    let target_id = id.parse::<i64>().map_err(|_| AdminError::NotFound)?;
 
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let mut overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
@@ -147,10 +132,11 @@ pub(crate) async fn update(
         }
     }
 
-    match state.auth.set_user_permissions(target_id, &overrides).await {
-        Ok(()) => Redirect::to(&format!("{}/users", state.admin_path)).into_response(),
-        Err(_) => render_error(),
-    }
+    state
+        .auth
+        .set_user_permissions(target_id, &overrides)
+        .await?;
+    Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response())
 }
 
 /// Pulls the submitted permission states out of the form. Each control posts one

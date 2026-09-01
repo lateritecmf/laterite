@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 
 use askama::Template;
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
@@ -187,7 +188,13 @@ pub(crate) async fn create(
         Err(_) => return render_error(),
     };
     if !bag.is_empty() {
-        return render(build(config, &action, None, &data, &bag, &shell));
+        // A failed submission re-renders the form with per-field errors as 422,
+        // the cross-surface "validation failure" status.
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            render(build(config, &action, None, &data, &bag, &shell)),
+        )
+            .into_response();
     }
 
     // The primary key is a database-assigned auto-increment id, so the insert
@@ -314,7 +321,13 @@ pub(crate) async fn update(
         Err(_) => return render_error(),
     };
     if !bag.is_empty() {
-        return render(build(config, &action, None, &data, &bag, &shell));
+        // A failed submission re-renders the form with per-field errors as 422,
+        // the cross-surface "validation failure" status.
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            render(build(config, &action, None, &data, &bag, &shell)),
+        )
+            .into_response();
     }
 
     // Scope the builder so it drops before the await, keeping the future `Send`.
@@ -573,7 +586,7 @@ mod tests {
         )
         .await;
         // Re-renders the form (200), does not redirect.
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(count(&db).await, 0);
         // The per-field message is rendered.
         assert!(body_of(resp).await.contains("Code is required."));
@@ -600,7 +613,7 @@ mod tests {
             crate::Shell::test(),
         )
         .await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(count(&db).await, 1);
         assert!(body_of(resp).await.contains("already taken"));
     }
