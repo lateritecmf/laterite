@@ -547,7 +547,7 @@ pub fn router(
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
     for resource in &resources {
-        protected = protected.merge(mount_resource(resource));
+        protected = protected.merge(mount_resource(resource, &state.field_types));
     }
     // The roles screen has a dedicated create/edit form (the permission editor),
     // gated by the same permission as its list.
@@ -769,7 +769,7 @@ async fn serve_asset(State(state): State<AdminState>, Path(path): Path<String>) 
 /// carry the resource's descriptors. When the resource sets a `permission`, every
 /// route it mounts is wrapped in a guard that answers `403 Forbidden` for an
 /// operator who lacks it; the caller merges the result into the protected router.
-fn mount_resource(resource: &Resource) -> Router<AdminState> {
+fn mount_resource(resource: &Resource, field_types: &field::FieldRegistry) -> Router<AdminState> {
     let base = resource.base_path.clone();
     let list_cfg = resource.list.clone();
     let mut router = Router::new().route(
@@ -785,34 +785,40 @@ fn mount_resource(resource: &Resource) -> Router<AdminState> {
     );
 
     if let Some(form_cfg) = resource.form.clone() {
-        let (new_cfg, create_cfg) = (form_cfg.clone(), form_cfg.clone());
+        // Resolve the form's field options once, here at router build. A malformed
+        // option or unregistered type aborts boot naming the resource.
+        let prepared = Arc::new(
+            form::PreparedForm::prepare(form_cfg, field_types)
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
+        );
+        let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
         router = router.route(
             &format!("{base}/new"),
             get(
                 move |State(state): State<AdminState>, Extension(shell): Extension<Shell>| {
-                    let cfg = new_cfg.clone();
-                    async move { form::new_form(&state, &cfg, shell) }
+                    let pf = new_pf.clone();
+                    async move { form::new_form(&state, &pf, shell) }
                 },
             )
             .post(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
                       Form(data): Form<HashMap<String, String>>| {
-                    let cfg = create_cfg.clone();
-                    async move { form::create(&state, &cfg, data, shell).await }
+                    let pf = create_pf.clone();
+                    async move { form::create(&state, &pf, data, shell).await }
                 },
             ),
         );
 
-        let (edit_cfg, update_cfg) = (form_cfg.clone(), form_cfg.clone());
+        let (edit_pf, update_pf) = (prepared.clone(), prepared.clone());
         router = router.route(
             &format!("{base}/{{id}}/edit"),
             get(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
                       Path(id): Path<String>| {
-                    let cfg = edit_cfg.clone();
-                    async move { form::edit_form(&state, &cfg, id, shell).await }
+                    let pf = edit_pf.clone();
+                    async move { form::edit_form(&state, &pf, id, shell).await }
                 },
             )
             .post(
@@ -820,8 +826,8 @@ fn mount_resource(resource: &Resource) -> Router<AdminState> {
                       Extension(shell): Extension<Shell>,
                       Path(id): Path<String>,
                       Form(data): Form<HashMap<String, String>>| {
-                    let cfg = update_cfg.clone();
-                    async move { form::update(&state, &cfg, id, data, shell).await }
+                    let pf = update_pf.clone();
+                    async move { form::update(&state, &pf, id, data, shell).await }
                 },
             ),
         );

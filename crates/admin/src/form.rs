@@ -148,30 +148,57 @@ impl FormConfig {
     }
 }
 
-/// Resolves a field's options and merges its type's intrinsic rules ahead of the
-/// descriptor's own (so an `email` type's `Email` rule applies without repeating
-/// it). Options are resolved per render for now; a boot cache can follow.
-fn resolved(state: &AdminState, f: &FormField) -> (ResolvedOptions, Vec<Rule>) {
-    match state.field_types.get(&f.field_type) {
-        Some(ft) => {
-            let opts = ft.resolve_options(&f.options).unwrap_or_default();
+/// A [`FormConfig`] with each field's options resolved once, at router build.
+/// Handlers carry this so option resolution and intrinsic-rule merging happen a
+/// single time (not per render), and a malformed option or unregistered type
+/// aborts boot rather than degrading silently to plain text.
+pub(crate) struct PreparedForm {
+    config: FormConfig,
+    /// Parallel to `config.fields`.
+    fields: Vec<PreparedField>,
+}
+
+/// One field's boot-resolved state: its typed options and its merged rules (the
+/// type's intrinsic rules ahead of the descriptor's own).
+struct PreparedField {
+    opts: ResolvedOptions,
+    rules: Vec<Rule>,
+}
+
+impl PreparedForm {
+    /// Resolves every field against the registry. Returns the offending field
+    /// and reason (for a boot abort) when a type is unregistered or rejects its
+    /// options.
+    pub(crate) fn prepare(
+        config: FormConfig,
+        field_types: &crate::field::FieldRegistry,
+    ) -> Result<Self, String> {
+        let mut fields = Vec::with_capacity(config.fields.len());
+        for f in &config.fields {
+            let ft = field_types.get(&f.field_type).ok_or_else(|| {
+                format!(
+                    "field `{}` uses unregistered type `{}`",
+                    f.name, f.field_type
+                )
+            })?;
+            let opts = ft
+                .resolve_options(&f.options)
+                .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
             let mut rules = ft.intrinsic_rules(&opts);
             rules.extend(f.rules.clone());
-            (opts, rules)
+            fields.push(PreparedField { opts, rules });
         }
-        None => (ResolvedOptions::default(), f.rules.clone()),
+        Ok(Self { config, fields })
     }
 }
 
 /// The merged validation rules for every field, in order.
-fn merged_field_rules(state: &AdminState, config: &FormConfig) -> Vec<FieldRules> {
-    config
+fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
+    form.config
         .fields
         .iter()
-        .map(|f| {
-            let (_, rules) = resolved(state, f);
-            FieldRules::new(f.name.clone(), f.label.clone(), rules)
-        })
+        .zip(&form.fields)
+        .map(|(f, pf)| FieldRules::new(f.name.clone(), f.label.clone(), pf.rules.clone()))
         .collect()
 }
 
@@ -183,11 +210,11 @@ fn has_required(rules: &[Rule]) -> bool {
 }
 
 /// Renders an empty create form.
-pub(crate) fn new_form(state: &AdminState, config: &FormConfig, shell: crate::Shell) -> Response {
+pub(crate) fn new_form(state: &AdminState, form: &PreparedForm, shell: crate::Shell) -> Response {
     render(build(
         state,
-        config,
-        &format!("{}/new", config.base_path),
+        form,
+        &format!("{}/new", form.config.base_path),
         None,
         &HashMap::new(),
         &ErrorBag::default(),
@@ -199,20 +226,20 @@ pub(crate) fn new_form(state: &AdminState, config: &FormConfig, shell: crate::Sh
 /// errors when validation fails.
 pub(crate) async fn create(
     state: &AdminState,
-    config: &FormConfig,
+    form: &PreparedForm,
     data: HashMap<String, String>,
     shell: crate::Shell,
 ) -> Response {
-    if !config.idents_valid() {
+    if !form.config.idents_valid() {
         return render_error();
     }
-    let action = format!("{}/new", config.base_path);
+    let action = format!("{}/new", form.config.base_path);
 
     let bag = match validate(
         &state.db,
-        &config.entity,
-        &config.id_field,
-        &merged_field_rules(state, config),
+        &form.config.entity,
+        &form.config.id_field,
+        &merged_field_rules(form),
         &data,
         Mode::Create,
         None,
@@ -227,7 +254,7 @@ pub(crate) async fn create(
         // the cross-surface "validation failure" status.
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, config, &action, None, &data, &bag, &shell)),
+            render(build(state, form, &action, None, &data, &bag, &shell)),
         )
             .into_response();
     }
@@ -236,14 +263,15 @@ pub(crate) async fn create(
     // lists only the descriptor's fields. The builder is scoped so it drops
     // before the await, keeping the handler future `Send`.
     let (sql, values) = {
-        let vals: Vec<SimpleExpr> = config
+        let vals: Vec<SimpleExpr> = form
+            .config
             .fields
             .iter()
             .map(|f| data.get(&f.name).cloned().unwrap_or_default().into())
             .collect();
         let stmt = Query::insert()
-            .into_table(Alias::new(&config.entity))
-            .columns(config.fields.iter().map(|f| Alias::new(&f.name)))
+            .into_table(Alias::new(&form.config.entity))
+            .columns(form.config.fields.iter().map(|f| Alias::new(&f.name)))
             .values_panic(vals)
             .to_owned();
         to_sql(state.db.backend, stmt)
@@ -252,10 +280,10 @@ pub(crate) async fn create(
         .execute(&state.db.pool)
         .await
     {
-        Ok(_) => Redirect::to(&config.base_path).into_response(),
+        Ok(_) => Redirect::to(&form.config.base_path).into_response(),
         Err(_) => render(build(
             state,
-            config,
+            form,
             &action,
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
@@ -268,11 +296,11 @@ pub(crate) async fn create(
 /// Renders a form populated with an existing record.
 pub(crate) async fn edit_form(
     state: &AdminState,
-    config: &FormConfig,
+    form: &PreparedForm,
     id: String,
     shell: crate::Shell,
 ) -> Response {
-    if !config.idents_valid() {
+    if !form.config.idents_valid() {
         return render_error();
     }
     // Scope the sea-query builder so it is dropped before the await below: its
@@ -281,14 +309,14 @@ pub(crate) async fn edit_form(
     let (sql, values) = {
         let cast = text_cast(state.db.backend);
         let mut select = Query::select();
-        for field in &config.fields {
+        for field in &form.config.fields {
             select.expr_as(
                 Expr::col(Alias::new(&field.name)).cast_as(Alias::new(cast)),
                 Alias::new(&field.name),
             );
         }
-        select.from(Alias::new(&config.entity)).and_where(
-            Expr::col(Alias::new(&config.id_field))
+        select.from(Alias::new(&form.config.entity)).and_where(
+            Expr::col(Alias::new(&form.config.id_field))
                 .cast_as(Alias::new(cast))
                 .eq(id.clone()),
         );
@@ -305,7 +333,8 @@ pub(crate) async fn edit_form(
         return not_found();
     };
 
-    let values = config
+    let values = form
+        .config
         .fields
         .iter()
         .map(|f| {
@@ -320,8 +349,8 @@ pub(crate) async fn edit_form(
 
     render(build(
         state,
-        config,
-        &format!("{}/{}/edit", config.base_path, id),
+        form,
+        &format!("{}/{}/edit", form.config.base_path, id),
         None,
         &values,
         &ErrorBag::default(),
@@ -333,21 +362,21 @@ pub(crate) async fn edit_form(
 /// per-field errors when validation fails.
 pub(crate) async fn update(
     state: &AdminState,
-    config: &FormConfig,
+    form: &PreparedForm,
     id: String,
     data: HashMap<String, String>,
     shell: crate::Shell,
 ) -> Response {
-    if !config.idents_valid() {
+    if !form.config.idents_valid() {
         return render_error();
     }
-    let action = format!("{}/{}/edit", config.base_path, id);
+    let action = format!("{}/{}/edit", form.config.base_path, id);
 
     let bag = match validate(
         &state.db,
-        &config.entity,
-        &config.id_field,
-        &merged_field_rules(state, config),
+        &form.config.entity,
+        &form.config.id_field,
+        &merged_field_rules(form),
         &data,
         Mode::Update,
         Some(&id),
@@ -362,7 +391,7 @@ pub(crate) async fn update(
         // the cross-surface "validation failure" status.
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, config, &action, None, &data, &bag, &shell)),
+            render(build(state, form, &action, None, &data, &bag, &shell)),
         )
             .into_response();
     }
@@ -370,15 +399,15 @@ pub(crate) async fn update(
     // Scope the builder so it drops before the await, keeping the future `Send`.
     let (sql, values) = {
         let mut update = Query::update();
-        update.table(Alias::new(&config.entity));
-        for field in &config.fields {
+        update.table(Alias::new(&form.config.entity));
+        for field in &form.config.fields {
             update.value(
                 Alias::new(&field.name),
                 data.get(&field.name).cloned().unwrap_or_default(),
             );
         }
         update.and_where(
-            Expr::col(Alias::new(&config.id_field))
+            Expr::col(Alias::new(&form.config.id_field))
                 .cast_as(Alias::new(text_cast(state.db.backend)))
                 .eq(id.clone()),
         );
@@ -388,10 +417,10 @@ pub(crate) async fn update(
         .execute(&state.db.pool)
         .await
     {
-        Ok(_) => Redirect::to(&config.base_path).into_response(),
+        Ok(_) => Redirect::to(&form.config.base_path).into_response(),
         Err(_) => render(build(
             state,
-            config,
+            form,
             &action,
             Some("Could not save. Check the values and try again.".to_string()),
             &data,
@@ -403,39 +432,41 @@ pub(crate) async fn update(
 
 fn build(
     state: &AdminState,
-    config: &FormConfig,
+    form: &PreparedForm,
     action: &str,
     error: Option<String>,
     values: &HashMap<String, String>,
     bag: &ErrorBag,
     shell: &crate::Shell,
 ) -> FormTemplate {
-    let fields = config
+    let fields = form
+        .config
         .fields
         .iter()
-        .map(|f| {
+        .zip(&form.fields)
+        .map(|(f, pf)| {
             let value = FieldValue::Text(values.get(&f.name).cloned().unwrap_or_default());
-            let (opts, rules) = resolved(state, f);
-            let required = has_required(&rules);
+            let required = has_required(&pf.rules);
             let cx = FieldCx {
                 name: &f.name,
                 id: &f.name,
                 label: &f.label,
                 value: &value,
                 required,
-                opts: &opts,
+                opts: &pf.opts,
             };
+            // The type is registered (prepare validated it); the lookup here is
+            // only to render.
             let control = match state.field_types.get(&f.field_type) {
                 Some(ft) => {
                     let scope = OverrideScope {
                         surface: Surface::Field,
                         view_key: &f.field_type,
-                        resource: Some(&config.base_path),
+                        resource: Some(&form.config.base_path),
                         field: Some(&f.name),
                     };
                     render_field(ft.as_ref(), state.overrides.as_ref(), &scope, &cx).into_string()
                 }
-                // An unregistered type key is a misconfiguration; render nothing.
                 None => String::new(),
             };
             FieldView {
@@ -449,9 +480,9 @@ fn build(
         .collect();
     FormTemplate {
         shell: shell.clone(),
-        title: config.title.clone(),
+        title: form.config.title.clone(),
         action: action.to_string(),
-        cancel_path: config.base_path.clone(),
+        cancel_path: form.config.base_path.clone(),
         error,
         fields,
     }
@@ -517,8 +548,8 @@ mod tests {
         }
     }
 
-    fn config() -> FormConfig {
-        FormConfig {
+    fn config() -> PreparedForm {
+        let config = FormConfig {
             entity: "samples".to_string(),
             title: "Sample".to_string(),
             base_path: "/admin/samples".to_string(),
@@ -527,7 +558,8 @@ mod tests {
                 FormField::text("code", "Code").required().unique(),
                 FormField::text("name", "Name").required(),
             ],
-        }
+        };
+        PreparedForm::prepare(config, &crate::field::builtin_registry()).unwrap()
     }
 
     fn state(db: Db) -> AdminState {
@@ -691,18 +723,22 @@ mod tests {
         let st = state(db.clone());
         // The `name` column is a text field with the `email` input, which
         // contributes Rule::Email without the descriptor listing it.
-        let cfg = FormConfig {
-            entity: "samples".to_string(),
-            title: "Sample".to_string(),
-            base_path: "/admin/samples".to_string(),
-            id_field: "id".to_string(),
-            fields: vec![
-                FormField::text("code", "Code").required(),
-                FormField::of("name", "Email", "text")
-                    .options(serde_json::json!({ "input": "email" }))
-                    .required(),
-            ],
-        };
+        let cfg = PreparedForm::prepare(
+            FormConfig {
+                entity: "samples".to_string(),
+                title: "Sample".to_string(),
+                base_path: "/admin/samples".to_string(),
+                id_field: "id".to_string(),
+                fields: vec![
+                    FormField::text("code", "Code").required(),
+                    FormField::of("name", "Email", "text")
+                        .options(serde_json::json!({ "input": "email" }))
+                        .required(),
+                ],
+            },
+            &st.field_types,
+        )
+        .unwrap();
 
         let resp = create(
             &st,
@@ -723,5 +759,39 @@ mod tests {
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         assert_eq!(count(&db).await, 1);
+    }
+
+    #[test]
+    fn prepare_rejects_an_unregistered_field_type() {
+        let config = FormConfig {
+            entity: "samples".to_string(),
+            title: "Sample".to_string(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![FormField::of("place", "Place", "no.such.type")],
+        };
+        let Err(err) = PreparedForm::prepare(config, &crate::field::builtin_registry()) else {
+            panic!("expected prepare to reject an unregistered type");
+        };
+        assert!(err.contains("no.such.type"), "{err}");
+    }
+
+    #[test]
+    fn prepare_rejects_a_malformed_option() {
+        // The text field's `input` option is a string; a wrong JSON type for it
+        // aborts prepare naming the field.
+        let config = FormConfig {
+            entity: "samples".to_string(),
+            title: "Sample".to_string(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![
+                FormField::of("email", "Email", "text").options(serde_json::json!({ "input": 7 }))
+            ],
+        };
+        let Err(err) = PreparedForm::prepare(config, &crate::field::builtin_registry()) else {
+            panic!("expected prepare to reject a malformed option");
+        };
+        assert!(err.contains("`email`"), "{err}");
     }
 }
