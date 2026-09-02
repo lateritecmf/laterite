@@ -741,6 +741,14 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             },
         ),
         (
+            "vendor/htmx.min.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                cache: "no-cache",
+                bytes: include_bytes!("../assets/vendor/htmx.min.js"),
+            },
+        ),
+        (
             "mark.svg",
             AdminAsset {
                 mime: "image/svg+xml",

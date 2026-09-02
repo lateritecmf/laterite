@@ -46,6 +46,20 @@ async fn serves_embedded_assets_and_404s_unknown() {
         .unwrap();
     assert_eq!(font.status(), StatusCode::OK);
 
+    // Vendored htmx serves through the same nested wildcard, as JavaScript.
+    let htmx = app()
+        .oneshot(get("/admin/assets/vendor/htmx.min.js"))
+        .await
+        .unwrap();
+    assert_eq!(htmx.status(), StatusCode::OK);
+    let ct = htmx
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(ct.contains("javascript"), "content-type was {ct}");
+
     // An unregistered path is a 404.
     let miss = app().oneshot(get("/admin/assets/nope.css")).await.unwrap();
     assert_eq!(miss.status(), StatusCode::NOT_FOUND);
