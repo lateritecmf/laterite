@@ -461,7 +461,7 @@ fn validate_contributions(
 }
 
 /// `^[a-z][a-z0-9-]*$`, plus `.` when `dotted` (for a widget's `vendor.name`).
-fn is_name(s: &str, dotted: bool) -> bool {
+pub(crate) fn is_name(s: &str, dotted: bool) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
         && chars.all(|c| {

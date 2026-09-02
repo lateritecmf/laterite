@@ -21,6 +21,7 @@ pub mod form;
 pub mod html;
 mod icons;
 pub mod list;
+pub mod picker;
 pub mod plugins;
 mod roles;
 mod session;
@@ -41,7 +42,7 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::header;
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
@@ -61,6 +62,8 @@ pub trait AdminRegistry {
     fn add_permission(&mut self, permission: Permission);
     /// Adds a settings model.
     fn add_settings(&mut self, item: settings::SettingsItem);
+    /// Adds a reference-picker source, callable by a picker field's endpoints.
+    fn add_picker_source(&mut self, source: picker::PickerSourceReg);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -72,6 +75,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_settings(&mut self, item: settings::SettingsItem) {
         self.add(item);
+    }
+    fn add_picker_source(&mut self, source: picker::PickerSourceReg) {
+        self.add(source);
     }
 }
 
@@ -108,6 +114,9 @@ pub(crate) struct AdminState {
     column_types: Arc<list::ColumnRegistry>,
     /// Embedded admin assets served under `{admin}/assets/` (see [`AdminAsset`]).
     assets: Arc<AssetRegistry>,
+    /// The reference-picker source registry: resolves a picker field's `source`
+    /// key to the domain service its endpoints call. See [`picker`].
+    pickers: Arc<picker::PickerRegistry>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -132,6 +141,7 @@ impl AdminState {
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
             assets: Arc::new(builtin_assets()),
+            pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
         }
     }
@@ -495,6 +505,7 @@ pub fn router(
     app_resources: Vec<Resource>,
     app_settings: Vec<settings::SettingsItem>,
     app_permissions: Vec<Permission>,
+    app_picker_sources: Vec<picker::PickerSourceReg>,
     config: AdminConfig,
 ) -> Router {
     let admin_path = normalize_path(&config.path);
@@ -540,6 +551,20 @@ pub fn router(
     } else {
         config.app_name.clone()
     };
+
+    // The picker-source registry, keyed by dotted name. A bad name or a duplicate
+    // is a wiring bug, so it aborts boot.
+    let mut pickers = picker::PickerRegistry::new();
+    for reg in app_picker_sources {
+        let name = reg.name.clone();
+        if !field::is_name(&name, true) {
+            panic!("invalid picker source name `{name}`");
+        }
+        if pickers.insert(name.clone(), reg).is_some() {
+            panic!("duplicate picker source `{name}`");
+        }
+    }
+
     let state = AdminState {
         auth,
         db,
@@ -555,6 +580,7 @@ pub fn router(
         field_types: Arc::new(field::builtin_registry()),
         column_types: Arc::new(list::builtin_column_registry()),
         assets: Arc::new(builtin_assets()),
+        pickers: Arc::new(pickers),
         overrides: Arc::new(field::NoOverrides),
     };
 
@@ -605,6 +631,16 @@ pub fn router(
         .route(
             &format!("{admin_path}/preferences"),
             get(preferences_form).post(preferences_update),
+        )
+        // Picker endpoints, served with the QUERY method (a read; the guard in the
+        // handler answers 405 for any other method).
+        .route(
+            &format!("{admin_path}/pickers/{{source}}/search"),
+            any(picker::search),
+        )
+        .route(
+            &format!("{admin_path}/pickers/{{source}}/resolve"),
+            any(picker::resolve),
         )
         .route(&format!("{admin_path}/logout"), post(logout));
 
@@ -1617,6 +1653,7 @@ mod tests {
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
             assets: Arc::new(builtin_assets()),
+            pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
         };
 

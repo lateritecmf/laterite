@@ -30,6 +30,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         AdminConfig {
             secure_cookie: false,
             timezone: "UTC".to_string(),

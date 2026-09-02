@@ -74,6 +74,7 @@ async fn admin_mutations_require_origin_and_token() {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             AdminConfig {
                 origin: ORIGIN.to_string(),
                 ..Default::default()

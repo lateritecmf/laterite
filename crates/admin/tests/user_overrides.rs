@@ -103,6 +103,7 @@ fn app(pool: &Db) -> axum::Router {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         AdminConfig::default(),
     )
 }
