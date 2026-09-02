@@ -454,6 +454,7 @@ fn build(
                 value: &value,
                 required,
                 opts: &pf.opts,
+                base: &shell.base,
             };
             // The type is registered (prepare validated it); the lookup here is
             // only to render.

@@ -565,6 +565,16 @@ pub fn router(
         }
     }
 
+    // The reference field validates its `source` against the picker registry at
+    // boot, so build the field registry here (over the arg-free built-ins) with
+    // the picker field added and the registry injected.
+    let pickers = Arc::new(pickers);
+    let mut field_types = field::builtin_registry();
+    field_types.insert(
+        "reference".to_string(),
+        Arc::new(field::RefPickerField::new(pickers.clone())),
+    );
+
     let state = AdminState {
         auth,
         db,
@@ -577,10 +587,10 @@ pub fn router(
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
-        field_types: Arc::new(field::builtin_registry()),
+        field_types: Arc::new(field_types),
         column_types: Arc::new(list::builtin_column_registry()),
         assets: Arc::new(builtin_assets()),
-        pickers: Arc::new(pickers),
+        pickers,
         overrides: Arc::new(field::NoOverrides),
     };
 
@@ -782,6 +792,22 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
                 mime: "text/javascript; charset=utf-8",
                 cache: "no-cache",
                 bytes: include_bytes!("../assets/vendor/htmx.min.js"),
+            },
+        ),
+        (
+            "fields/ref-picker.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                cache: "no-cache",
+                bytes: include_bytes!("../assets/fields/ref-picker.js"),
+            },
+        ),
+        (
+            "fields/ref-picker.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                cache: "no-cache",
+                bytes: include_bytes!("../assets/fields/ref-picker.css"),
             },
         ),
         (

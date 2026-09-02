@@ -17,6 +17,7 @@ use laterite_core::validation::Rule;
 use serde::{Deserialize, Serialize};
 
 use crate::html::Markup;
+use crate::picker::PickerRegistry;
 
 /// A field's value, general enough for scalar and (later) structured types.
 /// Serde so it rides in the view-model and a failed-validation re-render.
@@ -79,6 +80,9 @@ pub struct FieldCx<'a> {
     /// Derived from the merged (intrinsic + descriptor) rules.
     pub required: bool,
     pub opts: &'a ResolvedOptions,
+    /// The admin mount path (e.g. `/admin`), so a type that calls an endpoint
+    /// (the reference picker) builds its URL without knowing routing conventions.
+    pub base: &'a str,
 }
 
 /// The serialisable payload both the built-in template and an override render,
@@ -736,6 +740,110 @@ fn scalar_vm(view_key: &str, cx: &FieldCx<'_>) -> FieldVm {
     }
 }
 
+/// The reference-picker field's option: which registered source to pick from.
+#[derive(Deserialize)]
+struct RefOptions {
+    source: String,
+}
+
+/// The reference-picker's resolved options: the source name, validated at boot.
+struct RefResolved {
+    source: String,
+}
+
+/// The reference-picker's view-model payload: the source and the endpoint URLs
+/// its widget calls, plus the stored id (which the hidden input submits).
+#[derive(Default, Serialize, Deserialize)]
+struct RefData {
+    source: String,
+    search_url: String,
+    resolve_url: String,
+    value: String,
+    placeholder: String,
+}
+
+#[derive(Template)]
+#[template(path = "fields/ref_picker.html")]
+struct RefPickerTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    search_url: &'a str,
+    resolve_url: &'a str,
+    placeholder: &'a str,
+}
+
+/// A picker over a reference to another record: stores that record's id, shows
+/// its label, and offers typeahead candidates from a registered [`PickerSource`]
+/// (selected by the `source` option). The label and candidates are fetched by
+/// its widget from the source's endpoints; rendering stays pure.
+pub(crate) struct RefPickerField {
+    pickers: Arc<PickerRegistry>,
+}
+
+impl RefPickerField {
+    pub(crate) fn new(pickers: Arc<PickerRegistry>) -> Self {
+        Self { pickers }
+    }
+}
+
+impl FieldType for RefPickerField {
+    fn view_key(&self) -> &'static str {
+        "reference"
+    }
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: RefOptions =
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
+        if !self.pickers.contains_key(&opts.source) {
+            return Err(OptionsError(format!(
+                "unknown picker source `{}`",
+                opts.source
+            )));
+        }
+        Ok(ResolvedOptions::new(RefResolved {
+            source: opts.source,
+        }))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let source = cx
+            .opts
+            .get::<RefResolved>()
+            .map(|r| r.source.as_str())
+            .unwrap_or_default();
+        let data = RefData {
+            search_url: format!("{}/pickers/{}/search", cx.base, source),
+            resolve_url: format!("{}/pickers/{}/resolve", cx.base, source),
+            source: source.to_string(),
+            value: cx.value.as_text().to_string(),
+            placeholder: "Search…".to_string(),
+        };
+        FieldVm {
+            view_key: "reference".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::to_value(data).unwrap_or_default(),
+        }
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let data: RefData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&RefPickerTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            search_url: &data.search_url,
+            resolve_url: &data.resolve_url,
+            placeholder: &data.placeholder,
+        })
+        .unwrap_or_default()
+    }
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
+        vec!["fields/ref-picker.js", "fields/ref-picker.css"]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -748,6 +856,7 @@ mod tests {
             value,
             required: true,
             opts,
+            base: "/admin",
         }
     }
 
@@ -969,5 +1078,61 @@ mod tests {
             resource: None,
             field: None,
         }
+    }
+
+    fn ref_field() -> RefPickerField {
+        let mut pickers = crate::picker::PickerRegistry::new();
+        let source = Arc::new(crate::picker::TableSource::new("places", "id", "name"));
+        pickers.insert(
+            "acme.place".to_string(),
+            crate::picker::PickerSourceReg::new("acme.place", source),
+        );
+        RefPickerField::new(Arc::new(pickers))
+    }
+
+    #[test]
+    fn reference_rejects_an_unknown_source() {
+        let field = ref_field();
+        let Err(e) = field.resolve_options(&serde_json::json!({ "source": "no.such" })) else {
+            panic!("expected an unknown-source rejection");
+        };
+        assert!(e.0.contains("no.such"), "{e}");
+    }
+
+    #[test]
+    fn reference_renders_a_preserved_hidden_id_and_the_combobox() {
+        let field = ref_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "source": "acme.place" }))
+            .unwrap();
+        let value = FieldValue::Text("42".to_string());
+        let markup = render_field(
+            &field,
+            &NoOverrides,
+            &scope(),
+            &cx("place_id", &value, &opts),
+        );
+        let html = markup.as_str();
+        // The stored id rides in the hidden input the form submits, so an untouched
+        // form (or one with JS off) preserves the reference.
+        assert!(html.contains(r#"type="hidden""#), "{html}");
+        assert!(html.contains(r#"name="place_id""#), "{html}");
+        assert!(html.contains(r#"value="42""#), "{html}");
+        // The widget hook and its endpoint URLs (built from the mount path).
+        assert!(html.contains(r#"data-lat-widget="ref-picker""#), "{html}");
+        assert!(html.contains("/admin/pickers/acme.place/search"), "{html}");
+        assert!(html.contains("/admin/pickers/acme.place/resolve"), "{html}");
+    }
+
+    #[test]
+    fn reference_declares_its_widget_assets() {
+        let field = ref_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "source": "acme.place" }))
+            .unwrap();
+        assert_eq!(
+            field.assets(&opts),
+            vec!["fields/ref-picker.js", "fields/ref-picker.css"]
+        );
     }
 }
