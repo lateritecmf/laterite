@@ -172,6 +172,36 @@ where
     }
 }
 
+/// Like [`insert_returning_id`] but on an explicit connection (a transaction), so
+/// a multi-statement write stays atomic. Sync-renders then captures only owned
+/// `Send` data plus the connection into the future, for the same reason (see
+/// [`insert_returning_id`]).
+pub fn insert_returning_id_on<'c, I>(
+    backend: DbBackend,
+    conn: &'c mut sqlx::AnyConnection,
+    stmt: sea_query::InsertStatement,
+    id: I,
+) -> impl std::future::Future<Output = Result<i64, sqlx::Error>> + Send + 'c
+where
+    I: sea_query::IntoIden + 'static,
+{
+    let (sql, values, returning) = render_insert(backend, stmt, id);
+    async move {
+        if returning {
+            bind_values(sqlx::query(&sql), values)
+                .fetch_one(&mut *conn)
+                .await?
+                .try_get::<i64, _>(0)
+        } else {
+            bind_values(sqlx::query(&sql), values)
+                .execute(&mut *conn)
+                .await?
+                .last_insert_id()
+                .ok_or(sqlx::Error::RowNotFound)
+        }
+    }
+}
+
 /// Renders an insert to `(sql, values, use_returning)`. Postgres and SQLite get a
 /// `RETURNING` clause on `id` (read back with `fetch_one`); MySQL has no portable
 /// `RETURNING`, so it reports the id through the driver's last-insert-id instead.
@@ -339,5 +369,72 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(count, 1);
+    }
+
+    // Runs on the full backend matrix: the id read-back differs per backend
+    // (Postgres RETURNING vs MySQL last-insert-id), so it uses the portable test
+    // harness + schema builder rather than raw, SQLite-only DDL.
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn insert_returning_id_on_runs_inside_a_transaction() {
+        use crate::strata::{
+            async_trait, ColumnDef, CoreResult, Migration, MigrationSet, Schema, Table,
+        };
+        use crate::testing::connect_test;
+
+        struct CreateThing;
+        #[async_trait(?Send)]
+        impl Migration for CreateThing {
+            fn name(&self) -> &str {
+                "0001_create_thing"
+            }
+            async fn up(&self, s: &mut Schema<'_>) -> CoreResult<()> {
+                s.exec(
+                    Table::create()
+                        .table(Alias::new("thing"))
+                        .if_not_exists()
+                        .col(
+                            ColumnDef::new(Alias::new("id"))
+                                .big_integer()
+                                .not_null()
+                                .auto_increment()
+                                .primary_key(),
+                        )
+                        .col(ColumnDef::new(Alias::new("name")).text().not_null())
+                        .to_owned(),
+                )
+                .await
+            }
+        }
+
+        let (db, _guard) =
+            connect_test(&[MigrationSet::new("test.thing", vec![Box::new(CreateThing)])]).await;
+
+        // Insert inside a transaction, reading the new id back through the tx.
+        let mut tx = db.pool.begin().await.unwrap();
+        let insert = Query::insert()
+            .into_table(Alias::new("thing"))
+            .columns([Alias::new("name")])
+            .values_panic(["gadget".into()])
+            .to_owned();
+        let id = insert_returning_id_on(db.backend, &mut tx, insert, Alias::new("id"))
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert!(id >= 1);
+
+        // The committed row is readable by the returned id.
+        let select = Query::select()
+            .column(Alias::new("name"))
+            .from(Alias::new("thing"))
+            .and_where(Expr::col(Alias::new("id")).eq(id))
+            .to_owned();
+        let (sql, values) = build(db.backend, select);
+        let name: String = bind_values_as(sqlx::query_as::<_, (String,)>(&sql), values)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(name, "gadget");
     }
 }
