@@ -12,6 +12,8 @@
     (function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();
   </script>
   <script defer src="{{ shell.base }}/assets/laterite.js"></script>
+  {% for a in shell.assets %}{% if a.css %}<link rel="stylesheet" href="{{ a.url }}" data-lat-asset="{{ a.url }}">{% else %}<script defer src="{{ a.url }}" data-lat-asset="{{ a.url }}"></script>{% endif %}
+  {% endfor %}
 </head>
 <body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}'>
   {% if !shell.flash.is_empty() %}

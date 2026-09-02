@@ -123,6 +123,14 @@ pub trait FieldType: Send + Sync + 'static {
     fn chrome(&self) -> Chrome {
         Chrome::Wrapped
     }
+
+    /// Asset-registry keys this type's control needs on any page that renders it
+    /// (a heavy widget's script/style). The page shell collects, dedupes, and
+    /// emits them; keys must exist in the asset registry. Default: none, so a
+    /// type whose widget ships in core `laterite.js` declares nothing.
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
+        Vec::new()
+    }
 }
 
 /// A field type failed to type its options blob at boot.
@@ -267,6 +275,11 @@ pub trait InputType: Send + Sync + 'static {
     }
     /// Controls placed beside the input (a copy button, a currency symbol).
     fn adornments(&self, _opts: &ResolvedOptions) -> Vec<Adornment> {
+        Vec::new()
+    }
+    /// Asset-registry keys this input needs (a heavy widget's script/style). The
+    /// copy button needs none, since its island ships in core `laterite.js`.
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
         Vec::new()
     }
 }
@@ -474,6 +487,7 @@ struct TextResolved {
     attrs: BTreeMap<String, String>,
     adornments: Vec<Adornment>,
     rules: Vec<Rule>,
+    assets: Vec<&'static str>,
 }
 
 /// The text field's view-model payload. Additive over the prior `{input_type}`,
@@ -539,6 +553,7 @@ impl FieldType for TextField {
         Ok(ResolvedOptions::new(TextResolved {
             html_type: input.html_type(),
             rules: input.rules(&input_opts),
+            assets: input.assets(&input_opts),
             attrs,
             adornments,
         }))
@@ -546,6 +561,11 @@ impl FieldType for TextField {
     fn intrinsic_rules(&self, opts: &ResolvedOptions) -> Vec<Rule> {
         opts.get::<TextResolved>()
             .map(|r| r.rules.clone())
+            .unwrap_or_default()
+    }
+    fn assets(&self, opts: &ResolvedOptions) -> Vec<&'static str> {
+        opts.get::<TextResolved>()
+            .map(|r| r.assets.clone())
             .unwrap_or_default()
     }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {

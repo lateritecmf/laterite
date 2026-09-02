@@ -239,6 +239,17 @@ pub(crate) struct Shell {
     /// Flash messages to show once on this render, taken from the session on a
     /// full-page GET (redirect-after-POST delivers them here). See [`session`].
     pub(crate) flash: Vec<session::Flash>,
+    /// Per-page widget assets (field/column scripts and styles) for this render,
+    /// deduped and emitted in the head after core `laterite.js`. See
+    /// [`page_assets`].
+    pub(crate) assets: Vec<PageAsset>,
+}
+
+/// One per-page asset to load: a resolved URL and whether it is a stylesheet.
+#[derive(Clone)]
+pub(crate) struct PageAsset {
+    pub(crate) url: String,
+    pub(crate) css: bool,
 }
 
 impl Shell {
@@ -278,6 +289,7 @@ impl Shell {
             sidebar,
             csrf_token,
             flash,
+            assets: Vec::new(),
         }
     }
 
@@ -293,6 +305,7 @@ impl Shell {
             sidebar: Vec::new(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
+            assets: Vec::new(),
         }
     }
 }
@@ -674,6 +687,30 @@ pub(crate) struct AdminAsset {
 /// Admin assets served under `{admin}/assets/`, keyed by path. An open registry:
 /// field types and plugins contribute their own (wired when the first one does).
 pub(crate) type AssetRegistry = HashMap<&'static str, AdminAsset>;
+
+/// Resolves widget asset keys to per-page assets for the shell: an order-
+/// preserving dedup, a single URL builder (`{base}/assets/{key}`), and
+/// stylesheet-vs-script by the registry's mime. A key absent from the registry is
+/// skipped and trips a debug assertion, since a declared asset must be registered.
+/// The URL is stamped as `data-lat-asset` in the head so a later htmx fragment's
+/// `lat.assets.ensure` of the same key is a no-op.
+pub(crate) fn page_assets(keys: &[&str], base: &str, registry: &AssetRegistry) -> Vec<PageAsset> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for &key in keys {
+        if !seen.insert(key) {
+            continue;
+        }
+        match registry.get(key) {
+            Some(asset) => out.push(PageAsset {
+                url: format!("{base}/assets/{key}"),
+                css: asset.mime.contains("css"),
+            }),
+            None => debug_assert!(false, "asset key `{key}` is not registered"),
+        }
+    }
+    out
+}
 
 const ASSET_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
@@ -1496,6 +1533,35 @@ mod tests {
         // Junk stored value: fall back rather than error.
         assert_eq!(resolve_display_tz(Some("Not/AZone"), default), default);
         assert_eq!(resolve_display_tz(Some(""), default), default);
+    }
+
+    #[test]
+    fn page_assets_dedupe_preserve_order_and_classify() {
+        let mut reg = AssetRegistry::new();
+        reg.insert(
+            "a.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                cache: "no-cache",
+                bytes: b"",
+            },
+        );
+        reg.insert(
+            "b.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                cache: "no-cache",
+                bytes: b"",
+            },
+        );
+        // A repeated key collapses to one, keeping first-seen order; the URL is
+        // built from the base; css-vs-js follows the registry mime.
+        let assets = page_assets(&["a.js", "b.css", "a.js"], "/admin", &reg);
+        assert_eq!(assets.len(), 2);
+        assert_eq!(assets[0].url, "/admin/assets/a.js");
+        assert!(!assets[0].css);
+        assert_eq!(assets[1].url, "/admin/assets/b.css");
+        assert!(assets[1].css);
     }
 
     /// A fresh test database with no migrations applied, the blank slate an

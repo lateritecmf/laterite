@@ -478,8 +478,26 @@ fn build(
             }
         })
         .collect();
+    // Collect the widget assets the rendered field types declare, deduped and
+    // resolved to URLs for the head. Most declare none (their widgets ship in
+    // core laterite.js).
+    let keys: Vec<&str> = form
+        .config
+        .fields
+        .iter()
+        .zip(&form.fields)
+        .filter_map(|(f, pf)| {
+            state
+                .field_types
+                .get(&f.field_type)
+                .map(|ft| ft.assets(&pf.opts))
+        })
+        .flatten()
+        .collect();
+    let mut shell = shell.clone();
+    shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
     FormTemplate {
-        shell: shell.clone(),
+        shell,
         title: form.config.title.clone(),
         action: action.to_string(),
         cancel_path: form.config.base_path.clone(),

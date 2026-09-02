@@ -102,6 +102,11 @@ pub trait ColumnType: Send + Sync + 'static {
     fn view_key(&self) -> &'static str;
     fn view_model(&self, cx: &CellCx<'_>) -> CellVm;
     fn render_default(&self, vm: &CellVm) -> Markup;
+    /// Asset-registry keys this column's cell needs (a heavy cell widget). The
+    /// page shell collects and emits them; keys must exist in the registry.
+    fn assets(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
 }
 
 /// The column-type registry, keyed by [`ColumnType::view_key`].
@@ -443,6 +448,14 @@ pub(crate) async fn handle(
                         .collect(),
                 })
                 .collect();
+            let keys: Vec<&str> = config
+                .columns
+                .iter()
+                .filter_map(|c| state.column_types.get(&c.column_type).map(|ct| ct.assets()))
+                .flatten()
+                .collect();
+            let mut shell = shell;
+            shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
             render(ListTemplate {
                 shell,
                 title: config.title.clone(),
