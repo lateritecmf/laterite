@@ -75,3 +75,22 @@ window.lat.widget('flash', function (el) {
   if (el.classList.contains('is-error')) return;
   setTimeout(function () { latDismissFlash(el); }, 5000);
 });
+
+// Copy button: copies its input group's value, with brief confirmation. Binds by
+// structure (closest group), so it survives repeater path-ids.
+window.lat.widget('copy', function (btn) {
+  var label = btn.textContent;
+  btn.addEventListener('click', function () {
+    var group = btn.closest('.lat-input-group');
+    var input = group && group.querySelector('input');
+    if (!input || !navigator.clipboard) return;
+    navigator.clipboard.writeText(input.value).then(function () {
+      btn.classList.add('is-copied');
+      btn.textContent = 'Copied';
+      setTimeout(function () {
+        btn.classList.remove('is-copied');
+        btn.textContent = label;
+      }, 1200);
+    });
+  });
+});

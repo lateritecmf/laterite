@@ -198,14 +198,14 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;resize:vertical}
 .lat-input--lg{height:var(--control-h-lg)}
 .lat-input-group{display:flex;align-items:stretch}
-.lat-input-group .lat-input{flex:1;min-width:0}
-.lat-input-group>:not(:first-child){border-top-left-radius:0;border-bottom-left-radius:0}
-.lat-input-group>:not(:last-child){border-top-right-radius:0;border-bottom-right-radius:0}
+.lat-input-group .lat-input{flex:1;width:auto;min-width:0;border-radius:0}
+.lat-input-group>:first-child{border-top-left-radius:var(--radius-control);border-bottom-left-radius:var(--radius-control)}
+.lat-input-group>:last-child{border-top-right-radius:var(--radius-control);border-bottom-right-radius:var(--radius-control)}
 .lat-input-group>:not(:first-child){margin-left:-1px}
-.lat-input-group__btn,.lat-input-group__affix{display:flex;align-items:center;height:var(--control-h);padding:0 12px;font-size:var(--fs-13);color:var(--text-muted);background:var(--surface-sunken);border:1px solid var(--border-input);border-radius:var(--radius-control);white-space:nowrap}
+.lat-input-group__btn,.lat-input-group__affix{display:flex;align-items:center;height:var(--control-h);padding:0 12px;font-size:var(--fs-13);color:var(--text-muted);background:var(--surface-sunken);border:1px solid var(--border-input);white-space:nowrap}
 .lat-input-group__btn{cursor:pointer;transition:var(--transition-control)}
 .lat-input-group__btn:hover{background:var(--accent-quiet);color:var(--accent)}
-.lat-input-group__btn.is-copied{color:var(--success)}
+.lat-input-group__btn.is-copied{color:var(--success);background:var(--success-subtle)}
 .lat-check{display:flex;align-items:center;gap:8px;font-size:var(--fs-13);color:var(--text-body);cursor:pointer}
 .lat-check input{width:16px;height:16px;accent-color:var(--accent)}
 .lat-permgroup{border:1px solid var(--border-subtle);border-radius:var(--radius-control);padding:12px 14px;margin:14px 0 0}

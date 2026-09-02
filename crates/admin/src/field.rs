@@ -351,12 +351,63 @@ impl InputType for NumberInput {
     }
 }
 
+/// A url input's option: whether to show the copy-to-clipboard button.
+#[derive(Deserialize)]
+struct UrlOptions {
+    #[serde(default = "default_true")]
+    copy: bool,
+}
+
+impl Default for UrlOptions {
+    fn default() -> Self {
+        Self { copy: true }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+struct UrlInput;
+impl InputType for UrlInput {
+    fn key(&self) -> &'static str {
+        "url"
+    }
+    fn html_type(&self) -> &'static str {
+        "url"
+    }
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: UrlOptions = if raw.is_null() {
+            UrlOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
+        vec![Rule::Url]
+    }
+    fn adornments(&self, opts: &ResolvedOptions) -> Vec<Adornment> {
+        if opts.get::<UrlOptions>().is_none_or(|o| o.copy) {
+            vec![Adornment {
+                placement: Placement::Trailing,
+                button: true,
+                label: "Copy".to_string(),
+                widget: Some("copy".to_string()),
+            }]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 pub(crate) fn builtin_input_types() -> Vec<Arc<dyn InputType>> {
     vec![
         Arc::new(TextInput),
         Arc::new(EmailInput),
         Arc::new(TelInput),
         Arc::new(NumberInput),
+        Arc::new(UrlInput),
     ]
 }
 
@@ -798,6 +849,39 @@ mod tests {
         let value = FieldValue::Text(String::new());
         let markup = render_field(&field, &NoOverrides, &scope(), &cx("phone", &value, &opts));
         assert!(markup.as_str().contains(r#"type="tel""#));
+    }
+
+    #[test]
+    fn text_url_input_sets_the_type_url_rule_and_copy_button() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "input": "url" }))
+            .unwrap();
+        assert!(matches!(
+            field.intrinsic_rules(&opts).as_slice(),
+            [Rule::Url]
+        ));
+        let value = FieldValue::Text("https://example.com".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("site", &value, &opts));
+        let html = markup.as_str();
+        assert!(html.contains(r#"type="url""#), "{html}");
+        assert!(html.contains("lat-input-group"), "{html}");
+        assert!(html.contains(r#"data-lat-widget="copy""#), "{html}");
+    }
+
+    #[test]
+    fn text_url_input_copy_false_omits_the_button() {
+        let field = text_field();
+        let opts = field
+            .resolve_options(&serde_json::json!({ "input": "url", "copy": false }))
+            .unwrap();
+        let value = FieldValue::Text("https://example.com".to_string());
+        let markup = render_field(&field, &NoOverrides, &scope(), &cx("site", &value, &opts));
+        let html = markup.as_str();
+        assert!(html.contains(r#"type="url""#), "{html}");
+        // No adornment, so a plain input with no group and no widget hook.
+        assert!(!html.contains("lat-input-group"), "{html}");
+        assert!(!html.contains("data-lat-widget"), "{html}");
     }
 
     #[test]
