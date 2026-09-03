@@ -26,7 +26,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
-use laterite_core::{AnyRowExt, ErrorBag};
+use laterite_core::{t, AnyRowExt, ErrorBag, Text};
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
@@ -300,7 +300,7 @@ pub(crate) async fn create(
                 state,
                 form,
                 &action,
-                Some("Could not save. Check the values and try again.".to_string()),
+                Some(t!("Could not save. Check the values and try again.")),
                 &data,
                 &ErrorBag::default(),
                 &shell,
@@ -425,7 +425,7 @@ pub(crate) async fn update(
                 state,
                 form,
                 &action,
-                Some("Could not save. Check the values and try again.".to_string()),
+                Some(t!("Could not save. Check the values and try again.")),
                 &data,
                 &ErrorBag::default(),
                 &shell,
@@ -438,7 +438,7 @@ fn build(
     state: &AdminState,
     form: &PreparedForm,
     action: &str,
-    error: Option<String>,
+    error: Option<Text>,
     values: &HashMap<String, String>,
     bag: &ErrorBag,
     shell: &crate::Shell,
@@ -479,7 +479,8 @@ fn build(
                 label: f.label.clone(),
                 control,
                 required,
-                errors: bag.messages(&f.name).to_vec(),
+                // Localize each per-field message through the request translator.
+                errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
         })
         .collect();
@@ -499,6 +500,8 @@ fn build(
         })
         .flatten()
         .collect();
+    // Localize the form-level banner before the shell is moved into the template.
+    let error = error.map(|m| shell.tt(&m));
     let mut shell = shell.clone();
     shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
     FormTemplate {
@@ -884,7 +887,7 @@ mod tests {
             _data: &HashMap<String, String>,
         ) -> Result<i64, SaveError> {
             let mut bag = ErrorBag::default();
-            bag.add("code", "Code is not allowed here.");
+            bag.add("code", t!("Code is not allowed here."));
             Err(SaveError::Invalid(bag))
         }
         async fn update(

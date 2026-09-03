@@ -12,7 +12,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
-use laterite_core::AnyRowExt;
+use laterite_core::{t, AnyRowExt};
 use sea_query::{Alias, Expr, Query};
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
@@ -49,7 +49,7 @@ pub(crate) async fn create(
     }
     match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
         Ok(_) => {
-            session.push_flash(crate::session::FlashLevel::Success, "Role created.");
+            session.push_flash(crate::session::FlashLevel::Success, t!("Role created."));
             Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
         }
         Err(_) => render(build(
@@ -148,7 +148,7 @@ pub(crate) async fn update(
         .await
     {
         Ok(_) => {
-            session.push_flash(crate::session::FlashLevel::Success, "Role updated.");
+            session.push_flash(crate::session::FlashLevel::Success, t!("Role updated."));
             Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
         }
         Err(_) => render(build(

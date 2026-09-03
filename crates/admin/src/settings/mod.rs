@@ -36,6 +36,7 @@ use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
+use laterite_core::t;
 use serde_json::{Map, Value};
 
 use crate::{render, render_error, AdminState};
@@ -167,7 +168,7 @@ pub(crate) async fn update(
             if item.code == brand::BrandSetting::CODE {
                 state.invalidate_brand();
             }
-            session.push_flash(crate::session::FlashLevel::Success, "Settings saved.");
+            session.push_flash(crate::session::FlashLevel::Success, t!("Settings saved."));
             Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
         }
         Err(_) => render(build(

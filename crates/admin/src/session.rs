@@ -14,6 +14,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use axum::http::{HeaderMap, Method};
+use laterite_core::Text;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -25,11 +26,13 @@ const MAX_BLOB: usize = 4096;
 const CSRF_HEADER: &str = "x-csrf-token";
 const CSRF_FIELD: &str = "_csrf";
 
-/// A user-facing flash message, shown once on the next full-page render.
+/// A user-facing flash message, shown once on the next full-page render. The text
+/// is a locale-free [`Text`] so it survives the redirect round-trip in the session
+/// blob and is localized when the shell renders it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Flash {
     pub(crate) level: FlashLevel,
-    pub(crate) text: String,
+    pub(crate) text: Text,
 }
 
 /// The severity of a [`Flash`], mapped to a style class by the template.
@@ -126,13 +129,11 @@ impl SessionHandle {
         self.inner.lock().unwrap().data.csrf.clone()
     }
 
-    /// Queues a flash message for the next full-page render.
-    pub fn push_flash(&self, level: FlashLevel, text: impl Into<String>) {
+    /// Queues a flash message for the next full-page render. The text is a
+    /// [`Text`], built with `t!`, so it localizes at render.
+    pub fn push_flash(&self, level: FlashLevel, text: Text) {
         let mut g = self.inner.lock().unwrap();
-        g.data.flash.push(Flash {
-            level,
-            text: text.into(),
-        });
+        g.data.flash.push(Flash { level, text });
         g.dirty = true;
     }
 
@@ -257,11 +258,11 @@ mod tests {
     #[test]
     fn flash_round_trips_and_marks_dirty() {
         let h = SessionHandle::from_blob(Some(&format!(r#"{{"csrf":"{}"}}"#, "a".repeat(64))));
-        h.push_flash(FlashLevel::Success, "Saved");
+        h.push_flash(FlashLevel::Success, Text::dynamic("Saved"));
         assert!(h.dirty_blob().is_some());
         let taken = h.take_flash();
         assert_eq!(taken.len(), 1);
-        assert_eq!(taken[0].text, "Saved");
+        assert_eq!(taken[0].text.source(), "Saved");
         assert!(h.take_flash().is_empty());
     }
 

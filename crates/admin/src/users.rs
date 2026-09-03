@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 use laterite_auth::{AuthenticatedUser, PermissionSet};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
-use laterite_core::AnyRowExt;
+use laterite_core::{t, AnyRowExt};
 use sea_query::{Alias, Expr, Query};
 
 use crate::{render, AdminError, AdminState, Permission, Shell};
@@ -137,7 +137,10 @@ pub(crate) async fn update(
         .auth
         .set_user_permissions(target_id, &overrides)
         .await?;
-    session.push_flash(crate::session::FlashLevel::Success, "Permissions updated.");
+    session.push_flash(
+        crate::session::FlashLevel::Success,
+        t!("Permissions updated."),
+    );
     Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response())
 }
 

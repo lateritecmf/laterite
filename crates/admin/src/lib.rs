@@ -48,7 +48,7 @@ use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
-use laterite_core::{Db, Text, Translator};
+use laterite_core::{t, Db, Text, Translator};
 use serde::Deserialize;
 
 /// Typed contribution channels for the framework's admin surfaces, as an
@@ -257,8 +257,9 @@ pub(crate) struct Shell {
     /// carries it without the handler doing anything. See [`session`].
     pub(crate) csrf_token: String,
     /// Flash messages to show once on this render, taken from the session on a
-    /// full-page GET (redirect-after-POST delivers them here). See [`session`].
-    pub(crate) flash: Vec<session::Flash>,
+    /// full-page GET (redirect-after-POST delivers them here) and localized in this
+    /// request's locale. See [`session`].
+    pub(crate) flash: Vec<FlashLine>,
     /// Per-page widget assets (field/column scripts and styles) for this render,
     /// deduped and emitted in the head after core `laterite.js`. See
     /// [`page_assets`].
@@ -270,6 +271,14 @@ pub(crate) struct Shell {
 pub(crate) struct PageAsset {
     pub(crate) url: String,
     pub(crate) css: bool,
+}
+
+/// A flash message localized for this render: the session's stored `Text` resolved
+/// to a display string in the operator's locale. `base.html` renders it.
+#[derive(Clone)]
+pub(crate) struct FlashLine {
+    pub(crate) level: session::FlashLevel,
+    pub(crate) text: String,
 }
 
 impl Shell {
@@ -292,6 +301,14 @@ impl Shell {
             .next()
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "?".to_string());
+        // Localize the queued flashes here, where the request translator is in hand.
+        let flash = flash
+            .into_iter()
+            .map(|f| FlashLine {
+                level: f.level,
+                text: i18n.t(&f.text),
+            })
+            .collect();
         Shell {
             base: base.to_string(),
             brand,
@@ -324,8 +341,7 @@ impl Shell {
     }
 
     /// Localizes a prebuilt message (a `t!`/`tn!` value, a descriptor label, a
-    /// flash). Templates call `{{ shell.tt(msg) }}`.
-    #[allow(dead_code)]
+    /// flash) into this request's locale.
     pub(crate) fn tt(&self, text: &Text) -> String {
         self.i18n.t(text)
     }
@@ -1420,7 +1436,7 @@ async fn preferences_update(
     };
     match state.auth.set_user_timezone(user.user.id, stored).await {
         Ok(()) => {
-            session.push_flash(session::FlashLevel::Success, "Preferences saved.");
+            session.push_flash(session::FlashLevel::Success, t!("Preferences saved."));
             Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
         }
         Err(_) => render_error(),

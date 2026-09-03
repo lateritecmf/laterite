@@ -1,11 +1,12 @@
 //! One validation engine for admin forms and the API.
 //!
-//! Typed [`Rule`]s run over a field's submitted value into an [`ErrorBag`]: the
-//! admin form reads it field by field to render messages inline, and the API
-//! serialises it as a `422` body. Cheap rules (required, length, format) run
-//! without touching the database; the one DB-backed rule, [`Rule::Unique`], runs
-//! a single `EXISTS`-style probe and only for a field that already passed its
-//! cheap rules, so a blank or malformed value is never also probed.
+//! Typed [`Rule`]s run over a field's submitted value into an [`ErrorBag`] of
+//! locale-free [`Text`] messages: the admin form reads it field by field and
+//! localizes each inline, the API localizes it into a `422` body. Cheap rules
+//! (required, length, format) run without touching the database; the one DB-backed
+//! rule, [`Rule::Unique`], runs a single `EXISTS`-style probe and only for a field
+//! that already passed its cheap rules, so a blank or malformed value is never also
+//! probed.
 //!
 //! The engine is bespoke because Laterite's rules are runtime and
 //! descriptor-driven (a `FormConfig` or YAML over a `HashMap`), which the
@@ -18,6 +19,7 @@ use std::collections::{BTreeMap, HashMap};
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::Text;
 use crate::query::{bind_values, build, text_cast};
 use crate::{CoreResult, Db};
 
@@ -75,13 +77,12 @@ impl FieldRules {
     }
 }
 
-/// Per-field validation messages. Empty means valid. Serialises as a
-/// `{ field: [messages] }` object (an API `422` body); the admin form reads it a
-/// field at a time.
-#[derive(Debug, Default, Clone, Serialize)]
+/// Per-field validation messages, each a locale-free [`Text`]. Empty means valid.
+/// Whoever renders the bag localizes each message at its sink: the admin form
+/// through the request translator, the API into a localized `422` body.
+#[derive(Debug, Default, Clone)]
 pub struct ErrorBag {
-    #[serde(flatten)]
-    fields: BTreeMap<String, Vec<String>>,
+    fields: BTreeMap<String, Vec<Text>>,
 }
 
 impl ErrorBag {
@@ -91,17 +92,32 @@ impl ErrorBag {
     }
 
     /// Records a message against a field.
-    pub fn add(&mut self, field: &str, message: impl Into<String>) {
+    pub fn add(&mut self, field: &str, message: Text) {
         self.fields
             .entry(field.to_string())
             .or_default()
-            .push(message.into());
+            .push(message);
     }
 
     /// The messages recorded for `field` (empty if it validated).
-    pub fn messages(&self, field: &str) -> &[String] {
+    pub fn messages(&self, field: &str) -> &[Text] {
         self.fields.get(field).map(Vec::as_slice).unwrap_or(&[])
     }
+}
+
+/// A validation message carrying the field `label` as a nested [`Text`] argument,
+/// so the label localizes too once descriptor labels become `Text`.
+fn field_msg(source: &'static str, label: &str) -> Text {
+    Text::new(source).arg("label", Text::dynamic(label))
+}
+
+/// A count-pluralized validation message carrying the field `label` and count `n`.
+fn field_plural_msg(one: &'static str, other: &'static str, n: usize, label: &str) -> Text {
+    let n = n as i64;
+    Text::new(one)
+        .with_plural(other, n)
+        .arg("n", n)
+        .arg("label", Text::dynamic(label))
 }
 
 /// Runs the cheap, non-database rules over `data` for `mode`, returning the error
@@ -121,34 +137,47 @@ pub fn validate_fields(
         for rule in &f.rules {
             match rule {
                 Rule::Required if trimmed.is_empty() => {
-                    bag.add(&f.field, format!("{} is required.", f.label));
+                    bag.add(&f.field, field_msg("{label} is required.", &f.label));
                 }
                 Rule::RequiredOn(m) if *m == mode && trimmed.is_empty() => {
-                    bag.add(&f.field, format!("{} is required.", f.label));
+                    bag.add(&f.field, field_msg("{label} is required.", &f.label));
                 }
                 Rule::MinLength(n) if !trimmed.is_empty() && len < *n => {
                     bag.add(
                         &f.field,
-                        format!("{} must be at least {n} characters.", f.label),
+                        field_plural_msg(
+                            "{label} must be at least {n} character.",
+                            "{label} must be at least {n} characters.",
+                            *n,
+                            &f.label,
+                        ),
                     );
                 }
                 Rule::MaxLength(n) if len > *n => {
                     bag.add(
                         &f.field,
-                        format!("{} must be at most {n} characters.", f.label),
+                        field_plural_msg(
+                            "{label} must be at most {n} character.",
+                            "{label} must be at most {n} characters.",
+                            *n,
+                            &f.label,
+                        ),
                     );
                 }
                 Rule::Email if !trimmed.is_empty() && !is_email(trimmed) => {
                     bag.add(
                         &f.field,
-                        format!("{} must be a valid email address.", f.label),
+                        field_msg("{label} must be a valid email address.", &f.label),
                     );
                 }
                 Rule::Numeric if !trimmed.is_empty() && trimmed.parse::<f64>().is_err() => {
-                    bag.add(&f.field, format!("{} must be a number.", f.label));
+                    bag.add(&f.field, field_msg("{label} must be a number.", &f.label));
                 }
                 Rule::Url if !trimmed.is_empty() && !is_url(trimmed) => {
-                    bag.add(&f.field, format!("{} must be a valid URL.", f.label));
+                    bag.add(
+                        &f.field,
+                        field_msg("{label} must be a valid URL.", &f.label),
+                    );
                 }
                 _ => {}
             }
@@ -180,7 +209,7 @@ pub async fn validate(
             continue;
         }
         if unique_conflict(db, table, &f.field, value, id_field, mode, edited_id).await? {
-            bag.add(&f.field, format!("{} is already taken.", f.label));
+            bag.add(&f.field, field_msg("{label} is already taken.", &f.label));
         }
     }
     Ok(bag)
@@ -236,6 +265,7 @@ fn is_url(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Translator;
 
     fn data(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -255,11 +285,12 @@ mod tests {
             &data(&[("name", "toolong"), ("email", "nope")]),
             Mode::Create,
         );
+        let tr = Translator::new("en");
         assert!(!bag.is_empty());
         assert_eq!(bag.messages("name").len(), 1); // MaxLength only (Required passed)
-        assert!(bag.messages("name")[0].contains("at most 5"));
+        assert!(tr.t(&bag.messages("name")[0]).contains("at most 5"));
         assert_eq!(bag.messages("email").len(), 1);
-        assert!(bag.messages("email")[0].contains("valid email"));
+        assert!(tr.t(&bag.messages("email")[0]).contains("valid email"));
     }
 
     #[test]
@@ -310,11 +341,36 @@ mod tests {
     }
 
     #[test]
-    fn error_bag_serialises_as_field_to_messages() {
+    fn error_bag_records_messages_localized_at_the_sink() {
         let mut bag = ErrorBag::default();
-        bag.add("name", "Name is required.");
-        let json = serde_json::to_string(&bag).unwrap();
-        assert_eq!(json, r#"{"name":["Name is required."]}"#);
+        bag.add("name", field_msg("{label} is required.", "Name"));
+        assert_eq!(bag.messages("name").len(), 1);
+        // The bag holds a locale-free Text; the sink localizes it.
+        let tr = Translator::new("en");
+        assert_eq!(tr.t(&bag.messages("name")[0]), "Name is required.");
+    }
+
+    #[test]
+    fn min_length_message_pluralizes_on_the_count() {
+        let tr = Translator::new("en");
+        assert_eq!(
+            tr.t(&field_plural_msg(
+                "{label} must be at least {n} character.",
+                "{label} must be at least {n} characters.",
+                1,
+                "Pin",
+            )),
+            "Pin must be at least 1 character."
+        );
+        assert_eq!(
+            tr.t(&field_plural_msg(
+                "{label} must be at least {n} character.",
+                "{label} must be at least {n} characters.",
+                8,
+                "Pin",
+            )),
+            "Pin must be at least 8 characters."
+        );
     }
 
     #[test]

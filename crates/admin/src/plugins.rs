@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 
 use laterite_core::strata::*;
-use laterite_core::{Module, ModuleId};
+use laterite_core::{t, Module, ModuleId};
 
 use crate::{render, render_error, AdminState, Shell};
 
@@ -495,15 +495,14 @@ pub(crate) async fn toggle(
     let back = format!("{}/plugins", state.admin_path);
     match set_enabled(&state.db, &form.plugin_id, form.enable != 0).await {
         Ok(()) => {
-            let verb = if form.enable != 0 {
-                "enabled"
+            // Two whole messages rather than an interpolated verb: the state word
+            // must localize, and its grammar varies by language.
+            let flash = if form.enable != 0 {
+                t!("Plugin enabled. The change applies on the next restart.")
             } else {
-                "disabled"
+                t!("Plugin disabled. The change applies on the next restart.")
             };
-            session.push_flash(
-                crate::session::FlashLevel::Success,
-                format!("Plugin {verb}. The change applies on the next restart."),
-            );
+            session.push_flash(crate::session::FlashLevel::Success, flash);
             Redirect::to(&back).into_response()
         }
         Err(_) => render_error(),
