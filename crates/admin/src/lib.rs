@@ -21,6 +21,7 @@ pub mod form;
 pub mod html;
 mod icons;
 pub mod list;
+pub mod persist;
 pub mod picker;
 pub mod plugins;
 mod roles;
@@ -64,6 +65,8 @@ pub trait AdminRegistry {
     fn add_settings(&mut self, item: settings::SettingsItem);
     /// Adds a reference-picker source, callable by a picker field's endpoints.
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
+    /// Adds a form persister, selectable by a form descriptor's `persist` key.
+    fn add_persister(&mut self, persister: persist::PersisterReg);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -78,6 +81,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_picker_source(&mut self, source: picker::PickerSourceReg) {
         self.add(source);
+    }
+    fn add_persister(&mut self, persister: persist::PersisterReg) {
+        self.add(persister);
     }
 }
 
@@ -499,6 +505,10 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
 /// screens; `app_settings` are its settings models; `app_permissions` are the
 /// permissions it defines, offered in the role editor alongside the framework's.
 /// All are mounted alongside the framework's built-in equivalents.
+// The admin entry point collects each contribution kind as its own vec; it has
+// grown past clippy's arg ceiling and will keep growing as registries are added
+// (a `Contributions` bundle is the eventual tidy-up).
+#[allow(clippy::too_many_arguments)]
 pub fn router(
     auth: AuthService,
     db: Db,
@@ -506,6 +516,7 @@ pub fn router(
     app_settings: Vec<settings::SettingsItem>,
     app_permissions: Vec<Permission>,
     app_picker_sources: Vec<picker::PickerSourceReg>,
+    app_persisters: Vec<persist::PersisterReg>,
     config: AdminConfig,
 ) -> Router {
     let admin_path = normalize_path(&config.path);
@@ -575,6 +586,19 @@ pub fn router(
         Arc::new(field::RefPickerField::new(pickers.clone())),
     );
 
+    // The form-persister registry: a bad or duplicate name is a wiring bug, so it
+    // aborts boot. It is not on AdminState; `prepare` resolves it per form.
+    let mut persisters = persist::PersisterRegistry::new();
+    for reg in app_persisters {
+        let name = reg.name.clone();
+        if !field::is_name(&name, true) {
+            panic!("invalid persister name `{name}`");
+        }
+        if persisters.insert(name.clone(), reg.persister).is_some() {
+            panic!("duplicate persister `{name}`");
+        }
+    }
+
     let state = AdminState {
         auth,
         db,
@@ -596,7 +620,7 @@ pub fn router(
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
     for resource in &resources {
-        protected = protected.merge(mount_resource(resource, &state.field_types));
+        protected = protected.merge(mount_resource(resource, &state.field_types, &persisters));
     }
     // The roles screen has a dedicated create/edit form (the permission editor),
     // gated by the same permission as its list.
@@ -876,7 +900,11 @@ async fn serve_asset(State(state): State<AdminState>, Path(path): Path<String>) 
 /// carry the resource's descriptors. When the resource sets a `permission`, every
 /// route it mounts is wrapped in a guard that answers `403 Forbidden` for an
 /// operator who lacks it; the caller merges the result into the protected router.
-fn mount_resource(resource: &Resource, field_types: &field::FieldRegistry) -> Router<AdminState> {
+fn mount_resource(
+    resource: &Resource,
+    field_types: &field::FieldRegistry,
+    persisters: &persist::PersisterRegistry,
+) -> Router<AdminState> {
     let base = resource.base_path.clone();
     let list_cfg = resource.list.clone();
     let mut router = Router::new().route(
@@ -895,7 +923,7 @@ fn mount_resource(resource: &Resource, field_types: &field::FieldRegistry) -> Ro
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
         let prepared = Arc::new(
-            form::PreparedForm::prepare(form_cfg, field_types)
+            form::PreparedForm::prepare(form_cfg, field_types, persisters)
                 .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
         );
         let (new_pf, create_pf) = (prepared.clone(), prepared.clone());

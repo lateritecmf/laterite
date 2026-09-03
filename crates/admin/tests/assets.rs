@@ -27,6 +27,7 @@ async fn serves_embedded_assets_and_404s_unknown() {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             AdminConfig::default(),
         )
     };

@@ -310,6 +310,7 @@ impl Bootstrap {
         let settings = contributions.take::<SettingsItem>();
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
+        let persisters = contributions.take::<crate::persist::PersisterReg>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
@@ -327,6 +328,7 @@ impl Bootstrap {
             settings,
             permissions,
             picker_sources,
+            persisters,
             admin_config,
         );
 

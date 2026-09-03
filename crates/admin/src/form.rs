@@ -1,16 +1,17 @@
 //! Descriptor-driven create and edit forms.
 //!
 //! A [`FormConfig`] describes a table and its editable fields. Generic handlers
-//! render an empty form (new), a populated form (edit), and persist via dynamic
-//! insert/update SQL built from the descriptor. Values are always parameterized.
+//! render an empty form (new), a populated form (edit), and persist through a
+//! [`crate::persist::Persister`]: the descriptor-driven default (a parameterized
+//! insert/update over the form's columns), or a named handler for a custom write.
 //! A submission is checked by the framework validation engine
 //! ([`laterite_core::validation`]); a failure re-renders the form with per-field
 //! messages instead of writing.
 //!
 //! Field types resolve through the registry ([`crate::field`]); `text`,
-//! `textarea`, `email`, and `select` ship built-in. Fields needing a typed
-//! stored value (a switch over a bool column, password hashing, relations)
-//! arrive with the typed-save contract.
+//! `textarea`, `select`, and `reference` ship built-in. Fields needing a typed
+//! stored value (a switch over a bool column, password hashing) arrive with the
+//! typed-save contract.
 //!
 //! The primary key is a `bigint` auto-increment column the database assigns, so
 //! create inserts only the descriptor's fields and never sets the id. An entity
@@ -18,6 +19,7 @@
 //! is beyond this slice; those are filled by a later timestamp-aware widget.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use askama::Template;
 use axum::http::StatusCode;
@@ -25,10 +27,11 @@ use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
 use laterite_core::{AnyRowExt, ErrorBag};
-use sea_query::{Alias, Expr, Query, SimpleExpr};
+use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
 use crate::field::{render_field, FieldCx, FieldValue, OverrideScope, ResolvedOptions, Surface};
+use crate::persist::{DefaultPersister, Persister, PersisterRegistry, SaveError};
 use crate::sql::valid_ident;
 use crate::{not_found, render, render_error, AdminState};
 
@@ -138,6 +141,9 @@ pub struct FormConfig {
     pub base_path: String,
     pub id_field: String,
     pub fields: Vec<FormField>,
+    /// The registered persister that writes this form (a dotted `vendor.name`),
+    /// or `None` for the built-in descriptor insert/update. See [`crate::persist`].
+    pub persist: Option<String>,
 }
 
 impl FormConfig {
@@ -156,6 +162,8 @@ pub(crate) struct PreparedForm {
     config: FormConfig,
     /// Parallel to `config.fields`.
     fields: Vec<PreparedField>,
+    /// The write handler: the named persister, or the built-in default.
+    persister: Arc<dyn Persister>,
 }
 
 /// One field's boot-resolved state: its typed options and its merged rules (the
@@ -172,6 +180,7 @@ impl PreparedForm {
     pub(crate) fn prepare(
         config: FormConfig,
         field_types: &crate::field::FieldRegistry,
+        persisters: &PersisterRegistry,
     ) -> Result<Self, String> {
         let mut fields = Vec::with_capacity(config.fields.len());
         for f in &config.fields {
@@ -188,7 +197,18 @@ impl PreparedForm {
             rules.extend(f.rules.clone());
             fields.push(PreparedField { opts, rules });
         }
-        Ok(Self { config, fields })
+        let persister: Arc<dyn Persister> = match &config.persist {
+            Some(key) => persisters
+                .get(key)
+                .cloned()
+                .ok_or_else(|| format!("form names unregistered persister `{key}`"))?,
+            None => Arc::new(DefaultPersister::from_config(&config)),
+        };
+        Ok(Self {
+            config,
+            fields,
+            persister,
+        })
     }
 }
 
@@ -259,37 +279,26 @@ pub(crate) async fn create(
             .into_response();
     }
 
-    // The primary key is a database-assigned auto-increment id, so the insert
-    // lists only the descriptor's fields. The builder is scoped so it drops
-    // before the await, keeping the handler future `Send`.
-    let (sql, values) = {
-        let vals: Vec<SimpleExpr> = form
-            .config
-            .fields
-            .iter()
-            .map(|f| data.get(&f.name).cloned().unwrap_or_default().into())
-            .collect();
-        let stmt = Query::insert()
-            .into_table(Alias::new(&form.config.entity))
-            .columns(form.config.fields.iter().map(|f| Alias::new(&f.name)))
-            .values_panic(vals)
-            .to_owned();
-        to_sql(state.db.backend, stmt)
-    };
-    match bind_values(sqlx::query(&sql), values)
-        .execute(&state.db.pool)
-        .await
-    {
+    match form.persister.create(&state.db, &data).await {
         Ok(_) => Redirect::to(&form.config.base_path).into_response(),
-        Err(_) => render(build(
-            state,
-            form,
-            &action,
-            Some("Could not save. Check the values and try again.".to_string()),
-            &data,
-            &ErrorBag::default(),
-            &shell,
-        )),
+        // A persist-time domain check re-renders 422 with its per-field messages.
+        Err(SaveError::Invalid(bag)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            render(build(state, form, &action, None, &data, &bag, &shell)),
+        )
+            .into_response(),
+        Err(SaveError::Failed(msg)) => {
+            tracing::error!(error = %msg, "admin create failed");
+            render(build(
+                state,
+                form,
+                &action,
+                Some("Could not save. Check the values and try again.".to_string()),
+                &data,
+                &ErrorBag::default(),
+                &shell,
+            ))
+        }
     }
 }
 
@@ -396,37 +405,25 @@ pub(crate) async fn update(
             .into_response();
     }
 
-    // Scope the builder so it drops before the await, keeping the future `Send`.
-    let (sql, values) = {
-        let mut update = Query::update();
-        update.table(Alias::new(&form.config.entity));
-        for field in &form.config.fields {
-            update.value(
-                Alias::new(&field.name),
-                data.get(&field.name).cloned().unwrap_or_default(),
-            );
+    match form.persister.update(&state.db, &id, &data).await {
+        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
+        Err(SaveError::Invalid(bag)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            render(build(state, form, &action, None, &data, &bag, &shell)),
+        )
+            .into_response(),
+        Err(SaveError::Failed(msg)) => {
+            tracing::error!(error = %msg, "admin update failed");
+            render(build(
+                state,
+                form,
+                &action,
+                Some("Could not save. Check the values and try again.".to_string()),
+                &data,
+                &ErrorBag::default(),
+                &shell,
+            ))
         }
-        update.and_where(
-            Expr::col(Alias::new(&form.config.id_field))
-                .cast_as(Alias::new(text_cast(state.db.backend)))
-                .eq(id.clone()),
-        );
-        to_sql(state.db.backend, update)
-    };
-    match bind_values(sqlx::query(&sql), values)
-        .execute(&state.db.pool)
-        .await
-    {
-        Ok(_) => Redirect::to(&form.config.base_path).into_response(),
-        Err(_) => render(build(
-            state,
-            form,
-            &action,
-            Some("Could not save. Check the values and try again.".to_string()),
-            &data,
-            &ErrorBag::default(),
-            &shell,
-        )),
     }
 }
 
@@ -577,8 +574,14 @@ mod tests {
                 FormField::text("code", "Code").required().unique(),
                 FormField::text("name", "Name").required(),
             ],
+            persist: None,
         };
-        PreparedForm::prepare(config, &crate::field::builtin_registry()).unwrap()
+        PreparedForm::prepare(
+            config,
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+        )
+        .unwrap()
     }
 
     fn state(db: Db) -> AdminState {
@@ -754,8 +757,10 @@ mod tests {
                         .options(serde_json::json!({ "input": "email" }))
                         .required(),
                 ],
+                persist: None,
             },
             &st.field_types,
+            &PersisterRegistry::new(),
         )
         .unwrap();
 
@@ -788,8 +793,13 @@ mod tests {
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![FormField::of("place", "Place", "no.such.type")],
+            persist: None,
         };
-        let Err(err) = PreparedForm::prepare(config, &crate::field::builtin_registry()) else {
+        let Err(err) = PreparedForm::prepare(
+            config,
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+        ) else {
             panic!("expected prepare to reject an unregistered type");
         };
         assert!(err.contains("no.such.type"), "{err}");
@@ -807,10 +817,145 @@ mod tests {
             fields: vec![
                 FormField::of("email", "Email", "text").options(serde_json::json!({ "input": 7 }))
             ],
+            persist: None,
         };
-        let Err(err) = PreparedForm::prepare(config, &crate::field::builtin_registry()) else {
+        let Err(err) = PreparedForm::prepare(
+            config,
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+        ) else {
             panic!("expected prepare to reject a malformed option");
         };
         assert!(err.contains("`email`"), "{err}");
+    }
+
+    /// A persister that inserts a row then fails, without committing, so its own
+    /// transaction must roll the insert back.
+    struct RollbackPersister;
+    #[laterite_core::strata::async_trait]
+    impl Persister for RollbackPersister {
+        async fn create(
+            &self,
+            db: &laterite_core::Db,
+            _data: &HashMap<String, String>,
+        ) -> Result<i64, SaveError> {
+            let mut tx = db
+                .pool
+                .begin()
+                .await
+                .map_err(|e| SaveError::Failed(e.to_string()))?;
+            let insert = Query::insert()
+                .into_table(Alias::new("samples"))
+                .columns([Alias::new("code"), Alias::new("name")])
+                .values_panic(["rolled".into(), "back".into()])
+                .to_owned();
+            let (sql, values) = to_sql(db.backend, insert);
+            bind_values(sqlx::query(&sql), values)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| SaveError::Failed(e.to_string()))?;
+            // Return before commit: the transaction drops and rolls back.
+            Err(SaveError::Failed("deliberate".to_string()))
+        }
+        async fn update(
+            &self,
+            _db: &laterite_core::Db,
+            _id: &str,
+            _data: &HashMap<String, String>,
+        ) -> Result<(), SaveError> {
+            Ok(())
+        }
+    }
+
+    /// A persister that always rejects create with a per-field validation error.
+    struct RejectingPersister;
+    #[laterite_core::strata::async_trait]
+    impl Persister for RejectingPersister {
+        async fn create(
+            &self,
+            _db: &laterite_core::Db,
+            _data: &HashMap<String, String>,
+        ) -> Result<i64, SaveError> {
+            let mut bag = ErrorBag::default();
+            bag.add("code", "Code is not allowed here.");
+            Err(SaveError::Invalid(bag))
+        }
+        async fn update(
+            &self,
+            _db: &laterite_core::Db,
+            _id: &str,
+            _data: &HashMap<String, String>,
+        ) -> Result<(), SaveError> {
+            Ok(())
+        }
+    }
+
+    fn config_with(persister: &str) -> FormConfig {
+        FormConfig {
+            entity: "samples".to_string(),
+            title: "Sample".to_string(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![
+                FormField::text("code", "Code").required(),
+                FormField::text("name", "Name").required(),
+            ],
+            persist: Some(persister.to_string()),
+        }
+    }
+
+    #[test]
+    fn prepare_rejects_an_unregistered_persister() {
+        let Err(err) = PreparedForm::prepare(
+            config_with("no.such.persister"),
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+        ) else {
+            panic!("expected prepare to reject an unregistered persister");
+        };
+        assert!(err.contains("no.such.persister"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_persister_transaction_rolls_back_on_error() {
+        let (db, _guard) = test_db().await;
+        let st = state(db.clone());
+        let mut persisters = PersisterRegistry::new();
+        persisters.insert("test.rollback".to_string(), Arc::new(RollbackPersister));
+        let form =
+            PreparedForm::prepare(config_with("test.rollback"), &st.field_types, &persisters)
+                .unwrap();
+
+        let resp = create(
+            &st,
+            &form,
+            data(&[("code", "rolled"), ("name", "back")]),
+            crate::Shell::test(),
+        )
+        .await;
+        // The persister failed, so the form re-renders (200) and its in-tx insert
+        // rolled back: no row landed.
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(count(&db).await, 0);
+    }
+
+    #[tokio::test]
+    async fn a_persister_invalid_error_re_renders_422() {
+        let (db, _guard) = test_db().await;
+        let st = state(db.clone());
+        let mut persisters = PersisterRegistry::new();
+        persisters.insert("test.reject".to_string(), Arc::new(RejectingPersister));
+        let form = PreparedForm::prepare(config_with("test.reject"), &st.field_types, &persisters)
+            .unwrap();
+
+        let resp = create(
+            &st,
+            &form,
+            data(&[("code", "editor"), ("name", "Editor")]),
+            crate::Shell::test(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(body_of(resp).await.contains("Code is not allowed here."));
     }
 }

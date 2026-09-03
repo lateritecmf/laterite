@@ -74,6 +74,7 @@ async fn editor_saves_only_registered_permissions() {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             AdminConfig::default(),
         )
     };
