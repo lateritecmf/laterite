@@ -18,6 +18,11 @@ use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The QA pseudo-locale: selecting it renders every localized string accented and
+/// bracketed, so any unwrapped (non-localized) UI string stands out and clipped
+/// layouts show up under the wider text. It needs no catalog.
+pub const PSEUDO_LOCALE: &str = "xx";
+
 /// A CLDR plural category. The launch locales use only `One`/`Other`; the enum is
 /// `non_exhaustive` so the full CLDR set (`Zero`/`Two`/`Few`/`Many`) can arrive with
 /// an `icu_plurals` feature without breaking match arms.
@@ -342,10 +347,16 @@ impl Translator {
     }
 
     /// Localizes `text`: resolves the form along the chain (else the source), then
-    /// interpolates its `{name}` arguments.
+    /// interpolates its `{name}` arguments. Under the pseudo-locale the resolved
+    /// template is accented and bracketed first.
     pub fn t(&self, text: &Text) -> String {
         let key = catalog_key(&text.source, text.context.as_deref());
         let template = self.resolve(&key, text);
+        let template = if self.locale() == PSEUDO_LOCALE {
+            pseudo(&template)
+        } else {
+            template
+        };
         interpolate(&template, &text.args, self)
     }
 
@@ -394,6 +405,53 @@ fn interpolate(template: &str, args: &[(Cow<'static, str>, Arg)], tr: &Translato
         out = out.replace(&format!("{{{name}}}"), &value);
     }
     out
+}
+
+/// Pseudo-localizes a resolved template for [`PSEUDO_LOCALE`]: accents letters and
+/// wraps the whole in brackets. `{name}` placeholders (and `{{`/`}}` literals) are
+/// copied verbatim so interpolation still matches and the args stay real data.
+fn pseudo(template: &str) -> String {
+    let mut out = String::with_capacity(template.len() + 6);
+    out.push('\u{27E6}'); // (left white square bracket)
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' if chars.peek() == Some(&'{') => {
+                out.push(c);
+                out.push(chars.next().unwrap());
+            }
+            '{' => {
+                out.push(c);
+                for ch in chars.by_ref() {
+                    out.push(ch);
+                    if ch == '}' {
+                        break;
+                    }
+                }
+            }
+            _ => out.push(accent(c)),
+        }
+    }
+    out.push('\u{27E7}'); // (right white square bracket)
+    out
+}
+
+/// Maps a vowel to an accented form for the pseudo-locale; other characters pass
+/// through. Vowels alone make the text visibly non-English while staying readable.
+fn accent(c: char) -> char {
+    match c {
+        'a' => '\u{e4}',
+        'e' => '\u{e9}',
+        'i' => '\u{ed}',
+        'o' => '\u{f6}',
+        'u' => '\u{fc}',
+        'A' => '\u{c4}',
+        'E' => '\u{c9}',
+        'I' => '\u{cd}',
+        'O' => '\u{d6}',
+        'U' => '\u{dc}',
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -495,6 +553,17 @@ mod tests {
             out,
             "Go to \u{ca1}\u{ccd}\u{caf}\u{cbe}\u{cb6}\u{ccd}\u{cac}\u{ccb}\u{cb0}\u{ccd}\u{ca1}"
         );
+    }
+
+    #[test]
+    fn pseudo_locale_accents_wraps_and_preserves_placeholders() {
+        let t = Translator::new(PSEUDO_LOCALE);
+        // A plain source is bracketed and its vowels accented.
+        assert_eq!(t.t(&Text::new("Save")), "\u{27E6}S\u{e4}v\u{e9}\u{27E7}");
+        // The placeholder is copied verbatim, so the arg still interpolates and the
+        // arg value (real data) is not accented.
+        let out = t.t(&Text::new("Hi {name}").arg("name", "Asha"));
+        assert_eq!(out, "\u{27E6}H\u{ed} Asha\u{27E7}");
     }
 
     #[test]

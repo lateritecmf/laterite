@@ -489,9 +489,11 @@ fn base_lang(tag: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Whether `base` is a locale the admin ships.
+/// Whether `base` is a locale resolution accepts: one the admin ships, or the QA
+/// pseudo-locale (resolvable so a deployment or `Accept-Language` can select it, but
+/// deliberately absent from `SUPPORTED_LOCALES`, so it never shows in the picker).
 fn is_supported(base: &str) -> bool {
-    SUPPORTED_LOCALES.iter().any(|(code, _)| *code == base)
+    base == laterite_core::PSEUDO_LOCALE || SUPPORTED_LOCALES.iter().any(|(code, _)| *code == base)
 }
 
 /// The deployment default locale from config: a supported base tag, else `en`.

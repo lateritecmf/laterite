@@ -22,13 +22,13 @@
     {% for f in shell.flash %}
     <div class="lat-flash {{ f.level.class() }}" data-lat-widget="flash">
       <span class="lat-flash__text">{{ f.text }}</span>
-      <button type="button" class="lat-flash__close" aria-label="Dismiss" onclick="latDismissFlash(this)">&times;</button>
+      <button type="button" class="lat-flash__close" aria-label='{{ shell.t("Dismiss") }}' onclick="latDismissFlash(this)">&times;</button>
     </div>
     {% endfor %}
   </div>
   {% endif %}
   <header class="lat-topnav">
-    <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label="Menu">&#9776;</button>
+    <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label='{{ shell.t("Menu") }}'>&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
       <img src="{{ shell.base }}/assets/mark.png" alt="">
       <span class="lat-topnav__wordmark">{{ shell.brand }}</span>
@@ -38,14 +38,14 @@
     </nav>
     <div class="lat-topnav__spacer"></div>
     <div class="lat-topnav__right">
-      <button class="lat-modebtn" type="button" onclick="latCycleMode()" title="Colour mode" aria-label="Colour mode"><span id="lat-mode-ico">◐</span></button>
+      <button class="lat-modebtn" type="button" onclick="latCycleMode()" title='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}'><span id="lat-mode-ico">◐</span></button>
       <details class="lat-usermenu">
         <summary class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</summary>
         <div class="lat-usermenu__panel">
           <div class="lat-usermenu__name">{{ shell.full_name }}</div>
-          <a class="lat-usermenu__item" href="{{ shell.base }}/preferences">Preferences</a>
-          <form method="post" action="{{ shell.base }}/logout">{% include "_csrf.html" %}<button class="lat-usermenu__item" type="submit">Sign out</button></form>
-          <a class="lat-usermenu__poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ shell.base }}/assets/mark.png" alt="" width="14" height="14">Powered by Laterite</a>
+          <a class="lat-usermenu__item" href="{{ shell.base }}/preferences">{{ shell.t("Preferences") }}</a>
+          <form method="post" action="{{ shell.base }}/logout">{% include "_csrf.html" %}<button class="lat-usermenu__item" type="submit">{{ shell.t("Sign out") }}</button></form>
+          <a class="lat-usermenu__poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ shell.base }}/assets/mark.png" alt="" width="14" height="14">{{ shell.t("Powered by Laterite") }}</a>
         </div>
       </details>
     </div>

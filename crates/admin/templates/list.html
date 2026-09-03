@@ -3,7 +3,7 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
-  {% if creatable %}{% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ New</a></div>{% endif %}{% endif %}
+  {% if creatable %}{% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ {{ shell.t("New") }}</a></div>{% endif %}{% endif %}
 </div>
 <div class="lat-tablewrap">
   <table class="lat-table">
@@ -13,12 +13,12 @@
     </tr></thead>
     <tbody>
       {% if rows.is_empty() %}
-      <tr><td class="lat-table__empty" colspan="99">No records.</td></tr>
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No records.") }}</td></tr>
       {% else %}
       {% for row in rows %}
       <tr>
         {% for cell in row.cells %}<td>{{ cell|safe }}</td>{% endfor %}
-        {% if let Some(base) = edit_base %}<td class="lat-table__actions"><a href="{{ base }}/{{ row.id }}/edit">Edit</a></td>{% endif %}
+        {% if let Some(base) = edit_base %}<td class="lat-table__actions"><a href="{{ base }}/{{ row.id }}/edit">{{ shell.t("Edit") }}</a></td>{% endif %}
       </tr>
       {% endfor %}
       {% endif %}
@@ -28,9 +28,9 @@
 <div class="lat-listfoot">
   <span>Displayed records: {{ rows.len() }} of {{ total }}</span>
   <span class="lat-pager">
-    {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}">&larr; Prev</a>{% endif %}
+    {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}">&larr; {{ shell.t("Prev") }}</a>{% endif %}
     <span style="align-self:center">Page {{ page }} of {{ total_pages }}</span>
-    {% if page < total_pages %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page + 1 }}">Next &rarr;</a>{% endif %}
+    {% if page < total_pages %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page + 1 }}">{{ shell.t("Next") }} &rarr;</a>{% endif %}
   </span>
 </div>
 {% endblock %}

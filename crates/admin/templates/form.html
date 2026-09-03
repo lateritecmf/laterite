@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
-<nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; Back</a></nav>
+<nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
 <div class="lat-toolbar"><h1>{{ title }}</h1></div>
 <div class="lat-card" style="max-width:620px">
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
@@ -15,8 +15,8 @@
     </div>
     {% endfor %}
     <div class="lat-actions">
-      <button class="lat-btn lat-btn--primary" type="submit">Save</button>
-      <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">Cancel</a>
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
+      <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
     </div>
   </form>
 </div>

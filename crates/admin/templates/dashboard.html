@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Dashboard - {{ shell.brand }}{% endblock %}
+{% block title %}{{ shell.t("Dashboard") }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <div class="lat-card" style="margin-bottom:24px">
-  <div class="lat-card__label">Welcome</div>
+  <div class="lat-card__label">{{ shell.t("Welcome") }}</div>
   <h2 style="margin:0 0 4px">{{ shell.full_name }}</h2>
   <p style="color:var(--text-muted);margin:0">Signed in as {{ username }}.</p>
 </div>
-<div class="lat-card__label" style="margin-bottom:10px">Manage</div>
+<div class="lat-card__label" style="margin-bottom:10px">{{ shell.t("Manage") }}</div>
 <div class="lat-grid">
   {% for item in shell.nav %}
   {% if item.path != shell.base %}
