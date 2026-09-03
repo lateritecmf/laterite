@@ -674,6 +674,7 @@ pub fn router(
     app_picker_sources: Vec<picker::PickerSourceReg>,
     app_persisters: Vec<persist::PersisterReg>,
     config: AdminConfig,
+    catalogs: Arc<CatalogStore>,
 ) -> Router {
     let admin_path = normalize_path(&config.path);
 
@@ -766,7 +767,7 @@ pub fn router(
         origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         default_locale: Arc::from(default_locale(&config.locale)),
-        catalogs: Arc::new(CatalogStore::default()),
+        catalogs,
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field_types),

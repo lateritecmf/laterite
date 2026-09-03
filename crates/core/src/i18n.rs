@@ -302,6 +302,53 @@ impl CatalogBuilder {
         self
     }
 
+    /// Parses a gettext PO catalog and merges its entries into `locale`. The header
+    /// (empty `msgid`) and untranslated (empty `msgstr`) entries are skipped. Errors
+    /// on malformed PO or a translation whose `{placeholders}` are not a subset of its
+    /// source's, so a bad catalog fails boot like a bad descriptor key. Launch locales
+    /// use `msgstr[0]`/`msgstr[1]` for the one/other plural forms.
+    pub fn po(mut self, locale: &str, text: &str) -> Result<Self, String> {
+        for entry in parse_po_entries(text)? {
+            if entry.id.is_empty() {
+                continue; // the PO header
+            }
+            let mut source = placeholder_set(&entry.id);
+            if let Some(p) = &entry.id_plural {
+                source.extend(placeholder_set(p));
+            }
+            let stored = if entry.id_plural.is_some() {
+                let one = entry.plural_forms.first().cloned().unwrap_or_default();
+                let other = entry.plural_forms.get(1).cloned().unwrap_or_default();
+                if one.is_empty() && other.is_empty() {
+                    continue; // untranslated plural
+                }
+                if one.is_empty() || other.is_empty() {
+                    return Err(format!(
+                        "`{}`: a plural needs msgstr[0] and msgstr[1]",
+                        entry.id
+                    ));
+                }
+                validate_placeholders(&one, &source, &entry.id)?;
+                validate_placeholders(&other, &source, &entry.id)?;
+                Entry::Plural { one, other }
+            } else {
+                match entry.singular {
+                    Some(s) if !s.is_empty() => {
+                        validate_placeholders(&s, &source, &entry.id)?;
+                        Entry::One(s)
+                    }
+                    _ => continue, // untranslated
+                }
+            };
+            self.insert(
+                locale,
+                catalog_key(&entry.id, entry.context.as_deref()),
+                stored,
+            );
+        }
+        Ok(self)
+    }
+
     fn insert(&mut self, locale: &str, key: String, entry: Entry) {
         self.store
             .locales
@@ -313,6 +360,173 @@ impl CatalogBuilder {
     pub fn build(self) -> CatalogStore {
         self.store
     }
+}
+
+/// The `{name}` placeholders in `s` (ignoring `{{`/`}}`), for validating a
+/// translation against its source form.
+fn placeholder_set(s: &str) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+            }
+            '{' => {
+                let mut name = String::new();
+                for ch in chars.by_ref() {
+                    if ch == '}' {
+                        break;
+                    }
+                    name.push(ch);
+                }
+                if !name.is_empty() {
+                    out.insert(name);
+                }
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Errors if `translation` uses a `{placeholder}` its `source` form does not have.
+fn validate_placeholders(
+    translation: &str,
+    source: &std::collections::BTreeSet<String>,
+    id: &str,
+) -> Result<(), String> {
+    for p in placeholder_set(translation) {
+        if !source.contains(&p) {
+            return Err(format!(
+                "`{id}`: translation uses unknown placeholder {{{p}}}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One parsed PO entry, before it becomes a catalog [`Entry`].
+#[derive(Default)]
+struct PoEntry {
+    context: Option<String>,
+    id: String,
+    id_plural: Option<String>,
+    singular: Option<String>,
+    plural_forms: Vec<String>,
+}
+
+/// The field a bare continuation string (`"..."`) appends to.
+enum PoField {
+    None,
+    Context,
+    Id,
+    IdPlural,
+    Singular,
+    Plural(usize),
+}
+
+/// Parses PO text into entries: a minimal gettext subset (`msgctxt`/`msgid`/
+/// `msgid_plural`/`msgstr`/`msgstr[n]`, adjacent-string continuation, `#` comments,
+/// blank-line separators). Enough to load a derived catalog, not to author one.
+fn parse_po_entries(text: &str) -> Result<Vec<PoEntry>, String> {
+    let mut entries = Vec::new();
+    let mut cur = PoEntry::default();
+    let mut have = false;
+    let mut field = PoField::None;
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        let at = |m: &str| format!("PO line {}: {m}", i + 1);
+        if line.is_empty() {
+            if have {
+                entries.push(std::mem::take(&mut cur));
+                have = false;
+                field = PoField::None;
+            }
+        } else if line.starts_with('#') {
+            continue;
+        } else if let Some(rest) = line.strip_prefix("msgctxt ") {
+            cur.context = Some(unquote(rest).map_err(|e| at(&e))?);
+            have = true;
+            field = PoField::Context;
+        } else if let Some(rest) = line.strip_prefix("msgid_plural ") {
+            cur.id_plural = Some(unquote(rest).map_err(|e| at(&e))?);
+            have = true;
+            field = PoField::IdPlural;
+        } else if let Some(rest) = line.strip_prefix("msgid ") {
+            if have && !cur.id.is_empty() {
+                entries.push(std::mem::take(&mut cur));
+            }
+            cur.id = unquote(rest).map_err(|e| at(&e))?;
+            have = true;
+            field = PoField::Id;
+        } else if let Some(rest) = line.strip_prefix("msgstr[") {
+            let (idx, q) = rest
+                .split_once(']')
+                .ok_or_else(|| at("malformed msgstr[n]"))?;
+            let n: usize = idx.trim().parse().map_err(|_| at("bad plural index"))?;
+            let s = unquote(q.trim()).map_err(|e| at(&e))?;
+            if cur.plural_forms.len() <= n {
+                cur.plural_forms.resize(n + 1, String::new());
+            }
+            cur.plural_forms[n] = s;
+            have = true;
+            field = PoField::Plural(n);
+        } else if let Some(rest) = line.strip_prefix("msgstr ") {
+            cur.singular = Some(unquote(rest).map_err(|e| at(&e))?);
+            have = true;
+            field = PoField::Singular;
+        } else if line.starts_with('"') {
+            let s = unquote(line).map_err(|e| at(&e))?;
+            match field {
+                PoField::Context => cur.context.get_or_insert_with(String::new).push_str(&s),
+                PoField::Id => cur.id.push_str(&s),
+                PoField::IdPlural => cur.id_plural.get_or_insert_with(String::new).push_str(&s),
+                PoField::Singular => cur.singular.get_or_insert_with(String::new).push_str(&s),
+                PoField::Plural(n) => cur.plural_forms[n].push_str(&s),
+                PoField::None => return Err(at("string continuation with no field")),
+            }
+        } else {
+            return Err(at("unrecognized PO line"));
+        }
+    }
+    if have {
+        entries.push(cur);
+    }
+    Ok(entries)
+}
+
+/// Extracts and unescapes a PO quoted string (`"..."`), handling `\n \t \r \" \\`.
+fn unquote(s: &str) -> Result<String, String> {
+    let inner = s
+        .trim()
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .ok_or_else(|| "expected a quoted string".to_string())?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => return Err("dangling escape in a PO string".to_string()),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Ok(out)
 }
 
 /// Resolves [`Text`] for a request against a shared [`CatalogStore`] over a fallback
@@ -553,6 +767,66 @@ mod tests {
             out,
             "Go to \u{ca1}\u{ccd}\u{caf}\u{cbe}\u{cb6}\u{ccd}\u{cac}\u{ccb}\u{cb0}\u{ccd}\u{ca1}"
         );
+    }
+
+    #[test]
+    fn po_catalog_loads_messages_context_and_plurals() {
+        let po = concat!(
+            "# a comment\n",
+            "msgid \"\"\n",
+            "msgstr \"Content-Type: text/plain; charset=UTF-8\\n\"\n",
+            "\n",
+            "msgid \"Save\"\n",
+            "msgstr \"Save-kn\"\n",
+            "\n",
+            "msgctxt \"verb\"\n",
+            "msgid \"Open\"\n",
+            "msgstr \"Open-verb-kn\"\n",
+            "\n",
+            "msgid \"{n} item\"\n",
+            "msgid_plural \"{n} items\"\n",
+            "msgstr[0] \"{n} one-kn\"\n",
+            "msgstr[1] \"{n} other-kn\"\n",
+        );
+        let store = Arc::new(CatalogStore::builder().po("kn", po).unwrap().build());
+        let tr = Translator::with_chain(vec!["kn".into(), "en".into()], store);
+        assert_eq!(tr.t(&Text::new("Save")), "Save-kn");
+        assert_eq!(
+            tr.t(&Text::new("Open").with_context("verb")),
+            "Open-verb-kn"
+        );
+        // A different (or absent) context is a different key: it falls back.
+        assert_eq!(tr.t(&Text::new("Open")), "Open");
+        let items = |n: i64| {
+            tr.t(&Text::new("{n} item")
+                .with_plural("{n} items", n)
+                .arg("n", n))
+        };
+        assert_eq!(items(1), "1 one-kn");
+        assert_eq!(items(3), "3 other-kn");
+    }
+
+    #[test]
+    fn po_rejects_a_translation_with_an_unknown_placeholder() {
+        let po = "msgid \"Hi {name}\"\nmsgstr \"Hi {nom}\"\n";
+        assert!(CatalogStore::builder().po("kn", po).is_err());
+    }
+
+    #[test]
+    fn po_skips_header_and_untranslated_entries() {
+        let po = "msgid \"\"\nmsgstr \"meta\"\n\nmsgid \"Later\"\nmsgstr \"\"\n";
+        let store = Arc::new(CatalogStore::builder().po("kn", po).unwrap().build());
+        let tr = Translator::with_chain(vec!["kn".into(), "en".into()], store);
+        // The header is not a key, and an empty translation leaves the source to fall back.
+        assert_eq!(tr.t(&Text::new("Later")), "Later");
+    }
+
+    #[test]
+    fn po_handles_string_continuation_and_escapes() {
+        let po = "msgid \"Long\"\nmsgstr \"\"\n\"line one\\n\"\n\"line two\"\n";
+        let store = Arc::new(CatalogStore::builder().po("kn", po).unwrap().build());
+        let tr = Translator::with_chain(vec!["kn".into(), "en".into()], store);
+        assert_eq!(tr.t(&Text::new("Long")), "line one\nline two");
     }
 
     #[test]

@@ -322,6 +322,24 @@ impl Bootstrap {
             path: config.backend.path.clone(),
             origin: origin.clone(),
         };
+        // Merge every loaded module's PO catalogs into the shared store the request
+        // translator looks up against. A malformed catalog fails boot, like a bad
+        // descriptor key. Skipped and failed modules do not contribute.
+        let mut catalogs = laterite_core::CatalogStore::builder();
+        for module in active
+            .iter()
+            .filter(|m| !failed.contains_key(m.id().as_str()))
+        {
+            for (locale, po) in module.catalogs() {
+                catalogs = catalogs.po(locale, po).map_err(|e| {
+                    laterite_core::CoreError::Config(format!(
+                        "module {}: {locale} catalog: {e}",
+                        module.id().as_str()
+                    ))
+                })?;
+            }
+        }
+
         let mut app = router(
             auth,
             db.clone(),
@@ -331,6 +349,7 @@ impl Bootstrap {
             picker_sources,
             persisters,
             admin_config,
+            std::sync::Arc::new(catalogs.build()),
         );
 
         if let Some(extend) = self.extend {

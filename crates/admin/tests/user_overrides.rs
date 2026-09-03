@@ -6,8 +6,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
-use laterite_core::Db;
+use laterite_core::{CatalogStore, Db};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tower::ServiceExt;
 
 const SESSION_COOKIE: &str = "laterite_session";
@@ -106,6 +107,7 @@ fn app(pool: &Db) -> axum::Router {
         Vec::new(),
         Vec::new(),
         AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
     )
 }
 

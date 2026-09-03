@@ -90,6 +90,14 @@ pub trait Module: Send + Sync + 'static {
     fn register(&self, registry: &mut Registry) {
         let _ = registry;
     }
+
+    /// This module's UI-string catalogs, as `(locale, po_text)` pairs, each an
+    /// `include_str!`'d gettext PO baked into the binary. English needs none (its
+    /// source string is the key); other locales ship a PO. The boot loader merges
+    /// them into the shared catalog store. Default: none.
+    fn catalogs(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
 }
 
 /// Ordered collection of registered modules.

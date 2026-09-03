@@ -5,7 +5,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
-use laterite_core::Db;
+use laterite_core::{CatalogStore, Db};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 /// The session cookie name the admin sets and reads (wire format).
@@ -114,6 +115,7 @@ async fn resource_routes_enforce_their_permission() {
             Vec::new(),
             Vec::new(),
             AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
         )
     };
 

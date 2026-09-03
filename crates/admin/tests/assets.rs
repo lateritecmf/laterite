@@ -5,7 +5,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{AuthConfig, AuthService};
-use laterite_core::Db;
+use laterite_core::{CatalogStore, Db};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
@@ -29,6 +30,7 @@ async fn serves_embedded_assets_and_404s_unknown() {
             Vec::new(),
             Vec::new(),
             AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
         )
     };
 

@@ -7,7 +7,8 @@ use axum::Router;
 use laterite_admin::settings::{save, BrandSetting};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
-use laterite_core::Db;
+use laterite_core::{CatalogStore, Db};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 /// A fresh test database with the admin's built-in migrations applied. Hold the
@@ -40,6 +41,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
             path: path.to_string(),
             origin: String::new(),
         },
+        Arc::new(CatalogStore::default()),
     )
 }
 
