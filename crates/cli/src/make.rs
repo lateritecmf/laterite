@@ -136,7 +136,13 @@ impl laterite_core::Migration for Migration {{
         //         Table::create()
         //             .table(/* your table */)
         //             .if_not_exists()
-        //             .col(key_col(/* id column */).not_null().primary_key())
+        //             .col(
+        //                 ColumnDef::new(/* id column */)
+        //                     .big_integer()
+        //                     .not_null()
+        //                     .auto_increment()
+        //                     .primary_key(),
+        //             )
         //             .to_owned(),
         //     )
         //     .await

@@ -91,7 +91,12 @@ impl Persister for DefaultPersister {
             let vals: Vec<SimpleExpr> = self
                 .columns
                 .iter()
-                .map(|c| data.get(c).cloned().unwrap_or_default().into())
+                .map(|c| {
+                    // Absent or empty binds SQL NULL, not "", so an optional
+                    // non-text column stores correctly rather than failing.
+                    let v: Option<String> = data.get(c).filter(|s| !s.is_empty()).cloned();
+                    v.into()
+                })
                 .collect();
             Query::insert()
                 .into_table(Alias::new(&self.entity))
@@ -114,10 +119,10 @@ impl Persister for DefaultPersister {
             let mut update = Query::update();
             update.table(Alias::new(&self.entity));
             for column in &self.columns {
-                update.value(
-                    Alias::new(column),
-                    data.get(column).cloned().unwrap_or_default(),
-                );
+                // Absent or empty clears to SQL NULL rather than storing "", so an
+                // optional non-text column edits correctly.
+                let v: Option<String> = data.get(column).filter(|s| !s.is_empty()).cloned();
+                update.value(Alias::new(column), v);
             }
             update.and_where(
                 Expr::col(Alias::new(&self.id_field))
