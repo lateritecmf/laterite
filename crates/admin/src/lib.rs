@@ -363,6 +363,17 @@ impl Shell {
         self.i18n.locale()
     }
 
+    /// Localizes a source string with integer `{name}` arguments, for a template
+    /// (`{{ shell.tf("Page {n} of {m}", &[("n", page), ("m", pages)]) }}`). String or
+    /// nested-`Text` arguments are built in Rust with `t!` and rendered with `tt`.
+    pub(crate) fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
+        let mut text = Text::dynamic(source);
+        for (name, value) in args {
+            text = text.arg(*name, *value);
+        }
+        self.i18n.t(&text)
+    }
+
     #[cfg(test)]
     pub(crate) fn test() -> Self {
         Shell {
@@ -1840,6 +1851,15 @@ mod tests {
         let shell = Shell::test();
         assert_eq!(shell.t("Save"), "Save");
         assert_eq!(shell.tt(&Text::dynamic("Discard")), "Discard");
+    }
+
+    #[test]
+    fn shell_tf_interpolates_integer_arguments() {
+        let shell = Shell::test();
+        assert_eq!(
+            shell.tf("Page {page} of {pages}", &[("page", 2), ("pages", 5)]),
+            "Page 2 of 5"
+        );
     }
 
     #[test]

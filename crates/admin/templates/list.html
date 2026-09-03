@@ -26,10 +26,10 @@
   </table>
 </div>
 <div class="lat-listfoot">
-  <span>Displayed records: {{ rows.len() }} of {{ total }}</span>
+  <span>{{ shell.tf("Displayed records: {shown} of {total}", [("shown", shown), ("total", total)]) }}</span>
   <span class="lat-pager">
     {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}">&larr; {{ shell.t("Prev") }}</a>{% endif %}
-    <span style="align-self:center">Page {{ page }} of {{ total_pages }}</span>
+    <span style="align-self:center">{{ shell.tf("Page {page} of {pages}", [("page", page), ("pages", total_pages)]) }}</span>
     {% if page < total_pages %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page + 1 }}">{{ shell.t("Next") }} &rarr;</a>{% endif %}
   </span>
 </div>

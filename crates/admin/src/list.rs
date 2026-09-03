@@ -417,7 +417,7 @@ pub(crate) async fn handle(
     match query(&state.db, config, offset).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
-            let rows = result
+            let rows: Vec<RowView> = result
                 .rows
                 .into_iter()
                 .map(|row| RowView {
@@ -456,11 +456,13 @@ pub(crate) async fn handle(
                 .collect();
             let mut shell = shell;
             shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
+            let shown = rows.len() as i64;
             render(ListTemplate {
                 shell,
                 title: config.title.clone(),
                 columns: config.columns.iter().map(|c| c.label.clone()).collect(),
                 rows,
+                shown,
                 page,
                 total: result.total,
                 total_pages,
@@ -479,6 +481,8 @@ struct ListTemplate {
     title: String,
     columns: Vec<String>,
     rows: Vec<RowView>,
+    /// The count on this page (`rows.len()`), precomputed as `i64` for the footer.
+    shown: i64,
     page: i64,
     total: i64,
     total_pages: i64,
