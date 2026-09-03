@@ -274,6 +274,17 @@ impl AuthService {
         store::set_user_timezone(&self.db, user_id, timezone).await
     }
 
+    /// Persists an operator's own UI locale. `Some(tag)` sets a base language tag;
+    /// `None` clears it so the operator falls back to the deployment default.
+    /// Validating that `tag` is a supported locale is the caller's job.
+    pub async fn set_user_locale(
+        &self,
+        user_id: i64,
+        locale: Option<&str>,
+    ) -> Result<(), AuthError> {
+        store::set_user_locale(&self.db, user_id, locale).await
+    }
+
     /// Loads a user's per-permission overrides (code to `1` allow or `-1` deny).
     pub async fn user_permission_overrides(
         &self,
@@ -519,6 +530,35 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(user.timezone, None);
+    }
+
+    #[tokio::test]
+    async fn operator_locale_round_trips_and_clears() {
+        let (pool, _guard) = test_db().await;
+        let id = seed_user(&pool, "loc", "pw", true).await;
+
+        // A fresh operator has no preference and inherits the default.
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.locale, None);
+
+        let svc = service(pool.clone());
+        svc.set_user_locale(id, Some("kn")).await.unwrap();
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.locale.as_deref(), Some("kn"));
+
+        // Clearing it returns the operator to the default.
+        svc.set_user_locale(id, None).await.unwrap();
+        let user = store::find_active_user_by_id(&pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(user.locale, None);
     }
 
     #[tokio::test]

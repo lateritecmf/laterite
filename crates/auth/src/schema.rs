@@ -15,6 +15,7 @@ pub(crate) enum BackendUsers {
     IsSuperuser,
     IsActive,
     Timezone,
+    Locale,
     Permissions,
     CreatedAt,
     UpdatedAt,

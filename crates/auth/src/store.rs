@@ -60,6 +60,7 @@ fn user_from_row(row: &AnyRow) -> Result<BackendUser, AuthError> {
         is_superuser: row.get_bool("is_superuser")?,
         is_active: row.get_bool("is_active")?,
         timezone: row.get_text_opt("timezone")?,
+        locale: row.get_text_opt("locale")?,
         created_at: parse_ts(&row.get_text("created_at")?)?,
         updated_at: parse_ts(&row.get_text("updated_at")?)?,
     })
@@ -78,7 +79,7 @@ fn summary_from_row(row: &AnyRow) -> Result<BackendUserSummary, AuthError> {
     })
 }
 
-const USER_COLS: [BackendUsers; 11] = [
+const USER_COLS: [BackendUsers; 12] = [
     BackendUsers::Id,
     BackendUsers::Username,
     BackendUsers::Email,
@@ -88,6 +89,7 @@ const USER_COLS: [BackendUsers; 11] = [
     BackendUsers::IsSuperuser,
     BackendUsers::IsActive,
     BackendUsers::Timezone,
+    BackendUsers::Locale,
     BackendUsers::CreatedAt,
     BackendUsers::UpdatedAt,
 ];
@@ -446,6 +448,23 @@ pub async fn set_user_timezone(
         Query::update()
             .table(BackendUsers::Table)
             .value(BackendUsers::Timezone, timezone.map(str::to_string))
+            .value(BackendUsers::UpdatedAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// Sets an operator's own UI locale, or clears it with `None`.
+pub async fn set_user_locale(db: &Db, user_id: i64, locale: Option<&str>) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::Locale, locale.map(str::to_string))
             .value(BackendUsers::UpdatedAt, now_ts())
             .and_where(Expr::col(BackendUsers::Id).eq(user_id))
             .to_owned(),

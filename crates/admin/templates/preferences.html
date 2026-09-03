@@ -14,6 +14,14 @@
       </select>
       <p class="lat-help">Timestamps currently render in {{ effective_tz }}. Storage is always UTC; this only changes how dates are shown to you.</p>
     </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="locale">{{ shell.t("Language") }}</label>
+      <select class="lat-input" id="locale" name="locale">
+        <option value=""{% if inherits_locale %} selected{% endif %}>{{ shell.t("Use the deployment default") }} ({{ default_locale }})</option>
+        {% for locale in locales %}<option value="{{ locale.code }}"{% if locale.selected %} selected{% endif %}>{{ locale.name }}</option>{% endfor %}
+      </select>
+      <p class="lat-help">{{ shell.t("The admin renders in this language. It only changes the interface, not your content.") }}</p>
+    </div>
     <div class="lat-actions">
       <button class="lat-btn lat-btn--primary" type="submit">Save</button>
     </div>

@@ -25,6 +25,10 @@ pub struct BackendUser {
     /// `None` means the operator inherits the deployment default. Storage is
     /// always UTC; this only affects how timestamps render for this operator.
     pub timezone: Option<String>,
+    /// The operator's own UI language as a base tag (e.g. `kn`). `None` means the
+    /// operator inherits the deployment default. This only affects the admin's own
+    /// strings, not stored content.
+    pub locale: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

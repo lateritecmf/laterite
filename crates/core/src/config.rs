@@ -40,8 +40,10 @@ pub struct AppMeta {
     /// local `.test` domain). When unset, [`base_url`] derives it from the bind
     /// address.
     pub url: Option<String>,
-    /// The application's default locale (BCP 47, e.g. `"en"`): the active locale
-    /// for UI-string translation until per-request locale selection exists.
+    /// The application's default locale (BCP 47, e.g. `"en"`): the deployment
+    /// default for UI-string translation, the last stop in a request's locale
+    /// chain before the English source when neither the operator's preference nor
+    /// the request's `Accept-Language` resolves.
     pub locale: String,
     /// Debug mode: error pages include the internal cause. Off by default;
     /// enable only in development. Read via [`debug`] where request context is

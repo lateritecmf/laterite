@@ -317,6 +317,7 @@ impl Bootstrap {
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             timezone: config.backend.timezone.clone(),
+            locale: config.app.locale.clone(),
             app_name: config.app.name.clone(),
             path: config.backend.path.clone(),
             origin: origin.clone(),

@@ -19,4 +19,5 @@ laterite_core::migration_set! {
     m0006_add_backend_user_timezone,
     m0007_add_backend_user_permissions,
     m0008_add_backend_session_data,
+    m0009_add_backend_user_locale,
 }

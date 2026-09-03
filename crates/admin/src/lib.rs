@@ -48,7 +48,7 @@ use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
-use laterite_core::{t, Db, Text, Translator};
+use laterite_core::{t, CatalogStore, Db, Text, Translator};
 use serde::Deserialize;
 
 /// Typed contribution channels for the framework's admin surfaces, as an
@@ -105,6 +105,13 @@ pub(crate) struct AdminState {
     /// The public origin for the CSRF origin check (see [`AdminConfig::origin`]).
     origin: Arc<str>,
     timezone: Tz,
+    /// The deployment default UI locale (a base tag like `en`), the last stop in a
+    /// request's locale chain before the English source. An operator's own
+    /// preference overrides it.
+    default_locale: Arc<str>,
+    /// The shared message catalogs, resolved once at boot and looked up per request
+    /// through the [`Translator`]. Empty until module catalogs are loaded.
+    catalogs: Arc<CatalogStore>,
     /// The configured application name (the baseline brand). A brand setting
     /// overrides it; see [`AdminState::brand`].
     app_name: String,
@@ -142,6 +149,8 @@ impl AdminState {
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
+            default_locale: Arc::from("en"),
+            catalogs: Arc::new(CatalogStore::default()),
             app_name: "Laterite".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
@@ -187,6 +196,10 @@ pub struct AdminConfig {
     /// Storage is UTC; this only affects rendering. Invalid or empty falls back
     /// to UTC. An operator's own preference overrides it (later).
     pub timezone: String,
+    /// Default UI locale for the admin (a base tag like `en` or `kn`). An
+    /// operator's own preference and the request's `Accept-Language` override it;
+    /// unknown or empty falls back to `en`.
+    pub locale: String,
     /// The application name, shown as the admin brand. This is the baseline; a
     /// `BrandSetting` in the admin overrides it. Typically the configured
     /// `app.name`. Empty falls back to `Laterite`.
@@ -207,6 +220,7 @@ impl Default for AdminConfig {
         Self {
             secure_cookie: false,
             timezone: "UTC".to_string(),
+            locale: "en".to_string(),
             app_name: "Laterite".to_string(),
             path: "/admin".to_string(),
             origin: String::new(),
@@ -333,9 +347,7 @@ impl Shell {
     }
 
     /// Localizes a source string in this request's locale, falling back to the
-    /// source itself. Templates call `{{ shell.t("Save") }}`. The localization seam:
-    /// the allow lifts once the chrome-localization increment adds callers.
-    #[allow(dead_code)]
+    /// source itself. Templates call `{{ shell.t("Save") }}`.
     pub(crate) fn t(&self, source: &str) -> String {
         self.i18n.t(&Text::dynamic(source))
     }
@@ -344,6 +356,11 @@ impl Shell {
     /// flash) into this request's locale.
     pub(crate) fn tt(&self, text: &Text) -> String {
         self.i18n.t(text)
+    }
+
+    /// The active locale (most specific in the chain), for `<html lang>`.
+    pub(crate) fn locale(&self) -> &str {
+        self.i18n.locale()
     }
 
     #[cfg(test)]
@@ -451,6 +468,94 @@ fn resolve_display_tz(preference: Option<&str>, default_tz: Tz) -> Tz {
     preference
         .and_then(|name| name.parse::<Tz>().ok())
         .unwrap_or(default_tz)
+}
+
+/// The UI locales the admin ships: a base tag and the language's own name (an
+/// endonym, shown untranslated in the picker). English is the source, so it needs
+/// no catalog; the others are filled in later.
+const SUPPORTED_LOCALES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("hi", "\u{939}\u{93f}\u{928}\u{94d}\u{926}\u{940}"),
+    ("kn", "\u{c95}\u{ca8}\u{ccd}\u{ca8}\u{ca1}"),
+    ("ta", "\u{ba4}\u{bae}\u{bbf}\u{bb4}\u{bcd}"),
+];
+
+/// The base language of a tag (`kn-IN` -> `kn`), lowercased. Catalogs are keyed by
+/// base language for the launch locales.
+fn base_lang(tag: &str) -> String {
+    tag.split(['-', '_'])
+        .next()
+        .unwrap_or(tag)
+        .to_ascii_lowercase()
+}
+
+/// Whether `base` is a locale the admin ships.
+fn is_supported(base: &str) -> bool {
+    SUPPORTED_LOCALES.iter().any(|(code, _)| *code == base)
+}
+
+/// The deployment default locale from config: a supported base tag, else `en`.
+fn default_locale(configured: &str) -> String {
+    let base = base_lang(configured);
+    if is_supported(&base) {
+        base
+    } else {
+        "en".to_string()
+    }
+}
+
+/// The tags in an `Accept-Language` header, most-preferred first. Each entry's
+/// optional `;q=` weight orders them (absent means `1.0`); `*` is dropped.
+fn parse_accept_language(header: &str) -> Vec<String> {
+    let mut items: Vec<(f32, String)> = header
+        .split(',')
+        .filter_map(|part| {
+            let mut bits = part.split(';');
+            let tag = bits.next()?.trim();
+            if tag.is_empty() || tag == "*" {
+                return None;
+            }
+            let q = bits
+                .find_map(|p| p.trim().strip_prefix("q="))
+                .and_then(|q| q.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            Some((q, tag.to_string()))
+        })
+        .collect();
+    // Stable sort by weight descending, so equal weights keep header order.
+    items.sort_by(|a, b| b.0.total_cmp(&a.0));
+    items.into_iter().map(|(_, tag)| tag).collect()
+}
+
+/// Builds this request's locale fallback chain, most specific first and always
+/// ending at `en`. Candidates, in order: the operator's stored locale, the
+/// `Accept-Language` tags, the deployment default. Each is normalized to a
+/// supported base language; unknown tags are skipped and none repeats.
+fn resolve_locale_chain(
+    preference: Option<&str>,
+    accept_language: Option<&str>,
+    default: &str,
+) -> Vec<String> {
+    let mut chain: Vec<String> = Vec::new();
+    let consider = |tag: &str, chain: &mut Vec<String>| {
+        let base = base_lang(tag);
+        if is_supported(&base) && !chain.contains(&base) {
+            chain.push(base);
+        }
+    };
+    if let Some(pref) = preference {
+        consider(pref, &mut chain);
+    }
+    if let Some(header) = accept_language {
+        for tag in parse_accept_language(header) {
+            consider(&tag, &mut chain);
+        }
+    }
+    consider(default, &mut chain);
+    // Guarantee the source language is reachable, appended only if not already
+    // signaled earlier (so an explicit en preference keeps its position).
+    consider("en", &mut chain);
+    chain
 }
 
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
@@ -647,6 +752,8 @@ pub fn router(
         secure_cookie: config.secure_cookie,
         origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
+        default_locale: Arc::from(default_locale(&config.locale)),
+        catalogs: Arc::new(CatalogStore::default()),
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field_types),
@@ -1094,6 +1201,19 @@ async fn require_auth(
         &path,
     );
     let brand = state.brand().await;
+    // Resolve the locale chain for this request (operator preference, then the
+    // browser's Accept-Language, then the deployment default) and hand the shell a
+    // translator over the shared catalogs.
+    let accept_language = request
+        .headers()
+        .get("accept-language")
+        .and_then(|v| v.to_str().ok());
+    let chain = resolve_locale_chain(
+        user.user.locale.as_deref(),
+        accept_language,
+        &state.default_locale,
+    );
+    let i18n = Translator::with_chain(chain, state.catalogs.clone());
     let shell = Shell::new(
         &state.admin_path,
         brand,
@@ -1104,9 +1224,7 @@ async fn require_auth(
         active_nav.as_deref(),
         handle.csrf_token(),
         flash,
-        // The app-default translator; per-request locale resolution lands with the
-        // locale chain.
-        Translator::new("en"),
+        i18n,
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
@@ -1405,12 +1523,21 @@ async fn preferences_form(
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
-    render(preferences_view(&shell, &user, state.timezone, None))
+    render(preferences_view(
+        &shell,
+        &user,
+        state.timezone,
+        &state.default_locale,
+        None,
+    ))
 }
 
 #[derive(Deserialize)]
 struct PreferencesForm {
     timezone: String,
+    /// Omitted means no locale choice was submitted, treated as inherit.
+    #[serde(default)]
+    locale: String,
 }
 
 async fn preferences_update(
@@ -1420,21 +1547,44 @@ async fn preferences_update(
     Extension(session): Extension<session::SessionHandle>,
     Form(form): Form<PreferencesForm>,
 ) -> Response {
-    let trimmed = form.timezone.trim();
-    // An empty choice clears the preference so the operator inherits the default.
-    let stored = if trimmed.is_empty() {
+    // An empty choice clears a preference so the operator inherits the default.
+    let tz = form.timezone.trim();
+    let tz_stored = if tz.is_empty() {
         None
-    } else if trimmed.parse::<Tz>().is_ok() {
-        Some(trimmed)
+    } else if tz.parse::<Tz>().is_ok() {
+        Some(tz)
     } else {
         return render(preferences_view(
             &shell,
             &user,
             state.timezone,
-            Some("That is not a recognised timezone."),
+            &state.default_locale,
+            Some(t!("That is not a recognised timezone.")),
         ));
     };
-    match state.auth.set_user_timezone(user.user.id, stored).await {
+    let loc = form.locale.trim();
+    let loc_stored = if loc.is_empty() {
+        None
+    } else if is_supported(loc) {
+        Some(loc)
+    } else {
+        return render(preferences_view(
+            &shell,
+            &user,
+            state.timezone,
+            &state.default_locale,
+            Some(t!("That is not a supported language.")),
+        ));
+    };
+    if state
+        .auth
+        .set_user_timezone(user.user.id, tz_stored)
+        .await
+        .is_err()
+    {
+        return render_error();
+    }
+    match state.auth.set_user_locale(user.user.id, loc_stored).await {
         Ok(()) => {
             session.push_flash(session::FlashLevel::Success, t!("Preferences saved."));
             Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
@@ -1450,7 +1600,8 @@ fn preferences_view(
     shell: &Shell,
     user: &AuthenticatedUser,
     default_tz: Tz,
-    error: Option<&str>,
+    default_locale: &str,
+    error: Option<Text>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
@@ -1460,13 +1611,25 @@ fn preferences_view(
             selected: current == Some(tz.name()),
         })
         .collect();
+    let current_locale = user.user.locale.as_deref();
+    let locales = SUPPORTED_LOCALES
+        .iter()
+        .map(|(code, name)| LocaleOption {
+            code: code.to_string(),
+            name: name.to_string(),
+            selected: current_locale == Some(code),
+        })
+        .collect();
     PreferencesTemplate {
         shell: shell.clone(),
         zones,
         effective_tz: shell.tz.name().to_string(),
         default_tz: default_tz.name().to_string(),
         inherits: current.is_none(),
-        error: error.map(|e| e.to_string()),
+        locales,
+        default_locale: default_locale.to_string(),
+        inherits_locale: current_locale.is_none(),
+        error: error.map(|e| shell.tt(&e)),
     }
 }
 
@@ -1613,10 +1776,23 @@ struct PreferencesTemplate {
     default_tz: String,
     /// Whether the operator currently inherits the default (no preference set).
     inherits: bool,
+    locales: Vec<LocaleOption>,
+    /// The deployment default locale, named in the inherit option.
+    default_locale: String,
+    /// Whether the operator currently inherits the default locale.
+    inherits_locale: bool,
     error: Option<String>,
 }
 
 struct TzOption {
+    name: String,
+    selected: bool,
+}
+
+struct LocaleOption {
+    /// The base language tag (`en`, `kn`).
+    code: String,
+    /// The language's own name, shown untranslated.
     name: String,
     selected: bool,
 }
@@ -1680,6 +1856,50 @@ mod tests {
         // Junk stored value: fall back rather than error.
         assert_eq!(resolve_display_tz(Some("Not/AZone"), default), default);
         assert_eq!(resolve_display_tz(Some(""), default), default);
+    }
+
+    #[test]
+    fn accept_language_orders_by_weight_and_drops_wildcard() {
+        assert_eq!(
+            parse_accept_language("en-US,en;q=0.9,kn;q=0.8"),
+            vec!["en-US", "en", "kn"]
+        );
+        // A higher-weight later tag wins; the wildcard is dropped.
+        assert_eq!(
+            parse_accept_language("en;q=0.5,kn,*;q=0.1"),
+            vec!["kn", "en"]
+        );
+    }
+
+    #[test]
+    fn locale_chain_prefers_operator_then_header_then_default() {
+        // Operator preference leads, then header order, then the default; en is
+        // appended last as the source fallback, and nothing repeats.
+        assert_eq!(
+            resolve_locale_chain(Some("kn"), Some("ta;q=0.9,hi;q=0.8"), "en"),
+            vec!["kn", "ta", "hi", "en"]
+        );
+        // An explicit en in the header keeps its signaled position, not forced last.
+        assert_eq!(
+            resolve_locale_chain(Some("kn"), Some("en;q=0.9"), "ta"),
+            vec!["kn", "en", "ta"]
+        );
+        // A regional tag normalizes to its base language.
+        assert_eq!(
+            resolve_locale_chain(Some("kn-IN"), None, "en"),
+            vec!["kn", "en"]
+        );
+    }
+
+    #[test]
+    fn locale_chain_skips_unsupported_and_defaults_to_en() {
+        // Unknown operator tag and header are skipped; unknown default falls to en.
+        assert_eq!(
+            resolve_locale_chain(Some("fr"), Some("de,es"), "zz"),
+            vec!["en"]
+        );
+        // No signal at all is still a valid en chain.
+        assert_eq!(resolve_locale_chain(None, None, "en"), vec!["en"]);
     }
 
     #[test]
@@ -1751,6 +1971,8 @@ mod tests {
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
+            default_locale: Arc::from("en"),
+            catalogs: Arc::new(CatalogStore::default()),
             app_name: "Configured Name".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
