@@ -48,7 +48,7 @@ use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
-use laterite_core::Db;
+use laterite_core::{Db, Text, Translator};
 use serde::Deserialize;
 
 /// Typed contribution channels for the framework's admin surfaces, as an
@@ -244,6 +244,10 @@ pub(crate) struct Shell {
     /// request: the operator's own preference if set and valid, else the
     /// deployment default. List and detail screens format dates in it.
     tz: Tz,
+    /// The translator for this request's locale (resolved like `tz`), used by
+    /// `shell.t` / `shell.tt` in templates. A source with no catalog entry falls
+    /// back to itself.
+    i18n: Translator,
     /// The context sidebar for the current section, resolved once per request
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
@@ -280,6 +284,7 @@ impl Shell {
         active_nav: Option<&str>,
         csrf_token: String,
         flash: Vec<session::Flash>,
+        i18n: Translator,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -302,11 +307,27 @@ impl Shell {
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
+            i18n,
             sidebar,
             csrf_token,
             flash,
             assets: Vec::new(),
         }
+    }
+
+    /// Localizes a source string in this request's locale, falling back to the
+    /// source itself. Templates call `{{ shell.t("Save") }}`. The localization seam:
+    /// the allow lifts once the chrome-localization increment adds callers.
+    #[allow(dead_code)]
+    pub(crate) fn t(&self, source: &str) -> String {
+        self.i18n.t(&Text::dynamic(source))
+    }
+
+    /// Localizes a prebuilt message (a `t!`/`tn!` value, a descriptor label, a
+    /// flash). Templates call `{{ shell.tt(msg) }}`.
+    #[allow(dead_code)]
+    pub(crate) fn tt(&self, text: &Text) -> String {
+        self.i18n.t(text)
     }
 
     #[cfg(test)]
@@ -318,6 +339,7 @@ impl Shell {
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
             tz: Tz::UTC,
+            i18n: Translator::new("en"),
             sidebar: Vec::new(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
@@ -1066,6 +1088,9 @@ async fn require_auth(
         active_nav.as_deref(),
         handle.csrf_token(),
         flash,
+        // The app-default translator; per-request locale resolution lands with the
+        // locale chain.
+        Translator::new("en"),
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
@@ -1614,6 +1639,14 @@ pub(crate) fn forbidden() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_localizes_through_the_translator_and_falls_back() {
+        // The default translator has no catalog, so each source returns itself.
+        let shell = Shell::test();
+        assert_eq!(shell.t("Save"), "Save");
+        assert_eq!(shell.tt(&Text::dynamic("Discard")), "Discard");
+    }
 
     #[test]
     fn display_tz_prefers_a_valid_operator_preference() {
