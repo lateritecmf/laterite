@@ -81,6 +81,13 @@ impl FormField {
         Self::of(name, label, "textarea")
     }
 
+    /// A reference field: a picker over a registered picker source (a `vendor.name`
+    /// key), which the field searches and resolves against. Builds the `source`
+    /// option so a descriptor needs no raw JSON.
+    pub fn reference(name: &str, label: &str, source: &str) -> Self {
+        Self::of(name, label, "reference").options(serde_json::json!({ "source": source }))
+    }
+
     /// Sets the field type's typed options (the type validates them at render).
     pub fn options(mut self, options: serde_json::Value) -> Self {
         self.options = options;
