@@ -24,6 +24,7 @@ pub use capabilities::CapabilitySet;
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use i18n::{plural_category, Arg, CatalogStore, PluralCategory, Text, Translator};
+pub use laterite_macros::{t, tn, tp};
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;

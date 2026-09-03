@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/web"]
+members = ["crates/macros", "crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/web"]
 
 [workspace.package]
 edition = "2021"
@@ -11,6 +11,7 @@ repository = "https://github.com/lateritecmf/laterite"
 # Path plus version: the path is used for local builds within the workspace, and
 # the version is what cargo emits as the crates.io dependency when publishing.
 laterite-core = { path = "crates/core", version = "0.2.0" }
+laterite-macros = { path = "crates/macros", version = "0.2.0" }
 laterite-auth = { path = "crates/auth", version = "0.2.0" }
 laterite-admin = { path = "crates/admin", version = "0.2.0" }
 laterite-web = { path = "crates/web", version = "0.2.0" }

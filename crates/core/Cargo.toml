@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 config = { workspace = true }
+laterite-macros = { workspace = true }
 email_address = "0.2.9"
 sea-query = { workspace = true }
 serde = { workspace = true }

@@ -1,0 +1,15 @@
+[package]
+name = "laterite-macros"
+version = "0.2.0"
+description = "Laterite CMF procedural macros: the t!/tn!/tp! translation-string macros"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
