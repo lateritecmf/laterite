@@ -1,10 +1,14 @@
-//! `lat i18n`: derive and check the message catalogs.
+//! `lat i18n`: derive, check, and manage the message catalogs.
 //!
-//! `extract` scans a workspace's Rust (`t!`/`tn!`/`tp!` macros) and templates
-//! (`shell.t`/`shell.tf`/`shell.tfs`) for source strings and writes a deterministic
-//! gettext `.pot` per crate under `<crate>/lang/`. `check` regenerates in memory and
-//! fails if a committed `.pot` is stale, so the catalog never drifts from the code.
-//! The English source is the key, so the `.pot` is generated, never hand-edited.
+//! `extract` scans a workspace's Rust (`t!`/`tn!`/`tp!` macros, plus core's
+//! `field_msg`/`field_plural_msg`), templates (`shell.t`/`shell.tf`/`shell.tfs`), and
+//! the built-in descriptor sources, and writes a deterministic gettext `.pot` per
+//! crate under `<crate>/lang/`. `check` regenerates in memory and fails if a committed
+//! `.pot` is stale, so the catalog never drifts from the code. `update <locale>`
+//! merges the `.pot` into `<crate>/lang/<locale>.po`, keeping existing translations
+//! and adding new empty ones (creating the file if absent). `status` reports per-locale
+//! coverage. The English source is the key, so the `.pot` is generated, never
+//! hand-edited; only a locale `.po`'s `msgstr` lines are edited, by translators.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -26,6 +30,14 @@ enum I18nCommand {
     Extract,
     /// Fail if any committed messages.pot is out of date (CI / the verify loop).
     Check,
+    /// Merge each crate's messages.pot into a locale's .po, keeping existing
+    /// translations and adding new (empty) entries. Creates the .po if absent.
+    Update {
+        /// The locale to update or create (e.g. `kn`, `hi`, `ta`).
+        locale: String,
+    },
+    /// Report translation coverage for each crate's locale catalogs.
+    Status,
 }
 
 pub fn run(args: I18nArgs) -> Result<()> {
@@ -33,6 +45,8 @@ pub fn run(args: I18nArgs) -> Result<()> {
     match args.command {
         I18nCommand::Extract => extract(root),
         I18nCommand::Check => check(root),
+        I18nCommand::Update { locale } => update(root, &locale),
+        I18nCommand::Status => status(root),
     }
 }
 
@@ -57,7 +71,8 @@ fn extract(root: &Path) -> Result<()> {
             continue;
         }
         fs::create_dir_all(pot.parent().unwrap())?;
-        fs::write(&pot, render(&cat)).with_context(|| format!("writing {}", pot.display()))?;
+        let text = render(&cat, &Translations::new(), POT_HEADER);
+        fs::write(&pot, text).with_context(|| format!("writing {}", pot.display()))?;
         println!("{}: {} messages", pot.display(), cat.len());
     }
     Ok(())
@@ -71,7 +86,7 @@ fn check(root: &Path) -> Result<()> {
         let want = if cat.is_empty() {
             String::new()
         } else {
-            render(&cat)
+            render(&cat, &Translations::new(), POT_HEADER)
         };
         let have = fs::read_to_string(&pot).unwrap_or_default();
         if have != want {
@@ -86,6 +101,173 @@ fn check(root: &Path) -> Result<()> {
     }
     println!("i18n catalogs are up to date.");
     Ok(())
+}
+
+fn update(root: &Path, locale: &str) -> Result<()> {
+    for krate in crates(root)? {
+        let cat = collect(&krate)?;
+        if cat.is_empty() {
+            continue;
+        }
+        let po = krate.join("lang").join(format!("{locale}.po"));
+        let existing = parse_po(&fs::read_to_string(&po).unwrap_or_default());
+        let kept = cat.keys().filter(|k| existing.contains_key(*k)).count();
+        let dropped = existing.keys().filter(|k| !cat.contains_key(k)).count();
+        fs::create_dir_all(po.parent().unwrap())?;
+        let header = format!(
+            "{locale} translations; keep msgid, translate msgstr. `lat i18n update` refreshes."
+        );
+        fs::write(&po, render(&cat, &existing, &header))
+            .with_context(|| format!("writing {}", po.display()))?;
+        println!(
+            "{}: {kept} kept, {} new, {dropped} dropped",
+            po.display(),
+            cat.len() - kept
+        );
+    }
+    Ok(())
+}
+
+fn status(root: &Path) -> Result<()> {
+    for krate in crates(root)? {
+        let cat = collect(&krate)?;
+        if cat.is_empty() {
+            continue;
+        }
+        let name = krate.file_name().unwrap_or_default().to_string_lossy();
+        let total = cat.len();
+        let mut locales: Vec<PathBuf> = files(&krate.join("lang"), "po");
+        locales.sort();
+        if locales.is_empty() {
+            println!("{name}: {total} messages, no locale catalogs yet");
+        }
+        for po in locales {
+            let loc = po.file_stem().unwrap_or_default().to_string_lossy();
+            let tr = parse_po(&fs::read_to_string(&po).unwrap_or_default());
+            let done = cat.keys().filter(|k| tr.contains_key(*k)).count();
+            let pct = (done * 100).checked_div(total).unwrap_or(100);
+            println!("{name}/{loc}: {done}/{total} ({pct}%)");
+        }
+    }
+    Ok(())
+}
+
+/// An accumulator for one `.po` entry while parsing line by line.
+#[derive(Default)]
+struct PoAcc {
+    context: Option<String>,
+    id: Option<String>,
+    id_plural: Option<String>,
+    single: Option<String>,
+    plural: Vec<String>,
+}
+
+/// Records a finished `.po` entry (skipping the header and untranslated ones).
+fn flush_po(acc: &mut PoAcc, out: &mut Translations) {
+    let acc = std::mem::take(acc);
+    let Some(id) = acc.id.filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let key = (acc.context, id);
+    if acc.id_plural.is_some() {
+        let one = acc.plural.first().cloned().unwrap_or_default();
+        let other = acc.plural.get(1).cloned().unwrap_or_default();
+        if !one.is_empty() || !other.is_empty() {
+            out.insert(key, PoValue::Plural(one, other));
+        }
+    } else if let Some(s) = acc.single.filter(|s| !s.is_empty()) {
+        out.insert(key, PoValue::One(s));
+    }
+}
+
+/// Reads a `.po` into its non-empty translations, keyed by (context, msgid). A
+/// minimal gettext reader: the `msgctxt`/`msgid`/`msgid_plural`/`msgstr`/`msgstr[n]`
+/// keywords with adjacent-string continuation; comments and the header are skipped.
+fn parse_po(text: &str) -> Translations {
+    let mut out = Translations::new();
+    let mut acc = PoAcc::default();
+    let mut field = PoField::None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            flush_po(&mut acc, &mut out);
+            field = PoField::None;
+        } else if line.starts_with('#') {
+            continue;
+        } else if let Some(rest) = line.strip_prefix("msgctxt ") {
+            acc.context = po_unquote(rest);
+            field = PoField::Context;
+        } else if let Some(rest) = line.strip_prefix("msgid_plural ") {
+            acc.id_plural = po_unquote(rest);
+            field = PoField::IdPlural;
+        } else if let Some(rest) = line.strip_prefix("msgid ") {
+            if acc.id.is_some() {
+                flush_po(&mut acc, &mut out);
+            }
+            acc.id = po_unquote(rest);
+            field = PoField::Id;
+        } else if let Some(rest) = line.strip_prefix("msgstr[") {
+            if let Some((idx, q)) = rest.split_once(']') {
+                if let (Ok(n), Some(s)) = (idx.trim().parse::<usize>(), po_unquote(q.trim())) {
+                    if acc.plural.len() <= n {
+                        acc.plural.resize(n + 1, String::new());
+                    }
+                    acc.plural[n] = s;
+                    field = PoField::Plural(n);
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("msgstr ") {
+            acc.single = po_unquote(rest);
+            field = PoField::Single;
+        } else if line.starts_with('"') {
+            if let Some(s) = po_unquote(line) {
+                match field {
+                    PoField::Context => append(&mut acc.context, &s),
+                    PoField::Id => append(&mut acc.id, &s),
+                    PoField::IdPlural => append(&mut acc.id_plural, &s),
+                    PoField::Single => append(&mut acc.single, &s),
+                    PoField::Plural(n) => acc.plural[n].push_str(&s),
+                    PoField::None => {}
+                }
+            }
+        }
+    }
+    flush_po(&mut acc, &mut out);
+    out
+}
+
+enum PoField {
+    None,
+    Context,
+    Id,
+    IdPlural,
+    Single,
+    Plural(usize),
+}
+
+fn append(field: &mut Option<String>, s: &str) {
+    field.get_or_insert_with(String::new).push_str(s);
+}
+
+/// Reads a `"..."` gettext string, unescaping `\n \t \r \" \\`; `None` if unquoted.
+fn po_unquote(s: &str) -> Option<String> {
+    let inner = s.trim().strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some(other) => out.push(other),
+                None => break,
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
 }
 
 /// The crate directories to scan: each member of a `crates/` workspace, or the
@@ -314,13 +496,23 @@ fn string_after(s: &str) -> Option<String> {
 
 // --- PO rendering ---------------------------------------------------------------
 
-/// Renders a catalog as a deterministic gettext `.pot` (empty translations).
-fn render(cat: &Catalog) -> String {
+/// A translation read from a `.po`: a single form, or the two plural forms.
+enum PoValue {
+    One(String),
+    Plural(String, String),
+}
+
+/// Existing translations, keyed like a [`Catalog`].
+type Translations = BTreeMap<Key, PoValue>;
+
+/// Renders a catalog as a deterministic gettext catalog, filling each `msgstr` from
+/// `tr` (empty when a message is untranslated). An empty `tr` yields a `.pot`.
+fn render(cat: &Catalog, tr: &Translations, header: &str) -> String {
     let mut out = String::new();
-    out.push_str("# Generated by `lat i18n extract`; do not edit.\n");
+    let _ = writeln!(out, "# {header}");
     out.push_str("msgid \"\"\n");
     out.push_str("msgstr \"Content-Type: text/plain; charset=UTF-8\\n\"\n");
-    for ((context, source), entry) in cat {
+    for (key @ (context, source), entry) in cat {
         out.push('\n');
         for r in &entry.refs {
             let _ = writeln!(out, "#: {r}");
@@ -329,17 +521,31 @@ fn render(cat: &Catalog) -> String {
             let _ = writeln!(out, "msgctxt \"{}\"", escape(context));
         }
         let _ = writeln!(out, "msgid \"{}\"", escape(source));
+        let value = tr.get(key);
         match &entry.plural {
             Some(plural) => {
                 let _ = writeln!(out, "msgid_plural \"{}\"", escape(plural));
-                out.push_str("msgstr[0] \"\"\n");
-                out.push_str("msgstr[1] \"\"\n");
+                let (one, other) = match value {
+                    Some(PoValue::Plural(a, b)) => (a.as_str(), b.as_str()),
+                    _ => ("", ""),
+                };
+                let _ = writeln!(out, "msgstr[0] \"{}\"", escape(one));
+                let _ = writeln!(out, "msgstr[1] \"{}\"", escape(other));
             }
-            None => out.push_str("msgstr \"\"\n"),
+            None => {
+                let one = match value {
+                    Some(PoValue::One(s)) => s.as_str(),
+                    _ => "",
+                };
+                let _ = writeln!(out, "msgstr \"{}\"", escape(one));
+            }
         }
     }
     out
 }
+
+/// The template header for a `.pot`.
+const POT_HEADER: &str = "Generated by `lat i18n extract`; do not edit.";
 
 fn escape(s: &str) -> String {
     s.replace('\\', "\\\\")
@@ -402,6 +608,33 @@ mod tests {
     }
 
     #[test]
+    fn update_carries_existing_translations_forward() {
+        let mut cat = Catalog::new();
+        add(&mut cat, None, "Save".to_string(), None, "a:1".to_string());
+        add(
+            &mut cat,
+            None,
+            "{n} item".to_string(),
+            Some("{n} items".to_string()),
+            "a:2".to_string(),
+        );
+        // A .po with one translated singular and an untranslated plural.
+        let po = "msgid \"Save\"\nmsgstr \"Save-kn\"\n\n\
+                  msgid \"{n} item\"\nmsgid_plural \"{n} items\"\nmsgstr[0] \"\"\nmsgstr[1] \"\"\n";
+        let tr = parse_po(po);
+        assert!(
+            matches!(tr.get(&(None, "Save".to_string())), Some(PoValue::One(s)) if s == "Save-kn")
+        );
+        // The untranslated plural was empty, so it is not carried.
+        assert!(!tr.contains_key(&(None, "{n} item".to_string())));
+        // Rendering keeps the translation and re-parses to the same value.
+        let rendered = render(&cat, &tr, "hdr");
+        assert!(rendered.contains("msgid \"Save\"\nmsgstr \"Save-kn\"\n"));
+        assert!(rendered.contains("msgstr[0] \"\"\nmsgstr[1] \"\"\n"));
+        assert!(parse_po(&rendered).contains_key(&(None, "Save".to_string())));
+    }
+
+    #[test]
     fn renders_a_deterministic_pot() {
         let mut cat = Catalog::new();
         add(
@@ -418,12 +651,12 @@ mod tests {
             Some("{n} items".to_string()),
             "src/a.rs:3".to_string(),
         );
-        let pot = render(&cat);
+        let pot = render(&cat, &Translations::new(), POT_HEADER);
         assert!(pot.contains("msgid \"Save\"\nmsgstr \"\"\n"));
         assert!(pot.contains(
             "msgid \"{n} item\"\nmsgid_plural \"{n} items\"\nmsgstr[0] \"\"\nmsgstr[1] \"\"\n"
         ));
-        // Ordered by key: "Save" sorts after "{n} item" (brace < S), so both present.
-        assert_eq!(render(&cat), pot);
+        // Deterministic: the same catalog renders identically.
+        assert_eq!(render(&cat, &Translations::new(), POT_HEADER), pot);
     }
 }
