@@ -265,6 +265,14 @@ impl CatalogStore {
     fn lookup(&self, locale: &str, key: &str) -> Option<&Entry> {
         self.locales.get(locale).and_then(|m| m.get(key))
     }
+
+    /// The locales this store holds a catalog for, sorted. English is the source
+    /// and needs no catalog, so it is never listed; callers add it themselves.
+    pub fn locales(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.locales.keys().cloned().collect();
+        out.sort();
+        out
+    }
 }
 
 /// The composite lookup key: the source, prefixed by the context when present.

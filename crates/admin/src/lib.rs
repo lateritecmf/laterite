@@ -499,18 +499,8 @@ fn zone_offered(name: &str) -> bool {
     !matches!(name, "Asia/Jerusalem" | "Asia/Tel_Aviv")
 }
 
-/// The UI locales the admin ships: a base tag and the language's own name (an
-/// endonym, shown untranslated in the picker). English is the source, so it needs
-/// no catalog; the others are filled in later.
-const SUPPORTED_LOCALES: &[(&str, &str)] = &[
-    ("en", "English"),
-    ("hi", "\u{939}\u{93f}\u{928}\u{94d}\u{926}\u{940}"),
-    ("kn", "\u{c95}\u{ca8}\u{ccd}\u{ca8}\u{ca1}"),
-    ("ta", "\u{ba4}\u{bae}\u{bbf}\u{bb4}\u{bcd}"),
-];
-
 /// The base language of a tag (`kn-IN` -> `kn`), lowercased. Catalogs are keyed by
-/// base language for the launch locales.
+/// base language.
 fn base_lang(tag: &str) -> String {
     tag.split(['-', '_'])
         .next()
@@ -518,21 +508,49 @@ fn base_lang(tag: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Whether `base` is a locale resolution accepts: one the admin ships, or the QA
-/// pseudo-locale (resolvable so a deployment or `Accept-Language` can select it, but
-/// deliberately absent from `SUPPORTED_LOCALES`, so it never shows in the picker).
-fn is_supported(base: &str) -> bool {
-    base == laterite_core::PSEUDO_LOCALE || SUPPORTED_LOCALES.iter().any(|(code, _)| *code == base)
+/// Whether resolution can serve `base`: English (the source, always reachable), a
+/// locale with a loaded catalog, or the QA pseudo-locale (selectable via config or
+/// `Accept-Language`, though never shown in the picker). The serveable set is the
+/// deployment's loaded catalogs, so shipping a `de.po` makes `de` resolve with no
+/// code change.
+fn is_serveable(base: &str, serveable: &[String]) -> bool {
+    base == "en" || base == laterite_core::PSEUDO_LOCALE || serveable.iter().any(|l| l == base)
 }
 
-/// The deployment default locale from config: a supported base tag, else `en`.
-fn default_locale(configured: &str) -> String {
+/// The deployment default locale from config, normalized to a base tag the running
+/// catalogs can serve, else `en`.
+fn default_locale(configured: &str, serveable: &[String]) -> String {
     let base = base_lang(configured);
-    if is_supported(&base) {
+    if is_serveable(&base, serveable) {
         base
     } else {
         "en".to_string()
     }
+}
+
+/// The locales the language picker offers: English (the source, always) then every
+/// locale with a loaded catalog, sorted. The pseudo-locale is resolvable but never
+/// offered here.
+fn offered_locales(catalogs: &CatalogStore) -> Vec<String> {
+    let mut out = vec!["en".to_string()];
+    out.extend(catalogs.locales());
+    out
+}
+
+/// A language's own name (endonym) for the picker, or the bare tag when unknown.
+/// A newly shipped catalog shows as its tag until an endonym is added here.
+fn locale_name(code: &str) -> String {
+    const NAMES: &[(&str, &str)] = &[
+        ("en", "English"),
+        ("hi", "\u{939}\u{93f}\u{928}\u{94d}\u{926}\u{940}"),
+        ("kn", "\u{c95}\u{ca8}\u{ccd}\u{ca8}\u{ca1}"),
+        ("ta", "\u{ba4}\u{bae}\u{bbf}\u{bb4}\u{bcd}"),
+    ];
+    NAMES
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, name)| (*name).to_string())
+        .unwrap_or_else(|| code.to_string())
 }
 
 /// The tags in an `Accept-Language` header, most-preferred first. Each entry's
@@ -560,17 +578,19 @@ fn parse_accept_language(header: &str) -> Vec<String> {
 
 /// Builds this request's locale fallback chain, most specific first and always
 /// ending at `en`. Candidates, in order: the operator's stored locale, the
-/// `Accept-Language` tags, the deployment default. Each is normalized to a
-/// supported base language; unknown tags are skipped and none repeats.
+/// `Accept-Language` tags, the deployment default. Each is normalized to a base
+/// language the running catalogs can serve; unserveable tags are skipped and none
+/// repeats.
 fn resolve_locale_chain(
     preference: Option<&str>,
     accept_language: Option<&str>,
     default: &str,
+    serveable: &[String],
 ) -> Vec<String> {
     let mut chain: Vec<String> = Vec::new();
     let consider = |tag: &str, chain: &mut Vec<String>| {
         let base = base_lang(tag);
-        if is_supported(&base) && !chain.contains(&base) {
+        if is_serveable(&base, serveable) && !chain.contains(&base) {
             chain.push(base);
         }
     };
@@ -594,7 +614,8 @@ fn resolve_locale_chain(
 /// then `en`, over the shared catalogs.
 fn pre_auth_translator(state: &AdminState, headers: &HeaderMap) -> Translator {
     let accept = headers.get("accept-language").and_then(|v| v.to_str().ok());
-    let chain = resolve_locale_chain(None, accept, &state.default_locale);
+    let serveable = state.catalogs.locales();
+    let chain = resolve_locale_chain(None, accept, &state.default_locale, &serveable);
     Translator::with_chain(chain, state.catalogs.clone())
 }
 
@@ -811,7 +832,7 @@ pub fn router(
         secure_cookie: config.secure_cookie,
         origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
-        default_locale: Arc::from(default_locale(&config.locale)),
+        default_locale: Arc::from(default_locale(&config.locale, &catalogs.locales())),
         catalogs,
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
@@ -1259,10 +1280,12 @@ async fn require_auth(
         .headers()
         .get("accept-language")
         .and_then(|v| v.to_str().ok());
+    let serveable = state.catalogs.locales();
     let chain = resolve_locale_chain(
         user.user.locale.as_deref(),
         accept_language,
         &state.default_locale,
+        &serveable,
     );
     let i18n = Translator::with_chain(chain, state.catalogs.clone());
     // A clone kept past `next` (the shell's copy moves into the request) to localize
@@ -1616,6 +1639,7 @@ async fn preferences_form(
         &user,
         state.timezone,
         &state.default_locale,
+        &offered_locales(&state.catalogs),
         None,
     ))
 }
@@ -1635,6 +1659,7 @@ async fn preferences_update(
     Extension(session): Extension<session::SessionHandle>,
     Form(form): Form<PreferencesForm>,
 ) -> Response {
+    let offered = offered_locales(&state.catalogs);
     // An empty choice clears a preference so the operator inherits the default.
     let tz = form.timezone.trim();
     let tz_stored = if tz.is_empty() {
@@ -1647,13 +1672,14 @@ async fn preferences_update(
             &user,
             state.timezone,
             &state.default_locale,
+            &offered,
             Some(t!("That is not a recognised timezone.")),
         ));
     };
     let loc = form.locale.trim();
     let loc_stored = if loc.is_empty() {
         None
-    } else if is_supported(loc) {
+    } else if offered.iter().any(|l| l == loc) {
         Some(loc)
     } else {
         return render(preferences_view(
@@ -1661,6 +1687,7 @@ async fn preferences_update(
             &user,
             state.timezone,
             &state.default_locale,
+            &offered,
             Some(t!("That is not a supported language.")),
         ));
     };
@@ -1689,6 +1716,7 @@ fn preferences_view(
     user: &AuthenticatedUser,
     default_tz: Tz,
     default_locale: &str,
+    offered: &[String],
     error: Option<Text>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
@@ -1701,12 +1729,12 @@ fn preferences_view(
         })
         .collect();
     let current_locale = user.user.locale.as_deref();
-    let locales = SUPPORTED_LOCALES
+    let locales = offered
         .iter()
-        .map(|(code, name)| LocaleOption {
-            code: code.to_string(),
-            name: name.to_string(),
-            selected: current_locale == Some(code),
+        .map(|code| LocaleOption {
+            name: locale_name(code),
+            selected: current_locale == Some(code.as_str()),
+            code: code.clone(),
         })
         .collect();
     PreferencesTemplate {
@@ -1716,7 +1744,7 @@ fn preferences_view(
         default_tz: default_tz.name().to_string(),
         inherits: current.is_none(),
         locales,
-        default_locale: default_locale.to_string(),
+        default_locale: locale_name(default_locale),
         inherits_locale: current_locale.is_none(),
         error: error.map(|e| shell.tt(&e)),
     }
@@ -1994,33 +2022,48 @@ mod tests {
 
     #[test]
     fn locale_chain_prefers_operator_then_header_then_default() {
+        // A deployment with hi/kn/ta catalogs loaded (en is always serveable).
+        let loaded = ["hi".to_string(), "kn".to_string(), "ta".to_string()];
         // Operator preference leads, then header order, then the default; en is
         // appended last as the source fallback, and nothing repeats.
         assert_eq!(
-            resolve_locale_chain(Some("kn"), Some("ta;q=0.9,hi;q=0.8"), "en"),
+            resolve_locale_chain(Some("kn"), Some("ta;q=0.9,hi;q=0.8"), "en", &loaded),
             vec!["kn", "ta", "hi", "en"]
         );
         // An explicit en in the header keeps its signaled position, not forced last.
         assert_eq!(
-            resolve_locale_chain(Some("kn"), Some("en;q=0.9"), "ta"),
+            resolve_locale_chain(Some("kn"), Some("en;q=0.9"), "ta", &loaded),
             vec!["kn", "en", "ta"]
         );
         // A regional tag normalizes to its base language.
         assert_eq!(
-            resolve_locale_chain(Some("kn-IN"), None, "en"),
+            resolve_locale_chain(Some("kn-IN"), None, "en", &loaded),
             vec!["kn", "en"]
         );
     }
 
     #[test]
-    fn locale_chain_skips_unsupported_and_defaults_to_en() {
-        // Unknown operator tag and header are skipped; unknown default falls to en.
+    fn locale_chain_skips_unserveable_and_defaults_to_en() {
+        // Only hi has a catalog here; en is always serveable.
+        let loaded = ["hi".to_string()];
+        // Tags with no loaded catalog (and not en) are skipped; an unserveable
+        // default falls to en, leaving just the source.
         assert_eq!(
-            resolve_locale_chain(Some("fr"), Some("de,es"), "zz"),
+            resolve_locale_chain(Some("fr"), Some("de,es"), "zz", &loaded),
             vec!["en"]
         );
         // No signal at all is still a valid en chain.
-        assert_eq!(resolve_locale_chain(None, None, "en"), vec!["en"]);
+        assert_eq!(resolve_locale_chain(None, None, "en", &loaded), vec!["en"]);
+        // A loaded catalog makes its locale serveable with no other change.
+        assert_eq!(
+            resolve_locale_chain(Some("hi"), None, "en", &loaded),
+            vec!["hi", "en"]
+        );
+        // The pseudo-locale resolves without a catalog (QA selects it explicitly).
+        assert_eq!(
+            resolve_locale_chain(Some(laterite_core::PSEUDO_LOCALE), None, "en", &loaded),
+            vec![laterite_core::PSEUDO_LOCALE, "en"]
+        );
     }
 
     #[test]
