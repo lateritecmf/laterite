@@ -26,7 +26,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// layouts show up under the wider text. It needs no catalog.
 pub const PSEUDO_LOCALE: &str = "xx";
 
-/// A CLDR plural category. The launch locales use only `One`/`Other`; the enum is
+/// A CLDR plural category. The built-in rules use only `One`/`Other`; the enum is
 /// `non_exhaustive` so the full CLDR set (`Zero`/`Two`/`Few`/`Many`) can arrive with
 /// an `icu_plurals` feature without breaking match arms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,16 +36,17 @@ pub enum PluralCategory {
     Other,
 }
 
-/// The CLDR plural category for `n` in `locale`. A small table for the launch
-/// locales; the long tail comes later behind an `icu_plurals` feature. Values are
+/// The CLDR plural category for `n` in `locale`. A small built-in set of rules; the
+/// full per-language CLDR set arrives behind an `icu_plurals` feature. Values are
 /// integers, so CLDR `v` is always 0.
 pub fn plural_category(locale: &str, n: i64) -> PluralCategory {
     let lang = locale.split(['-', '_']).next().unwrap_or(locale);
     let n = n.unsigned_abs();
     let one = match lang {
-        // hi, kn: 0 and 1 are singular (CLDR `i = 0 or n = 1`).
+        // A partial set pending icu_plurals: languages where 0 and 1 are singular
+        // (CLDR `i = 0 or n = 1`), such as hi and kn.
         "hi" | "kn" => n == 0 || n == 1,
-        // en, ta, and the default: singular only at 1.
+        // English and the default: singular only at 1.
         _ => n == 1,
     };
     if one {
@@ -242,7 +243,7 @@ impl<'de> Deserialize<'de> for Text {
 enum Entry {
     /// A single form.
     One(String),
-    /// Plural forms by category (only `one`/`other` for the launch locales).
+    /// Plural forms by category (only `one`/`other` for the built-in rules).
     Plural { one: String, other: String },
 }
 

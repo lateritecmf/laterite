@@ -537,20 +537,16 @@ fn offered_locales(catalogs: &CatalogStore) -> Vec<String> {
     out
 }
 
-/// A language's own name (endonym) for the picker, or the bare tag when unknown.
-/// A newly shipped catalog shows as its tag until an endonym is added here.
+/// A locale's display name for the picker. The framework names only its own source
+/// language (English); every other locale shows by its tag. A locale's own name
+/// (endonym) is data that belongs with the catalog that provides the locale, not a
+/// table of specific languages the framework would otherwise have to hold for all.
 fn locale_name(code: &str) -> String {
-    const NAMES: &[(&str, &str)] = &[
-        ("en", "English"),
-        ("hi", "\u{939}\u{93f}\u{928}\u{94d}\u{926}\u{940}"),
-        ("kn", "\u{c95}\u{ca8}\u{ccd}\u{ca8}\u{ca1}"),
-        ("ta", "\u{ba4}\u{bae}\u{bbf}\u{bb4}\u{bcd}"),
-    ];
-    NAMES
-        .iter()
-        .find(|(c, _)| *c == code)
-        .map(|(_, name)| (*name).to_string())
-        .unwrap_or_else(|| code.to_string())
+    if code == "en" {
+        "English".to_string()
+    } else {
+        code.to_string()
+    }
 }
 
 /// The tags in an `Accept-Language` header, most-preferred first. Each entry's

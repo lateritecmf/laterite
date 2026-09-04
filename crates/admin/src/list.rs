@@ -88,17 +88,13 @@ pub struct CellCx<'a> {
     pub locale: chrono::Locale,
 }
 
-/// Maps a base language tag to a chrono locale for month/day names, defaulting to
-/// English. chrono locales are language + territory, so a bare tag cannot map
-/// exhaustively; a deployment with a full territory-bearing locale, or the long tail,
-/// extends this. The default is neutral English, not any one region's.
-pub(crate) fn date_locale(base: &str) -> chrono::Locale {
-    match base {
-        "hi" => chrono::Locale::hi_IN,
-        "kn" => chrono::Locale::kn_IN,
-        "ta" => chrono::Locale::ta_IN,
-        _ => chrono::Locale::en_US,
-    }
+/// The chrono locale for month/day names, parsed from the operator's locale tag.
+/// chrono locales are language + territory (`kn_IN`, `de_DE`, `ar_EG`), so a tag with
+/// no territory (a bare `kn`) or one chrono does not know formats in neutral English;
+/// a deployment gets localized dates by carrying a territory-bearing locale tag. No
+/// language is special-cased: any locale the locale table knows resolves.
+pub(crate) fn date_locale(tag: &str) -> chrono::Locale {
+    chrono::Locale::try_from(tag.replace('-', "_").as_str()).unwrap_or(chrono::Locale::en_US)
 }
 
 /// A rendered cell's serialisable payload: raw value, display text, and any
@@ -550,7 +546,7 @@ mod tests {
             ct.view_model(&CellCx {
                 value,
                 tz,
-                locale: chrono::Locale::en_IN,
+                locale: chrono::Locale::en_US,
             })
             .display
         };
@@ -579,7 +575,7 @@ mod tests {
         let vm = StatusPillColumn.view_model(&CellCx {
             value: "In Progress",
             tz: Tz::UTC,
-            locale: chrono::Locale::en_IN,
+            locale: chrono::Locale::en_US,
         });
         let html = StatusPillColumn.render_default(&vm).into_string();
         assert!(html.contains(r#"class="lat-status lat-status--in-progress""#));
