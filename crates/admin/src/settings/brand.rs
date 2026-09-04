@@ -30,9 +30,9 @@ impl SettingsModel for BrandSetting {
 pub(crate) fn settings_item() -> SettingsItem {
     SettingsItem {
         code: BrandSetting::CODE.to_string(),
-        label: "Branding".to_string(),
-        description: "The application name shown across the admin.".to_string(),
-        category: "System".to_string(),
+        label: "Branding".into(),
+        description: "The application name shown across the admin.".into(),
+        category: "System".into(),
         order: 10,
         icon: None,
         permission: Some("backend.manage_branding".to_string()),

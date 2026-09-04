@@ -462,11 +462,12 @@ fn resolve_nav_context(
     admin_path: &str,
     perms: &PermissionSet,
     path: &str,
+    tr: &Translator,
 ) -> (Vec<settings::CategoryView>, Option<String>) {
     let visible = visible_settings(items, perms);
     let (in_context, active) = settings_context(&visible, admin_path, path);
     let sidebar = if in_context {
-        settings::sidebar_groups(&visible, admin_path, active.as_deref())
+        settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr)
     } else {
         Vec::new()
     };
@@ -1211,17 +1212,9 @@ async fn require_auth(
     };
     let user = resolved.identity;
     let path = request.uri().path().to_string();
-    let (sidebar, active_nav) = resolve_nav_context(
-        &state.nav,
-        &state.settings,
-        &state.admin_path,
-        &user.permissions,
-        &path,
-    );
-    let brand = state.brand().await;
     // Resolve the locale chain for this request (operator preference, then the
-    // browser's Accept-Language, then the deployment default) and hand the shell a
-    // translator over the shared catalogs.
+    // browser's Accept-Language, then the deployment default) over the shared
+    // catalogs, before the nav context, which localizes the settings sidebar.
     let accept_language = request
         .headers()
         .get("accept-language")
@@ -1232,6 +1225,15 @@ async fn require_auth(
         &state.default_locale,
     );
     let i18n = Translator::with_chain(chain, state.catalogs.clone());
+    let (sidebar, active_nav) = resolve_nav_context(
+        &state.nav,
+        &state.settings,
+        &state.admin_path,
+        &user.permissions,
+        &path,
+        &i18n,
+    );
+    let brand = state.brand().await;
     let shell = Shell::new(
         &state.admin_path,
         brand,
@@ -1680,9 +1682,9 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
     vec![
         settings::SettingsItem {
             code: "backend.administrators".to_string(),
-            label: "Administrators".to_string(),
-            description: "Manage backend administrator accounts.".to_string(),
-            category: "Users".to_string(),
+            label: "Administrators".into(),
+            description: "Manage backend administrator accounts.".into(),
+            category: "Users".into(),
             order: 10,
             icon: Some("users".to_string()),
             permission: Some("backend.manage_users".to_string()),
@@ -1691,9 +1693,9 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         },
         settings::SettingsItem {
             code: "backend.roles".to_string(),
-            label: "Roles".to_string(),
-            description: "Manage roles and their permissions.".to_string(),
-            category: "Users".to_string(),
+            label: "Roles".into(),
+            description: "Manage roles and their permissions.".into(),
+            category: "Users".into(),
             order: 20,
             icon: Some("shield".to_string()),
             permission: Some("backend.manage_roles".to_string()),
@@ -1703,9 +1705,9 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::brand::settings_item(),
         settings::SettingsItem {
             code: "backend.plugins".to_string(),
-            label: "Plugins".to_string(),
-            description: "Enable or disable installed plugins.".to_string(),
-            category: "System".to_string(),
+            label: "Plugins".into(),
+            description: "Enable or disable installed plugins.".into(),
+            category: "System".into(),
             order: 10,
             icon: Some("plug".to_string()),
             permission: Some(plugins::MANAGE_PERMISSION.to_string()),
@@ -2041,9 +2043,9 @@ mod tests {
     fn settings_item(code: &str, permission: Option<&str>) -> settings::SettingsItem {
         settings::SettingsItem {
             code: code.to_string(),
-            label: code.to_string(),
-            description: String::new(),
-            category: "General".to_string(),
+            label: code.into(),
+            description: String::new().into(),
+            category: "General".into(),
             order: 1,
             icon: None,
             permission: permission.map(str::to_string),
@@ -2080,7 +2082,9 @@ mod tests {
     fn context_sidebar_follows_settings_links() {
         let items = builtin_settings();
         let superuser = PermissionSet::new(true, Vec::<String>::new());
-        let sidebar = |path: &str| resolve_nav_context(&[], &items, "/admin", &superuser, path).0;
+        let tr = Translator::new("en");
+        let sidebar =
+            |path: &str| resolve_nav_context(&[], &items, "/admin", &superuser, path, &tr).0;
         let active_path = |path: &str| -> Option<String> {
             sidebar(path)
                 .into_iter()

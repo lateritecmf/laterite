@@ -36,7 +36,7 @@ use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
-use laterite_core::t;
+use laterite_core::{t, Text, Translator};
 use serde_json::{Map, Value};
 
 use crate::{render, render_error, AdminState};
@@ -57,37 +57,38 @@ pub enum SettingsWidget {
 #[derive(Debug, Clone)]
 pub struct SettingsField {
     pub name: String,
-    pub label: String,
+    /// The field label and optional help, localized at render.
+    pub label: Text,
     pub widget: SettingsWidget,
-    pub help: Option<String>,
+    pub help: Option<Text>,
 }
 
 impl SettingsField {
-    pub fn text(name: &str, label: &str) -> Self {
+    pub fn text(name: &str, label: impl Into<Text>) -> Self {
         Self {
             name: name.to_string(),
-            label: label.to_string(),
+            label: label.into(),
             widget: SettingsWidget::Text,
             help: None,
         }
     }
 
-    pub fn textarea(name: &str, label: &str) -> Self {
+    pub fn textarea(name: &str, label: impl Into<Text>) -> Self {
         Self {
             widget: SettingsWidget::Textarea,
             ..Self::text(name, label)
         }
     }
 
-    pub fn switch(name: &str, label: &str) -> Self {
+    pub fn switch(name: &str, label: impl Into<Text>) -> Self {
         Self {
             widget: SettingsWidget::Switch,
             ..Self::text(name, label)
         }
     }
 
-    pub fn help(mut self, text: &str) -> Self {
-        self.help = Some(text.to_string());
+    pub fn help(mut self, text: impl Into<Text>) -> Self {
+        self.help = Some(text.into());
         self
     }
 }
@@ -98,10 +99,11 @@ impl SettingsField {
 pub struct SettingsItem {
     /// Storage key. Matches the model's `SettingsModel::CODE`.
     pub code: String,
-    pub label: String,
-    pub description: String,
+    /// The item's label, description, and category heading, localized at render.
+    pub label: Text,
+    pub description: Text,
     /// Group heading in the index.
-    pub category: String,
+    pub category: Text,
     /// Weight within the category (lower sorts first).
     pub order: i32,
     /// Icon name shown beside the item in the context sidebar (a Lucide name
@@ -210,23 +212,33 @@ pub(crate) fn sidebar_groups(
     items: &[SettingsItem],
     admin_path: &str,
     active_code: Option<&str>,
+    tr: &Translator,
 ) -> Vec<CategoryView> {
-    let mut by_category: HashMap<&str, Vec<&SettingsItem>> = HashMap::new();
+    // Group by the localized category heading (a shared source localizes identically).
+    let mut by_category: HashMap<String, Vec<&SettingsItem>> = HashMap::new();
     for item in items {
-        by_category.entry(&item.category).or_default().push(item);
+        by_category
+            .entry(tr.t(&item.category))
+            .or_default()
+            .push(item);
     }
     let mut groups: Vec<CategoryView> = by_category
         .into_iter()
         .map(|(category, mut items)| {
-            items.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.label.cmp(&b.label)));
+            // Order by weight, then the label's source for a stable tie-break.
+            items.sort_by(|a, b| {
+                a.order
+                    .cmp(&b.order)
+                    .then_with(|| a.label.source().cmp(b.label.source()))
+            });
             CategoryView {
                 min_order: items.iter().map(|i| i.order).min().unwrap_or(0),
-                name: category.to_string(),
+                name: category,
                 items: items
                     .iter()
                     .map(|i| ItemView {
-                        label: i.label.clone(),
-                        description: i.description.clone(),
+                        label: tr.t(&i.label),
+                        description: tr.t(&i.description),
                         path: i.path(admin_path),
                         icon: crate::icons::svg(i.icon.as_deref()),
                         active: active_code == Some(i.code.as_str()),
@@ -279,8 +291,8 @@ fn build(
             let current = stored.get(&f.name);
             FieldView {
                 name: f.name.clone(),
-                label: f.label.clone(),
-                help: f.help.clone(),
+                label: shell.tt(&f.label),
+                help: f.help.as_ref().map(|h| shell.tt(h)),
                 textarea: matches!(f.widget, SettingsWidget::Textarea),
                 switch: matches!(f.widget, SettingsWidget::Switch),
                 checked: current.and_then(Value::as_bool).unwrap_or(false),
@@ -293,8 +305,8 @@ fn build(
         })
         .collect();
     SettingsFormTemplate {
-        title: item.label.clone(),
-        description: item.description.clone(),
+        title: shell.tt(&item.label),
+        description: shell.tt(&item.description),
         action: item.path(&shell.base),
         error,
         fields,
@@ -374,9 +386,9 @@ mod tests {
     fn item() -> SettingsItem {
         SettingsItem {
             code: "test.log".to_string(),
-            label: "Log Settings".to_string(),
-            description: "What the log records.".to_string(),
-            category: "Logs".to_string(),
+            label: "Log Settings".into(),
+            description: "What the log records.".into(),
+            category: "Logs".into(),
             order: 10,
             icon: None,
             permission: None,
@@ -415,7 +427,7 @@ mod tests {
             SettingsItem {
                 code: "b".into(),
                 label: "Beta".into(),
-                description: String::new(),
+                description: String::new().into(),
                 category: "System".into(),
                 order: 20,
                 icon: None,
@@ -426,7 +438,7 @@ mod tests {
             SettingsItem {
                 code: "a".into(),
                 label: "Alpha".into(),
-                description: String::new(),
+                description: String::new().into(),
                 category: "System".into(),
                 order: 10,
                 icon: None,
@@ -437,7 +449,7 @@ mod tests {
             SettingsItem {
                 code: "l".into(),
                 label: "Logs".into(),
-                description: String::new(),
+                description: String::new().into(),
                 category: "Logs".into(),
                 order: 5,
                 icon: None,
@@ -446,7 +458,7 @@ mod tests {
                 fields: vec![],
             },
         ];
-        let groups = sidebar_groups(&items, "/admin", None);
+        let groups = sidebar_groups(&items, "/admin", None, &Translator::new("en"));
         // "Logs" (min order 5) comes before "System" (min order 10).
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
@@ -460,7 +472,7 @@ mod tests {
     #[test]
     fn group_marks_only_the_active_item() {
         let items = vec![item()];
-        let groups = sidebar_groups(&items, "/admin", Some("test.log"));
+        let groups = sidebar_groups(&items, "/admin", Some("test.log"), &Translator::new("en"));
         let active: Vec<&str> = groups
             .iter()
             .flat_map(|g| &g.items)
@@ -483,7 +495,7 @@ mod tests {
             .into_iter()
             .find(|i| i.code == "backend.administrators")
             .unwrap();
-        assert_eq!(admins.category, "Users");
+        assert_eq!(admins.category.source(), "Users");
         assert!(admins.link.is_some());
         assert!(admins.fields.is_empty());
         // links to the resource list, not a settings form
