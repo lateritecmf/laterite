@@ -49,7 +49,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
 use laterite_core::{t, CatalogStore, Db, Text, Translator};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Typed contribution channels for the framework's admin surfaces, as an
 /// extension trait over the generic [`laterite_core::Registry`]. A module
@@ -586,6 +586,7 @@ fn resolve_locale_chain(
 
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
 /// under `base_path` and shown in the menu as `nav_label`.
+#[derive(Serialize)]
 pub struct Resource {
     /// The path the resource mounts at, relative to the admin root and starting
     /// with a slash (e.g. `/products`). The framework prepends the configured
@@ -608,7 +609,7 @@ pub struct Resource {
 /// and a `group` heading it sorts under in the role editor. The framework
 /// registers its own (see the built-in grants), and an application registers
 /// its permissions through [`router`] so they appear in the editor alongside.
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Permission {
     pub code: String,
     /// The permission's display label and group heading, localized at render.
@@ -641,6 +642,21 @@ fn builtin_permissions() -> Vec<Permission> {
             group: "Backend".into(),
         },
     ]
+}
+
+/// Every source string in the framework's built-in admin descriptors: resource nav
+/// labels and their list titles and column headers, settings items and their fields,
+/// and permission labels and groups. `lat i18n extract` folds these into the admin
+/// catalog. Collected through the serde source walk, so it never drifts as new label
+/// fields are added.
+pub fn descriptor_sources() -> Vec<String> {
+    let mut out = Vec::new();
+    out.extend(laterite_core::collect_sources(&builtin_resources()));
+    out.extend(laterite_core::collect_sources(&builtin_settings()));
+    out.extend(laterite_core::collect_sources(&builtin_permissions()));
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The migration sets for every module the admin mounts: the auth schema

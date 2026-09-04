@@ -27,7 +27,7 @@ use crate::{render, render_error, AdminState};
 
 const ID_ALIAS: &str = "_lat_id";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum SortDir {
     Asc,
     Desc,
@@ -35,7 +35,7 @@ pub enum SortDir {
 
 /// One column of a list view: the source field, its display label, and its
 /// column-type key (resolved through the column-type registry).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ListColumn {
     pub field: String,
     /// The column header, localized at render. Serde stays a plain string.
@@ -295,7 +295,7 @@ fn status_slug(value: &str) -> String {
 
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ListConfig {
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.

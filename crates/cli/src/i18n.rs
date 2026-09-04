@@ -123,6 +123,13 @@ fn collect(krate: &Path) -> Result<Catalog> {
         let src = fs::read_to_string(&path)?;
         scan_template(&mut cat, &rel(krate, &path), &src);
     }
+    // The framework's built-in descriptor labels live in serde data, not in `t!` or
+    // templates, so the admin crate folds in its runtime source walk.
+    if krate.file_name().is_some_and(|n| n == "admin") {
+        for source in laterite_admin::descriptor_sources() {
+            add(&mut cat, None, source, None, "(descriptors)".to_string());
+        }
+    }
     Ok(cat)
 }
 

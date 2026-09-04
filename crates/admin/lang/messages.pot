@@ -2,6 +2,14 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
+#: (descriptors)
+msgid "Active"
+msgstr ""
+
+#: (descriptors)
+msgid "Administrators"
+msgstr ""
+
 #: templates/users_form.html:32
 msgid "Allow"
 msgstr ""
@@ -10,17 +18,30 @@ msgstr ""
 msgid "Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked."
 msgstr ""
 
+#: (descriptors)
+msgid "Application name"
+msgstr ""
+
 #: templates/form.html:4
 #: templates/roles_form.html:4
 msgid "Back"
 msgstr ""
 
+#: (descriptors)
+msgid "Backend"
+msgstr ""
+
 #: templates/users_form.html:4
+#: (descriptors)
 msgid "Backend Users"
 msgstr ""
 
 #: templates/users_form.html:7
 msgid "Backend user"
+msgstr ""
+
+#: (descriptors)
+msgid "Branding"
 msgstr ""
 
 #: templates/form.html:19
@@ -35,6 +56,7 @@ msgid "Choose a section from the list to configure it."
 msgstr ""
 
 #: templates/roles_form.html:11
+#: (descriptors)
 msgid "Code"
 msgstr ""
 
@@ -56,13 +78,17 @@ msgstr ""
 msgid "Could not save. Check the values and try again."
 msgstr ""
 
-#: src/settings/mod.rs:178
+#: src/settings/mod.rs:179
 msgid "Could not save. Please try again."
 msgstr ""
 
 #: src/roles.rs:58
 #: src/roles.rs:157
 msgid "Could not save. The code may already be in use."
+msgstr ""
+
+#: (descriptors)
+msgid "Created"
 msgstr ""
 
 #: templates/dashboard.html:2
@@ -94,7 +120,12 @@ msgid "Edit"
 msgstr ""
 
 #: templates/users_form.html:14
+#: (descriptors)
 msgid "Email"
+msgstr ""
+
+#: (descriptors)
+msgid "Enable or disable installed plugins."
 msgstr ""
 
 #: templates/plugins.html:29
@@ -105,6 +136,10 @@ msgstr ""
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: (descriptors)
+msgid "First name"
+msgstr ""
+
 #: templates/users_form.html:33
 msgid "Inherit"
 msgstr ""
@@ -113,8 +148,36 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
+#: (descriptors)
+msgid "Last name"
+msgstr ""
+
 #: templates/dashboard.html:9
 msgid "Manage"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage backend administrator accounts."
+msgstr ""
+
+#: (descriptors)
+msgid "Manage backend users"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage branding"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage plugins"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage roles"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage roles and their permissions."
 msgstr ""
 
 #: templates/base.html:31
@@ -122,6 +185,7 @@ msgid "Menu"
 msgstr ""
 
 #: templates/roles_form.html:15
+#: (descriptors)
 msgid "Name"
 msgstr ""
 
@@ -179,6 +243,7 @@ msgstr ""
 
 #: templates/plugins.html:2
 #: templates/plugins.html:5
+#: (descriptors)
 msgid "Plugins"
 msgstr ""
 
@@ -192,7 +257,7 @@ msgstr ""
 msgid "Preferences"
 msgstr ""
 
-#: src/lib.rs:1619
+#: src/lib.rs:1635
 msgid "Preferences saved."
 msgstr ""
 
@@ -216,6 +281,10 @@ msgstr ""
 msgid "Role updated."
 msgstr ""
 
+#: (descriptors)
+msgid "Roles"
+msgstr ""
+
 #: templates/form.html:18
 #: templates/preferences.html:26
 #: templates/roles_form.html:33
@@ -229,8 +298,12 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: src/settings/mod.rs:173
+#: src/settings/mod.rs:174
 msgid "Settings saved."
+msgstr ""
+
+#: (descriptors)
+msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
 msgstr ""
 
 #: templates/base.html:47
@@ -245,16 +318,28 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
-#: src/lib.rs:1592
+#: (descriptors)
+msgid "Superuser"
+msgstr ""
+
+#: (descriptors)
+msgid "System"
+msgstr ""
+
+#: src/lib.rs:1608
 msgid "That is not a recognised timezone."
 msgstr ""
 
-#: src/lib.rs:1606
+#: src/lib.rs:1622
 msgid "That is not a supported language."
 msgstr ""
 
 #: templates/preferences.html:23
 msgid "The admin renders in this language. It only changes the interface, not your content."
+msgstr ""
+
+#: (descriptors)
+msgid "The application name shown across the admin."
 msgstr ""
 
 #: templates/users_form.html:18
@@ -267,7 +352,12 @@ msgid "Use the deployment default"
 msgstr ""
 
 #: templates/users_form.html:13
+#: (descriptors)
 msgid "Username"
+msgstr ""
+
+#: (descriptors)
+msgid "Users"
 msgstr ""
 
 #: templates/plugins.html:12

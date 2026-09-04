@@ -142,7 +142,7 @@ impl FormField {
 
 /// A form descriptor: which table, its editable fields, the id column, and the
 /// base path the form lives under (`{base_path}/new`, `{base_path}/{id}/edit`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FormConfig {
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.

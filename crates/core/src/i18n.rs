@@ -15,7 +15,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use serde::de::{self, MapAccess, Visitor};
-use serde::ser::SerializeStruct;
+use serde::ser::{
+    SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
+    SerializeTupleStruct, SerializeTupleVariant,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The QA pseudo-locale: selecting it renders every localized string accented and
@@ -683,6 +686,295 @@ fn accent(c: char) -> char {
     }
 }
 
+/// The newtype name a plain [`Text`] serializes under, so a collector can spot it.
+const TEXT_MARKER: &str = "laterite.Text";
+
+/// Harvests the source string of every plain [`Text`] reachable in `value`, by
+/// intercepting the `laterite.Text` newtype marker its `Serialize` emits. This lets
+/// `lat i18n extract` collect the label strings that live in descriptor *data*
+/// (nav/title/column/permission/settings labels) without the collector knowing the
+/// descriptor shapes, so it cannot drift as new label fields are added. Descriptor
+/// labels are plain `Text`; a rich `Text` (context/plural/args) does not appear in a
+/// descriptor and is not collected here.
+pub fn collect_sources<T: Serialize>(value: &T) -> Vec<String> {
+    let mut out = Vec::new();
+    let _ = value.serialize(SourceCollector {
+        out: &mut out,
+        capture: false,
+    });
+    out
+}
+
+/// The (unreachable) error type for the infallible collector serializer.
+#[derive(Debug)]
+pub struct CollectError;
+impl fmt::Display for CollectError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("source collector error")
+    }
+}
+impl std::error::Error for CollectError {}
+impl serde::ser::Error for CollectError {
+    fn custom<T: fmt::Display>(_: T) -> Self {
+        CollectError
+    }
+}
+
+/// A serializer that walks a value and records `Text` sources. `capture` is set only
+/// for the string inside a `laterite.Text` newtype, so a plain data string elsewhere
+/// (an entity name, a path) is walked but never recorded.
+struct SourceCollector<'a> {
+    out: &'a mut Vec<String>,
+    capture: bool,
+}
+
+impl<'a> SourceCollector<'a> {
+    fn child(&mut self) -> SourceCollector<'_> {
+        SourceCollector {
+            out: self.out,
+            capture: false,
+        }
+    }
+}
+
+impl<'a> Serializer for SourceCollector<'a> {
+    type Ok = ();
+    type Error = CollectError;
+    type SerializeSeq = Compound<'a>;
+    type SerializeTuple = Compound<'a>;
+    type SerializeTupleStruct = Compound<'a>;
+    type SerializeTupleVariant = Compound<'a>;
+    type SerializeMap = Compound<'a>;
+    type SerializeStruct = Compound<'a>;
+    type SerializeStructVariant = Compound<'a>;
+
+    fn serialize_str(self, v: &str) -> Result<(), CollectError> {
+        if self.capture {
+            self.out.push(v.to_string());
+        }
+        Ok(())
+    }
+
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(
+        self,
+        name: &'static str,
+        value: &T,
+    ) -> Result<(), CollectError> {
+        let collector = SourceCollector {
+            out: self.out,
+            capture: name == TEXT_MARKER,
+        };
+        value.serialize(collector)
+    }
+
+    fn serialize_some<T: ?Sized + Serialize>(mut self, value: &T) -> Result<(), CollectError> {
+        value.serialize(self.child())
+    }
+
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        mut self,
+        _n: &'static str,
+        _i: u32,
+        _v: &'static str,
+        value: &T,
+    ) -> Result<(), CollectError> {
+        value.serialize(self.child())
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_tuple(self, _len: usize) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_tuple_struct(
+        self,
+        _n: &'static str,
+        _len: usize,
+    ) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_tuple_variant(
+        self,
+        _n: &'static str,
+        _i: u32,
+        _v: &'static str,
+        _len: usize,
+    ) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_map(self, _len: Option<usize>) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_struct(self, _n: &'static str, _len: usize) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+    fn serialize_struct_variant(
+        self,
+        _n: &'static str,
+        _i: u32,
+        _v: &'static str,
+        _len: usize,
+    ) -> Result<Compound<'a>, CollectError> {
+        Ok(Compound { out: self.out })
+    }
+
+    // Scalars and unit-like values carry no `Text`; walk over them.
+    fn serialize_bool(self, _v: bool) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_i8(self, _v: i8) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_i16(self, _v: i16) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_i32(self, _v: i32) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_i64(self, _v: i64) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_u8(self, _v: u8) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_u16(self, _v: u16) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_u32(self, _v: u32) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_u64(self, _v: u64) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_f32(self, _v: f32) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_f64(self, _v: f64) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_char(self, _v: char) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_bytes(self, _v: &[u8]) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_none(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_unit(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_unit_struct(self, _n: &'static str) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_unit_variant(
+        self,
+        _n: &'static str,
+        _i: u32,
+        _v: &'static str,
+    ) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+
+/// The one compound-serializer type all of `Serializer`'s associated types share:
+/// it recurses each element/value with a fresh collector and ignores keys.
+struct Compound<'a> {
+    out: &'a mut Vec<String>,
+}
+
+impl Compound<'_> {
+    fn element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), CollectError> {
+        value.serialize(SourceCollector {
+            out: self.out,
+            capture: false,
+        })
+    }
+}
+
+impl SerializeSeq for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeTuple for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeTupleStruct for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_field<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeTupleVariant for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_field<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeMap for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_key<T: ?Sized + Serialize>(&mut self, _k: &T) -> Result<(), CollectError> {
+        Ok(())
+    }
+    fn serialize_value<T: ?Sized + Serialize>(&mut self, v: &T) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeStruct for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_field<T: ?Sized + Serialize>(
+        &mut self,
+        _k: &'static str,
+        v: &T,
+    ) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+impl SerializeStructVariant for Compound<'_> {
+    type Ok = ();
+    type Error = CollectError;
+    fn serialize_field<T: ?Sized + Serialize>(
+        &mut self,
+        _k: &'static str,
+        v: &T,
+    ) -> Result<(), CollectError> {
+        self.element(v)
+    }
+    fn end(self) -> Result<(), CollectError> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -782,6 +1074,36 @@ mod tests {
             out,
             "Go to \u{ca1}\u{ccd}\u{caf}\u{cbe}\u{cb6}\u{ccd}\u{cac}\u{ccb}\u{cb0}\u{ccd}\u{ca1}"
         );
+    }
+
+    #[test]
+    fn collect_sources_finds_text_but_not_plain_strings() {
+        // A struct mixing plain data strings with Text labels; only the Text sources
+        // are collected, and nested/optional Text is found too.
+        #[derive(Serialize)]
+        struct Field {
+            name: String,
+            label: Text,
+        }
+        #[derive(Serialize)]
+        struct Descriptor {
+            entity: String,
+            title: Text,
+            fields: Vec<Field>,
+            help: Option<Text>,
+        }
+        let d = Descriptor {
+            entity: "widgets".into(),
+            title: Text::dynamic("Widgets"),
+            fields: vec![Field {
+                name: "code".into(),
+                label: Text::dynamic("Code"),
+            }],
+            help: Some(Text::dynamic("Pick one")),
+        };
+        let mut got = collect_sources(&d);
+        got.sort();
+        assert_eq!(got, vec!["Code", "Pick one", "Widgets"]);
     }
 
     #[test]

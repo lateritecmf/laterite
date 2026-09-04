@@ -37,12 +37,13 @@ use std::collections::HashMap;
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::{t, Text, Translator};
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::{render, render_error, AdminState};
 
 /// How a settings field is rendered and typed in the stored JSON.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum SettingsWidget {
     /// A single-line string value.
     Text,
@@ -54,7 +55,7 @@ pub enum SettingsWidget {
 
 /// One editable field of a settings model: the JSON key, its label, its widget,
 /// and optional help text shown beneath the control.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SettingsField {
     pub name: String,
     /// The field label and optional help, localized at render.
@@ -95,7 +96,7 @@ impl SettingsField {
 
 /// A settings model surfaced in the admin: a storage `code`, a `category` and
 /// `order` that place it in the index, and the fields to edit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SettingsItem {
     /// Storage key. Matches the model's `SettingsModel::CODE`.
     pub code: String,
