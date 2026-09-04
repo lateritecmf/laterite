@@ -191,18 +191,24 @@ fn registered_only(perms: Vec<String>, registry: &[Permission]) -> Vec<String> {
 
 /// Groups the registered permissions by their `group`, preserving registry
 /// order, and marks the ones the role currently holds.
-fn group_permissions(registry: &[Permission], selected: &[String]) -> Vec<PermGroupView> {
+fn group_permissions(
+    registry: &[Permission],
+    selected: &[String],
+    shell: &Shell,
+) -> Vec<PermGroupView> {
     let mut groups: Vec<PermGroupView> = Vec::new();
     for permission in registry {
         let check = PermCheckView {
             code: permission.code.clone(),
-            label: permission.label.clone(),
+            label: shell.tt(&permission.label),
             checked: selected.iter().any(|s| s == &permission.code),
         };
-        match groups.iter_mut().find(|g| g.name == permission.group) {
+        // Merge by the localized group heading (same source localizes identically).
+        let gname = shell.tt(&permission.group);
+        match groups.iter_mut().find(|g| g.name == gname) {
             Some(group) => group.perms.push(check),
             None => groups.push(PermGroupView {
-                name: permission.group.clone(),
+                name: gname,
                 perms: vec![check],
             }),
         }
@@ -220,6 +226,7 @@ fn build(
     selected: &[String],
     shell: Shell,
 ) -> RolesFormTemplate {
+    let groups = group_permissions(&state.permissions, selected, &shell);
     RolesFormTemplate {
         shell,
         title: "Role".to_string(),
@@ -228,7 +235,7 @@ fn build(
         error: error.map(str::to_string),
         code: code.to_string(),
         name: name.to_string(),
-        groups: group_permissions(&state.permissions, selected),
+        groups,
     }
 }
 
@@ -264,13 +271,13 @@ mod tests {
         vec![
             Permission {
                 code: "backend.manage_users".to_string(),
-                label: "Manage backend users".to_string(),
-                group: "Backend".to_string(),
+                label: "Manage backend users".into(),
+                group: "Backend".into(),
             },
             Permission {
                 code: "acme.publish".to_string(),
-                label: "Publish".to_string(),
-                group: "Content".to_string(),
+                label: "Publish".into(),
+                group: "Content".into(),
             },
         ]
     }
@@ -303,7 +310,7 @@ mod tests {
 
     #[test]
     fn grouping_preserves_order_and_marks_selected() {
-        let groups = group_permissions(&registry(), &["acme.publish".to_string()]);
+        let groups = group_permissions(&registry(), &["acme.publish".to_string()], &Shell::test());
         assert_eq!(groups[0].name, "Backend");
         assert_eq!(groups[1].name, "Content");
         assert!(!groups[0].perms[0].checked);

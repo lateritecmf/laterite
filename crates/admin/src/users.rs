@@ -172,6 +172,7 @@ fn group_permissions(
     registry: &[Permission],
     overrides: &HashMap<String, i64>,
     editor: &PermissionSet,
+    shell: &Shell,
 ) -> Vec<PermGroupView> {
     let mut groups: Vec<PermGroupView> = Vec::new();
     for permission in registry {
@@ -182,14 +183,16 @@ fn group_permissions(
         };
         let row = PermRowView {
             code: permission.code.clone(),
-            label: permission.label.clone(),
+            label: shell.tt(&permission.label),
             state,
             changeable: editor.allows(&permission.code),
         };
-        match groups.iter_mut().find(|g| g.name == permission.group) {
+        // Merge by the localized group heading (same source localizes identically).
+        let gname = shell.tt(&permission.group);
+        match groups.iter_mut().find(|g| g.name == gname) {
             Some(group) => group.rows.push(row),
             None => groups.push(PermGroupView {
-                name: permission.group.clone(),
+                name: gname,
                 rows: vec![row],
             }),
         }
@@ -212,7 +215,7 @@ fn build(
     let groups = if is_superuser {
         Vec::new()
     } else {
-        group_permissions(&state.permissions, overrides, editor)
+        group_permissions(&state.permissions, overrides, editor, &shell)
     };
     UsersFormTemplate {
         shell,
@@ -259,13 +262,13 @@ mod tests {
         vec![
             Permission {
                 code: "backend.manage_users".to_string(),
-                label: "Manage backend users".to_string(),
-                group: "Backend".to_string(),
+                label: "Manage backend users".into(),
+                group: "Backend".into(),
             },
             Permission {
                 code: "acme.publish".to_string(),
-                label: "Publish".to_string(),
-                group: "Content".to_string(),
+                label: "Publish".into(),
+                group: "Content".into(),
             },
         ]
     }
@@ -288,7 +291,7 @@ mod tests {
         // An editor who holds only backend.manage_users.
         let editor = PermissionSet::new(false, ["backend.manage_users".to_string()]);
         let overrides = HashMap::from([("acme.publish".to_string(), -1i64)]);
-        let groups = group_permissions(&registry(), &overrides, &editor);
+        let groups = group_permissions(&registry(), &overrides, &editor, &Shell::test());
 
         let backend = &groups[0].rows[0];
         assert_eq!(backend.state, 0);

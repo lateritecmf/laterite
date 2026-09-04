@@ -600,8 +600,9 @@ pub struct Resource {
 #[derive(Clone)]
 pub struct Permission {
     pub code: String,
-    pub label: String,
-    pub group: String,
+    /// The permission's display label and group heading, localized at render.
+    pub label: Text,
+    pub group: Text,
 }
 
 /// The framework's own permissions, offered in the role editor under a
@@ -610,23 +611,23 @@ fn builtin_permissions() -> Vec<Permission> {
     vec![
         Permission {
             code: "backend.manage_users".to_string(),
-            label: "Manage backend users".to_string(),
-            group: "Backend".to_string(),
+            label: "Manage backend users".into(),
+            group: "Backend".into(),
         },
         Permission {
             code: "backend.manage_roles".to_string(),
-            label: "Manage roles".to_string(),
-            group: "Backend".to_string(),
+            label: "Manage roles".into(),
+            group: "Backend".into(),
         },
         Permission {
             code: "backend.manage_branding".to_string(),
-            label: "Manage branding".to_string(),
-            group: "Backend".to_string(),
+            label: "Manage branding".into(),
+            group: "Backend".into(),
         },
         Permission {
             code: plugins::MANAGE_PERMISSION.to_string(),
-            label: "Manage plugins".to_string(),
-            group: "Backend".to_string(),
+            label: "Manage plugins".into(),
+            group: "Backend".into(),
         },
     ]
 }
