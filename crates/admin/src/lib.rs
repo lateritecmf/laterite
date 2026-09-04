@@ -196,9 +196,9 @@ pub struct AdminConfig {
     /// Storage is UTC; this only affects rendering. Invalid or empty falls back
     /// to UTC. An operator's own preference overrides it (later).
     pub timezone: String,
-    /// Default UI locale for the admin (a base tag like `en` or `kn`). An
+    /// Default UI locale for the admin (a base tag like `en` or `de`). An
     /// operator's own preference and the request's `Accept-Language` override it;
-    /// unknown or empty falls back to `en`.
+    /// a locale with no loaded catalog, or an empty value, falls back to `en`.
     pub locale: String,
     /// The application name, shown as the admin brand. This is the baseline; a
     /// `BrandSetting` in the admin overrides it. Typically the configured

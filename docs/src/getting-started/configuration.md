@@ -38,6 +38,7 @@ acquire_timeout_secs = 5         # optional
 [backend]
 secure_cookie = false            # set true behind HTTPS in production
 timezone = "UTC"                 # default admin display timezone (IANA name); storage stays UTC
+locale = "en"                    # default admin UI language; falls back to en if no catalog is loaded
 path = "/admin"                  # URL path the admin panel mounts under; move or obscure it
 
 [auth]
