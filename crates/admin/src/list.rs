@@ -16,7 +16,7 @@ use axum::response::Response;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
-use laterite_core::{AnyRowExt, Db};
+use laterite_core::{AnyRowExt, Db, Text};
 use sea_query::{Alias, Expr, Order, Query};
 use serde::{Deserialize, Serialize};
 
@@ -38,16 +38,17 @@ pub enum SortDir {
 #[derive(Debug, Clone)]
 pub struct ListColumn {
     pub field: String,
-    pub label: String,
+    /// The column header, localized at render. Serde stays a plain string.
+    pub label: Text,
     /// The column-type registry key (`text`, `date`, `boolean`, `status_pill`, ...).
     pub column_type: String,
 }
 
 impl ListColumn {
-    pub fn new(field: &str, label: &str) -> Self {
+    pub fn new(field: &str, label: impl Into<Text>) -> Self {
         Self {
             field: field.to_string(),
-            label: label.to_string(),
+            label: label.into(),
             column_type: "text".to_string(),
         }
     }
@@ -297,7 +298,8 @@ fn status_slug(value: &str) -> String {
 #[derive(Debug, Clone)]
 pub struct ListConfig {
     pub entity: String,
-    pub title: String,
+    /// The screen title, localized at render. Serde stays a plain string.
+    pub title: Text,
     pub columns: Vec<ListColumn>,
     pub order_by: String,
     pub order_dir: SortDir,
@@ -457,10 +459,13 @@ pub(crate) async fn handle(
             let mut shell = shell;
             shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
             let shown = rows.len() as i64;
+            // Localize the title and column headers before the shell is moved in.
+            let title = shell.tt(&config.title);
+            let columns = config.columns.iter().map(|c| shell.tt(&c.label)).collect();
             render(ListTemplate {
                 shell,
-                title: config.title.clone(),
-                columns: config.columns.iter().map(|c| c.label.clone()).collect(),
+                title,
+                columns,
                 rows,
                 shown,
                 page,
@@ -497,7 +502,7 @@ mod tests {
     fn config() -> ListConfig {
         ListConfig {
             entity: "backend_users".to_string(),
-            title: "Users".to_string(),
+            title: "Users".into(),
             columns: vec![
                 ListColumn::new("username", "Username"),
                 ListColumn::new("is_superuser", "Superuser"),

@@ -42,7 +42,8 @@ use crate::{not_found, render, render_error, AdminState};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormField {
     pub name: String,
-    pub label: String,
+    /// The field's label, localized at render. Serde stays a plain string.
+    pub label: Text,
     /// The field-type registry key (`text`, `textarea`, or a plugin's
     /// `vendor.name`), resolved to behaviour at render time (see [`crate::field`]).
     #[serde(rename = "type")]
@@ -62,10 +63,10 @@ pub struct FormField {
 
 impl FormField {
     /// A field of a registered type by key.
-    pub fn of(name: &str, label: &str, field_type: &str) -> Self {
+    pub fn of(name: &str, label: impl Into<Text>, field_type: &str) -> Self {
         Self {
             name: name.to_string(),
-            label: label.to_string(),
+            label: label.into(),
             field_type: field_type.to_string(),
             options: serde_json::Value::Null,
             rules: Vec::new(),
@@ -73,18 +74,18 @@ impl FormField {
         }
     }
 
-    pub fn text(name: &str, label: &str) -> Self {
+    pub fn text(name: &str, label: impl Into<Text>) -> Self {
         Self::of(name, label, "text")
     }
 
-    pub fn textarea(name: &str, label: &str) -> Self {
+    pub fn textarea(name: &str, label: impl Into<Text>) -> Self {
         Self::of(name, label, "textarea")
     }
 
     /// A reference field: a picker over a registered picker source (a `vendor.name`
     /// key), which the field searches and resolves against. Builds the `source`
     /// option so a descriptor needs no raw JSON.
-    pub fn reference(name: &str, label: &str, source: &str) -> Self {
+    pub fn reference(name: &str, label: impl Into<Text>, source: &str) -> Self {
         Self::of(name, label, "reference").options(serde_json::json!({ "source": source }))
     }
 
@@ -144,7 +145,8 @@ impl FormField {
 #[derive(Debug, Clone)]
 pub struct FormConfig {
     pub entity: String,
-    pub title: String,
+    /// The screen title, localized at render. Serde stays a plain string.
+    pub title: Text,
     pub base_path: String,
     pub id_field: String,
     pub fields: Vec<FormField>,
@@ -225,7 +227,9 @@ fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
         .fields
         .iter()
         .zip(&form.fields)
-        .map(|(f, pf)| FieldRules::new(f.name.clone(), f.label.clone(), pf.rules.clone()))
+        // The rules carry the label's source string; the validation message re-wraps
+        // it as a nested Text, so it localizes at render like any other label.
+        .map(|(f, pf)| FieldRules::new(f.name.clone(), f.label.source(), pf.rules.clone()))
         .collect()
 }
 
@@ -451,10 +455,13 @@ fn build(
         .map(|(f, pf)| {
             let value = FieldValue::Text(values.get(&f.name).cloned().unwrap_or_default());
             let required = has_required(&pf.rules);
+            // Localize the label once: the field type sees it (aria/inline labels)
+            // and the framework chrome renders it.
+            let label = shell.tt(&f.label);
             let cx = FieldCx {
                 name: &f.name,
                 id: &f.name,
-                label: &f.label,
+                label: &label,
                 value: &value,
                 required,
                 opts: &pf.opts,
@@ -476,7 +483,7 @@ fn build(
             };
             FieldView {
                 id: f.name.clone(),
-                label: f.label.clone(),
+                label,
                 control,
                 required,
                 // Localize each per-field message through the request translator.
@@ -500,13 +507,14 @@ fn build(
         })
         .flatten()
         .collect();
-    // Localize the form-level banner before the shell is moved into the template.
+    // Localize the title and banner before the shell is moved into the template.
+    let shell_title = shell.tt(&form.config.title);
     let error = error.map(|m| shell.tt(&m));
     let mut shell = shell.clone();
     shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
     FormTemplate {
         shell,
-        title: form.config.title.clone(),
+        title: shell_title,
         action: action.to_string(),
         cancel_path: form.config.base_path.clone(),
         error,
@@ -577,7 +585,7 @@ mod tests {
     fn config() -> PreparedForm {
         let config = FormConfig {
             entity: "samples".to_string(),
-            title: "Sample".to_string(),
+            title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![
@@ -758,7 +766,7 @@ mod tests {
         let cfg = PreparedForm::prepare(
             FormConfig {
                 entity: "samples".to_string(),
-                title: "Sample".to_string(),
+                title: "Sample".into(),
                 base_path: "/admin/samples".to_string(),
                 id_field: "id".to_string(),
                 fields: vec![
@@ -799,7 +807,7 @@ mod tests {
     fn prepare_rejects_an_unregistered_field_type() {
         let config = FormConfig {
             entity: "samples".to_string(),
-            title: "Sample".to_string(),
+            title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![FormField::of("place", "Place", "no.such.type")],
@@ -821,7 +829,7 @@ mod tests {
         // aborts prepare naming the field.
         let config = FormConfig {
             entity: "samples".to_string(),
-            title: "Sample".to_string(),
+            title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![
@@ -903,7 +911,7 @@ mod tests {
     fn config_with(persister: &str) -> FormConfig {
         FormConfig {
             entity: "samples".to_string(),
-            title: "Sample".to_string(),
+            title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
             id_field: "id".to_string(),
             fields: vec![

@@ -230,7 +230,7 @@ impl Default for AdminConfig {
 
 #[derive(Clone)]
 struct NavLink {
-    label: String,
+    label: Text,
     path: String,
     /// An icon name (a Lucide subset, see [`icons`]), or `None` for a text-only
     /// tab. The built-in Dashboard and Settings entries set one.
@@ -315,7 +315,8 @@ impl Shell {
             .next()
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "?".to_string());
-        // Localize the queued flashes here, where the request translator is in hand.
+        // Localize the flashes and nav labels here, where the request translator is
+        // in hand, before it is moved into the shell.
         let flash = flash
             .into_iter()
             .map(|f| FlashLine {
@@ -323,18 +324,19 @@ impl Shell {
                 text: i18n.t(&f.text),
             })
             .collect();
+        let nav = nav
+            .iter()
+            .map(|n| NavView {
+                label: i18n.t(&n.label),
+                path: n.path.clone(),
+                active: active_nav == Some(n.path.as_str()),
+                icon: n.icon.map(|name| icons::svg(Some(name))).unwrap_or(""),
+            })
+            .collect();
         Shell {
             base: base.to_string(),
             brand,
-            nav: nav
-                .iter()
-                .map(|n| NavView {
-                    label: n.label.clone(),
-                    path: n.path.clone(),
-                    active: active_nav == Some(n.path.as_str()),
-                    icon: n.icon.map(|name| icons::svg(Some(name))).unwrap_or(""),
-                })
-                .collect(),
+            nav,
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
@@ -580,7 +582,8 @@ pub struct Resource {
     /// The list's `edit_base` and the form's `base_path` are resolved the same
     /// way.
     pub base_path: String,
-    pub nav_label: String,
+    /// The menu label, localized at render. Serde stays a plain string.
+    pub nav_label: Text,
     pub list: list::ListConfig,
     pub form: Option<form::FormConfig>,
     /// The permission an operator must hold to reach any of the resource's
@@ -696,7 +699,7 @@ pub fn router(
     // Settings. Built-in Users and Roles are settings items (see the settings
     // menu), not main-menu tabs.
     let mut nav = vec![NavLink {
-        label: "Dashboard".to_string(),
+        label: "Dashboard".into(),
         path: admin_path.clone(),
         icon: Some("layout-dashboard"),
     }];
@@ -708,7 +711,7 @@ pub fn router(
         });
     }
     nav.push(NavLink {
-        label: "Settings".to_string(),
+        label: "Settings".into(),
         path: format!("{admin_path}/settings"),
         icon: Some("settings"),
     });
@@ -1652,14 +1655,14 @@ fn builtin_resources() -> Vec<Resource> {
     vec![
         Resource {
             base_path: "/users".to_string(),
-            nav_label: "Backend Users".to_string(),
+            nav_label: "Backend Users".into(),
             list: backend_users_list_config(),
             form: None,
             permission: Some("backend.manage_users".to_string()),
         },
         Resource {
             base_path: "/roles".to_string(),
-            nav_label: "Roles".to_string(),
+            nav_label: "Roles".into(),
             list: roles_list_config(),
             // The create/edit form is the dedicated permission editor (see the
             // `roles` module), mounted separately, not the generic form.
@@ -1714,7 +1717,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
 fn backend_users_list_config() -> list::ListConfig {
     list::ListConfig {
         entity: "backend_users".to_string(),
-        title: "Backend Users".to_string(),
+        title: "Backend Users".into(),
         columns: vec![
             list::ListColumn::new("username", "Username"),
             list::ListColumn::new("email", "Email"),
@@ -1738,7 +1741,7 @@ fn backend_users_list_config() -> list::ListConfig {
 fn roles_list_config() -> list::ListConfig {
     list::ListConfig {
         entity: "backend_roles".to_string(),
-        title: "Roles".to_string(),
+        title: "Roles".into(),
         columns: vec![
             list::ListColumn::new("code", "Code"),
             list::ListColumn::new("name", "Name"),
@@ -2107,17 +2110,17 @@ mod tests {
     fn active_nav_lights_the_right_tab() {
         let nav = vec![
             NavLink {
-                label: "Dashboard".to_string(),
+                label: "Dashboard".into(),
                 path: "/admin".to_string(),
                 icon: Some("layout-dashboard"),
             },
             NavLink {
-                label: "Pages".to_string(),
+                label: "Pages".into(),
                 path: "/admin/pages".to_string(),
                 icon: None,
             },
             NavLink {
-                label: "Settings".to_string(),
+                label: "Settings".into(),
                 path: "/admin/settings".to_string(),
                 icon: Some("settings"),
             },

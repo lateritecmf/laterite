@@ -88,6 +88,21 @@ impl From<Text> for Arg {
     }
 }
 
+// A descriptor label is authored as a plain string and localized at render: these
+// let a builder (`FormField::text("name", "Name")`) and a `.into()` on a descriptor
+// literal produce a `Text` without ceremony. The message sinks still take `Text` by
+// value, so a bare literal there is a compile error, not a silent conversion.
+impl From<&str> for Text {
+    fn from(s: &str) -> Self {
+        Text::dynamic(s)
+    }
+}
+impl From<String> for Text {
+    fn from(s: String) -> Self {
+        Text::dynamic(s)
+    }
+}
+
 /// A locale-free, translatable message; the English source is the lookup key. Build
 /// with the `t!`/`tn!`/`tp!` macros or the builders here. Serializes as a plain
 /// string when it has no context/plural/args (a descriptor label stays plain on
