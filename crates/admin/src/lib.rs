@@ -40,7 +40,7 @@ use std::sync::{Arc, RwLock};
 use askama::Template;
 use axum::body::Body;
 use axum::extract::{Path, Query, Request, State};
-use axum::http::header;
+use axum::http::{header, HeaderMap};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
@@ -582,6 +582,15 @@ fn resolve_locale_chain(
     // signaled earlier (so an explicit en preference keeps its position).
     consider("en", &mut chain);
     chain
+}
+
+/// A translator for a pre-auth screen (login, setup): no operator preference exists
+/// yet, so the chain is the request's `Accept-Language`, then the deployment default,
+/// then `en`, over the shared catalogs.
+fn pre_auth_translator(state: &AdminState, headers: &HeaderMap) -> Translator {
+    let accept = headers.get("accept-language").and_then(|v| v.to_str().ok());
+    let chain = resolve_locale_chain(None, accept, &state.default_locale);
+    Translator::with_chain(chain, state.catalogs.clone())
 }
 
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
@@ -1251,6 +1260,9 @@ async fn require_auth(
         &state.default_locale,
     );
     let i18n = Translator::with_chain(chain, state.catalogs.clone());
+    // A clone kept past `next` (the shell's copy moves into the request) to localize
+    // an error response the handler renders English (the `ErrorMeta` seam).
+    let translator = i18n.clone();
     let (sidebar, active_nav) = resolve_nav_context(
         &state.nav,
         &state.settings,
@@ -1275,7 +1287,14 @@ async fn require_auth(
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
     request.extensions_mut().insert(handle.clone());
-    let response = next.run(request).await;
+    let mut response = next.run(request).await;
+
+    // The `ErrorMeta` seam: an `AdminError` renders its page in English from
+    // `IntoResponse` (no request context there); re-render it localized now that a
+    // translator is in hand. Status and kind are preserved.
+    if let Some(meta) = response.extensions().get::<error::ErrorMeta>().copied() {
+        response = error::localized_error(meta.kind, &translator);
+    }
 
     // Persist the blob only when a handler changed it (flash set or consumed,
     // token rotated, or a token freshly minted this request).
@@ -1308,7 +1327,7 @@ async fn enforce_origin(State(state): State<AdminState>, request: Request, next:
     next.run(request).await
 }
 
-async fn login_form(State(state): State<AdminState>) -> Response {
+async fn login_form(State(state): State<AdminState>, headers: HeaderMap) -> Response {
     // A fresh install with no operators goes to first-run setup instead.
     match state.auth.has_any_operator().await {
         Ok(false) => Redirect::to(&format!("{}/setup", state.admin_path)).into_response(),
@@ -1316,6 +1335,7 @@ async fn login_form(State(state): State<AdminState>) -> Response {
             base: state.admin_path.to_string(),
             brand: state.brand().await,
             error: None,
+            i18n: pre_auth_translator(&state, &headers),
         }),
         Err(_) => render_error(),
     }
@@ -1330,6 +1350,7 @@ struct LoginForm {
 async fn login_submit(
     State(state): State<AdminState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> Response {
     match state
@@ -1341,11 +1362,15 @@ async fn login_submit(
             let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
             (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
-        Err(_) => render(LoginTemplate {
-            base: state.admin_path.to_string(),
-            brand: state.brand().await,
-            error: Some("Invalid username or password.".to_string()),
-        }),
+        Err(_) => {
+            let i18n = pre_auth_translator(&state, &headers);
+            render(LoginTemplate {
+                base: state.admin_path.to_string(),
+                brand: state.brand().await,
+                error: Some(i18n.t(&t!("Invalid username or password."))),
+                i18n,
+            })
+        }
     }
 }
 
@@ -1372,7 +1397,7 @@ struct SetupForm {
 
 /// The first-run setup screen: shown only while no operator exists, so a fresh
 /// install can create its first administrator without the CLI.
-async fn setup_form(State(state): State<AdminState>) -> Response {
+async fn setup_form(State(state): State<AdminState>, headers: HeaderMap) -> Response {
     match state.auth.has_any_operator().await {
         Ok(true) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
         Ok(false) => render(setup_view(
@@ -1380,6 +1405,7 @@ async fn setup_form(State(state): State<AdminState>) -> Response {
             state.brand().await,
             state.timezone,
             None,
+            pre_auth_translator(&state, &headers),
         )),
         Err(_) => render_error(),
     }
@@ -1388,6 +1414,7 @@ async fn setup_form(State(state): State<AdminState>) -> Response {
 async fn setup_submit(
     State(state): State<AdminState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Form(form): Form<SetupForm>,
 ) -> Response {
     // Setup only ever creates the first operator; once one exists it is closed.
@@ -1408,7 +1435,10 @@ async fn setup_submit(
             &state.admin_path,
             state.brand().await,
             state.timezone,
-            Some("Username, first name, email, and password are all required."),
+            Some(t!(
+                "Username, first name, email, and password are all required."
+            )),
+            pre_auth_translator(&state, &headers),
         ));
     }
     // The setup select always carries a value, but guard against a bad one.
@@ -1417,7 +1447,8 @@ async fn setup_submit(
             &state.admin_path,
             state.brand().await,
             state.timezone,
-            Some("That is not a recognised timezone."),
+            Some(t!("That is not a recognised timezone.")),
+            pre_auth_translator(&state, &headers),
         ));
     }
 
@@ -1434,7 +1465,10 @@ async fn setup_submit(
             &state.admin_path,
             state.brand().await,
             state.timezone,
-            Some("Could not create the account. The username or email may already be taken."),
+            Some(t!(
+                "Could not create the account. The username or email may already be taken."
+            )),
+            pre_auth_translator(&state, &headers),
         ));
     }
 
@@ -1458,7 +1492,8 @@ fn setup_view(
     admin_path: &str,
     brand: String,
     default_tz: Tz,
-    error: Option<&str>,
+    error: Option<Text>,
+    i18n: Translator,
 ) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
@@ -1472,7 +1507,8 @@ fn setup_view(
         base: admin_path.to_string(),
         brand,
         zones,
-        error: error.map(|e| e.to_string()),
+        error: error.map(|e| i18n.t(&e)),
+        i18n,
     }
 }
 
@@ -1792,6 +1828,18 @@ struct LoginTemplate {
     base: String,
     brand: String,
     error: Option<String>,
+    /// The pre-auth translator (config locale, then `Accept-Language`); no operator
+    /// preference exists yet. `self.t` and `self.locale` localize this screen.
+    i18n: Translator,
+}
+
+impl LoginTemplate {
+    fn t(&self, source: &str) -> String {
+        self.i18n.t(&Text::dynamic(source))
+    }
+    fn locale(&self) -> &str {
+        self.i18n.locale()
+    }
 }
 
 #[derive(Template)]
@@ -1809,6 +1857,17 @@ struct SetupTemplate {
     brand: String,
     zones: Vec<TzOption>,
     error: Option<String>,
+    /// The pre-auth translator, as on [`LoginTemplate`].
+    i18n: Translator,
+}
+
+impl SetupTemplate {
+    fn t(&self, source: &str) -> String {
+        self.i18n.t(&Text::dynamic(source))
+    }
+    fn locale(&self) -> &str {
+        self.i18n.locale()
+    }
 }
 
 #[derive(Template)]

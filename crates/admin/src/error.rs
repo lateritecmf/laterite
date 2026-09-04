@@ -10,7 +10,7 @@ use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use laterite_auth::AuthError;
-use laterite_core::CoreError;
+use laterite_core::{t, CoreError, Text, Translator};
 
 /// A typed error an admin handler can return.
 #[derive(Debug)]
@@ -41,51 +41,84 @@ pub enum ErrorKind {
 
 impl IntoResponse for AdminError {
     fn into_response(self) -> Response {
-        let (kind, status, title, message, detail) = match self {
-            AdminError::NotFound => (
-                ErrorKind::NotFound,
-                StatusCode::NOT_FOUND,
-                "Not found",
-                "The page or record you asked for does not exist.",
-                None,
-            ),
-            AdminError::Forbidden => (
-                ErrorKind::Forbidden,
-                StatusCode::FORBIDDEN,
-                "Forbidden",
-                "You do not have permission to view this.",
-                None,
-            ),
+        // Rendered without a request translator (this is the no-context sink), so the
+        // page shows the English source. The auth guard re-renders it localized via
+        // `localized_error` when a request translator is in hand (the `ErrorMeta` seam).
+        let (kind, detail) = match self {
+            AdminError::NotFound => (ErrorKind::NotFound, None),
+            AdminError::Forbidden => (ErrorKind::Forbidden, None),
             AdminError::Internal(err) => {
                 // Report point: log the cause, then mask it on the page below.
                 tracing::error!(error = format!("{err:#}"), "admin request failed");
                 let detail = laterite_core::config::debug().then(|| format!("{err:#}"));
-                (
-                    ErrorKind::Internal,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Something went wrong",
-                    "The server hit an unexpected error. It has been logged.",
-                    detail,
-                )
+                (ErrorKind::Internal, detail)
             }
         };
-
-        page(kind, status, title, message, detail)
+        let (title, message) = kind_texts(kind);
+        page(
+            kind,
+            kind_status(kind),
+            title.source(),
+            message.source(),
+            detail,
+        )
     }
 }
 
+/// The HTTP status each error kind renders with.
+fn kind_status(kind: ErrorKind) -> StatusCode {
+    match kind {
+        ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        ErrorKind::Forbidden => StatusCode::FORBIDDEN,
+        ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// The title and message for an error kind, as localizable [`Text`]. One source, used
+/// for both the English fallback (`.source()`) and the localized re-render.
+fn kind_texts(kind: ErrorKind) -> (Text, Text) {
+    match kind {
+        ErrorKind::NotFound => (
+            t!("Not found"),
+            t!("The page or record you asked for does not exist."),
+        ),
+        ErrorKind::Forbidden => (
+            t!("Forbidden"),
+            t!("You do not have permission to view this."),
+        ),
+        ErrorKind::Internal => (
+            t!("Something went wrong"),
+            t!("The server hit an unexpected error. It has been logged."),
+        ),
+    }
+}
+
+/// Re-renders the error page for `kind` localized through the request `tr`, for the
+/// auth guard to replace the English fallback a handler produced (the `ErrorMeta`
+/// seam). The debug cause is not carried across the re-render; it stays logged.
+pub(crate) fn localized_error(kind: ErrorKind, tr: &Translator) -> Response {
+    let (title, message) = kind_texts(kind);
+    page(
+        kind,
+        kind_status(kind),
+        &tr.t(&title),
+        &tr.t(&message),
+        None,
+    )
+}
+
 /// Renders the standalone error page and stamps the [`ErrorMeta`] seam onto the
-/// response so a later rendering layer can recognise it.
+/// response so the auth guard can re-render it localized.
 fn page(
     kind: ErrorKind,
     status: StatusCode,
-    title: &'static str,
-    message: &'static str,
+    title: &str,
+    message: &str,
     detail: Option<String>,
 ) -> Response {
     let body = ErrorPage {
-        title,
-        message,
+        title: title.to_string(),
+        message: message.to_string(),
         detail,
     }
     .render()
@@ -98,12 +131,14 @@ fn page(
 /// A 403 for a rejected mutation: a bad request origin or a missing/mismatched
 /// CSRF token. A distinct message from the generic forbidden page so the
 /// operator knows to reload and resubmit rather than that they lack permission.
+/// Returned before the request translator exists, so it renders in English.
 pub(crate) fn csrf_rejected() -> Response {
     page(
         ErrorKind::Forbidden,
         StatusCode::FORBIDDEN,
-        "Request blocked",
-        "This form expired or its origin was not recognised. Go back, reload the page, and try again.",
+        t!("Request blocked").source(),
+        t!("This form expired or its origin was not recognised. Go back, reload the page, and try again.")
+            .source(),
         None,
     )
 }
@@ -115,8 +150,8 @@ pub(crate) fn masked_500() -> Response {
     page(
         ErrorKind::Internal,
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Something went wrong",
-        "The server hit an unexpected error.",
+        t!("Something went wrong").source(),
+        t!("The server hit an unexpected error.").source(),
         None,
     )
 }
@@ -127,8 +162,8 @@ pub(crate) fn masked_500() -> Response {
 #[derive(Template)]
 #[template(path = "error.html")]
 struct ErrorPage {
-    title: &'static str,
-    message: &'static str,
+    title: String,
+    message: String,
     /// The internal cause, shown only in debug mode (`None` otherwise).
     detail: Option<String>,
 }

@@ -2,19 +2,27 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
+#: templates/setup.html
+msgid "(optional)"
+msgstr ""
+
 #: (descriptors)
 msgid "Active"
+msgstr ""
+
+#: templates/login.html
+msgid "Admin panel"
 msgstr ""
 
 #: (descriptors)
 msgid "Administrators"
 msgstr ""
 
-#: templates/users_form.html:32
+#: templates/users_form.html
 msgid "Allow"
 msgstr ""
 
-#: templates/users_form.html:24
+#: templates/users_form.html
 msgid "Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked."
 msgstr ""
 
@@ -22,8 +30,8 @@ msgstr ""
 msgid "Application name"
 msgstr ""
 
-#: templates/form.html:4
-#: templates/roles_form.html:4
+#: templates/form.html
+#: templates/roles_form.html
 msgid "Back"
 msgstr ""
 
@@ -31,12 +39,12 @@ msgstr ""
 msgid "Backend"
 msgstr ""
 
-#: templates/users_form.html:4
+#: templates/users_form.html
 #: (descriptors)
 msgid "Backend Users"
 msgstr ""
 
-#: templates/users_form.html:7
+#: templates/users_form.html
 msgid "Backend user"
 msgstr ""
 
@@ -44,82 +52,102 @@ msgstr ""
 msgid "Branding"
 msgstr ""
 
-#: templates/form.html:19
-#: templates/roles_form.html:34
-#: templates/settings_form.html:26
-#: templates/users_form.html:43
+#: templates/login.html
+#: templates/setup.html
+msgid "Build sites. Ship solid."
+msgstr ""
+
+#: templates/form.html
+#: templates/roles_form.html
+#: templates/settings_form.html
+#: templates/users_form.html
 msgid "Cancel"
 msgstr ""
 
-#: templates/settings_index.html:8
+#: templates/settings_index.html
 msgid "Choose a section from the list to configure it."
 msgstr ""
 
-#: templates/roles_form.html:11
+#: templates/roles_form.html
 #: (descriptors)
 msgid "Code"
 msgstr ""
 
-#: src/roles.rs:43
-#: src/roles.rs:123
+#: src/roles.rs
 msgid "Code and name are required."
 msgstr ""
 
-#: src/form.rs:898
+#: src/form.rs
 msgid "Code is not allowed here."
 msgstr ""
 
-#: templates/base.html:41
+#: templates/base.html
 msgid "Colour mode"
 msgstr ""
 
-#: src/form.rs:307
-#: src/form.rs:432
+#: src/lib.rs
+msgid "Could not create the account. The username or email may already be taken."
+msgstr ""
+
+#: src/form.rs
 msgid "Could not save. Check the values and try again."
 msgstr ""
 
-#: src/settings/mod.rs:179
+#: src/settings/mod.rs
 msgid "Could not save. Please try again."
 msgstr ""
 
-#: src/roles.rs:58
-#: src/roles.rs:157
+#: src/roles.rs
 msgid "Could not save. The code may already be in use."
+msgstr ""
+
+#: templates/setup.html
+msgid "Create administrator"
+msgstr ""
+
+#: templates/setup.html
+msgid "Create the first administrator"
 msgstr ""
 
 #: (descriptors)
 msgid "Created"
 msgstr ""
 
-#: templates/dashboard.html:2
+#: templates/dashboard.html
 msgid "Dashboard"
 msgstr ""
 
-#: templates/users_form.html:34
+#: templates/setup.html
+msgid "Dates render in this zone. Storage is always UTC, and you can change it later in Preferences."
+msgstr ""
+
+#: templates/users_form.html
 msgid "Deny"
 msgstr ""
 
-#: templates/plugins.html:31
+#: templates/plugins.html
 msgid "Disabled"
 msgstr ""
 
-#: templates/base.html:25
+#: templates/base.html
 msgid "Dismiss"
 msgstr ""
 
-#: templates/preferences.html:10
+#: templates/preferences.html
+#: templates/setup.html
 msgid "Display timezone"
 msgstr ""
 
-#: templates/list.html:29
+#: templates/list.html
 msgid "Displayed records: {shown} of {total}"
 msgstr ""
 
-#: templates/list.html:21
+#: templates/list.html
 msgid "Edit"
 msgstr ""
 
-#: templates/users_form.html:14
+#: templates/setup.html
+#: templates/users_form.html
 #: (descriptors)
 msgid "Email"
 msgstr ""
@@ -128,31 +156,45 @@ msgstr ""
 msgid "Enable or disable installed plugins."
 msgstr ""
 
-#: templates/plugins.html:29
+#: templates/plugins.html
 msgid "Enabled"
 msgstr ""
 
-#: templates/plugins.html:7
+#: templates/plugins.html
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: templates/setup.html
 #: (descriptors)
 msgid "First name"
 msgstr ""
 
-#: templates/users_form.html:33
+#: src/error.rs
+msgid "Forbidden"
+msgstr ""
+
+#: templates/login.html
+msgid "Forgot your password?"
+msgstr ""
+
+#: templates/users_form.html
 msgid "Inherit"
 msgstr ""
 
-#: templates/preferences.html:18
+#: src/lib.rs
+msgid "Invalid username or password."
+msgstr ""
+
+#: templates/preferences.html
 msgid "Language"
 msgstr ""
 
+#: templates/setup.html
 #: (descriptors)
 msgid "Last name"
 msgstr ""
 
-#: templates/dashboard.html:9
+#: templates/dashboard.html
 msgid "Manage"
 msgstr ""
 
@@ -180,104 +222,122 @@ msgstr ""
 msgid "Manage roles and their permissions."
 msgstr ""
 
-#: templates/base.html:31
+#: templates/base.html
 msgid "Menu"
 msgstr ""
 
-#: templates/roles_form.html:15
+#: templates/roles_form.html
 #: (descriptors)
 msgid "Name"
 msgstr ""
 
-#: templates/list.html:6
+#: templates/list.html
 msgid "New"
 msgstr ""
 
-#: templates/list.html:33
+#: templates/list.html
 msgid "Next"
 msgstr ""
 
-#: templates/plugins.html:18
+#: templates/plugins.html
 msgid "No plugins installed."
 msgstr ""
 
-#: templates/list.html:16
+#: templates/list.html
 msgid "No records."
 msgstr ""
 
-#: templates/settings_index.html:6
+#: templates/settings_index.html
 msgid "No settings have been registered."
 msgstr ""
 
-#: templates/dashboard.html:15
+#: src/error.rs
+msgid "Not found"
+msgstr ""
+
+#: templates/login.html
+#: templates/setup.html
+msgid "Open source Rust web framework"
+msgstr ""
+
+#: templates/dashboard.html
 msgid "Open {label}"
 msgstr ""
 
-#: templates/list.html:32
+#: templates/list.html
 msgid "Page {page} of {pages}"
 msgstr ""
 
-#: templates/users_form.html:23
+#: templates/login.html
+#: templates/setup.html
+msgid "Password"
+msgstr ""
+
+#: templates/users_form.html
 msgid "Permission overrides"
 msgstr ""
 
-#: templates/roles_form.html:19
+#: templates/roles_form.html
 msgid "Permissions"
 msgstr ""
 
-#: src/users.rs:142
+#: src/users.rs
 msgid "Permissions updated."
 msgstr ""
 
-#: templates/plugins.html:11
+#: templates/plugins.html
 msgid "Plugin"
 msgstr ""
 
-#: src/plugins.rs:503
+#: src/plugins.rs
 msgid "Plugin disabled. The change applies on the next restart."
 msgstr ""
 
-#: src/plugins.rs:501
+#: src/plugins.rs
 msgid "Plugin enabled. The change applies on the next restart."
 msgstr ""
 
-#: templates/plugins.html:2
-#: templates/plugins.html:5
+#: templates/plugins.html
 #: (descriptors)
 msgid "Plugins"
 msgstr ""
 
-#: templates/base.html:48
+#: templates/base.html
+#: templates/login.html
+#: templates/setup.html
 msgid "Powered by Laterite"
 msgstr ""
 
-#: templates/base.html:46
-#: templates/preferences.html:2
-#: templates/preferences.html:4
+#: templates/base.html
+#: templates/preferences.html
 msgid "Preferences"
 msgstr ""
 
-#: src/lib.rs:1635
+#: src/lib.rs
 msgid "Preferences saved."
 msgstr ""
 
-#: templates/list.html:31
+#: templates/list.html
 msgid "Prev"
 msgstr ""
 
-#: templates/plugins.html:26
+#: templates/plugins.html
 msgid "Quarantined"
 msgstr ""
 
-#: src/roles.rs:230
+#: src/error.rs
+msgid "Request blocked"
+msgstr ""
+
+#: src/roles.rs
 msgid "Role"
 msgstr ""
 
-#: src/roles.rs:52
+#: src/roles.rs
 msgid "Role created."
 msgstr ""
 
-#: src/roles.rs:151
+#: src/roles.rs
 msgid "Role updated."
 msgstr ""
 
@@ -285,20 +345,23 @@ msgstr ""
 msgid "Roles"
 msgstr ""
 
-#: templates/form.html:18
-#: templates/preferences.html:26
-#: templates/roles_form.html:33
-#: templates/settings_form.html:25
-#: templates/users_form.html:42
+#: templates/form.html
+#: templates/preferences.html
+#: templates/roles_form.html
+#: templates/settings_form.html
+#: templates/users_form.html
 msgid "Save"
 msgstr ""
 
-#: templates/settings_index.html:2
-#: templates/settings_index.html:4
+#: templates/setup.html
+msgid "Set up"
+msgstr ""
+
+#: templates/settings_index.html
 msgid "Settings"
 msgstr ""
 
-#: src/settings/mod.rs:174
+#: src/settings/mod.rs
 msgid "Settings saved."
 msgstr ""
 
@@ -306,16 +369,32 @@ msgstr ""
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
 msgstr ""
 
-#: templates/base.html:47
+#: templates/login.html
+msgid "Sign in"
+msgstr ""
+
+#: templates/login.html
+msgid "Sign in to continue."
+msgstr ""
+
+#: templates/base.html
 msgid "Sign out"
 msgstr ""
 
-#: templates/dashboard.html:7
+#: templates/dashboard.html
 msgid "Signed in as {name}."
 msgstr ""
 
-#: templates/plugins.html:13
+#: src/error.rs
+msgid "Something went wrong"
+msgstr ""
+
+#: templates/plugins.html
 msgid "Status"
+msgstr ""
+
+#: templates/login.html
+msgid "Stay signed in"
 msgstr ""
 
 #: (descriptors)
@@ -326,15 +405,15 @@ msgstr ""
 msgid "System"
 msgstr ""
 
-#: src/lib.rs:1608
+#: src/lib.rs
 msgid "That is not a recognised timezone."
 msgstr ""
 
-#: src/lib.rs:1622
+#: src/lib.rs
 msgid "That is not a supported language."
 msgstr ""
 
-#: templates/preferences.html:23
+#: templates/preferences.html
 msgid "The admin renders in this language. It only changes the interface, not your content."
 msgstr ""
 
@@ -342,28 +421,57 @@ msgstr ""
 msgid "The application name shown across the admin."
 msgstr ""
 
-#: templates/users_form.html:18
+#: src/error.rs
+msgid "The page or record you asked for does not exist."
+msgstr ""
+
+#: src/error.rs
+msgid "The server hit an unexpected error."
+msgstr ""
+
+#: src/error.rs
+msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: src/error.rs
+msgid "This form expired or its origin was not recognised. Go back, reload the page, and try again."
+msgstr ""
+
+#: templates/setup.html
+msgid "This install has no accounts yet. Set one up to sign in."
+msgstr ""
+
+#: templates/users_form.html
 msgid "This user is a superuser and holds every permission, so there is nothing to override."
 msgstr ""
 
-#: templates/preferences.html:12
-#: templates/preferences.html:20
+#: templates/preferences.html
 msgid "Use the deployment default"
 msgstr ""
 
-#: templates/users_form.html:13
+#: templates/login.html
+#: templates/setup.html
+#: templates/users_form.html
 #: (descriptors)
 msgid "Username"
+msgstr ""
+
+#: src/lib.rs
+msgid "Username, first name, email, and password are all required."
 msgstr ""
 
 #: (descriptors)
 msgid "Users"
 msgstr ""
 
-#: templates/plugins.html:12
+#: templates/plugins.html
 msgid "Version"
 msgstr ""
 
-#: templates/dashboard.html:5
+#: templates/dashboard.html
 msgid "Welcome"
+msgstr ""
+
+#: src/error.rs
+msgid "You do not have permission to view this."
 msgstr ""

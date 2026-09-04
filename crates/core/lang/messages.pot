@@ -2,35 +2,33 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
-#: src/validation.rs:212
+#: src/validation.rs
 msgid "{label} is already taken."
 msgstr ""
 
-#: src/validation.rs:140
-#: src/validation.rs:143
-#: src/validation.rs:346
+#: src/validation.rs
 msgid "{label} is required."
 msgstr ""
 
-#: src/validation.rs:174
+#: src/validation.rs
 msgid "{label} must be a number."
 msgstr ""
 
-#: src/validation.rs:179
+#: src/validation.rs
 msgid "{label} must be a valid URL."
 msgstr ""
 
-#: src/validation.rs:170
+#: src/validation.rs
 msgid "{label} must be a valid email address."
 msgstr ""
 
-#: src/validation.rs:148
+#: src/validation.rs
 msgid "{label} must be at least {n} character."
 msgid_plural "{label} must be at least {n} characters."
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/validation.rs:159
+#: src/validation.rs
 msgid "{label} must be at most {n} character."
 msgid_plural "{label} must be at most {n} characters."
 msgstr[0] ""

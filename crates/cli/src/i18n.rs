@@ -378,13 +378,9 @@ struct Macros<'a> {
 impl syn::visit::Visit<'_> for Macros<'_> {
     fn visit_macro(&mut self, mac: &syn::Macro) {
         let name = mac.path.segments.last().map(|s| s.ident.to_string());
-        let line = mac
-            .path
-            .segments
-            .last()
-            .map(|s| s.ident.span().start().line)
-            .unwrap_or(0);
-        let r = format!("{}:{line}", self.path);
+        // File-only reference (no line number), so the catalog is stable when code is
+        // reformatted or moved; the `check` gate only fires on an actual string change.
+        let r = self.path.to_string();
         match name.as_deref() {
             Some("t") => {
                 if let Ok(one) = syn::parse2::<OneLit>(mac.tokens.clone()) {
@@ -412,7 +408,7 @@ impl syn::visit::Visit<'_> for Macros<'_> {
         // and `field_plural_msg(one, other, ...)`. Treat those like `t!`/`tn!`.
         if let syn::Expr::Path(path) = &*call.func {
             if let Some(seg) = path.path.segments.last() {
-                let r = format!("{}:{}", self.path, seg.ident.span().start().line);
+                let r = self.path.to_string();
                 let lit = |i: usize| match call.args.get(i) {
                     Some(syn::Expr::Lit(l)) => match &l.lit {
                         syn::Lit::Str(s) => Some(s.value()),
@@ -464,16 +460,17 @@ impl syn::parse::Parse for TwoLit {
 // --- Templates: `shell.t(` / `shell.tf(` / `shell.tfs(` -------------------------
 
 /// Collects the leading string literal of every `shell.t`/`tf`/`tfs` call in a
-/// template. `shell.tt` takes a prebuilt `Text`, so it carries no literal to scan.
+/// template, and `self.t` (the pre-auth login/setup screens, which have no shell).
+/// `shell.tt` takes a prebuilt `Text`, so it carries no literal to scan.
 fn scan_template(cat: &mut Catalog, path: &str, src: &str) {
-    for needle in ["shell.t(", "shell.tf(", "shell.tfs("] {
+    for needle in ["shell.t(", "shell.tf(", "shell.tfs(", "self.t("] {
         let mut from = 0;
         while let Some(pos) = src[from..].find(needle) {
             let call = from + pos;
             from = call + needle.len();
             if let Some(source) = string_after(&src[from..]) {
-                let line = src[..call].bytes().filter(|&b| b == b'\n').count() + 1;
-                add(cat, None, source, None, format!("{path}:{line}"));
+                // File-only reference; see the Rust scanner.
+                add(cat, None, source, None, path.to_string());
             }
         }
     }
@@ -598,13 +595,16 @@ mod tests {
         let src = r#"<h1>{{ shell.t("Dashboard") }}</h1>
             <p>{{ shell.tf("Page {n}", [("n", page)]) }}</p>
             <span>{{ shell.tfs("Hi {name}", [("name", u)]) }}</span>
+            <label>{{ self.t("Username") }}</label>
             <i>{{ shell.tt(msg) }}</i>"#;
         scan_template(&mut cat, "templates/x.html", src);
         assert!(cat.contains_key(&(None, "Dashboard".to_string())));
         assert!(cat.contains_key(&(None, "Page {n}".to_string())));
         assert!(cat.contains_key(&(None, "Hi {name}".to_string())));
+        // self.t (the pre-auth screens) is scanned too.
+        assert!(cat.contains_key(&(None, "Username".to_string())));
         // shell.tt has no literal source, so nothing is collected for it.
-        assert_eq!(cat.len(), 3);
+        assert_eq!(cat.len(), 4);
     }
 
     #[test]

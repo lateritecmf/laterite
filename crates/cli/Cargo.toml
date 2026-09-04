@@ -26,10 +26,9 @@ sqlx = { workspace = true }
 tokio = { workspace = true }
 # `plugin sync` reads each plugin's Cargo.toml to verify its crate name.
 toml = "0.8"
-# `i18n extract` parses Rust to find the `t!`/`tn!`/`tp!` source strings; the
-# span-locations feature gives file:line references for the generated catalog.
+# `i18n extract` parses Rust to find the `t!`/`tn!`/`tp!` source strings.
 syn = { version = "2", features = ["full", "visit"] }
-proc-macro2 = { version = "1", features = ["span-locations"] }
+proc-macro2 = "1"
 
 [features]
 # The `lat` tool is a developer tool, not a deployed application, so it enables
