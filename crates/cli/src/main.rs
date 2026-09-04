@@ -14,6 +14,7 @@ use laterite_core::Db;
 
 mod doctor;
 mod domain;
+mod i18n;
 mod make;
 mod new;
 mod plugin;
@@ -54,6 +55,8 @@ enum Command {
         #[command(subcommand)]
         command: plugin::PluginCommand,
     },
+    /// Derive and check the UI-string message catalogs.
+    I18n(i18n::I18nArgs),
 }
 
 #[derive(Subcommand)]
@@ -112,6 +115,7 @@ async fn main() -> Result<()> {
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
         Command::Plugin { command } => plugin::run(command),
+        Command::I18n(args) => i18n::run(args),
     }
 }
 
