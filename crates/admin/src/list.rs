@@ -80,11 +80,25 @@ impl ListColumn {
     }
 }
 
-/// The per-cell state a column type renders from: the raw (text-cast) value and
-/// the display timezone for date formatting.
+/// The per-cell state a column type renders from: the raw (text-cast) value, the
+/// display timezone, and the locale for date month/day names.
 pub struct CellCx<'a> {
     pub value: &'a str,
     pub tz: Tz,
+    pub locale: chrono::Locale,
+}
+
+/// Maps a base language tag to a chrono locale for month/day names, defaulting to
+/// English. chrono locales are language + territory, so a bare tag cannot map
+/// exhaustively; a deployment with a full territory-bearing locale, or the long tail,
+/// extends this. The default is neutral English, not any one region's.
+pub(crate) fn date_locale(base: &str) -> chrono::Locale {
+    match base {
+        "hi" => chrono::Locale::hi_IN,
+        "kn" => chrono::Locale::kn_IN,
+        "ta" => chrono::Locale::ta_IN,
+        _ => chrono::Locale::en_US,
+    }
 }
 
 /// A rendered cell's serialisable payload: raw value, display text, and any
@@ -169,11 +183,14 @@ fn render_text(vm: &CellVm) -> Markup {
     .unwrap_or_default()
 }
 
-/// Formats a stored UTC RFC3339 timestamp in `tz`; an unparseable value passes
-/// through unchanged.
-fn format_ts(raw: &str, tz: Tz, pattern: &str) -> String {
+/// Formats a stored UTC RFC3339 timestamp in `tz`, with month/day names in `locale`;
+/// an unparseable value passes through unchanged.
+fn format_ts(raw: &str, tz: Tz, locale: chrono::Locale, pattern: &str) -> String {
     match DateTime::parse_from_rfc3339(raw) {
-        Ok(dt) => dt.with_timezone(&tz).format(pattern).to_string(),
+        Ok(dt) => dt
+            .with_timezone(&tz)
+            .format_localized(pattern, locale)
+            .to_string(),
         Err(_) => raw.to_string(),
     }
 }
@@ -200,7 +217,7 @@ impl ColumnType for DateTimeColumn {
         text_cell(
             "datetime",
             cx.value,
-            format_ts(cx.value, cx.tz, "%-d %b %Y, %H:%M"),
+            format_ts(cx.value, cx.tz, cx.locale, "%-d %b %Y, %H:%M"),
         )
     }
     fn render_default(&self, vm: &CellVm) -> Markup {
@@ -214,7 +231,11 @@ impl ColumnType for DateColumn {
         "date"
     }
     fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
-        text_cell("date", cx.value, format_ts(cx.value, cx.tz, "%-d %b %Y"))
+        text_cell(
+            "date",
+            cx.value,
+            format_ts(cx.value, cx.tz, cx.locale, "%-d %b %Y"),
+        )
     }
     fn render_default(&self, vm: &CellVm) -> Markup {
         render_text(vm)
@@ -227,7 +248,11 @@ impl ColumnType for TimeColumn {
         "time"
     }
     fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
-        text_cell("time", cx.value, format_ts(cx.value, cx.tz, "%H:%M"))
+        text_cell(
+            "time",
+            cx.value,
+            format_ts(cx.value, cx.tz, cx.locale, "%H:%M"),
+        )
     }
     fn render_default(&self, vm: &CellVm) -> Markup {
         render_text(vm)
@@ -419,6 +444,7 @@ pub(crate) async fn handle(
     match query(&state.db, config, offset).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
+            let date_loc = date_locale(shell.locale());
             let rows: Vec<RowView> = result
                 .rows
                 .into_iter()
@@ -432,6 +458,7 @@ pub(crate) async fn handle(
                             let cx = CellCx {
                                 value: raw,
                                 tz: shell.tz,
+                                locale: date_loc,
                             };
                             let scope = OverrideScope {
                                 surface: Surface::Column,
@@ -519,8 +546,14 @@ mod tests {
     #[test]
     fn column_types_format_their_cell_display() {
         let ist: Tz = "Asia/Kolkata".parse().unwrap();
-        let display =
-            |ct: &dyn ColumnType, value: &str, tz: Tz| ct.view_model(&CellCx { value, tz }).display;
+        let display = |ct: &dyn ColumnType, value: &str, tz: Tz| {
+            ct.view_model(&CellCx {
+                value,
+                tz,
+                locale: chrono::Locale::en_IN,
+            })
+            .display
+        };
         // 10:00 UTC is 15:30 in Asia/Kolkata (UTC+5:30)
         assert_eq!(
             display(&DateTimeColumn, "2026-08-13T10:00:00+00:00", ist),
@@ -546,6 +579,7 @@ mod tests {
         let vm = StatusPillColumn.view_model(&CellCx {
             value: "In Progress",
             tz: Tz::UTC,
+            locale: chrono::Locale::en_IN,
         });
         let html = StatusPillColumn.render_default(&vm).into_string();
         assert!(html.contains(r#"class="lat-status lat-status--in-progress""#));

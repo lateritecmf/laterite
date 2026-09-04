@@ -494,6 +494,11 @@ fn resolve_display_tz(preference: Option<&str>, default_tz: Tz) -> Tz {
         .unwrap_or(default_tz)
 }
 
+/// Whether a timezone is offered in the picker's zone list.
+fn zone_offered(name: &str) -> bool {
+    !matches!(name, "Asia/Jerusalem" | "Asia/Tel_Aviv")
+}
+
 /// The UI locales the admin ships: a base tag and the language's own name (an
 /// endonym, shown untranslated in the picker). English is the source, so it needs
 /// no catalog; the others are filled in later.
@@ -1498,6 +1503,7 @@ fn setup_view(
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
         .iter()
+        .filter(|tz| zone_offered(tz.name()))
         .map(|tz| TzOption {
             name: tz.name().to_string(),
             selected: tz.name() == default_name,
@@ -1688,6 +1694,7 @@ fn preferences_view(
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
         .iter()
+        .filter(|tz| zone_offered(tz.name()))
         .map(|tz| TzOption {
             name: tz.name().to_string(),
             selected: current == Some(tz.name()),
