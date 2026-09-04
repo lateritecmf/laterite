@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Plugins - {{ shell.brand }}{% endblock %}
+{% block title %}{{ shell.t("Plugins") }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <div class="lat-toolbar">
-  <h1>Plugins</h1>
+  <h1>{{ shell.t("Plugins") }}</h1>
 </div>
-<p class="lat-help" style="margin:0 0 16px">Enabling or disabling a plugin takes effect on the next restart.</p>
+<p class="lat-help" style="margin:0 0 16px">{{ shell.t("Enabling or disabling a plugin takes effect on the next restart.") }}</p>
 <div class="lat-tablewrap">
   <table class="lat-table">
     <thead><tr>
-      <th>Plugin</th>
-      <th>Version</th>
-      <th>Status</th>
+      <th>{{ shell.t("Plugin") }}</th>
+      <th>{{ shell.t("Version") }}</th>
+      <th>{{ shell.t("Status") }}</th>
       <th></th>
     </tr></thead>
     <tbody>
       {% if plugins.is_empty() %}
-      <tr><td class="lat-table__empty" colspan="99">No plugins installed.</td></tr>
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No plugins installed.") }}</td></tr>
       {% else %}
       {% for p in plugins %}
       <tr>
@@ -23,12 +23,12 @@
         <td>{{ p.version }}</td>
         <td>
           {% if p.quarantined %}
-          <span class="lat-status lat-status--quarantined">Quarantined</span>
+          <span class="lat-status lat-status--quarantined">{{ shell.t("Quarantined") }}</span>
           <p class="lat-help">{{ p.quarantined_reason }}</p>
           {% else if p.enabled %}
-          <span class="lat-status lat-status--on">Enabled</span>
+          <span class="lat-status lat-status--on">{{ shell.t("Enabled") }}</span>
           {% else %}
-          <span class="lat-status lat-status--off">Disabled</span>
+          <span class="lat-status lat-status--off">{{ shell.t("Disabled") }}</span>
           {% endif %}
         </td>
         <td class="lat-table__actions">
@@ -36,7 +36,7 @@
             {% include "_csrf.html" %}
             <input type="hidden" name="plugin_id" value="{{ p.id }}">
             <input type="hidden" name="enable" value="{% if p.action_target %}1{% else %}0{% endif %}">
-            <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ p.action_label }}</button>
+            <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t(p.action_label) }}</button>
           </form>
         </td>
       </tr>

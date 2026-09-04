@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Settings - {{ shell.brand }}{% endblock %}
+{% block title %}{{ shell.t("Settings") }} - {{ shell.brand }}{% endblock %}
 {% block content %}
-<div class="lat-toolbar"><h1>Settings</h1></div>
+<div class="lat-toolbar"><h1>{{ shell.t("Settings") }}</h1></div>
 {% if shell.sidebar.is_empty() %}
-<div class="lat-card"><p style="color:var(--text-muted);margin:0">No settings have been registered.</p></div>
+<div class="lat-card"><p style="color:var(--text-muted);margin:0">{{ shell.t("No settings have been registered.") }}</p></div>
 {% else %}
-<p style="color:var(--text-muted);max-width:52ch">Choose a section from the list to configure it.</p>
+<p style="color:var(--text-muted);max-width:52ch">{{ shell.t("Choose a section from the list to configure it.") }}</p>
 {% endif %}
 {% endblock %}

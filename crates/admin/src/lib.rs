@@ -366,9 +366,19 @@ impl Shell {
     }
 
     /// Localizes a source string with integer `{name}` arguments, for a template
-    /// (`{{ shell.tf("Page {n} of {m}", &[("n", page), ("m", pages)]) }}`). String or
-    /// nested-`Text` arguments are built in Rust with `t!` and rendered with `tt`.
+    /// (`{{ shell.tf("Page {n} of {m}", [("n", page), ("m", pages)]) }}`). Nested-`Text`
+    /// arguments are built in Rust with `t!` and rendered with `tt`.
     pub(crate) fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
+        let mut text = Text::dynamic(source);
+        for (name, value) in args {
+            text = text.arg(*name, *value);
+        }
+        self.i18n.t(&text)
+    }
+
+    /// Like [`Shell::tf`], but with string `{name}` arguments, for a template
+    /// (`{{ shell.tfs("Signed in as {name}", [("name", user)]) }}`).
+    pub(crate) fn tfs(&self, source: &str, args: &[(&'static str, &str)]) -> String {
         let mut text = Text::dynamic(source);
         for (name, value) in args {
             text = text.arg(*name, *value);

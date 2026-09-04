@@ -175,7 +175,7 @@ pub(crate) async fn update(
         }
         Err(_) => render(build(
             item,
-            Some("Could not save. Please try again.".to_string()),
+            Some(t!("Could not save. Please try again.")),
             &value,
             &shell,
         )),
@@ -280,7 +280,7 @@ fn prefill_from_config(item: &SettingsItem, stored: &mut Value, app_name: &str) 
 
 fn build(
     item: &SettingsItem,
-    error: Option<String>,
+    error: Option<Text>,
     stored: &Value,
     shell: &crate::Shell,
 ) -> SettingsFormTemplate {
@@ -308,7 +308,7 @@ fn build(
         title: shell.tt(&item.label),
         description: shell.tt(&item.description),
         action: item.path(&shell.base),
-        error,
+        error: error.map(|e| shell.tt(&e)),
         fields,
         shell: shell.clone(),
     }

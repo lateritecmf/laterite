@@ -12,7 +12,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
-use laterite_core::{t, AnyRowExt};
+use laterite_core::{t, AnyRowExt, Text};
 use sea_query::{Alias, Expr, Query};
 
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
@@ -40,7 +40,7 @@ pub(crate) async fn create(
         return render(build(
             &state,
             &action,
-            Some("Code and name are required."),
+            Some(t!("Code and name are required.")),
             &code,
             &name,
             &perms,
@@ -55,7 +55,7 @@ pub(crate) async fn create(
         Err(_) => render(build(
             &state,
             &action,
-            Some("Could not save. The code may already be in use."),
+            Some(t!("Could not save. The code may already be in use.")),
             &code,
             &name,
             &perms,
@@ -120,7 +120,7 @@ pub(crate) async fn update(
         return render(build(
             &state,
             &action,
-            Some("Code and name are required."),
+            Some(t!("Code and name are required.")),
             &code,
             &name,
             &perms,
@@ -154,7 +154,7 @@ pub(crate) async fn update(
         Err(_) => render(build(
             &state,
             &action,
-            Some("Could not save. The code may already be in use."),
+            Some(t!("Could not save. The code may already be in use.")),
             &code,
             &name,
             &perms,
@@ -220,19 +220,21 @@ fn group_permissions(
 fn build(
     state: &AdminState,
     action: &str,
-    error: Option<&str>,
+    error: Option<Text>,
     code: &str,
     name: &str,
     selected: &[String],
     shell: Shell,
 ) -> RolesFormTemplate {
     let groups = group_permissions(&state.permissions, selected, &shell);
+    let title = shell.tt(&t!("Role"));
+    let error = error.map(|e| shell.tt(&e));
     RolesFormTemplate {
         shell,
-        title: "Role".to_string(),
+        title,
         action: action.to_string(),
         cancel_path: format!("{}/roles", state.admin_path),
-        error: error.map(str::to_string),
+        error,
         code: code.to_string(),
         name: name.to_string(),
         groups,

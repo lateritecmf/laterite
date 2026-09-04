@@ -4,7 +4,7 @@
 <div class="lat-card" style="margin-bottom:24px">
   <div class="lat-card__label">{{ shell.t("Welcome") }}</div>
   <h2 style="margin:0 0 4px">{{ shell.full_name }}</h2>
-  <p style="color:var(--text-muted);margin:0">Signed in as {{ username }}.</p>
+  <p style="color:var(--text-muted);margin:0">{{ shell.tfs("Signed in as {name}.", [("name", username.as_str())]) }}</p>
 </div>
 <div class="lat-card__label" style="margin-bottom:10px">{{ shell.t("Manage") }}</div>
 <div class="lat-grid">
@@ -12,7 +12,7 @@
   {% if item.path != shell.base %}
   <a class="lat-card" href="{{ item.path }}" style="text-decoration:none;color:inherit">
     <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-16);color:var(--text-heading)">{{ item.label }}</div>
-    <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">Open {{ item.label }} &rarr;</div>
+    <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">{{ shell.tfs("Open {label}", [("label", item.label.as_str())]) }} &rarr;</div>
   </a>
   {% endif %}
   {% endfor %}
