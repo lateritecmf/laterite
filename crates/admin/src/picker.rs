@@ -24,10 +24,10 @@ use laterite_auth::AuthenticatedUser;
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::strata::async_trait;
 use laterite_core::{AnyRowExt, Db};
-use sea_query::{Alias, Expr, Func, Query, SelectStatement};
+use sea_query::{Alias, Expr, Func, LikeExpr, Query, SelectStatement};
 use serde::{Deserialize, Serialize};
 
-use crate::sql::valid_ident;
+use crate::sql::{like_escape, valid_ident};
 use crate::AdminState;
 
 /// One candidate or resolved node. `id` is a string: the generic form layer
@@ -158,9 +158,12 @@ impl PickerSource for TableSource {
         let (sql, values) = {
             let cast = text_cast(db.backend);
             let mut sel = self.base_select(cast);
-            let pattern = format!("%{}%", q.to_lowercase());
+            // Escape the user's term so its %/_ match literally, with an explicit
+            // ESCAPE char (SQLite has no default) for cross-backend behaviour.
+            let pattern = format!("%{}%", like_escape(&q.to_lowercase()));
             sel.and_where(
-                Expr::expr(Func::lower(Expr::col(Alias::new(&self.label_col)))).like(pattern),
+                Expr::expr(Func::lower(Expr::col(Alias::new(&self.label_col))))
+                    .like(LikeExpr::new(pattern).escape('\\')),
             );
             sel.limit(limit as u64);
             to_sql(db.backend, sel)
@@ -403,5 +406,15 @@ mod tests {
 
         // A missing id resolves to None (a deleted referent).
         assert!(source.resolve(&db, "99999").await.unwrap().is_none());
+
+        // LIKE wildcards in the search term match literally, not as wildcards.
+        insert(&db, "A_B", "Zone").await;
+        insert(&db, "AXB", "Zone").await;
+        // The `_` is literal: `a_b` matches `A_B` only, never `AXB`.
+        let underscore = source.search(&db, "a_b", 10).await.unwrap();
+        assert_eq!(underscore.len(), 1);
+        assert_eq!(underscore[0].label, "A_B");
+        // `%` is literal too: no row contains it, so it matches nothing (not all rows).
+        assert!(source.search(&db, "%", 10).await.unwrap().is_empty());
     }
 }
