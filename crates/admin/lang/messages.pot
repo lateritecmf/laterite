@@ -7,6 +7,10 @@ msgid "(optional)"
 msgstr ""
 
 #: (descriptors)
+msgid "Action"
+msgstr ""
+
+#: (descriptors)
 msgid "Active"
 msgstr ""
 
@@ -28,6 +32,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Application name"
+msgstr ""
+
+#: (descriptors)
+msgid "Audit Log"
 msgstr ""
 
 #: templates/form.html
@@ -264,6 +272,10 @@ msgstr ""
 msgid "Open {label}"
 msgstr ""
 
+#: (descriptors)
+msgid "Operator"
+msgstr ""
+
 #: templates/list.html
 msgid "Page {page} of {pages}"
 msgstr ""
@@ -327,6 +339,10 @@ msgstr ""
 
 #: src/error.rs
 msgid "Request blocked"
+msgstr ""
+
+#: (descriptors)
+msgid "Review the record of administrative changes."
 msgstr ""
 
 #: src/roles.rs
@@ -405,6 +421,14 @@ msgstr ""
 msgid "System"
 msgstr ""
 
+#: (descriptors)
+msgid "Target"
+msgstr ""
+
+#: (descriptors)
+msgid "Target ID"
+msgstr ""
+
 #: src/lib.rs
 msgid "That is not a recognised timezone."
 msgstr ""
@@ -468,8 +492,16 @@ msgstr ""
 msgid "Version"
 msgstr ""
 
+#: (descriptors)
+msgid "View the audit log"
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Welcome"
+msgstr ""
+
+#: (descriptors)
+msgid "When"
 msgstr ""
 
 #: src/error.rs

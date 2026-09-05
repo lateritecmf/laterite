@@ -675,6 +675,11 @@ fn builtin_permissions() -> Vec<Permission> {
             label: "Manage plugins".into(),
             group: "Backend".into(),
         },
+        Permission {
+            code: "backend.view_audit_log".to_string(),
+            label: "View the audit log".into(),
+            group: "Backend".into(),
+        },
     ]
 }
 
@@ -1781,6 +1786,14 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_roles".to_string()),
         },
+        Resource {
+            base_path: "/audit-log".to_string(),
+            nav_label: "Audit Log".into(),
+            list: audit_log_list_config(),
+            // Append-only: read-only list, no form, no edit or create links.
+            form: None,
+            permission: Some("backend.view_audit_log".to_string()),
+        },
     ]
 }
 
@@ -1821,6 +1834,17 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             icon: Some("plug".to_string()),
             permission: Some(plugins::MANAGE_PERMISSION.to_string()),
             link: Some("/plugins".to_string()),
+            fields: Vec::new(),
+        },
+        settings::SettingsItem {
+            code: "backend.audit_log".to_string(),
+            label: "Audit Log".into(),
+            description: "Review the record of administrative changes.".into(),
+            category: "System".into(),
+            order: 20,
+            icon: Some("history".to_string()),
+            permission: Some("backend.view_audit_log".to_string()),
+            link: Some("/audit-log".to_string()),
             fields: Vec::new(),
         },
     ]
@@ -1865,6 +1889,28 @@ fn roles_list_config() -> list::ListConfig {
         id_field: "id".to_string(),
         edit_base: Some("/roles".to_string()),
         creatable: true,
+    }
+}
+
+/// The read-only audit-log view: the recorded administrative changes, newest
+/// first. Append-only, so no create or edit path (`edit_base`/`creatable` off).
+fn audit_log_list_config() -> list::ListConfig {
+    list::ListConfig {
+        entity: "backend_audit_log".to_string(),
+        title: "Audit Log".into(),
+        columns: vec![
+            list::ListColumn::new("created_at", "When").datetime(),
+            list::ListColumn::new("actor_username", "Operator"),
+            list::ListColumn::new("action", "Action"),
+            list::ListColumn::new("target_type", "Target"),
+            list::ListColumn::new("target_id", "Target ID"),
+        ],
+        order_by: "created_at".to_string(),
+        order_dir: list::SortDir::Desc,
+        per_page: 50,
+        id_field: "id".to_string(),
+        edit_base: None,
+        creatable: false,
     }
 }
 
