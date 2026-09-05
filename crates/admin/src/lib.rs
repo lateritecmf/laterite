@@ -630,9 +630,11 @@ pub struct Resource {
     pub list: list::ListConfig,
     pub form: Option<form::FormConfig>,
     /// The permission an operator must hold to reach any of the resource's
-    /// routes. `None` leaves the resource open to any signed-in operator; a
-    /// dotted string gates every route the resource mounts, and an operator who
-    /// lacks it receives `403 Forbidden`. Superusers pass regardless.
+    /// routes. A dotted string gates every route the resource mounts, and an
+    /// operator who lacks it receives `403 Forbidden`; superusers pass regardless.
+    /// `None` leaves the resource open to any signed-in operator and is allowed
+    /// only for a read-only resource: a resource with a create/edit `form` must
+    /// declare a permission, or boot aborts (see [`mount_resource`]).
     pub permission: Option<String>,
 }
 
@@ -1126,6 +1128,17 @@ fn mount_resource(
     field_types: &field::FieldRegistry,
     persisters: &persist::PersisterRegistry,
 ) -> Router<AdminState> {
+    // A write resource must be permission-gated. A create/edit form with no
+    // permission would expose its mutations to every signed-in operator, so an
+    // unguarded form is a wiring bug that aborts boot (a read-only list may omit a
+    // permission). If a public write resource is ever wanted, it opts in explicitly.
+    if resource.form.is_some() && resource.permission.is_none() {
+        panic!(
+            "admin resource `{}` has a create/edit form but no permission; a write \
+             resource must declare a permission",
+            resource.base_path
+        );
+    }
     let base = resource.base_path.clone();
     let list_cfg = resource.list.clone();
     let mut router = Router::new().route(
@@ -1967,6 +1980,51 @@ pub(crate) fn forbidden() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_form() -> form::FormConfig {
+        form::FormConfig {
+            entity: "widgets".to_string(),
+            title: "Widgets".into(),
+            base_path: "/widgets".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![],
+            persist: None,
+        }
+    }
+
+    fn resource_with(form: Option<form::FormConfig>, permission: Option<&str>) -> Resource {
+        Resource {
+            base_path: "/widgets".to_string(),
+            nav_label: "Widgets".into(),
+            list: backend_users_list_config(),
+            form,
+            permission: permission.map(str::to_string),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "must declare a permission")]
+    fn write_resource_without_permission_aborts_boot() {
+        // A create/edit form with no permission would expose its mutations to any
+        // signed-in operator; mounting it aborts boot.
+        let resource = resource_with(Some(write_form()), None);
+        let _ = mount_resource(
+            &resource,
+            &field::builtin_registry(),
+            &persist::PersisterRegistry::new(),
+        );
+    }
+
+    #[test]
+    fn read_only_resource_may_omit_permission() {
+        // No write path, so no permission is required: this mounts without panicking.
+        let resource = resource_with(None, None);
+        let _ = mount_resource(
+            &resource,
+            &field::builtin_registry(),
+            &persist::PersisterRegistry::new(),
+        );
+    }
 
     #[test]
     fn shell_localizes_through_the_translator_and_falls_back() {
