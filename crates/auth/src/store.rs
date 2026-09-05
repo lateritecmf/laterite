@@ -22,7 +22,8 @@ use sqlx::Row;
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
 use crate::schema::{
-    BackendAccessLog, BackendRoles, BackendSessions, BackendUserRoles, BackendUsers,
+    BackendAccessLog, BackendAuditLog, BackendRoles, BackendSessions, BackendUserRoles,
+    BackendUsers,
 };
 
 fn now_ts() -> String {
@@ -357,6 +358,97 @@ pub async fn insert_access_log(
         .execute(&db.pool)
         .await?;
     Ok(())
+}
+
+/// One row of the audit log, newest-first from [`recent_audit`].
+#[derive(Debug, Clone)]
+pub struct AuditRecord {
+    pub actor_user_id: Option<i64>,
+    pub actor_username: String,
+    pub action: String,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Appends one entry to the append-only audit log.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_audit_log(
+    db: &Db,
+    actor_user_id: Option<i64>,
+    actor_username: &str,
+    action: &str,
+    target_type: Option<&str>,
+    target_id: Option<&str>,
+    detail: Option<&str>,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendAuditLog::Table)
+            .columns([
+                BackendAuditLog::ActorUserId,
+                BackendAuditLog::ActorUsername,
+                BackendAuditLog::Action,
+                BackendAuditLog::TargetType,
+                BackendAuditLog::TargetId,
+                BackendAuditLog::Detail,
+                BackendAuditLog::CreatedAt,
+            ])
+            .values_panic([
+                actor_user_id.into(),
+                actor_username.to_string().into(),
+                action.to_string().into(),
+                target_type.map(str::to_string).into(),
+                target_id.map(str::to_string).into(),
+                detail.map(str::to_string).into(),
+                now_ts().into(),
+            ])
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// The most recent audit entries, newest first (id descending, matching insert
+/// order). Feeds the admin audit view.
+pub async fn recent_audit(db: &Db, limit: u64) -> Result<Vec<AuditRecord>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendAuditLog::ActorUserId,
+                BackendAuditLog::ActorUsername,
+                BackendAuditLog::Action,
+                BackendAuditLog::TargetType,
+                BackendAuditLog::TargetId,
+                BackendAuditLog::Detail,
+                BackendAuditLog::CreatedAt,
+            ])
+            .from(BackendAuditLog::Table)
+            .order_by(BackendAuditLog::Id, Order::Desc)
+            .limit(limit)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter().map(audit_from_row).collect()
+}
+
+fn audit_from_row(row: &AnyRow) -> Result<AuditRecord, AuthError> {
+    Ok(AuditRecord {
+        actor_user_id: row.get_int_opt("actor_user_id")?,
+        actor_username: row.get_text("actor_username")?,
+        action: row.get_text("action")?,
+        target_type: row.get_text_opt("target_type")?,
+        target_id: row.get_text_opt("target_id")?,
+        detail: row.get_text_opt("detail")?,
+        created_at: parse_ts(&row.get_text("created_at")?)?,
+    })
 }
 
 /// Counts recent failed login attempts for a username, for throttling.

@@ -490,14 +490,29 @@ pub(crate) struct ToggleForm {
 pub(crate) async fn toggle(
     State(state): State<AdminState>,
     Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(user): Extension<laterite_auth::AuthenticatedUser>,
     Form(form): Form<ToggleForm>,
 ) -> Response {
     let back = format!("{}/plugins", state.admin_path);
-    match set_enabled(&state.db, &form.plugin_id, form.enable != 0).await {
+    let enabling = form.enable != 0;
+    match set_enabled(&state.db, &form.plugin_id, enabling).await {
         Ok(()) => {
+            crate::audit::record(
+                &state,
+                &user,
+                if enabling {
+                    "backend.plugin.enable"
+                } else {
+                    "backend.plugin.disable"
+                },
+                Some("plugin"),
+                Some(form.plugin_id.as_str()),
+                None,
+            )
+            .await;
             // Two whole messages rather than an interpolated verb: the state word
             // must localize, and its grammar varies by language.
-            let flash = if form.enable != 0 {
+            let flash = if enabling {
                 t!("Plugin enabled. The change applies on the next restart.")
             } else {
                 t!("Plugin disabled. The change applies on the next restart.")

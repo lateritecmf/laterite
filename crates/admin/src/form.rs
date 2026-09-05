@@ -260,6 +260,7 @@ pub(crate) async fn create(
     form: &PreparedForm,
     data: HashMap<String, String>,
     shell: crate::Shell,
+    user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
@@ -291,7 +292,20 @@ pub(crate) async fn create(
     }
 
     match form.persister.create(&state.db, &data).await {
-        Ok(_) => Redirect::to(&form.config.base_path).into_response(),
+        Ok(new_id) => {
+            let audit_action = format!("backend.{}.create", form.config.entity);
+            let target_id = new_id.to_string();
+            crate::audit::record(
+                state,
+                user,
+                &audit_action,
+                Some(form.config.entity.as_str()),
+                Some(target_id.as_str()),
+                None,
+            )
+            .await;
+            Redirect::to(&form.config.base_path).into_response()
+        }
         // A persist-time domain check re-renders 422 with its per-field messages.
         Err(SaveError::Invalid(bag)) => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -386,6 +400,7 @@ pub(crate) async fn update(
     id: String,
     data: HashMap<String, String>,
     shell: crate::Shell,
+    user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
@@ -417,7 +432,19 @@ pub(crate) async fn update(
     }
 
     match form.persister.update(&state.db, &id, &data).await {
-        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
+        Ok(()) => {
+            let audit_action = format!("backend.{}.update", form.config.entity);
+            crate::audit::record(
+                state,
+                user,
+                &audit_action,
+                Some(form.config.entity.as_str()),
+                Some(id.as_str()),
+                None,
+            )
+            .await;
+            Redirect::to(&form.config.base_path).into_response()
+        }
         Err(SaveError::Invalid(bag)) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             render(build(state, form, &action, None, &data, &bag, &shell)),
@@ -667,6 +694,7 @@ mod tests {
             &cfg,
             data(&[("code", "editor"), ("name", "Content Editor")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -687,6 +715,7 @@ mod tests {
             &cfg,
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
 
@@ -701,6 +730,7 @@ mod tests {
             id,
             data(&[("code", "editor"), ("name", "Senior Editor")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -722,6 +752,7 @@ mod tests {
             &cfg,
             data(&[("code", ""), ("name", "No Code")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         // Re-renders the form (200), does not redirect.
@@ -741,6 +772,7 @@ mod tests {
             &cfg,
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
 
@@ -750,6 +782,7 @@ mod tests {
             &cfg,
             data(&[("code", "editor"), ("name", "Other")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -787,6 +820,7 @@ mod tests {
             &cfg,
             data(&[("code", "c1"), ("name", "nope")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -797,6 +831,7 @@ mod tests {
             &cfg,
             data(&[("code", "c1"), ("name", "a@b.test")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -949,6 +984,7 @@ mod tests {
             &form,
             data(&[("code", "rolled"), ("name", "back")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         // The persister failed, so the form re-renders (200) and its in-tx insert
@@ -971,6 +1007,7 @@ mod tests {
             &form,
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);

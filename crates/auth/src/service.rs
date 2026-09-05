@@ -143,6 +143,23 @@ pub struct NewOperator<'a> {
     pub timezone: Option<&'a str>,
 }
 
+/// One append-only audit entry: who did what, to which target. Actions are
+/// dot-keyed (`backend.role.update`); the username is snapshotted so the entry
+/// stays legible after the actor's account is removed.
+pub struct AuditEntry<'a> {
+    /// The acting operator's id, or `None` for a system action.
+    pub actor_user_id: Option<i64>,
+    /// The acting operator's username, recorded verbatim.
+    pub actor_username: &'a str,
+    /// A dot-keyed action, e.g. `backend.plugin.disable`.
+    pub action: &'a str,
+    /// What was acted on (e.g. `backend_role`) and its id; both optional.
+    pub target_type: Option<&'a str>,
+    pub target_id: Option<&'a str>,
+    /// Optional JSON describing the change.
+    pub detail: Option<&'a str>,
+}
+
 /// The auth service. Cheap to clone: it holds a database handle and config.
 #[derive(Clone)]
 pub struct AuthService {
@@ -303,6 +320,27 @@ impl AuthService {
         store::set_user_permissions(&self.db, user_id, overrides).await
     }
 
+    /// Appends an entry to the append-only audit log. Mutating admin paths call
+    /// this after a successful change, so actions that affect privileges or data
+    /// are recorded. Self-service preference changes are not audited.
+    pub async fn record_audit(&self, entry: AuditEntry<'_>) -> Result<(), AuthError> {
+        store::insert_audit_log(
+            &self.db,
+            entry.actor_user_id,
+            entry.actor_username,
+            entry.action,
+            entry.target_type,
+            entry.target_id,
+            entry.detail,
+        )
+        .await
+    }
+
+    /// The most recent audit entries, newest first, for the admin audit view.
+    pub async fn recent_audit(&self, limit: u64) -> Result<Vec<store::AuditRecord>, AuthError> {
+        store::recent_audit(&self.db, limit).await
+    }
+
     /// Whether any backend operator exists yet. A fresh install with none is
     /// routed to first-run setup instead of login.
     pub async fn has_any_operator(&self) -> Result<bool, AuthError> {
@@ -403,6 +441,45 @@ mod tests {
     /// `laterite_core::testing`). Hold the returned guard for the test's lifetime.
     async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
         laterite_core::testing::connect_test(&[crate::migrations()]).await
+    }
+
+    #[tokio::test]
+    async fn audit_entries_record_and_read_back_newest_first() {
+        let (pool, _guard) = test_db().await;
+        let actor = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        svc.record_audit(AuditEntry {
+            actor_user_id: Some(actor),
+            actor_username: "root",
+            action: "backend.role.update",
+            target_type: Some("backend_role"),
+            target_id: Some("42"),
+            detail: Some(r#"{"added":["a.b"]}"#),
+        })
+        .await
+        .unwrap();
+        svc.record_audit(AuditEntry {
+            actor_user_id: Some(actor),
+            actor_username: "root",
+            action: "backend.plugin.disable",
+            target_type: Some("plugin"),
+            target_id: Some("acme.widgets"),
+            detail: None,
+        })
+        .await
+        .unwrap();
+
+        let entries = svc.recent_audit(10).await.unwrap();
+        assert_eq!(entries.len(), 2);
+        // Newest first.
+        assert_eq!(entries[0].action, "backend.plugin.disable");
+        assert_eq!(entries[0].target_id.as_deref(), Some("acme.widgets"));
+        assert_eq!(entries[0].detail, None);
+        assert_eq!(entries[1].action, "backend.role.update");
+        assert_eq!(entries[1].actor_username, "root");
+        assert_eq!(entries[1].actor_user_id, Some(actor));
+        assert_eq!(entries[1].detail.as_deref(), Some(r#"{"added":["a.b"]}"#));
     }
 
     #[tokio::test]

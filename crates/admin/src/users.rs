@@ -137,6 +137,16 @@ pub(crate) async fn update(
         .auth
         .set_user_permissions(target_id, &overrides)
         .await?;
+    let detail = serde_json::to_string(&overrides).unwrap_or_default();
+    crate::audit::record(
+        &state,
+        &editor,
+        "backend.user.permissions.update",
+        Some("backend_user"),
+        Some(id.as_str()),
+        Some(detail.as_str()),
+    )
+    .await;
     session.push_flash(
         crate::session::FlashLevel::Success,
         t!("Permissions updated."),

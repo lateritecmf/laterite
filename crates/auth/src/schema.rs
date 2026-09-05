@@ -62,3 +62,23 @@ pub(crate) enum BackendAccessLog {
     UserAgent,
     CreatedAt,
 }
+
+#[derive(Iden)]
+pub(crate) enum BackendAuditLog {
+    Table,
+    Id,
+    /// The acting operator, nullable (a system action has none) and set null if
+    /// the user is later removed.
+    ActorUserId,
+    /// The actor's username, snapshotted so the entry stays legible after the
+    /// account is gone.
+    ActorUsername,
+    /// A dot-keyed action, e.g. `backend.role.update`.
+    Action,
+    /// What the action was on (e.g. `backend_role`) and its id, both optional.
+    TargetType,
+    TargetId,
+    /// Optional JSON describing the change.
+    Detail,
+    CreatedAt,
+}

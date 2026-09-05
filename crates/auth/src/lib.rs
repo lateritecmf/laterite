@@ -26,9 +26,10 @@ pub use migrations::{migrations, MODULE_ID};
 pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
-    AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator, RequestContext,
-    ResolvedSession,
+    AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator,
+    RequestContext, ResolvedSession,
 };
+pub use store::AuditRecord;
 
 /// The `laterite.auth` module: the framework's backend-user auth tables.
 pub struct AuthModule;

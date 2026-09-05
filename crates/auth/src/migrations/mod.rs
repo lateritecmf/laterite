@@ -20,4 +20,5 @@ laterite_core::migration_set! {
     m0007_add_backend_user_permissions,
     m0008_add_backend_session_data,
     m0009_add_backend_user_locale,
+    m0010_create_backend_audit_log,
 }

@@ -162,6 +162,7 @@ pub(crate) async fn update(
     data: HashMap<String, String>,
     shell: crate::Shell,
     session: &crate::session::SessionHandle,
+    user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
     let value = collect(item, &data);
     match store::set(&state.db, &item.code, &value).await {
@@ -171,6 +172,17 @@ pub(crate) async fn update(
             if item.code == brand::BrandSetting::CODE {
                 state.invalidate_brand();
             }
+            // The stored value can hold secrets, so the audit records which
+            // settings model changed, not the new contents.
+            crate::audit::record(
+                state,
+                user,
+                "backend.settings.update",
+                Some("settings"),
+                Some(item.code.as_str()),
+                None,
+            )
+            .await;
             session.push_flash(crate::session::FlashLevel::Success, t!("Settings saved."));
             Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
         }
@@ -519,6 +531,7 @@ mod tests {
             data(&[("log_events", "on"), ("retention_days", "30")]),
             crate::Shell::test(),
             &crate::session::SessionHandle::from_blob(None),
+            &crate::audit::test_actor(),
         )
         .await;
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);

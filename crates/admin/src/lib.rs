@@ -14,6 +14,7 @@
 //! An application usually boots through [`Bootstrap`], which loads config,
 //! connects, migrates, and serves this router in one call.
 
+mod audit;
 pub mod bootstrap;
 mod error;
 pub mod field;
@@ -1172,9 +1173,10 @@ fn mount_resource(
             .post(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
                       Form(data): Form<HashMap<String, String>>| {
                     let pf = create_pf.clone();
-                    async move { form::create(&state, &pf, data, shell).await }
+                    async move { form::create(&state, &pf, data, shell, &user).await }
                 },
             ),
         );
@@ -1193,10 +1195,11 @@ fn mount_resource(
             .post(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
                       Path(id): Path<String>,
                       Form(data): Form<HashMap<String, String>>| {
                     let pf = update_pf.clone();
-                    async move { form::update(&state, &pf, id, data, shell).await }
+                    async move { form::update(&state, &pf, id, data, shell, &user).await }
                 },
             ),
         );
@@ -1632,7 +1635,7 @@ async fn settings_update(
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::update(&state, item, data, shell, &session).await,
+        Some(item) => settings::update(&state, item, data, shell, &session, &user).await,
         None => not_found(),
     }
 }

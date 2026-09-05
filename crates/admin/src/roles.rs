@@ -11,6 +11,7 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
+use laterite_auth::AuthenticatedUser;
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::{t, AnyRowExt, Text};
 use sea_query::{Alias, Expr, Query};
@@ -31,6 +32,7 @@ pub(crate) async fn create(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
     let (code, name, perms) = parse(&pairs);
@@ -48,7 +50,18 @@ pub(crate) async fn create(
         ));
     }
     match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
-        Ok(_) => {
+        Ok(role_id) => {
+            let detail = serde_json::json!({ "code": code, "name": name }).to_string();
+            let target_id = role_id.to_string();
+            crate::audit::record(
+                &state,
+                &user,
+                "backend.role.create",
+                Some("backend_role"),
+                Some(target_id.as_str()),
+                Some(detail.as_str()),
+            )
+            .await;
             session.push_flash(crate::session::FlashLevel::Success, t!("Role created."));
             Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
         }
@@ -110,6 +123,7 @@ pub(crate) async fn update(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -148,6 +162,16 @@ pub(crate) async fn update(
         .await
     {
         Ok(_) => {
+            let detail = serde_json::json!({ "code": code, "name": name }).to_string();
+            crate::audit::record(
+                &state,
+                &user,
+                "backend.role.update",
+                Some("backend_role"),
+                Some(id.as_str()),
+                Some(detail.as_str()),
+            )
+            .await;
             session.push_flash(crate::session::FlashLevel::Success, t!("Role updated."));
             Redirect::to(&format!("{}/roles", state.admin_path)).into_response()
         }
