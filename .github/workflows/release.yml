@@ -73,3 +73,21 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" --verify-tag \
             --title "Laterite ${GITHUB_REF_NAME#v}" --notes-file notes.md "${flags[@]}"
+
+  # The website builds its handbook and changelog from this repo, so a release
+  # asks its deploy workflow to run (a repository_dispatch to the web repo, with
+  # a token scoped to that repo). Skipped, not failed, when no token is set.
+  website:
+    needs: github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask laterite.rs to redeploy
+        env:
+          GH_TOKEN: ${{ secrets.WEB_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "WEB_DISPATCH_TOKEN is not set; the site was not redeployed."
+            exit 0
+          fi
+          gh api repos/lateritecmf/web/dispatches -f event_type=framework-release \
+            && echo "Site redeploy requested."
