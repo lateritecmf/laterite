@@ -69,6 +69,8 @@ async fn admin_mutations_require_origin_and_token() {
 
     // A fresh router per request (`oneshot` consumes it), with a fixed origin.
     let app = || {
+        let mut config = AdminConfig::default();
+        config.origin = ORIGIN.to_string();
         router(
             AuthService::new(pool.clone(), AuthConfig::default()),
             pool.clone(),
@@ -77,10 +79,7 @@ async fn admin_mutations_require_origin_and_token() {
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            AdminConfig {
-                origin: ORIGIN.to_string(),
-                ..Default::default()
-            },
+            config,
             Arc::new(CatalogStore::default()),
         )
     };

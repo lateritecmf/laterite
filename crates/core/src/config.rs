@@ -28,8 +28,12 @@ pub struct ServerConfig {
 /// Application-level metadata. The `name` is the human-readable application
 /// name, the baseline for the admin brand: a `BrandSetting` in the admin can
 /// override it, but this is the default when none is set.
+///
+/// Non-exhaustive: build one with [`Default`] and set fields, so a field added
+/// in a later release is additive.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct AppMeta {
     /// The display name of the application (e.g. `"Acme Blog"`). Shown as the
     /// admin brand unless overridden by a brand setting.
@@ -102,8 +106,12 @@ fn browsable_host(listen: &str) -> String {
 
 /// Deployment-level backend settings. Per-install brand and per-operator preferences
 /// live in the settings and preferences stores, not here.
+///
+/// Non-exhaustive: build one with [`Default`] and set fields, so a field added
+/// in a later release is additive.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct BackendConfig {
     /// Set the `Secure` attribute on the admin session cookie. Enable behind HTTPS
     /// in production; leave off for plain-HTTP local development.

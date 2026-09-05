@@ -25,6 +25,9 @@ fn app(db: Db, app_name: &str) -> Router {
 /// The admin router mounted at a specific path, for the panel-relocation test.
 fn app_at(db: Db, app_name: &str, path: &str) -> Router {
     let auth = AuthService::new(db.clone(), AuthConfig::default());
+    let mut config = AdminConfig::default();
+    config.app_name = app_name.to_string();
+    config.path = path.to_string();
     router(
         auth,
         db,
@@ -33,14 +36,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
         Vec::new(),
         Vec::new(),
         Vec::new(),
-        AdminConfig {
-            secure_cookie: false,
-            timezone: "UTC".to_string(),
-            locale: "en".to_string(),
-            app_name: app_name.to_string(),
-            path: path.to_string(),
-            origin: String::new(),
-        },
+        config,
         Arc::new(CatalogStore::default()),
     )
 }

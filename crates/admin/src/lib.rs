@@ -188,7 +188,11 @@ impl AdminState {
 
 /// Deployment-level admin settings passed to [`router`]. Per-install brand and
 /// per-operator preferences are settings/preferences, not deployment config.
+///
+/// Non-exhaustive: build one with [`Default`] and set fields, so a field added
+/// in a later release is additive.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct AdminConfig {
     /// Set the `Secure` attribute on the session cookie. Enable behind HTTPS in
     /// production; leave off for plain-HTTP local development.

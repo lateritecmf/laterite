@@ -9,8 +9,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Breaking
 
-- `AdminConfig`, `AppMeta`, and `BackendConfig` gained public fields; code that
-  builds them by struct literal must set the new fields.
+- `AdminConfig`, `AppMeta`, and `BackendConfig` are `#[non_exhaustive]`: build one
+  with `Default` and set fields. Struct literals no longer compile outside the
+  framework, and a field added in a later release is additive.
 
 ## [0.2.0] - 2026-08-21
 
