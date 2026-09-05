@@ -53,6 +53,11 @@ pub struct AppMeta {
     /// enable only in development. Read via [`debug`] where request context is
     /// not available (error rendering).
     pub debug: bool,
+    /// The prefix of the environment variables that override this configuration
+    /// (`<PREFIX>__SECTION__KEY`). Declared here so the application and the `lat`
+    /// command agree on it; unset means the framework default. Read from the files
+    /// alone by [`declared_env_prefix`], since it selects the environment layer.
+    pub env_prefix: Option<String>,
 }
 
 impl Default for AppMeta {
@@ -62,6 +67,7 @@ impl Default for AppMeta {
             url: None,
             locale: "en".to_string(),
             debug: false,
+            env_prefix: None,
         }
     }
 }
@@ -155,13 +161,11 @@ fn default_listen() -> String {
 /// 1. `<dir>/default.toml` (required)
 /// 2. `<dir>/<APP_ENV>.toml` (optional; `APP_ENV` defaults to `development`)
 /// 3. `<dir>/local.toml` (optional, git-ignored developer overrides)
-/// 4. Environment variables `<PREFIX>__SECTION__KEY` (e.g. `APP__DATABASE__URL`)
+/// 4. Environment variables `<PREFIX>__SECTION__KEY` (e.g. `LAT__DATABASE__URL`);
+///    the prefix an application declares as `app.env_prefix` is read with
+///    [`declared_env_prefix`] and passed here.
 pub fn load<T: DeserializeOwned>(dir: &Path, env_prefix: &str) -> CoreResult<T> {
-    let app_env = std::env::var("APP_ENV").unwrap_or_else(|_| "development".into());
-    Config::builder()
-        .add_source(File::from(dir.join("default.toml")).required(true))
-        .add_source(File::from(dir.join(format!("{app_env}.toml"))).required(false))
-        .add_source(File::from(dir.join("local.toml")).required(false))
+    file_layers(dir)
         .add_source(
             Environment::with_prefix(env_prefix)
                 .prefix_separator("__")
@@ -170,6 +174,40 @@ pub fn load<T: DeserializeOwned>(dir: &Path, env_prefix: &str) -> CoreResult<T> 
         .build()
         .and_then(Config::try_deserialize)
         .map_err(|e| CoreError::Config(e.to_string()))
+}
+
+/// The environment-variable prefix a configuration declares as `app.env_prefix`,
+/// read from the files alone: it selects the environment layer, so it cannot come
+/// from there. `None` when undeclared or blank, meaning the framework default.
+pub fn declared_env_prefix(dir: &Path) -> CoreResult<Option<String>> {
+    #[derive(Deserialize)]
+    struct Declared {
+        #[serde(default)]
+        app: DeclaredApp,
+    }
+    #[derive(Deserialize, Default)]
+    struct DeclaredApp {
+        env_prefix: Option<String>,
+    }
+    let declared: Declared = file_layers(dir)
+        .build()
+        .and_then(Config::try_deserialize)
+        .map_err(|e| CoreError::Config(e.to_string()))?;
+    Ok(declared
+        .app
+        .env_prefix
+        .map(|prefix| prefix.trim().to_string())
+        .filter(|prefix| !prefix.is_empty()))
+}
+
+/// The file layers of a config directory, in override order: `default.toml`
+/// (required), `<APP_ENV>.toml`, then `local.toml`.
+fn file_layers(dir: &Path) -> config::ConfigBuilder<config::builder::DefaultState> {
+    let app_env = std::env::var("APP_ENV").unwrap_or_else(|_| "development".into());
+    Config::builder()
+        .add_source(File::from(dir.join("default.toml")).required(true))
+        .add_source(File::from(dir.join(format!("{app_env}.toml"))).required(false))
+        .add_source(File::from(dir.join("local.toml")).required(false))
 }
 
 #[cfg(test)]
@@ -220,6 +258,29 @@ mod tests {
         let c: C = load(dir.path(), "LATERITE_BE_SET").unwrap();
         assert!(c.backend.secure_cookie);
         assert_eq!(c.backend.timezone, "Asia/Kolkata");
+    }
+
+    #[test]
+    fn declared_env_prefix_comes_from_the_files_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("default.toml"), "[app]\nname = \"Acme\"\n").unwrap();
+        assert_eq!(declared_env_prefix(dir.path()).unwrap(), None);
+        std::fs::write(
+            dir.path().join("default.toml"),
+            "[app]\nenv_prefix = \"ACME\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            declared_env_prefix(dir.path()).unwrap().as_deref(),
+            Some("ACME")
+        );
+        // local.toml overrides it, and a blank value counts as undeclared.
+        std::fs::write(
+            dir.path().join("local.toml"),
+            "[app]\nenv_prefix = \"  \"\n",
+        )
+        .unwrap();
+        assert_eq!(declared_env_prefix(dir.path()).unwrap(), None);
     }
 
     #[test]

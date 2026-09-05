@@ -49,10 +49,11 @@ cargo run          # or: lat serve
 
 Open <http://127.0.0.1:8080/admin> and sign in.
 
-`lat serve` runs the app from its directory and can override the bind address
+`lat serve` runs the app from anywhere inside it and can override the bind address
 without editing config: `lat serve --port 3000`, `lat serve --host 0.0.0.0`, or
-`lat serve --listen 0.0.0.0:3000`. It passes the override through the standard
-`APP__SERVER__LISTEN` environment variable.
+`lat serve --listen 0.0.0.0:3000`. It passes the override through the app's
+`<PREFIX>__SERVER__LISTEN` environment variable (`LAT` unless the app declares
+`app.env_prefix`, see [Configuration](configuration.md)).
 
 ## What it generates
 
@@ -111,7 +112,7 @@ config value is the default, the setting overrides it.
 
 ## Check the setup
 
-`lat doctor`, run from an application's directory, verifies it is ready to serve:
+`lat doctor`, run from anywhere inside an application, verifies it is ready to serve:
 the configuration loads, the timezone is valid, `storage/` is writable, the
 database is reachable, and the framework's tables are present. It exits non-zero
 if anything fails, so it can gate a deploy:
@@ -133,6 +134,7 @@ lat admin reset-password editor
 ```
 
 Both prompt for a password, or pass `--generate` to have a strong one created and
-printed. No default password is ever shipped, and on a fresh install with no
-accounts the admin also serves a one-time first-run setup screen instead of the
-login form.
+printed. Run inside the application, they read its database URL from the
+configuration; elsewhere pass `--database-url` or set `DATABASE_URL`. No default
+password is ever shipped, and on a fresh install with no accounts the admin also
+serves a one-time first-run setup screen instead of the login form.

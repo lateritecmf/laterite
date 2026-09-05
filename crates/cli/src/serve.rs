@@ -1,16 +1,17 @@
-//! `lat serve`: run the application in the current directory.
+//! `lat serve`: run the application found from the current directory upward.
 //!
 //! A Laterite application is a standalone binary that serves itself, so this is
 //! a thin convenience over `cargo run`: it translates `--host`/`--port`/`--listen`
-//! into the `LAT__SERVER__LISTEN` override the config layer already honours, so a
-//! quick bind-address change needs no config edit. With no flags it runs the app
-//! on its configured address.
+//! into the `<PREFIX>__SERVER__LISTEN` override the config layer already honours,
+//! under the prefix the app declares, so a quick bind-address change needs no
+//! config edit. With no flags it runs the app on its configured address.
 
-use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
+
+use crate::project::Project;
 
 #[derive(Args)]
 pub struct ServeArgs {
@@ -31,26 +32,25 @@ pub struct ServeArgs {
 }
 
 pub fn run(args: ServeArgs) -> Result<()> {
-    if !Path::new("config/default.toml").is_file() || !Path::new("Cargo.toml").is_file() {
+    let project = Project::locate()?;
+    if !project.root.join("Cargo.toml").is_file() {
         bail!(
-            "run `lat serve` from a Laterite application directory (one created by `lat new`): \
-             no ./Cargo.toml and ./config/default.toml here."
+            "run `lat serve` inside a Laterite application (one created by `lat new`): \
+             no Cargo.toml in {}.",
+            project.root.display()
         );
     }
 
-    let listen = resolve_listen(&args, &current_listen());
+    let listen = resolve_listen(&args, &current_listen(&project));
 
     let mut cmd = Command::new("cargo");
-    cmd.arg("run");
+    cmd.arg("run").current_dir(&project.root);
     if args.release {
         cmd.arg("--release");
     }
     if let Some(listen) = &listen {
-        // Override via the standard config prefix; a custom-prefix app reads its own.
-        cmd.env(
-            format!("{}__SERVER__LISTEN", laterite_admin::DEFAULT_ENV_PREFIX),
-            listen,
-        );
+        // Override under the app's own prefix, so the running app sees it.
+        cmd.env(project.env_key("SERVER__LISTEN"), listen);
         println!("Overriding the bind address: {listen}");
     }
 
@@ -93,17 +93,15 @@ fn split_host_port(listen: &str) -> (String, String) {
 /// The application's currently configured bind address, read from its config so
 /// a partial `--host`/`--port` override can fill the other half. Best-effort:
 /// falls back to the framework default if the config cannot be read.
-fn current_listen() -> String {
+fn current_listen(project: &Project) -> String {
     #[derive(serde::Deserialize)]
     struct ServeConfig {
         server: laterite_core::config::ServerConfig,
     }
-    laterite_core::config::load::<ServeConfig>(
-        Path::new("config"),
-        laterite_admin::DEFAULT_ENV_PREFIX,
-    )
-    .map(|c| c.server.listen)
-    .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+    project
+        .load::<ServeConfig>()
+        .map(|c| c.server.listen)
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
 }
 
 #[cfg(test)]

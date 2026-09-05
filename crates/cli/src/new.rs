@@ -628,6 +628,9 @@ fn default_toml(app_name: &str, timezone: &str, listen: &str) -> String {
 # The application name, shown as the admin brand. A brand setting in the admin
 # can override it.
 name = "{app_name}"
+# The prefix of the environment variables that override this config
+# (LAT__SECTION__KEY). The lat command reads it here too, so the two agree.
+env_prefix = "LAT"
 # The public base URL absolute links build on (the admin banner, later emails and
 # share cards). When unset it is derived from the bind address below. Set it to
 # your real origin behind a proxy or a local domain, e.g. "https://acme.test".
@@ -832,6 +835,8 @@ mod tests {
         // The display name is saved as the app name (the admin brand default).
         assert!(default.contains("[app]"));
         assert!(default.contains("name = \"Acme Blog\""));
+        // The env-override prefix is declared, so `lat` and the app agree on it.
+        assert!(default.contains("env_prefix = \"LAT\""));
         // The secret URL lives only in the git-ignored local config.
         assert!(!default.contains("sqlite://"));
         let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();

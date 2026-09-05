@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `lat` commands find the application from any subdirectory (the nearest
+  `config/default.toml`), and `lat admin` reads the database URL from its
+  configuration when neither `--database-url` nor `DATABASE_URL` is set.
+- `app.env_prefix` declares the environment-override prefix once, for the
+  application and every `lat` command.
+
+### Fixed
+
+- `lat doctor` and `lat serve` used a fixed environment prefix, so their overrides
+  missed an application with its own.
+
 ## [0.3.0] - 2026-09-05
 
 ### Breaking

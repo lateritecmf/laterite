@@ -1,12 +1,10 @@
 //! `lat doctor`: a health check for a set-up Laterite application.
 //!
-//! Run from an application's directory, it verifies the things that must hold
-//! for the app to serve: the configuration loads, the display timezone is valid,
-//! the storage directory is writable, the database is reachable, and the
+//! Run from anywhere inside an application, it verifies the things that must
+//! hold for the app to serve: the configuration loads, the display timezone is
+//! valid, the storage directory is writable, the database is reachable, and the
 //! framework's tables are present. It prints a checklist and exits non-zero if
 //! any check fails, so it is usable in a deploy script.
-
-use std::path::Path;
 
 use anyhow::{bail, Result};
 use laterite_core::config::{BackendConfig, DatabaseConfig};
@@ -14,6 +12,7 @@ use serde::Deserialize;
 use sqlx::any::AnyPoolOptions;
 
 use crate::new::is_writable;
+use crate::project::Project;
 
 /// The slice of an application's configuration this check needs.
 #[derive(Deserialize)]
@@ -24,16 +23,15 @@ struct Config {
 }
 
 pub async fn run() -> Result<()> {
-    let config_dir = Path::new("config");
-    if !config_dir.join("default.toml").exists() {
-        bail!(
-            "no config/default.toml here; run `lat doctor` from a Laterite application directory"
-        );
-    }
-    println!("Checking this Laterite application:\n");
+    let project = Project::locate()?;
+    println!(
+        "Checking the Laterite application at {}:\n",
+        project.root.display()
+    );
 
-    // Configuration must load before anything else can be checked.
-    let config: Config = match laterite_core::config::load(config_dir, "APP") {
+    // Configuration must load before anything else can be checked, under the
+    // prefix the app declares so the same overrides apply as at boot.
+    let config: Config = match project.load() {
         Ok(config) => {
             report(true, "Configuration loads");
             config
@@ -53,10 +51,10 @@ pub async fn run() -> Result<()> {
         tz_ok,
     );
 
-    let storage = Path::new("storage");
+    let storage = project.root.join("storage");
     ok &= check(
         "storage/ is writable",
-        storage.is_dir() && is_writable(storage),
+        storage.is_dir() && is_writable(&storage),
     );
 
     sqlx::any::install_default_drivers();
@@ -87,7 +85,7 @@ pub async fn run() -> Result<()> {
 
     // If the app uses the plugin layout, the generated manifest must match the
     // plugins/ tree, or a plugin is silently missing from the next build.
-    match crate::plugin::manifest_in_sync() {
+    match crate::plugin::manifest_in_sync(&project.root) {
         Ok(Some(true)) => ok &= check("plugins-manifest is in sync", true),
         Ok(Some(false)) => {
             ok &= check("plugins-manifest is in sync (run `lat plugin sync`)", false)

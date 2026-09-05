@@ -20,9 +20,32 @@ use serde::Deserialize;
 use crate::settings::SettingsItem;
 use crate::{builtin_modules, normalize_path, router, AdminConfig, Permission, Resource};
 
-/// Default env-var prefix for config overrides (`LAT__SECTION__KEY`). Tooling like
-/// `lat serve` relies on it; override per app with [`Bootstrap::env_prefix`].
+/// Default env-var prefix for config overrides (`LAT__SECTION__KEY`). An app
+/// declares its own as `app.env_prefix` in its config, which `Bootstrap` and the
+/// `lat` command both read; [`Bootstrap::env_prefix`] overrides even that.
 pub const DEFAULT_ENV_PREFIX: &str = "LAT";
+
+/// The env-var prefix to load config under: a code override, else the config's
+/// own `app.env_prefix`, else [`DEFAULT_ENV_PREFIX`].
+fn resolve_env_prefix(code: Option<String>, declared: Option<String>) -> String {
+    code.or(declared)
+        .unwrap_or_else(|| DEFAULT_ENV_PREFIX.to_string())
+}
+
+#[cfg(test)]
+mod env_prefix_tests {
+    use super::resolve_env_prefix;
+
+    #[test]
+    fn code_override_then_declaration_then_default() {
+        assert_eq!(resolve_env_prefix(None, None), "LAT");
+        assert_eq!(resolve_env_prefix(None, Some("ACME".into())), "ACME");
+        assert_eq!(
+            resolve_env_prefix(Some("CODE".into()), Some("ACME".into())),
+            "CODE"
+        );
+    }
+}
 
 /// The configuration [`Bootstrap`] loads. An app needing more loads its own with
 /// [`laterite_core::config::load`].
@@ -82,7 +105,7 @@ type ExtendFn = Box<dyn FnOnce(Router, &BootstrapCtx) -> Router>;
 /// Builds and serves a Laterite application.
 pub struct Bootstrap {
     config_dir: PathBuf,
-    env_prefix: String,
+    env_prefix: Option<String>,
     app_modules: Vec<Box<dyn Module>>,
     plugin_modules: Vec<Box<dyn Module>>,
     extend: Option<ExtendFn>,
@@ -90,21 +113,23 @@ pub struct Bootstrap {
 
 impl Bootstrap {
     /// Loads config from `config_dir` (`default.toml`, the `APP_ENV` overlay, and
-    /// `local.toml`). Env vars override under [`DEFAULT_ENV_PREFIX`]; change the
-    /// prefix with [`Bootstrap::env_prefix`].
+    /// `local.toml`). Env vars override under the prefix the config declares as
+    /// `app.env_prefix`, else [`DEFAULT_ENV_PREFIX`]; [`Bootstrap::env_prefix`]
+    /// overrides both.
     pub fn new(config_dir: impl Into<PathBuf>) -> Self {
         Self {
             config_dir: config_dir.into(),
-            env_prefix: DEFAULT_ENV_PREFIX.to_string(),
+            env_prefix: None,
             app_modules: Vec::new(),
             plugin_modules: Vec::new(),
             extend: None,
         }
     }
 
-    /// Overrides the config env-var prefix (default [`DEFAULT_ENV_PREFIX`]).
+    /// Overrides the config env-var prefix from code, above the config's own
+    /// `app.env_prefix` declaration and [`DEFAULT_ENV_PREFIX`].
     pub fn env_prefix(mut self, prefix: impl Into<String>) -> Self {
-        self.env_prefix = prefix.into();
+        self.env_prefix = Some(prefix.into());
         self
     }
 
@@ -145,7 +170,11 @@ impl Bootstrap {
             )
             .try_init();
 
-        let config: AppConfig = config::load(&self.config_dir, &self.env_prefix)?;
+        let env_prefix = resolve_env_prefix(
+            self.env_prefix.clone(),
+            config::declared_env_prefix(&self.config_dir)?,
+        );
+        let config: AppConfig = config::load(&self.config_dir, &env_prefix)?;
         // Debug gates the cause on error pages; the log records it regardless.
         laterite_core::config::set_debug(config.app.debug);
 
@@ -428,11 +457,14 @@ mod tests {
     use laterite_core::ModuleId;
 
     #[test]
-    fn env_prefix_defaults_and_overrides() {
-        assert_eq!(Bootstrap::new("config").env_prefix, DEFAULT_ENV_PREFIX);
+    fn env_prefix_is_unset_until_overridden_in_code() {
+        assert_eq!(Bootstrap::new("config").env_prefix, None);
         assert_eq!(
-            Bootstrap::new("config").env_prefix("HIVE").env_prefix,
-            "HIVE"
+            Bootstrap::new("config")
+                .env_prefix("ACME")
+                .env_prefix
+                .as_deref(),
+            Some("ACME")
         );
     }
 

@@ -32,9 +32,10 @@ pub enum PluginCommand {
 }
 
 pub fn run(command: PluginCommand) -> Result<()> {
+    let project = crate::project::Project::locate()?;
     match command {
-        PluginCommand::Sync => sync(),
-        PluginCommand::List => list(),
+        PluginCommand::Sync => sync(&project.root),
+        PluginCommand::List => list(&project.root),
     }
 }
 
@@ -75,9 +76,9 @@ struct Package {
     name: String,
 }
 
-fn sync() -> Result<()> {
-    let plugins = discover(Path::new(PLUGINS_DIR))?;
-    write_manifest(Path::new(MANIFEST_DIR), &plugins)?;
+fn sync(root: &Path) -> Result<()> {
+    let plugins = discover(&root.join(PLUGINS_DIR))?;
+    write_manifest(&root.join(MANIFEST_DIR), &plugins)?;
     if plugins.is_empty() {
         println!("No plugins under {PLUGINS_DIR}/; wrote an empty {MANIFEST_DIR}.");
     } else {
@@ -89,8 +90,8 @@ fn sync() -> Result<()> {
     Ok(())
 }
 
-fn list() -> Result<()> {
-    let plugins = discover(Path::new(PLUGINS_DIR))?;
+fn list(root: &Path) -> Result<()> {
+    let plugins = discover(&root.join(PLUGINS_DIR))?;
     if plugins.is_empty() {
         println!("No plugins under {PLUGINS_DIR}/.");
         return Ok(());
@@ -214,16 +215,16 @@ pub fn all() -> Vec<Box<dyn Module>> {{
     )
 }
 
-/// Whether the generated manifest matches the current plugin tree. `None` when
-/// the app doesn't use the plugin layout (no plugins/ dir), so `doctor` can skip
-/// the check.
-pub fn manifest_in_sync() -> Result<Option<bool>> {
-    let root = Path::new(PLUGINS_DIR);
+/// Whether the generated manifest matches the current plugin tree under the
+/// application at `app_root`. `None` when the app doesn't use the plugin layout
+/// (no plugins/ dir), so `doctor` can skip the check.
+pub fn manifest_in_sync(app_root: &Path) -> Result<Option<bool>> {
+    let root = app_root.join(PLUGINS_DIR);
     if !root.is_dir() {
         return Ok(None);
     }
-    let plugins = discover(root)?;
-    let dir = Path::new(MANIFEST_DIR);
+    let plugins = discover(&root)?;
+    let dir = app_root.join(MANIFEST_DIR);
     let cargo_ok =
         fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default() == manifest_cargo(&plugins);
     let lib_ok =

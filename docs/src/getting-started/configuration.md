@@ -13,8 +13,9 @@ apply in order, later overriding earlier:
 2. `<APP_ENV>.toml` (optional): environment-specific overrides. `APP_ENV` selects the file and
    defaults to `development`. Create `staging.toml`, `production.toml`, `testing.toml`, and so on.
 3. `local.toml` (optional): personal developer overrides, kept out of version control.
-4. Environment variables `LAT__SECTION__KEY`: override any value (e.g. `LAT__DATABASE__URL`). `LAT`
-   is the default prefix; an application can set its own to namespace its variables.
+4. Environment variables `<PREFIX>__SECTION__KEY`: override any value (e.g. `LAT__DATABASE__URL`).
+   The prefix is `LAT` unless the application declares its own as `app.env_prefix`; the `lat`
+   command reads that declaration too, so the application and the tooling always agree.
 
 So `APP_ENV=production` loads `default.toml` then `production.toml`. A `secure_cookie = true` in
 `production.toml` turns the Secure cookie on only in that environment; environment variables win
@@ -25,6 +26,7 @@ over all files, which suits secrets and container deployments.
 ```toml
 [app]
 name = "Acme Blog"               # display name, the baseline admin brand
+env_prefix = "LAT"               # prefix of the overriding environment variables (LAT__SECTION__KEY)
 # url = "https://acme.example"   # public base URL for absolute links; derived from listen when unset
 
 [server]
@@ -48,6 +50,15 @@ failure_window_secs = 900        # window the failures are counted over
 ```
 
 Every `[auth]` and `[backend]` key is optional and falls back to a built-in default when omitted.
+
+## How `lat` finds the application
+
+Every `lat` command that acts on an application locates it by walking up from the current
+directory to the nearest `config/default.toml`, so it works from any subdirectory. What the
+application already states is read from there: `lat doctor` and `lat serve` load its configuration
+under its declared prefix, and `lat admin` takes the database URL from `--database-url`, then
+`DATABASE_URL`, then the application's `database.url`. A command asks for a flag only for what it
+cannot find.
 
 ## What is not configured here
 

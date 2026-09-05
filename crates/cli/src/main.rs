@@ -18,13 +18,15 @@ mod i18n;
 mod make;
 mod new;
 mod plugin;
+mod project;
 mod serve;
 
 #[derive(Parser)]
 #[command(name = "lat", version, about = "The Laterite command-line tool")]
 struct Cli {
     /// Database connection URL (Postgres, MySQL, or SQLite). Falls back to the
-    /// DATABASE_URL environment variable.
+    /// DATABASE_URL environment variable, then to the configuration of the
+    /// application found from the current directory upward.
     #[arg(long, global = true, env = "DATABASE_URL")]
     database_url: Option<String>,
 
@@ -168,15 +170,32 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
 }
 
 async fn connect(database_url: Option<String>) -> Result<Db> {
-    let url = database_url.context("no database URL: pass --database-url or set DATABASE_URL")?;
-    let config = DatabaseConfig {
-        url,
-        max_connections: 5,
-        acquire_timeout_secs: 5,
+    let config = match database_url {
+        Some(url) => DatabaseConfig {
+            url,
+            max_connections: 5,
+            acquire_timeout_secs: 5,
+        },
+        None => database_from_project()?,
     };
     laterite_core::db::connect(&config)
         .await
         .context("could not connect to the database")
+}
+
+/// The database settings of the application found from the current directory
+/// upward, for when neither `--database-url` nor `DATABASE_URL` is given.
+fn database_from_project() -> Result<DatabaseConfig> {
+    #[derive(serde::Deserialize)]
+    struct DatabaseOnly {
+        database: DatabaseConfig,
+    }
+    let project = project::Project::locate().context(
+        "no database URL: pass --database-url, set DATABASE_URL, or run inside a Laterite \
+         application",
+    )?;
+    let config: DatabaseOnly = project.load()?;
+    Ok(config.database)
 }
 
 /// Resolves the password from an explicit value, a generated one, or an
