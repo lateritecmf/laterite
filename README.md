@@ -117,4 +117,5 @@ The guide is an mdBook under `docs/`; the API reference is rustdoc on each crate
 
 ## License
 
-Licensed under either the MIT license or the Apache License 2.0, at your option.
+Licensed under either the MIT license or the Apache License 2.0, at your option:
+see [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).

@@ -14,6 +14,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   configuration when neither `--database-url` nor `DATABASE_URL` is set.
 - `app.env_prefix` declares the environment-override prefix once, for the
   application and every `lat` command.
+- The MIT and Apache-2.0 license texts ship in the repository.
 
 ### Fixed
 
