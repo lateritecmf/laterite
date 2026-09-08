@@ -16,6 +16,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The generic form flashes on success, which only the roles form did before.
 - The role editor submits through HTMX on the same contract, so a rejected code
   or name re-renders the permission editor in place with the ticks intact.
+- Request feedback across the admin: a top progress bar while a request is in
+  flight, a disabled submit button for the round trip, and a toast when a request
+  fails, which htmx would otherwise discard in silence.
+- `window.lat.flash(text, level)` raises a toast from a screen's own script.
 
 ### Changed
 

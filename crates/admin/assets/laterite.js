@@ -80,6 +80,71 @@ document.addEventListener('htmx:beforeSwap', function (e) {
   document.addEventListener('htmx:load', function (ev) { scan(ev.target); });
 })();
 
+// Raises a toast from script, matching the server-rendered flash markup so both
+// look and dismiss the same.
+window.lat.flash = function (text, level) {
+  var box = document.querySelector('.lat-flashes');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'lat-flashes';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    document.body.insertBefore(box, document.body.firstChild);
+  }
+  var toast = document.createElement('div');
+  toast.className = 'lat-flash is-' + (level || 'error');
+  var label = document.createElement('span');
+  label.className = 'lat-flash__text';
+  label.textContent = text;
+  var close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'lat-flash__close';
+  close.innerHTML = '&times;';
+  close.addEventListener('click', function () { latDismissFlash(close); });
+  toast.appendChild(label);
+  toast.appendChild(close);
+  box.appendChild(toast);
+};
+
+// A response htmx will not swap is otherwise swallowed, so a 500 or a dropped
+// connection leaves the click with no outcome. The 422 above marks itself
+// not-an-error, so a form's own validation errors never reach this.
+function latRequestFailed() {
+  window.lat.flash(document.body.getAttribute('data-lat-request-error') || 'Request failed.', 'error');
+}
+document.addEventListener('htmx:responseError', latRequestFailed);
+document.addEventListener('htmx:sendError', latRequestFailed);
+
+// Top progress bar: shown while any htmx request is in flight. The bar creeps
+// toward the right while waiting, since the real duration is unknown.
+(function () {
+  var inflight = 0;
+  var bar = null;
+  var timer = null;
+  function element() {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'lat-progress';
+      document.body.appendChild(bar);
+    }
+    return bar;
+  }
+  document.addEventListener('htmx:beforeRequest', function () {
+    inflight++;
+    clearTimeout(timer);
+    var b = element();
+    b.classList.remove('is-done');
+    b.classList.add('is-active');
+  });
+  document.addEventListener('htmx:afterRequest', function () {
+    inflight = Math.max(0, inflight - 1);
+    if (inflight > 0) return;
+    var b = element();
+    b.classList.add('is-done');
+    timer = setTimeout(function () { b.classList.remove('is-active', 'is-done'); }, 220);
+  });
+})();
+
 // Flash toasts: auto-dismiss non-error messages after a few seconds.
 window.lat.widget('flash', function (el) {
   if (el.classList.contains('is-error')) return;

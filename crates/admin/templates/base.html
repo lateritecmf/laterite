@@ -16,7 +16,7 @@
   {% for a in shell.assets %}{% if a.css %}<link rel="stylesheet" href="{{ a.url }}" data-lat-asset="{{ a.url }}">{% else %}<script defer src="{{ a.url }}" data-lat-asset="{{ a.url }}"></script>{% endif %}
   {% endfor %}
 </head>
-<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}'>
+<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}'>
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">
     {% for f in shell.flash %}

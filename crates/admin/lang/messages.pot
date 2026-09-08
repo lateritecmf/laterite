@@ -409,6 +409,10 @@ msgstr ""
 msgid "Something went wrong"
 msgstr ""
 
+#: templates/base.html
+msgid "Something went wrong. Please try again."
+msgstr ""
+
 #: templates/plugins.html
 msgid "Status"
 msgstr ""

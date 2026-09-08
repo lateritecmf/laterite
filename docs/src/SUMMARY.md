@@ -18,6 +18,7 @@
 - [Errors](extend/errors.md)
 - [Localization](extend/localization.md)
 - [Screens and Routes](extend/screens-and-routes.md)
+- [Admin Interactivity](extend/admin-interactivity.md)
 - [Model Listeners](extend/model-listeners.md)
 - [Audit Log](extend/audit-log.md)
 - [Sessions and CSRF](extend/sessions.md)
