@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-09
+
+Three steps: the record layer (writes run through one transaction with lifecycle
+listeners and a named actor), plugin screens and routing (a module mounts its own
+admin screens and public routes, and every contributed path is resolved and
+checked for collisions), and the typed form contract (a field type decides what it
+stores and shows). Plus the CLI and licensing work that had been waiting.
+
 ### Added
 
 - `lat` commands find the application from any subdirectory (the nearest

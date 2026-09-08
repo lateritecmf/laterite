@@ -540,8 +540,8 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
             admin = root.join("crates/admin").display().to_string(),
         ),
         None => format!(
-            "laterite-core = \"0.3\"\n\
-             laterite-admin = {{ version = \"0.3\", features = [\"{feature}\"] }}"
+            "laterite-core = \"0.4\"\n\
+             laterite-admin = {{ version = \"0.4\", features = [\"{feature}\"] }}"
         ),
     };
     format!(
@@ -718,8 +718,8 @@ mod tests {
     #[test]
     fn cargo_toml_uses_published_versions_by_default() {
         let toml = cargo_toml("acme", "sqlite", None);
-        assert!(toml.contains("laterite-core = \"0.3\""));
-        assert!(toml.contains("laterite-admin = { version = \"0.3\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("laterite-core = \"0.4\""));
+        assert!(toml.contains("laterite-admin = { version = \"0.4\", features = [\"sqlite\"] }"));
         assert!(!toml.contains("path ="));
         // laterite-auth is no longer a direct dependency (Bootstrap owns auth).
         assert!(!toml.contains("laterite-auth"));
