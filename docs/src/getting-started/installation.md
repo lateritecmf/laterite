@@ -63,12 +63,14 @@ convention:
 ```text
 acme/
 ├── Cargo.toml
+├── README.md
+├── .gitignore
 ├── config/
 │   ├── default.toml     # committed defaults (app name, listen address, timezone)
 │   └── local.toml       # git-ignored; holds the database URL
 ├── src/
 │   ├── main.rs          # hands off to Bootstrap: config, connect, migrate, serve
-│   └── migrations/      # this application's own migrations (empty to start)
+│   └── migrations/      # this application's module and its own migrations
 └── storage/             # runtime data (the SQLite file, and later cache/logs)
 ```
 
@@ -80,8 +82,7 @@ serves the admin:
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     laterite_admin::Bootstrap::new("config")
-        .app_migrations(vec![migrations::migrations()])
-        // .resources(...).settings(...).permissions(...)
+        .module(migrations::AppModule)
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
         .serve()
         .await
@@ -89,11 +90,36 @@ async fn main() -> anyhow::Result<()> {
 ```
 
 Keeping the boot behind `Bootstrap` means framework internals can change without
-touching `main.rs`. The builder is where an application registers its own resources (list/form
-screens), [settings models](../extend/settings.md), and
-[permissions](../extend/permissions.md), and `extend` merges its own routes (a
-public API, web pages) onto the admin router; an application with none yet
-registers nothing.
+touching `main.rs`.
+
+The application reaches the framework as a **module**. `src/migrations/mod.rs`
+defines `AppModule`, which carries the application's migrations and, from its
+`register` method, everything it contributes to the admin: resources (list and
+form screens), [settings models](../extend/settings.md), and
+[permissions](../extend/permissions.md). A generated application contributes
+nothing yet, so `register` is left at its default.
+
+```rust
+impl laterite_core::Module for AppModule {
+    fn id(&self) -> laterite_core::ModuleId {
+        laterite_core::ModuleId::new(MODULE_ID)
+    }
+    fn migrations(&self) -> laterite_core::MigrationSet {
+        migrations()
+    }
+    fn register(&self, registry: &mut laterite_core::Registry) {
+        use laterite_admin::AdminRegistry;
+        // registry.add_resource(..);
+        // registry.add_permission(..);
+        // registry.add_settings(..);
+    }
+}
+```
+
+Registering through a module means the application, a plugin, and the framework
+itself all contribute the same way, and each one's migrations run in dependency
+order. `Bootstrap::extend` is separate: it merges an application's own routes (a
+public API, web pages) onto the admin router.
 
 ## The application name and brand
 

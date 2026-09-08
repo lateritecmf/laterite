@@ -64,8 +64,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `lat make:migration`.
 - Config: `server.listen`, `app.url`, `app.locale`, `app.debug`, and
   `backend.path` to relocate the admin panel.
-- Core helpers: `insert_returning_id_on` for transactional inserts,
-  `AnyRowExt::get_int`, and `like_escape`.
+- Core helpers: `insert_returning_id_on` for transactional inserts and
+  `AnyRowExt::get_int`.
 
 ### Fixed
 
