@@ -16,6 +16,7 @@ use axum::response::Response;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
+use laterite_core::search::SearchProfile;
 use laterite_core::{AnyRowExt, Db, Text};
 use sea_query::{Alias, Expr, Order, Query};
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,10 @@ pub struct ListColumn {
     pub label: Text,
     /// The column-type registry key (`text`, `date`, `boolean`, `status_pill`, ...).
     pub column_type: String,
+    /// Whether the list's search box looks in this column. `None` follows the
+    /// column type: text columns are searched, the rest are not, because a
+    /// substring match on a boolean or a stored timestamp answers nonsense.
+    pub searchable: Option<bool>,
 }
 
 impl ListColumn {
@@ -50,6 +55,7 @@ impl ListColumn {
             field: field.to_string(),
             label: label.into(),
             column_type: "text".to_string(),
+            searchable: None,
         }
     }
 
@@ -77,6 +83,17 @@ impl ListColumn {
     /// Render as a coloured status pill.
     pub fn pill(self) -> Self {
         self.of("status_pill")
+    }
+
+    /// Overrides whether the search box looks in this column.
+    pub fn searchable(mut self, searchable: bool) -> Self {
+        self.searchable = Some(searchable);
+        self
+    }
+
+    /// Whether search looks here: the explicit choice, else text columns only.
+    pub(crate) fn is_searchable(&self) -> bool {
+        self.searchable.unwrap_or(self.column_type == "text")
     }
 }
 
@@ -339,6 +356,7 @@ pub struct ListParams {
     page: Option<i64>,
     sort: Option<String>,
     dir: Option<String>,
+    q: Option<String>,
 }
 
 /// The ordering a request resolves to: the submitted `sort` when it names a
@@ -373,6 +391,35 @@ pub struct ListPage {
     pub total: i64,
 }
 
+/// What one list request asks for: the page window, the resolved ordering, and
+/// the search term (empty for no search).
+pub(crate) struct ListQuery<'a> {
+    pub offset: i64,
+    pub order_by: &'a str,
+    pub order_dir: SortDir,
+    pub q: &'a str,
+}
+
+/// The condition matching `q` across the searchable columns, or `None` when
+/// there is nothing to match: a blank term, a term that folds away, or a list
+/// whose columns are all unsearchable.
+fn search_condition(config: &ListConfig, q: &str) -> Option<sea_query::Condition> {
+    // Capability-gated matchers are deferred (adr/0017) and `Db` carries no
+    // capability set yet, so the portable default applies. Descriptor-named
+    // profiles are PR4; until then a list folds case, like the picker.
+    let caps = laterite_core::capabilities::CapabilitySet::default();
+    let profile = SearchProfile::new();
+    let mut any = sea_query::Condition::any();
+    let mut matched = false;
+    for column in config.columns.iter().filter(|c| c.is_searchable()) {
+        if let Some(cond) = profile.condition(&caps, &column.field, q) {
+            any = any.add(cond);
+            matched = true;
+        }
+    }
+    matched.then_some(any)
+}
+
 /// Runs the list query for a config, returning display-ready rows and the total.
 /// Built with `sea-query` and dynamic identifiers (`Alias`), and every selected
 /// column is cast to text so a value of any type reads back uniformly as a
@@ -380,20 +427,18 @@ pub struct ListPage {
 pub(crate) async fn query(
     db: &Db,
     config: &ListConfig,
-    offset: i64,
-    order_by: &str,
-    order_dir: SortDir,
+    req: &ListQuery<'_>,
 ) -> anyhow::Result<ListPage> {
     if !valid_ident(&config.entity)
         || !valid_ident(&config.order_by)
-        || !valid_ident(order_by)
+        || !valid_ident(req.order_by)
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
 
-    let dir = match order_dir {
+    let dir = match req.order_dir {
         SortDir::Asc => Order::Asc,
         SortDir::Desc => Order::Desc,
     };
@@ -414,9 +459,12 @@ pub(crate) async fn query(
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
-            .order_by(Alias::new(order_by), dir)
+            .order_by(Alias::new(req.order_by), dir)
             .limit(config.per_page.max(0) as u64)
-            .offset(offset.max(0) as u64);
+            .offset(req.offset.max(0) as u64);
+        if let Some(cond) = search_condition(config, req.q) {
+            select.cond_where(cond);
+        }
         build(db.backend, select)
     };
     let raw = bind_values(sqlx::query(&sql), values)
@@ -424,10 +472,14 @@ pub(crate) async fn query(
         .await?;
 
     let (csql, cvalues) = {
-        let count = Query::select()
+        let mut count = Query::select();
+        count
             .expr(Expr::col(Alias::new(&config.id_field)).count())
-            .from(Alias::new(&config.entity))
-            .to_owned();
+            .from(Alias::new(&config.entity));
+        // The same filter, so the pager counts what the search returns.
+        if let Some(cond) = search_condition(config, req.q) {
+            count.cond_where(cond);
+        }
         build(db.backend, count)
     };
     let total: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&csql), cvalues)
@@ -461,6 +513,7 @@ fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
 pub(crate) async fn handle(
     state: &AdminState,
     config: &ListConfig,
+    path: &str,
     params: ListParams,
     shell: crate::Shell,
     headers: &axum::http::HeaderMap,
@@ -468,7 +521,14 @@ pub(crate) async fn handle(
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
-    match query(&state.db, config, offset, &order_by, order_dir).await {
+    let q = params.q.unwrap_or_default();
+    let req = ListQuery {
+        offset,
+        order_by: &order_by,
+        order_dir,
+        q: q.trim(),
+    };
+    match query(&state.db, config, &req).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
             let date_loc = date_locale(shell.locale());
@@ -555,6 +615,9 @@ pub(crate) async fn handle(
                 creatable: config.creatable,
                 sort: order_by,
                 dir: active_dir.to_string(),
+                q: q.trim().to_string(),
+                searchable: config.columns.iter().any(|c| c.is_searchable()),
+                path: path.to_string(),
             };
             // An htmx request gets the list region alone, which replaces itself in
             // place; anything else gets the whole page, so sorting and paging still
@@ -571,6 +634,7 @@ pub(crate) async fn handle(
                     edit_base: page_view.edit_base,
                     sort: page_view.sort,
                     dir: page_view.dir,
+                    q: page_view.q,
                 })
             } else {
                 render(page_view)
@@ -606,6 +670,12 @@ struct ListTemplate {
     /// The active ordering, carried on the pager links so paging keeps the sort.
     sort: String,
     dir: String,
+    /// The active search term, shown in the box and carried on every link.
+    q: String,
+    /// Whether any column is searchable, so the box appears at all.
+    searchable: bool,
+    /// This list's own path, for the search form to post back to.
+    path: String,
 }
 
 /// The list region alone, for an htmx sort or page that swaps it in place.
@@ -622,6 +692,7 @@ struct ListFragment {
     edit_base: Option<String>,
     sort: String,
     dir: String,
+    q: String,
 }
 
 #[cfg(test)]
@@ -634,7 +705,7 @@ mod tests {
             title: "Users".into(),
             columns: vec![
                 ListColumn::new("username", "Username"),
-                ListColumn::new("is_superuser", "Superuser"),
+                ListColumn::new("is_superuser", "Superuser").yes_no(),
             ],
             order_by: "created_at".to_string(),
             order_dir: SortDir::Desc,
@@ -764,7 +835,7 @@ mod tests {
         .unwrap();
 
         let c = config();
-        let result = query(&db, &c, 0, &c.order_by, c.order_dir).await.unwrap();
+        let result = query(&db, &c, &plain(&c)).await.unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].cells[0], "root");
@@ -780,7 +851,15 @@ mod tests {
             laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db,
         );
-        let resp = handle(&state, &config(), params, crate::Shell::test(), &headers).await;
+        let resp = handle(
+            &state,
+            &config(),
+            "/admin/users",
+            params,
+            crate::Shell::test(),
+            &headers,
+        )
+        .await;
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -792,7 +871,94 @@ mod tests {
             page: None,
             sort: sort.map(|s| s.to_string()),
             dir: Some("asc".to_string()),
+            q: None,
         }
+    }
+
+    /// The default window and ordering, with no search.
+    fn plain(config: &ListConfig) -> ListQuery<'_> {
+        ListQuery {
+            offset: 0,
+            order_by: &config.order_by,
+            order_dir: config.order_dir,
+            q: "",
+        }
+    }
+
+    fn searched<'a>(config: &'a ListConfig, q: &'a str) -> ListQuery<'a> {
+        ListQuery {
+            offset: 0,
+            order_by: &config.order_by,
+            order_dir: config.order_dir,
+            q,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_filters_rows_and_the_total() {
+        let (db, _guard) = test_db().await;
+        for name in ["ada", "brendan", "clara"] {
+            let hash = laterite_auth::password::hash_password("x").unwrap();
+            laterite_auth::store::create_user(
+                &db,
+                name,
+                &format!("{name}@example.test"),
+                name,
+                None,
+                &hash,
+                false,
+            )
+            .await
+            .unwrap();
+        }
+        let c = config();
+
+        let hit = query(&db, &c, &searched(&c, "bren")).await.unwrap();
+        assert_eq!(hit.rows.len(), 1);
+        assert_eq!(hit.rows[0].cells[0], "brendan");
+        // The pager counts the filtered set, not the table.
+        assert_eq!(hit.total, 1);
+
+        // Case folds, as the picker's default profile does.
+        assert_eq!(
+            query(&db, &c, &searched(&c, "BREN")).await.unwrap().total,
+            1
+        );
+
+        // A blank term is no filter, not a filter matching nothing.
+        assert_eq!(query(&db, &c, &searched(&c, "")).await.unwrap().total, 3);
+        assert_eq!(query(&db, &c, &searched(&c, "   ")).await.unwrap().total, 3);
+
+        // A LIKE wildcard is literal, so it does not match every row.
+        assert_eq!(query(&db, &c, &searched(&c, "%")).await.unwrap().total, 0);
+    }
+
+    /// Only text columns are searched by default: a substring match against a
+    /// boolean would make every row containing `1` a hit.
+    #[tokio::test]
+    async fn search_skips_a_non_text_column() {
+        let (db, _guard) = test_db().await;
+        let hash = laterite_auth::password::hash_password("x").unwrap();
+        laterite_auth::store::create_user(&db, "ada", "a@example.test", "Ada", None, &hash, true)
+            .await
+            .unwrap();
+        let c = config();
+        assert!(c.columns[0].is_searchable(), "username is text");
+        assert!(!c.columns[1].is_searchable(), "is_superuser is a boolean");
+        // The stored superuser flag is `1`, but searching it finds nothing.
+        assert_eq!(query(&db, &c, &searched(&c, "1")).await.unwrap().total, 0);
+    }
+
+    #[test]
+    fn a_column_can_override_its_searchability() {
+        assert!(ListColumn::new("code", "Code").is_searchable());
+        assert!(!ListColumn::new("code", "Code")
+            .searchable(false)
+            .is_searchable());
+        assert!(ListColumn::new("at", "At")
+            .datetime()
+            .searchable(true)
+            .is_searchable());
     }
 
     #[tokio::test]
@@ -805,6 +971,23 @@ mod tests {
         // A fragment, not a page: swapping a document into the region would nest
         // the admin inside itself.
         assert!(!html.contains("<body"), "no page chrome");
+    }
+
+    /// A sort or a page must not silently drop the search, or the second click
+    /// would widen the result back to the whole table.
+    #[tokio::test]
+    async fn the_search_term_survives_a_sort_link() {
+        let mut p = params(Some("username"));
+        p.q = Some("bren".to_string());
+        let html = get(p, axum::http::HeaderMap::new()).await;
+        assert!(
+            html.contains("&amp;q=bren"),
+            "sort and pager links carry the term"
+        );
+        assert!(
+            html.contains(r#"value="bren""#),
+            "and the box still shows it"
+        );
     }
 
     #[tokio::test]
@@ -821,8 +1004,6 @@ mod tests {
         let (db, _guard) = test_db().await;
         let mut bad = config();
         bad.entity = "backend_users; drop table backend_users".to_string();
-        assert!(query(&db, &bad, 0, "created_at", SortDir::Desc)
-            .await
-            .is_err());
+        assert!(query(&db, &bad, &plain(&bad)).await.is_err());
     }
 }

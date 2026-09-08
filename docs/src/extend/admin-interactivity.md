@@ -45,6 +45,13 @@ on the sorted column flips it. Only a column the descriptor declares can be
 sorted: a `sort` naming anything else falls back to the descriptor's own order,
 so the query never orders by an arbitrary column.
 
+The search box asks as you type, on a short debounce, and sits outside the
+swapped region so a result never steals the caret. It looks in the columns the
+descriptor marks searchable, which by default means the text ones: a substring
+match against a boolean or a stored timestamp answers nonsense. Override it per
+column with `ListColumn::searchable`. A sort or a page keeps the term, and a
+blank term is no filter rather than a filter matching nothing.
+
 With scripting off the headers and pager stay ordinary links, and the same
 handler answers the whole page.
 
@@ -78,5 +85,5 @@ whose assets are not already on the page.
 
 ## What is not built yet
 
-A confirm dialog for destructive actions, and list filters and search. Both are
-planned; a screen needing one today does it with a full page load.
+A confirm dialog for destructive actions, and list filters. Both are planned; a
+screen needing one today does it with a full page load.

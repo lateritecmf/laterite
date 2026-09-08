@@ -3,6 +3,19 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
+  {% if searchable %}
+  {# A GET form, so Enter searches with scripting off. With htmx it asks as you
+     type. The box sits outside #lat-list, so a swap never steals the caret. #}
+  <form class="lat-search" method="get" action="{{ path }}"
+        hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:find input[name='q'], search from:find input[name='q'], submit">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <input class="lat-input lat-search__input" type="search" name="q" value="{{ q }}"
+           placeholder='{{ shell.t("Search") }}' aria-label='{{ shell.t("Search") }}'>
+    <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Search") }}</button></noscript>
+  </form>
+  {% endif %}
   {% if creatable %}{% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ {{ shell.t("New") }}</a></div>{% endif %}{% endif %}
 </div>
 {% include "_list_table.html" %}

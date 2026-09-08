@@ -30,6 +30,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- List search. A box in the toolbar filters as you type, across the columns the
+  descriptor marks searchable (text columns by default; `ListColumn::searchable`
+  overrides). It sits outside the swapped region so it keeps the caret, the term
+  survives a sort or a page, and a blank term is no filter. With scripting off it
+  is a GET form and Enter searches.
 
 ### Changed
 

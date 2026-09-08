@@ -1227,6 +1227,7 @@ fn mount_resource(
         );
     }
     let base = resource.base_path.clone();
+    let list_path = base.clone();
     let list_cfg = resource.list.clone();
     let mut router = Router::new().route(
         &base,
@@ -1236,7 +1237,8 @@ fn mount_resource(
                   Query(params): Query<list::ListParams>,
                   headers: axum::http::HeaderMap| {
                 let cfg = list_cfg.clone();
-                async move { list::handle(&state, &cfg, params, shell, &headers).await }
+                let path = list_path.clone();
+                async move { list::handle(&state, &cfg, &path, params, shell, &headers).await }
             },
         ),
     );

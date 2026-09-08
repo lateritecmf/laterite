@@ -252,6 +252,10 @@ msgid "No plugins installed."
 msgstr ""
 
 #: templates/_list_table.html
+msgid "No records match your search."
+msgstr ""
+
+#: templates/_list_table.html
 msgid "No records."
 msgstr ""
 
@@ -371,6 +375,10 @@ msgstr ""
 
 #: src/form.rs
 msgid "Saved."
+msgstr ""
+
+#: templates/list.html
+msgid "Search"
 msgstr ""
 
 #: templates/setup.html

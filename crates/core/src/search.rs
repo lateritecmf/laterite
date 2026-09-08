@@ -385,7 +385,9 @@ impl SearchProfile {
     /// `LIKE` and capped at [`MAX_CANDIDATES`]. Empty when the query folds away
     /// to nothing, which a caller reads as "match nothing".
     pub fn candidates(&self, q: &str) -> Vec<String> {
-        let folded = self.chain.fold(q);
+        // Trim before folding: a chain without `Whitespace` would otherwise turn
+        // a run of spaces into a real term matching nothing.
+        let folded = self.chain.fold(q.trim());
         if folded.is_empty() {
             return Vec::new();
         }
@@ -553,6 +555,8 @@ mod tests {
         assert!(SearchProfile::folding().candidates("").is_empty());
         // Punctuation-only folds away to nothing, which is not a match-everything.
         assert!(SearchProfile::folding().candidates("!!!").is_empty());
+        // Whitespace-only too, even on a profile whose chain does not fold it.
+        assert!(SearchProfile::new().candidates("   ").is_empty());
     }
 
     #[test]

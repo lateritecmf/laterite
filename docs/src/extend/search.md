@@ -64,6 +64,13 @@ expansions, escaped for `LIKE` and capped at `MAX_CANDIDATES`. Each candidate
 becomes one OR'd `LIKE`, and a leading-wildcard `LIKE` is a scan, so the cap
 bounds the cost.
 
+## Where it is used
+
+A picker source matches through a profile (`TableSource::with_search`), and a
+list's search box matches across the columns marked searchable, which defaults to
+the text ones. Both use the case-folding default today; naming a richer profile
+from a descriptor comes with the profile registry.
+
 ## Matching
 
 `condition(caps, column, q)` builds the `sea_query` condition. `LikeMatcher` is
