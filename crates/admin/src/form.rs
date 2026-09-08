@@ -626,6 +626,7 @@ mod tests {
     };
     use laterite_core::testing::{connect_test, TestGuard};
     use laterite_core::Db;
+    use laterite_core::SaveCx;
 
     /// A minimal table for exercising the generic insert/update path in isolation,
     /// defined as a portable migration so the test runs on any backend.
@@ -932,33 +933,28 @@ mod tests {
         assert!(err.contains("`email`"), "{err}");
     }
 
-    /// A persister that inserts a row then fails, without committing, so its own
-    /// transaction must roll the insert back.
+    /// A persister that inserts a row then fails. The pipeline owns the
+    /// transaction, so the insert must roll back with it.
     struct RollbackPersister;
     #[laterite_core::strata::async_trait]
     impl Persister for RollbackPersister {
-        async fn create(&self, db: &laterite_core::Db, _rec: &Record) -> Result<i64, SaveError> {
-            let mut tx = db
-                .pool
-                .begin()
-                .await
-                .map_err(|e| SaveError::Failed(e.to_string()))?;
+        async fn create(&self, cx: &mut SaveCx<'_>, _rec: &Record) -> Result<i64, SaveError> {
+            let backend = cx.backend();
             let insert = Query::insert()
                 .into_table(Alias::new("samples"))
                 .columns([Alias::new("code"), Alias::new("name")])
                 .values_panic(["rolled".into(), "back".into()])
                 .to_owned();
-            let (sql, values) = to_sql(db.backend, insert);
+            let (sql, values) = to_sql(backend, insert);
             bind_values(sqlx::query(&sql), values)
-                .execute(&mut *tx)
+                .execute(cx.conn())
                 .await
                 .map_err(|e| SaveError::Failed(e.to_string()))?;
-            // Return before commit: the transaction drops and rolls back.
             Err(SaveError::Failed("deliberate".to_string()))
         }
         async fn update(
             &self,
-            _db: &laterite_core::Db,
+            _cx: &mut SaveCx<'_>,
             _id: &str,
             _rec: &Record,
         ) -> Result<(), SaveError> {
@@ -970,14 +966,14 @@ mod tests {
     struct RejectingPersister;
     #[laterite_core::strata::async_trait]
     impl Persister for RejectingPersister {
-        async fn create(&self, _db: &laterite_core::Db, _rec: &Record) -> Result<i64, SaveError> {
+        async fn create(&self, _cx: &mut SaveCx<'_>, _rec: &Record) -> Result<i64, SaveError> {
             let mut bag = ErrorBag::default();
             bag.add("code", t!("Code is not allowed here."));
             Err(SaveError::Invalid(bag))
         }
         async fn update(
             &self,
-            _db: &laterite_core::Db,
+            _cx: &mut SaveCx<'_>,
             _id: &str,
             _rec: &Record,
         ) -> Result<(), SaveError> {

@@ -19,6 +19,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::migration::DbBackend;
 use crate::validation::ErrorBag;
 use crate::Db;
 
@@ -195,6 +196,7 @@ pub struct Record {
     entity: String,
     id: Option<i64>,
     attrs: BTreeMap<String, AttrValue>,
+    original: Option<BTreeMap<String, AttrValue>>,
 }
 
 impl Record {
@@ -204,6 +206,7 @@ impl Record {
             entity: entity.into(),
             id: None,
             attrs: BTreeMap::new(),
+            original: None,
         }
     }
 
@@ -213,6 +216,7 @@ impl Record {
             entity: entity.into(),
             id: Some(id),
             attrs: BTreeMap::new(),
+            original: None,
         }
     }
 
@@ -299,6 +303,34 @@ impl Record {
         self.get(key).and_then(AttrValue::as_json)
     }
 
+    /// Records the row as it stood before this write, read inside the same
+    /// transaction. The pipeline sets it on an update when the persister can
+    /// supply one.
+    pub fn set_original(&mut self, previous: Record) {
+        self.original = Some(previous.attrs);
+    }
+
+    /// Whether a pre-write snapshot is available. A create never has one, and
+    /// neither does an update whose persister does not supply one.
+    pub fn has_original(&self) -> bool {
+        self.original.is_some()
+    }
+
+    /// The pre-write value at `key`.
+    pub fn original(&self, key: &str) -> Option<&AttrValue> {
+        self.original.as_ref().and_then(|prev| prev.get(key))
+    }
+
+    /// Whether this write changes `key`. Always false without a snapshot, so a
+    /// change-based listener should check [`Record::has_original`] first rather
+    /// than read "unchanged" into its absence.
+    pub fn changed(&self, key: &str) -> bool {
+        match (&self.original, self.attrs.get(key)) {
+            (Some(prev), Some(next)) => prev.get(key) != Some(next),
+            _ => false,
+        }
+    }
+
     /// Reads the attributes into a struct, for code that would rather work with
     /// types than a bag. Attributes the target does not name are ignored.
     pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
@@ -332,6 +364,33 @@ impl Record {
     }
 }
 
+/// The open transaction a save runs in, shared by the listeners and the
+/// persister so a read sees the in-flight write.
+///
+/// Holding a transaction across listener code keeps the write consistent, at the
+/// cost of keeping it open: a listener should do its own work and return, not
+/// call out to a slow service.
+pub struct SaveCx<'c> {
+    backend: DbBackend,
+    conn: &'c mut sqlx::AnyConnection,
+}
+
+impl<'c> SaveCx<'c> {
+    pub fn new(backend: DbBackend, conn: &'c mut sqlx::AnyConnection) -> Self {
+        Self { backend, conn }
+    }
+
+    /// Which database this is, for the portable query helpers.
+    pub fn backend(&self) -> DbBackend {
+        self.backend
+    }
+
+    /// The transaction's connection. Every read and write in a save goes here.
+    pub fn conn(&mut self) -> &mut sqlx::AnyConnection {
+        self.conn
+    }
+}
+
 /// Which entities a listener runs for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListenerTarget {
@@ -361,14 +420,21 @@ impl ListenerTarget {
 /// belongs in the storage layer, not here.
 #[async_trait]
 pub trait ModelListener: Send + Sync + 'static {
-    /// Runs before the write. Returning an [`ErrorBag`] refuses it, and those
-    /// messages reach the operator against their fields.
-    async fn before_save(&self, db: &Db, rec: &mut Record, op: Op) -> Result<(), ErrorBag> {
-        let _ = (db, rec, op);
+    /// Runs before the write, inside the transaction, so a read here sees the
+    /// in-flight state. Returning an [`ErrorBag`] refuses the write and rolls it
+    /// back, and those messages reach the operator against their fields.
+    async fn before_save(
+        &self,
+        cx: &mut SaveCx<'_>,
+        rec: &mut Record,
+        op: Op,
+    ) -> Result<(), ErrorBag> {
+        let _ = (cx, rec, op);
         Ok(())
     }
 
-    /// Runs after a successful write, for side effects.
+    /// Runs after the transaction commits, for side effects. Not atomic with the
+    /// write: it cannot roll one back, and its own failure leaves the row saved.
     async fn after_save(&self, db: &Db, rec: &Record, op: Op) {
         let _ = (db, rec, op);
     }
@@ -546,6 +612,28 @@ mod tests {
         assert!(reg.matches("products"));
         assert!(!reg.matches("orders"));
         assert!(ModelListenerReg::all(Arc::new(Noop)).matches("orders"));
+    }
+
+    #[test]
+    fn a_snapshot_reports_what_this_write_changes() {
+        let mut previous = Record::with_id("products", 1);
+        previous.set("name", "Chair").set("stock", 4i64);
+
+        let mut rec = Record::with_id("products", 1);
+        rec.set("name", "Stool").set("stock", 4i64);
+        assert!(!rec.has_original());
+        // Without a snapshot nothing reads as changed, so a listener must ask.
+        assert!(!rec.changed("name"));
+
+        rec.set_original(previous);
+        assert!(rec.has_original());
+        assert!(rec.changed("name"));
+        assert!(!rec.changed("stock"), "an equal value is not a change");
+        assert!(!rec.changed("absent"));
+        assert_eq!(
+            rec.original("name").and_then(AttrValue::as_str),
+            Some("Chair")
+        );
     }
 
     #[test]

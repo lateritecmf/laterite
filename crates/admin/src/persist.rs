@@ -10,10 +10,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use laterite_core::query::{bind_values, build as to_sql, insert_returning_id, text_cast};
+use laterite_core::query::{bind_values, build as to_sql, insert_returning_id_on, text_cast};
 use laterite_core::strata::async_trait;
 use laterite_core::validation::ErrorBag;
-use laterite_core::{AttrValue, Db, ModelListener, Op, Record};
+use laterite_core::AnyRowExt;
+use laterite_core::{AttrValue, Db, ModelListener, Op, Record, SaveCx};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::form::FormConfig;
@@ -36,9 +37,17 @@ pub enum SaveError {
 #[async_trait]
 pub trait Persister: Send + Sync + 'static {
     /// Persists a new record, returning its id.
-    async fn create(&self, db: &Db, rec: &Record) -> Result<i64, SaveError>;
+    async fn create(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<i64, SaveError>;
     /// Persists an edit to the record with primary key `id`.
-    async fn update(&self, db: &Db, id: &str, rec: &Record) -> Result<(), SaveError>;
+    async fn update(&self, cx: &mut SaveCx<'_>, id: &str, rec: &Record) -> Result<(), SaveError>;
+
+    /// The row as it stands, read in the same transaction, so listeners can see
+    /// what an update changes. Returning `None` (the default) means this
+    /// persister supplies no snapshot and change-based listeners sit out.
+    async fn load(&self, cx: &mut SaveCx<'_>, id: &str) -> Result<Option<Record>, SaveError> {
+        let _ = (cx, id);
+        Ok(None)
+    }
 }
 
 /// Binds one attribute for the storage layer.
@@ -71,25 +80,72 @@ pub(crate) async fn save(
     op: Op,
     id: Option<&str>,
 ) -> Result<(), SaveError> {
+    let mut tx = db
+        .pool
+        .begin()
+        .await
+        .map_err(|e| SaveError::Failed(e.to_string()))?;
+
+    let outcome = save_in(&mut tx, db.backend, listeners, persister, rec, op, id).await;
+    match outcome {
+        Ok(()) => tx
+            .commit()
+            .await
+            .map_err(|e| SaveError::Failed(e.to_string()))?,
+        Err(e) => {
+            // A veto or a failed write rolls the whole save back, snapshot read
+            // included.
+            let _ = tx.rollback().await;
+            return Err(e);
+        }
+    }
+
+    // After the commit, so a listener here cannot roll the write back.
+    for listener in listeners {
+        listener.after_save(db, rec, op).await;
+    }
+    Ok(())
+}
+
+/// Everything a save does inside the transaction: read the pre-write row, run
+/// the listeners, then write.
+async fn save_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
+    backend: laterite_core::migration::DbBackend,
+    listeners: &[Arc<dyn ModelListener>],
+    persister: &dyn Persister,
+    rec: &mut Record,
+    op: Op,
+    id: Option<&str>,
+) -> Result<(), SaveError> {
+    let mut cx = SaveCx::new(backend, tx);
+
+    if op == Op::Update {
+        if let Some(id) = id {
+            if let Some(previous) = persister.load(&mut cx, id).await? {
+                rec.set_original(previous);
+            }
+        }
+    }
+
     for listener in listeners {
         listener
-            .before_save(db, rec, op)
+            .before_save(&mut cx, rec, op)
             .await
             .map_err(SaveError::Invalid)?;
     }
 
     match op {
-        Op::Create => rec.set_id(persister.create(db, rec).await?),
+        Op::Create => {
+            let new_id = persister.create(&mut cx, rec).await?;
+            rec.set_id(new_id);
+        }
         Op::Update => {
             let id = id.ok_or_else(|| SaveError::Failed("update without an id".to_string()))?;
-            persister.update(db, id, rec).await?;
+            persister.update(&mut cx, id, rec).await?;
         }
         // `Op` is non-exhaustive; a stage added later needs its arm here.
         _ => return Err(SaveError::Failed(format!("unsupported operation {op:?}"))),
-    }
-
-    for listener in listeners {
-        listener.after_save(db, rec, op).await;
     }
     Ok(())
 }
@@ -149,7 +205,7 @@ impl DefaultPersister {
 
 #[async_trait]
 impl Persister for DefaultPersister {
-    async fn create(&self, db: &Db, rec: &Record) -> Result<i64, SaveError> {
+    async fn create(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<i64, SaveError> {
         // The PK is database-assigned, so the insert never lists it. Scope the
         // builder so it drops before the await, keeping the future `Send`.
         let stmt = {
@@ -161,12 +217,14 @@ impl Persister for DefaultPersister {
                 .values_panic(vals)
                 .to_owned()
         };
-        insert_returning_id(db, stmt, Alias::new(&self.id_field))
+        let backend = cx.backend();
+        insert_returning_id_on(backend, cx.conn(), stmt, Alias::new(&self.id_field))
             .await
             .map_err(|e| SaveError::Failed(e.to_string()))
     }
 
-    async fn update(&self, db: &Db, id: &str, rec: &Record) -> Result<(), SaveError> {
+    async fn update(&self, cx: &mut SaveCx<'_>, id: &str, rec: &Record) -> Result<(), SaveError> {
+        let backend = cx.backend();
         let (sql, values) = {
             let mut update = Query::update();
             update.table(Alias::new(&self.entity));
@@ -175,16 +233,59 @@ impl Persister for DefaultPersister {
             }
             update.and_where(
                 Expr::col(Alias::new(&self.id_field))
-                    .cast_as(Alias::new(text_cast(db.backend)))
+                    .cast_as(Alias::new(text_cast(backend)))
                     .eq(id),
             );
-            to_sql(db.backend, update)
+            to_sql(backend, update)
         };
         bind_values(sqlx::query(&sql), values)
-            .execute(&db.pool)
+            .execute(cx.conn())
             .await
             .map(|_| ())
             .map_err(|e| SaveError::Failed(e.to_string()))
+    }
+
+    /// Reads the row's declared columns in the transaction, so a listener sees
+    /// what an update changes. Values come back as text, the shape `sqlx::Any`
+    /// gives for a mixed row.
+    async fn load(&self, cx: &mut SaveCx<'_>, id: &str) -> Result<Option<Record>, SaveError> {
+        let backend = cx.backend();
+        let (sql, values) = {
+            let mut select = Query::select();
+            select.from(Alias::new(&self.entity));
+            for column in &self.columns {
+                select.expr_as(
+                    Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(backend))),
+                    Alias::new(column),
+                );
+            }
+            select.and_where(
+                Expr::col(Alias::new(&self.id_field))
+                    .cast_as(Alias::new(text_cast(backend)))
+                    .eq(id),
+            );
+            to_sql(backend, select)
+        };
+        let row = bind_values(sqlx::query(&sql), values)
+            .fetch_optional(cx.conn())
+            .await
+            .map_err(|e| SaveError::Failed(e.to_string()))?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut previous = Record::new(&self.entity);
+        for column in &self.columns {
+            match row.get_text_opt(column) {
+                Ok(Some(v)) => {
+                    previous.set(column.clone(), v);
+                }
+                Ok(None) => {
+                    previous.set(column.clone(), AttrValue::Null);
+                }
+                Err(e) => return Err(SaveError::Failed(e.to_string())),
+            }
+        }
+        Ok(Some(previous))
     }
 }
 
@@ -203,14 +304,19 @@ mod pipeline_tests {
 
     #[async_trait]
     impl Persister for SpyPersister {
-        async fn create(&self, _db: &Db, rec: &Record) -> Result<i64, SaveError> {
+        async fn create(&self, _cx: &mut SaveCx<'_>, rec: &Record) -> Result<i64, SaveError> {
             self.seen
                 .lock()
                 .unwrap()
                 .push(("create".into(), rec.to_text_map()));
             Ok(42)
         }
-        async fn update(&self, _db: &Db, id: &str, rec: &Record) -> Result<(), SaveError> {
+        async fn update(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            id: &str,
+            rec: &Record,
+        ) -> Result<(), SaveError> {
             self.seen
                 .lock()
                 .unwrap()
@@ -228,7 +334,12 @@ mod pipeline_tests {
 
     #[async_trait]
     impl ModelListener for Stamp {
-        async fn before_save(&self, _db: &Db, rec: &mut Record, _op: Op) -> Result<(), ErrorBag> {
+        async fn before_save(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            rec: &mut Record,
+            _op: Op,
+        ) -> Result<(), ErrorBag> {
             rec.set(self.key, "set");
             Ok(())
         }
@@ -242,7 +353,12 @@ mod pipeline_tests {
 
     #[async_trait]
     impl ModelListener for Veto {
-        async fn before_save(&self, _db: &Db, _rec: &mut Record, _op: Op) -> Result<(), ErrorBag> {
+        async fn before_save(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            _rec: &mut Record,
+            _op: Op,
+        ) -> Result<(), ErrorBag> {
             let mut bag = ErrorBag::default();
             // A plain Text, not `t!`: a test fixture must not enter the catalog.
             bag.add("name", Text::new("Not allowed"));
@@ -442,6 +558,98 @@ mod pipeline_tests {
             bind(Some(&AttrValue::Text("Chair".into()))),
             Some("Chair".to_string()).into()
         );
+    }
+
+    /// Supplies a pre-write snapshot, as the built-in persister does.
+    struct SnapshotPersister;
+
+    #[async_trait]
+    impl Persister for SnapshotPersister {
+        async fn create(&self, _cx: &mut SaveCx<'_>, _rec: &Record) -> Result<i64, SaveError> {
+            Ok(1)
+        }
+        async fn update(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            _id: &str,
+            _rec: &Record,
+        ) -> Result<(), SaveError> {
+            Ok(())
+        }
+        async fn load(&self, _cx: &mut SaveCx<'_>, _id: &str) -> Result<Option<Record>, SaveError> {
+            let mut previous = Record::new("samples");
+            previous.set("name", "Chair");
+            Ok(Some(previous))
+        }
+    }
+
+    /// Reads the snapshot in `before_save` and records what it saw.
+    struct WatchChanges {
+        seen: Arc<Mutex<Vec<(bool, bool)>>>,
+    }
+
+    #[async_trait]
+    impl ModelListener for WatchChanges {
+        async fn before_save(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            rec: &mut Record,
+            _op: Op,
+        ) -> Result<(), ErrorBag> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push((rec.has_original(), rec.changed("name")));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_update_hands_listeners_the_pre_write_row() {
+        let (db, _guard) = connect_test(&[]).await;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let regs = vec![ModelListenerReg::all(Arc::new(WatchChanges {
+            seen: seen.clone(),
+        }))];
+        let mut rec = Record::with_id("samples", 1);
+        rec.set("name", "Stool");
+
+        save(
+            &db,
+            &listeners(&regs, "samples"),
+            &SnapshotPersister,
+            &mut rec,
+            Op::Update,
+            Some("1"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*seen.lock().unwrap(), [(true, true)]);
+    }
+
+    #[tokio::test]
+    async fn a_create_has_no_snapshot() {
+        let (db, _guard) = connect_test(&[]).await;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let regs = vec![ModelListenerReg::all(Arc::new(WatchChanges {
+            seen: seen.clone(),
+        }))];
+        let mut rec = Record::new("samples");
+        rec.set("name", "Chair");
+
+        save(
+            &db,
+            &listeners(&regs, "samples"),
+            &SnapshotPersister,
+            &mut rec,
+            Op::Create,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*seen.lock().unwrap(), [(false, false)]);
     }
 
     #[tokio::test]

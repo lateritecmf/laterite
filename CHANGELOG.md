@@ -25,9 +25,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
-- **Breaking**: `Persister::create` and `Persister::update` take a `Record`
-  instead of a text map, so a persister reads typed values. `rec.to_text_map()`
-  gives the previous shape.
+- **Breaking**: a form write runs in one transaction the framework owns.
+  `Persister::create` and `update` take a `SaveCx` (that transaction) and a
+  `Record` instead of a database handle and a text map, and a persister no longer
+  opens its own transaction. `rec.to_text_map()` gives the previous value shape.
+- **Breaking**: `ModelListener::before_save` takes the same `SaveCx`, so a
+  listener reads the in-flight state. `after_save` still takes the database and
+  still runs after the commit.
+- On an update a persister may supply the pre-write row (`Persister::load`), and
+  listeners read it through `Record::original`, `has_original` and `changed`.
 - **Breaking**: `router` takes the model-listener contributions. Applications
   boot through `Bootstrap` and are unaffected.
 - The built-in persister binds typed values (integers, booleans as integers,
