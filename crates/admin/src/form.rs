@@ -26,12 +26,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
-use laterite_core::{t, AnyRowExt, ErrorBag, Text};
+use laterite_core::{t, AnyRowExt, ErrorBag, ModelListener, ModelListenerReg, Op, Record, Text};
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
 use crate::field::{render_field, FieldCx, FieldValue, OverrideScope, ResolvedOptions, Surface};
-use crate::persist::{DefaultPersister, Persister, PersisterRegistry, SaveError};
+use crate::persist::{self, DefaultPersister, Persister, PersisterRegistry, SaveError};
 use crate::sql::valid_ident;
 use crate::{not_found, render, render_error, AdminState};
 
@@ -173,6 +173,8 @@ pub(crate) struct PreparedForm {
     fields: Vec<PreparedField>,
     /// The write handler: the named persister, or the built-in default.
     persister: Arc<dyn Persister>,
+    /// Listeners for this form's entity, in registration order.
+    listeners: Vec<Arc<dyn ModelListener>>,
 }
 
 /// One field's boot-resolved state: its typed options and its merged rules (the
@@ -190,6 +192,7 @@ impl PreparedForm {
         config: FormConfig,
         field_types: &crate::field::FieldRegistry,
         persisters: &PersisterRegistry,
+        listeners: &[ModelListenerReg],
     ) -> Result<Self, String> {
         let mut fields = Vec::with_capacity(config.fields.len());
         for f in &config.fields {
@@ -213,10 +216,16 @@ impl PreparedForm {
                 .ok_or_else(|| format!("form names unregistered persister `{key}`"))?,
             None => Arc::new(DefaultPersister::from_config(&config)),
         };
+        let listeners = listeners
+            .iter()
+            .filter(|reg| reg.matches(&config.entity))
+            .map(|reg| reg.listener.clone())
+            .collect();
         Ok(Self {
             config,
             fields,
             persister,
+            listeners,
         })
     }
 }
@@ -291,10 +300,20 @@ pub(crate) async fn create(
             .into_response();
     }
 
-    match form.persister.create(&state.db, &data).await {
-        Ok(new_id) => {
+    let mut rec = Record::from_text_map(&form.config.entity, &data);
+    match persist::save(
+        &state.db,
+        &form.listeners,
+        form.persister.as_ref(),
+        &mut rec,
+        Op::Create,
+        None,
+    )
+    .await
+    {
+        Ok(()) => {
             let audit_action = format!("backend.{}.create", form.config.entity);
-            let target_id = new_id.to_string();
+            let target_id = rec.id().unwrap_or_default().to_string();
             crate::audit::record(
                 state,
                 user,
@@ -431,7 +450,20 @@ pub(crate) async fn update(
             .into_response();
     }
 
-    match form.persister.update(&state.db, &id, &data).await {
+    let mut rec = Record::from_text_map(&form.config.entity, &data);
+    if let Ok(n) = id.parse::<i64>() {
+        rec.set_id(n);
+    }
+    match persist::save(
+        &state.db,
+        &form.listeners,
+        form.persister.as_ref(),
+        &mut rec,
+        Op::Update,
+        Some(&id),
+    )
+    .await
+    {
         Ok(()) => {
             let audit_action = format!("backend.{}.update", form.config.entity);
             crate::audit::record(
@@ -625,6 +657,7 @@ mod tests {
             config,
             &crate::field::builtin_registry(),
             &PersisterRegistry::new(),
+            &[],
         )
         .unwrap()
     }
@@ -812,6 +845,7 @@ mod tests {
             },
             &st.field_types,
             &PersisterRegistry::new(),
+            &[],
         )
         .unwrap();
 
@@ -852,6 +886,7 @@ mod tests {
             config,
             &crate::field::builtin_registry(),
             &PersisterRegistry::new(),
+            &[],
         ) else {
             panic!("expected prepare to reject an unregistered type");
         };
@@ -876,6 +911,7 @@ mod tests {
             config,
             &crate::field::builtin_registry(),
             &PersisterRegistry::new(),
+            &[],
         ) else {
             panic!("expected prepare to reject a malformed option");
         };
@@ -963,6 +999,7 @@ mod tests {
             config_with("no.such.persister"),
             &crate::field::builtin_registry(),
             &PersisterRegistry::new(),
+            &[],
         ) else {
             panic!("expected prepare to reject an unregistered persister");
         };
@@ -975,9 +1012,13 @@ mod tests {
         let st = state(db.clone());
         let mut persisters = PersisterRegistry::new();
         persisters.insert("test.rollback".to_string(), Arc::new(RollbackPersister));
-        let form =
-            PreparedForm::prepare(config_with("test.rollback"), &st.field_types, &persisters)
-                .unwrap();
+        let form = PreparedForm::prepare(
+            config_with("test.rollback"),
+            &st.field_types,
+            &persisters,
+            &[],
+        )
+        .unwrap();
 
         let resp = create(
             &st,
@@ -999,8 +1040,13 @@ mod tests {
         let st = state(db.clone());
         let mut persisters = PersisterRegistry::new();
         persisters.insert("test.reject".to_string(), Arc::new(RejectingPersister));
-        let form = PreparedForm::prepare(config_with("test.reject"), &st.field_types, &persisters)
-            .unwrap();
+        let form = PreparedForm::prepare(
+            config_with("test.reject"),
+            &st.field_types,
+            &persisters,
+            &[],
+        )
+        .unwrap();
 
         let resp = create(
             &st,

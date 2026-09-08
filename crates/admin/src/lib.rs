@@ -747,6 +747,7 @@ pub fn router(
     app_permissions: Vec<Permission>,
     app_picker_sources: Vec<picker::PickerSourceReg>,
     app_persisters: Vec<persist::PersisterReg>,
+    app_listeners: Vec<laterite_core::ModelListenerReg>,
     config: AdminConfig,
     catalogs: Arc<CatalogStore>,
 ) -> Router {
@@ -853,7 +854,12 @@ pub fn router(
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
     for resource in &resources {
-        protected = protected.merge(mount_resource(resource, &state.field_types, &persisters));
+        protected = protected.merge(mount_resource(
+            resource,
+            &state.field_types,
+            &persisters,
+            &app_listeners,
+        ));
     }
     // The roles screen has a dedicated create/edit form (the permission editor),
     // gated by the same permission as its list.
@@ -1137,6 +1143,7 @@ fn mount_resource(
     resource: &Resource,
     field_types: &field::FieldRegistry,
     persisters: &persist::PersisterRegistry,
+    listeners: &[laterite_core::ModelListenerReg],
 ) -> Router<AdminState> {
     // A write resource must be permission-gated. A create/edit form with no
     // permission would expose its mutations to every signed-in operator, so an
@@ -1167,7 +1174,7 @@ fn mount_resource(
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
         let prepared = Arc::new(
-            form::PreparedForm::prepare(form_cfg, field_types, persisters)
+            form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
                 .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
         );
         let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
@@ -2065,6 +2072,7 @@ mod tests {
             &resource,
             &field::builtin_registry(),
             &persist::PersisterRegistry::new(),
+            &[],
         );
     }
 
@@ -2076,6 +2084,7 @@ mod tests {
             &resource,
             &field::builtin_registry(),
             &persist::PersisterRegistry::new(),
+            &[],
         );
     }
 

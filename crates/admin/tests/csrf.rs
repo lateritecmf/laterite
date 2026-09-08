@@ -79,6 +79,7 @@ async fn admin_mutations_require_origin_and_token() {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             config,
             Arc::new(CatalogStore::default()),
         )

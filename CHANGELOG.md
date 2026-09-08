@@ -17,8 +17,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The MIT and Apache-2.0 license texts ship in the repository.
 - `laterite_core::record`: a `Record` attribute bag with typed values
   (`AttrValue`), typed accessors and a `deserialize` struct view, plus the
-  `ModelListener` lifecycle trait and its registration. Types only for now; the
-  write pipeline that runs listeners follows.
+  `ModelListener` lifecycle trait and its registration.
+- Admin form writes run through a listener pipeline: a module contributes a
+  `ModelListenerReg` and its listener can change the record before the write or
+  refuse it with per-field messages, and react after it.
+- `SaveError` implements `Debug`.
 
 ### Fixed
 
