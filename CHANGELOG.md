@@ -15,6 +15,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `app.env_prefix` declares the environment-override prefix once, for the
   application and every `lat` command.
 - The MIT and Apache-2.0 license texts ship in the repository.
+- `laterite_core::record`: a `Record` attribute bag with typed values
+  (`AttrValue`), typed accessors and a `deserialize` struct view, plus the
+  `ModelListener` lifecycle trait and its registration. Types only for now; the
+  write pipeline that runs listeners follows.
 
 ### Fixed
 

@@ -14,6 +14,7 @@ pub mod migration;
 pub mod module;
 pub mod pagination;
 pub mod query;
+pub mod record;
 pub mod registry;
 pub mod strata;
 #[cfg(feature = "testing")]
@@ -31,5 +32,6 @@ pub use laterite_macros::{t, tn, tp};
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
+pub use record::{AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record};
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};
