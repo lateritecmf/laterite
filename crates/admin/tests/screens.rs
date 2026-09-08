@@ -32,6 +32,27 @@ impl Screen for Importer {
     }
 }
 
+fn app_in_menu(db: Db) -> Router {
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    router(
+        auth,
+        db,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![
+            ScreenReg::new("/import", PERMISSION, Arc::new(Importer)).in_menu("Import places"),
+            ScreenReg::new("/hidden", PERMISSION, Arc::new(Importer)),
+        ],
+        Vec::new(),
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    )
+}
+
 fn app(db: Db, base: &str) -> Router {
     let auth = AuthService::new(db.clone(), AuthConfig::default());
     router(
@@ -246,4 +267,21 @@ async fn a_module_can_ask_where_the_panel_is() {
         .await
         .unwrap();
     assert_eq!(String::from_utf8(bytes.to_vec()).unwrap(), "/admin");
+}
+
+#[tokio::test]
+async fn a_screen_appears_in_the_menu_only_when_it_asks() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let (status, html) = body(app_in_menu(db), "/admin", &token).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Import places"),
+        "the labelled screen is listed"
+    );
+    assert!(html.contains("/admin/import"), "and links to itself");
+    assert!(
+        !html.contains("/admin/hidden"),
+        "a screen with no label stays out of the menu"
+    );
 }

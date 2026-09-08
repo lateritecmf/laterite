@@ -32,6 +32,10 @@ fn register(&self, registry: &mut Registry) {
 }
 ```
 
+`in_menu` puts it in the main menu. Leave it off and the screen still mounts,
+reached from a link elsewhere, which suits a step in a flow rather than a
+destination.
+
 The framework mounts it inside the admin, so it inherits the session and the
 authenticated operator, the permission you declared, CSRF protection, and the
 styled error pages. The permission is enforced by the framework before your

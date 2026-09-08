@@ -58,6 +58,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   inside the admin mount aborts the boot.
 - `RouteCtx::admin_path` reports where the panel actually mounted, so a module
   links into it or excludes it without assuming `/admin`.
+- A screen that declares `in_menu` appears in the main menu; one that does not
+  mounts silently, reached from a link elsewhere.
 - The Screens and Routes guide.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.

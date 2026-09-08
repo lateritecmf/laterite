@@ -798,6 +798,17 @@ pub fn router(
             icon: None,
         });
     }
+    // A screen that asked for a menu entry sits beside the resources, before
+    // Settings. One without a label mounts silently, reached by a link elsewhere.
+    for reg in &app_screens {
+        if let Some(label) = &reg.nav_label {
+            nav.push(NavLink {
+                label: label.clone(),
+                path: format!("{admin_path}{}", reg.base_path),
+                icon: None,
+            });
+        }
+    }
     nav.push(NavLink {
         label: "Settings".into(),
         path: format!("{admin_path}/settings"),
