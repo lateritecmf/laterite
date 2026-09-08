@@ -13,7 +13,7 @@ use std::sync::Arc;
 use laterite_core::query::{bind_values, build as to_sql, insert_returning_id, text_cast};
 use laterite_core::strata::async_trait;
 use laterite_core::validation::ErrorBag;
-use laterite_core::{Db, ModelListener, Op, Record};
+use laterite_core::{AttrValue, Db, ModelListener, Op, Record};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::form::FormConfig;
@@ -30,19 +30,32 @@ pub enum SaveError {
 }
 
 /// Replaces the default insert/update for one form. An implementor owns its own
-/// transaction when the write is multi-statement. `data` is the validated
-/// submission (all text; `""` means empty/none).
+/// transaction when the write is multi-statement. `rec` holds the validated
+/// submission plus anything the listeners added; `rec.to_text_map()` gives the
+/// all-text shape if that suits an implementation better.
 #[async_trait]
 pub trait Persister: Send + Sync + 'static {
     /// Persists a new record, returning its id.
-    async fn create(&self, db: &Db, data: &HashMap<String, String>) -> Result<i64, SaveError>;
+    async fn create(&self, db: &Db, rec: &Record) -> Result<i64, SaveError>;
     /// Persists an edit to the record with primary key `id`.
-    async fn update(
-        &self,
-        db: &Db,
-        id: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<(), SaveError>;
+    async fn update(&self, db: &Db, id: &str, rec: &Record) -> Result<(), SaveError>;
+}
+
+/// Binds one attribute for the storage layer.
+///
+/// Absent, null, and empty text all bind SQL `NULL`, so an optional non-text
+/// column stores correctly instead of failing on `""`. Booleans bind as integers
+/// (the one representation every backend indexes), and timestamps and JSON bind
+/// as text.
+fn bind(value: Option<&AttrValue>) -> SimpleExpr {
+    match value {
+        None | Some(AttrValue::Null) => Option::<String>::None.into(),
+        Some(AttrValue::Int(i)) => (*i).into(),
+        Some(AttrValue::Float(f)) => (*f).into(),
+        Some(AttrValue::Bool(b)) => i32::from(*b).into(),
+        Some(AttrValue::Text(s)) if s.is_empty() => Option::<String>::None.into(),
+        Some(other) => other.to_text().into(),
+    }
 }
 
 /// Runs the listeners around a persister write: each `before_save` may change
@@ -65,12 +78,11 @@ pub(crate) async fn save(
             .map_err(SaveError::Invalid)?;
     }
 
-    let data = rec.to_text_map();
     match op {
-        Op::Create => rec.set_id(persister.create(db, &data).await?),
+        Op::Create => rec.set_id(persister.create(db, rec).await?),
         Op::Update => {
             let id = id.ok_or_else(|| SaveError::Failed("update without an id".to_string()))?;
-            persister.update(db, id, &data).await?;
+            persister.update(db, id, rec).await?;
         }
         // `Op` is non-exhaustive; a stage added later needs its arm here.
         _ => return Err(SaveError::Failed(format!("unsupported operation {op:?}"))),
@@ -110,6 +122,22 @@ pub(crate) struct DefaultPersister {
 }
 
 impl DefaultPersister {
+    /// The columns to write: the descriptor's own fields, plus any attribute a
+    /// listener added, minus the database-assigned id. Widening this way means a
+    /// listener-injected `created_at` is written rather than silently dropped;
+    /// the form admits only descriptor fields, so nothing a request submitted can
+    /// reach a column it did not declare.
+    fn write_columns(&self, rec: &Record) -> Vec<String> {
+        let mut cols = self.columns.clone();
+        for (key, _) in rec.iter() {
+            if key != self.id_field && !cols.iter().any(|c| c == key) {
+                cols.push(key.to_string());
+            }
+        }
+        cols.retain(|c| c != &self.id_field && crate::sql::valid_ident(c));
+        cols
+    }
+
     pub(crate) fn from_config(config: &FormConfig) -> Self {
         Self {
             entity: config.entity.clone(),
@@ -121,24 +149,15 @@ impl DefaultPersister {
 
 #[async_trait]
 impl Persister for DefaultPersister {
-    async fn create(&self, db: &Db, data: &HashMap<String, String>) -> Result<i64, SaveError> {
-        // The PK is a database-assigned auto-increment id, so the insert lists
-        // only the descriptor's fields. Scope the builder so it drops before the
-        // await, keeping the future `Send`.
+    async fn create(&self, db: &Db, rec: &Record) -> Result<i64, SaveError> {
+        // The PK is database-assigned, so the insert never lists it. Scope the
+        // builder so it drops before the await, keeping the future `Send`.
         let stmt = {
-            let vals: Vec<SimpleExpr> = self
-                .columns
-                .iter()
-                .map(|c| {
-                    // Absent or empty binds SQL NULL, not "", so an optional
-                    // non-text column stores correctly rather than failing.
-                    let v: Option<String> = data.get(c).filter(|s| !s.is_empty()).cloned();
-                    v.into()
-                })
-                .collect();
+            let cols = self.write_columns(rec);
+            let vals: Vec<SimpleExpr> = cols.iter().map(|c| bind(rec.get(c))).collect();
             Query::insert()
                 .into_table(Alias::new(&self.entity))
-                .columns(self.columns.iter().map(Alias::new))
+                .columns(cols.iter().map(Alias::new))
                 .values_panic(vals)
                 .to_owned()
         };
@@ -147,20 +166,12 @@ impl Persister for DefaultPersister {
             .map_err(|e| SaveError::Failed(e.to_string()))
     }
 
-    async fn update(
-        &self,
-        db: &Db,
-        id: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<(), SaveError> {
+    async fn update(&self, db: &Db, id: &str, rec: &Record) -> Result<(), SaveError> {
         let (sql, values) = {
             let mut update = Query::update();
             update.table(Alias::new(&self.entity));
-            for column in &self.columns {
-                // Absent or empty clears to SQL NULL rather than storing "", so an
-                // optional non-text column edits correctly.
-                let v: Option<String> = data.get(column).filter(|s| !s.is_empty()).cloned();
-                update.value(Alias::new(column), v);
+            for column in self.write_columns(rec) {
+                update.value(Alias::new(&column), bind(rec.get(&column)));
             }
             update.and_where(
                 Expr::col(Alias::new(&self.id_field))
@@ -192,23 +203,18 @@ mod pipeline_tests {
 
     #[async_trait]
     impl Persister for SpyPersister {
-        async fn create(&self, _db: &Db, data: &HashMap<String, String>) -> Result<i64, SaveError> {
+        async fn create(&self, _db: &Db, rec: &Record) -> Result<i64, SaveError> {
             self.seen
                 .lock()
                 .unwrap()
-                .push(("create".into(), data.clone()));
+                .push(("create".into(), rec.to_text_map()));
             Ok(42)
         }
-        async fn update(
-            &self,
-            _db: &Db,
-            id: &str,
-            data: &HashMap<String, String>,
-        ) -> Result<(), SaveError> {
+        async fn update(&self, _db: &Db, id: &str, rec: &Record) -> Result<(), SaveError> {
             self.seen
                 .lock()
                 .unwrap()
-                .push((format!("update:{id}"), data.clone()));
+                .push((format!("update:{id}"), rec.to_text_map()));
             Ok(())
         }
     }
@@ -375,6 +381,67 @@ mod pipeline_tests {
             "another entity's listener stays out"
         );
         assert!(matches!(regs[1].target, ListenerTarget::Entity(ref e) if e == "orders"));
+    }
+
+    #[tokio::test]
+    async fn a_listener_injected_attribute_is_written_not_dropped() {
+        let (db, _guard) = connect_test(&[]).await;
+        let spy = SpyPersister::default();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let regs = vec![ModelListenerReg::all(Arc::new(Stamp {
+            key: "created_at",
+            log,
+        }))];
+        let mut rec = Record::new("samples");
+        rec.set("name", "Chair");
+
+        save(
+            &db,
+            &listeners(&regs, "samples"),
+            &spy,
+            &mut rec,
+            Op::Create,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let default = DefaultPersister {
+            entity: "samples".into(),
+            id_field: "id".into(),
+            columns: vec!["name".into()],
+        };
+        // The descriptor knows only `name`; the listener's key widens the write.
+        assert_eq!(default.write_columns(&rec), ["name", "created_at"]);
+    }
+
+    #[test]
+    fn the_id_column_is_never_written() {
+        let default = DefaultPersister {
+            entity: "samples".into(),
+            id_field: "id".into(),
+            columns: vec!["name".into()],
+        };
+        let mut rec = Record::with_id("samples", 3);
+        rec.set("name", "Chair").set("id", 3i64);
+        assert_eq!(default.write_columns(&rec), ["name"]);
+    }
+
+    #[test]
+    fn binding_maps_each_kind_to_its_storage_form() {
+        // Absent, null and empty text all bind NULL, so an optional non-text
+        // column stores rather than failing on "".
+        let null: SimpleExpr = Option::<String>::None.into();
+        assert_eq!(bind(None), null);
+        assert_eq!(bind(Some(&AttrValue::Null)), null);
+        assert_eq!(bind(Some(&AttrValue::Text(String::new()))), null);
+        assert_eq!(bind(Some(&AttrValue::Int(7))), 7i64.into());
+        // Booleans store as integers, the representation every backend indexes.
+        assert_eq!(bind(Some(&AttrValue::Bool(true))), 1i32.into());
+        assert_eq!(
+            bind(Some(&AttrValue::Text("Chair".into()))),
+            Some("Chair".to_string()).into()
+        );
     }
 
     #[tokio::test]

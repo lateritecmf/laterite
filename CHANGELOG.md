@@ -23,6 +23,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   refuse it with per-field messages, and react after it.
 - `SaveError` implements `Debug`.
 
+### Changed
+
+- **Breaking**: `Persister::create` and `Persister::update` take a `Record`
+  instead of a text map, so a persister reads typed values. `rec.to_text_map()`
+  gives the previous shape.
+- **Breaking**: `router` takes the model-listener contributions. Applications
+  boot through `Bootstrap` and are unaffected.
+- The built-in persister binds typed values (integers, booleans as integers,
+  timestamps and JSON as text) and writes attributes a listener added, not only
+  the descriptor's own columns.
+
 ### Fixed
 
 - `lat doctor` and `lat serve` used a fixed environment prefix, so their overrides

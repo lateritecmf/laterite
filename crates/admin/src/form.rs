@@ -230,6 +230,20 @@ impl PreparedForm {
     }
 }
 
+/// The submission as a record, carrying only the fields the descriptor declares.
+/// A request cannot introduce an attribute this way, so the persister may widen
+/// its write to whatever the record holds; only registered listeners add keys.
+fn declared_record(form: &PreparedForm, data: &HashMap<String, String>) -> Record {
+    let mut rec = Record::new(&form.config.entity);
+    for field in &form.config.fields {
+        rec.set(
+            field.name.clone(),
+            data.get(&field.name).cloned().unwrap_or_default(),
+        );
+    }
+    rec
+}
+
 /// The merged validation rules for every field, in order.
 fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
     form.config
@@ -300,7 +314,7 @@ pub(crate) async fn create(
             .into_response();
     }
 
-    let mut rec = Record::from_text_map(&form.config.entity, &data);
+    let mut rec = declared_record(form, &data);
     match persist::save(
         &state.db,
         &form.listeners,
@@ -450,7 +464,7 @@ pub(crate) async fn update(
             .into_response();
     }
 
-    let mut rec = Record::from_text_map(&form.config.entity, &data);
+    let mut rec = declared_record(form, &data);
     if let Ok(n) = id.parse::<i64>() {
         rec.set_id(n);
     }
@@ -923,11 +937,7 @@ mod tests {
     struct RollbackPersister;
     #[laterite_core::strata::async_trait]
     impl Persister for RollbackPersister {
-        async fn create(
-            &self,
-            db: &laterite_core::Db,
-            _data: &HashMap<String, String>,
-        ) -> Result<i64, SaveError> {
+        async fn create(&self, db: &laterite_core::Db, _rec: &Record) -> Result<i64, SaveError> {
             let mut tx = db
                 .pool
                 .begin()
@@ -950,7 +960,7 @@ mod tests {
             &self,
             _db: &laterite_core::Db,
             _id: &str,
-            _data: &HashMap<String, String>,
+            _rec: &Record,
         ) -> Result<(), SaveError> {
             Ok(())
         }
@@ -960,11 +970,7 @@ mod tests {
     struct RejectingPersister;
     #[laterite_core::strata::async_trait]
     impl Persister for RejectingPersister {
-        async fn create(
-            &self,
-            _db: &laterite_core::Db,
-            _data: &HashMap<String, String>,
-        ) -> Result<i64, SaveError> {
+        async fn create(&self, _db: &laterite_core::Db, _rec: &Record) -> Result<i64, SaveError> {
             let mut bag = ErrorBag::default();
             bag.add("code", t!("Code is not allowed here."));
             Err(SaveError::Invalid(bag))
@@ -973,7 +979,7 @@ mod tests {
             &self,
             _db: &laterite_core::Db,
             _id: &str,
-            _data: &HashMap<String, String>,
+            _rec: &Record,
         ) -> Result<(), SaveError> {
             Ok(())
         }
