@@ -352,12 +352,14 @@ impl Bootstrap {
             resources.push((owner, resource));
         }
         let mut screens = Vec::new();
-        for (owner, mut reg) in contributions.take_owned::<crate::screen::ScreenReg>() {
+        for (owner, mut reg) in contributions.take_owned::<crate::routes::ScreenReg>() {
             let base = bases.get(owner.as_str()).copied().flatten();
             reg.base_path =
                 crate::routemap::resolve(owner, &reg.base_path, base, &config.backend.paths);
             screens.push((owner, reg));
         }
+
+        let public = contributions.take_owned::<crate::routes::PublicRouteReg>();
 
         // Every admin path in one list, the framework's own included, so a module
         // shadowing a built-in screen is caught as loudly as two modules clashing.
@@ -377,7 +379,18 @@ impl Bootstrap {
         );
         crate::routemap::check_collisions(&claims);
         let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
-        let screens: Vec<crate::screen::ScreenReg> = screens.into_iter().map(|(_, s)| s).collect();
+        let screens: Vec<crate::routes::ScreenReg> = screens.into_iter().map(|(_, s)| s).collect();
+        // Public paths are literal, so they get their own check: two claims on one
+        // path, or anything reaching inside the panel.
+        crate::routemap::check_public(
+            &public
+                .iter()
+                .map(|(owner, r)| (r.path.clone(), owner.to_string()))
+                .collect::<Vec<_>>(),
+            &crate::normalize_path(&config.backend.path),
+        );
+        let public: Vec<crate::routes::PublicRouteReg> =
+            public.into_iter().map(|(_, r)| r).collect();
         let settings = contributions.take::<SettingsItem>();
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
@@ -422,6 +435,7 @@ impl Bootstrap {
             persisters,
             listeners,
             screens,
+            public,
             admin_config,
             std::sync::Arc::new(catalogs.build()),
         );

@@ -76,6 +76,20 @@ pub(crate) fn check_collisions(claims: &[(String, String)]) {
     }
 }
 
+/// Aborts the boot when a public route clashes, either with another or with the
+/// admin mount. Public paths are literal, so nothing namespaces them apart.
+pub(crate) fn check_public(claims: &[(String, String)], admin_path: &str) {
+    check_collisions(claims);
+    for (path, claimant) in claims {
+        if path == admin_path || path.starts_with(&format!("{admin_path}/")) {
+            panic!(
+                "public route `{path}` from `{claimant}` is inside the admin mount \
+                 `{admin_path}`; move it or move the panel with backend.path"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +159,32 @@ mod tests {
             ("/roles".to_string(), "laterite".to_string()),
             ("/roles".to_string(), "acme.roles".to_string()),
         ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "inside the admin mount")]
+    fn a_public_route_may_not_shadow_the_panel() {
+        check_public(
+            &[("/admin/sneaky".to_string(), "acme.evil".to_string())],
+            "/admin",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "inside the admin mount")]
+    fn a_public_route_may_not_claim_the_mount_itself() {
+        check_public(&[("/admin".to_string(), "acme.evil".to_string())], "/admin");
+    }
+
+    #[test]
+    fn an_ordinary_public_route_passes() {
+        check_public(
+            &[
+                ("/robots.txt".to_string(), "acme.seo".to_string()),
+                ("/sitemap.xml".to_string(), "acme.seo".to_string()),
+            ],
+            "/admin",
+        );
     }
 
     #[test]

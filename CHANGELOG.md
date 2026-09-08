@@ -51,8 +51,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A module can mount its own admin screens: contribute a `ScreenReg` and the
   framework nests its routes under the module's resolved path, wrapped in the
   session, the permission guard it declares, CSRF and the styled error pages. The
-  screen reads a narrow `ScreenCtx` and builds self-links through `ctx.url`, so a
+  screen reads a narrow `RouteCtx` and builds self-links through `ctx.url`, so a
   moved screen moves its links with it.
+- A module can mount public routes at literal paths, outside the admin, for
+  robots files, sitemaps, feeds and webhook receivers. A public route that reaches
+  inside the admin mount aborts the boot.
+- `RouteCtx::admin_path` reports where the panel actually mounted, so a module
+  links into it or excludes it without assuming `/admin`.
+- The Screens and Routes guide.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.
 - The Model Listeners guide.

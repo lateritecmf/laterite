@@ -1,10 +1,11 @@
-//! A module mounting its own admin screen. Imports only the public API.
+//! A module mounting its own routes: an admin screen and a public endpoint.
+//! Imports only the public API.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use laterite_admin::screen::{Screen, ScreenCtx, ScreenReg};
+use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
 use laterite_admin::{router, AdminConfig};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
@@ -23,7 +24,7 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
 struct Importer;
 
 impl Screen for Importer {
-    fn mount(&self, ctx: &ScreenCtx) -> Router {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
         let here = ctx.url("/step2");
         Router::new()
             .route("/", get(|| async { "import" }))
@@ -43,6 +44,7 @@ fn app(db: Db, base: &str) -> Router {
         Vec::new(),
         Vec::new(),
         vec![ScreenReg::new(base, PERMISSION, Arc::new(Importer))],
+        Vec::new(),
         AdminConfig::default(),
         Arc::new(CatalogStore::default()),
     )
@@ -152,4 +154,96 @@ async fn an_unauthenticated_request_never_reaches_the_screen() {
         StatusCode::SEE_OTHER,
         "redirected to sign in"
     );
+}
+
+/// A public endpoint: no session, no permission, a literal path.
+struct Robots;
+
+impl PublicRoute for Robots {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        // A module asks where the panel is rather than assuming /admin.
+        let panel = ctx.admin_path().to_string();
+        Router::new()
+            .route("/", get(|| async { "User-agent: *\nAllow: /\n" }))
+            .route("/panel", get(move || async move { panel }))
+    }
+}
+
+fn app_with_public(db: Db) -> Router {
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    router(
+        auth,
+        db,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![PublicRouteReg::new("/robots.txt", Arc::new(Robots))],
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    )
+}
+
+#[tokio::test]
+async fn a_public_route_answers_without_a_session() {
+    let (db, _guard) = test_db().await;
+    superuser(&db).await;
+    let resp = app_with_public(db)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/robots.txt")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8(bytes.to_vec())
+        .unwrap()
+        .contains("User-agent"));
+}
+
+#[tokio::test]
+async fn a_public_route_does_not_disturb_the_admin() {
+    let (db, _guard) = test_db().await;
+    superuser(&db).await;
+    // An unmatched URL still renders the styled 404 rather than the public route.
+    let resp = app_with_public(db)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/nothing-here")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_module_can_ask_where_the_panel_is() {
+    let (db, _guard) = test_db().await;
+    superuser(&db).await;
+    let resp = app_with_public(db)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/robots.txt/panel")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(String::from_utf8(bytes.to_vec()).unwrap(), "/admin");
 }

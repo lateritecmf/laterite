@@ -27,7 +27,7 @@ pub mod picker;
 pub mod plugins;
 mod roles;
 mod routemap;
-pub mod screen;
+pub mod routes;
 mod session;
 pub mod settings;
 mod sql;
@@ -72,7 +72,10 @@ pub trait AdminRegistry {
     fn add_persister(&mut self, persister: persist::PersisterReg);
     /// Mounts a screen of this module's own: any routes descriptors cannot
     /// express, inside the admin with its session, permission and error handling.
-    fn add_screen(&mut self, screen: screen::ScreenReg);
+    fn add_screen(&mut self, screen: routes::ScreenReg);
+    /// Mounts a route outside the admin, at a literal path: robots.txt, a
+    /// sitemap, a feed, a webhook receiver.
+    fn add_public_route(&mut self, route: routes::PublicRouteReg);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -88,8 +91,11 @@ impl AdminRegistry for laterite_core::Registry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg) {
         self.add(source);
     }
-    fn add_screen(&mut self, screen: screen::ScreenReg) {
+    fn add_screen(&mut self, screen: routes::ScreenReg) {
         self.add(screen);
+    }
+    fn add_public_route(&mut self, route: routes::PublicRouteReg) {
+        self.add(route);
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -756,7 +762,8 @@ pub fn router(
     app_picker_sources: Vec<picker::PickerSourceReg>,
     app_persisters: Vec<persist::PersisterReg>,
     app_listeners: Vec<laterite_core::ModelListenerReg>,
-    app_screens: Vec<screen::ScreenReg>,
+    app_screens: Vec<routes::ScreenReg>,
+    app_public: Vec<routes::PublicRouteReg>,
     config: AdminConfig,
     catalogs: Arc<CatalogStore>,
 ) -> Router {
@@ -875,7 +882,7 @@ pub fn router(
     // Nested as a service, so the screen's router carries no framework state.
     for reg in &app_screens {
         let base = format!("{admin_path}{}", reg.base_path);
-        let ctx = screen::ScreenCtx::new(state.db.clone(), &base);
+        let ctx = routes::RouteCtx::new(state.db.clone(), &base, &admin_path);
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,
@@ -952,6 +959,10 @@ pub fn router(
             get(setup_form).post(setup_submit),
         )
         .route(&format!("{admin_path}/assets/{{*path}}"), get(serve_asset))
+        // A module's own public endpoints, at the literal paths they declared and
+        // outside the admin entirely: no session, no permission, no chrome. They
+        // sit above the fallback, so an unmatched URL still renders the 404.
+        .merge(mount_public(&app_public, &state.db, &admin_path))
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
         // The CSRF origin gate wraps every route (login and setup included); the
@@ -997,6 +1008,16 @@ pub fn normalize_path(path: &str) -> String {
 
 /// Resolves a resource's authored-relative paths (`base_path`, the list's
 /// `edit_base`, the form's `base_path`) to full paths under the admin mount.
+/// Every contributed public route, nested at its declared path.
+fn mount_public(regs: &[routes::PublicRouteReg], db: &Db, admin_path: &str) -> Router<AdminState> {
+    let mut router = Router::new();
+    for reg in regs {
+        let ctx = routes::RouteCtx::new(db.clone(), &reg.path, admin_path);
+        router = router.nest_service(&reg.path, reg.route.mount(&ctx));
+    }
+    router
+}
+
 /// Moves a resource to `base`, taking its list and form links with it. Used when
 /// a module's screens resolve to a namespaced or overridden path.
 pub(crate) fn rebase_resource(base: &str, resource: &mut Resource) {

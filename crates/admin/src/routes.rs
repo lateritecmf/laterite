@@ -1,32 +1,37 @@
-//! Screens a module mounts itself.
+//! Routes a module mounts itself: admin screens, and public endpoints.
 //!
-//! A [`Resource`](crate::Resource) covers list and form screens as data. A screen
-//! is the substrate underneath: any routes a module wants, mounted inside the
-//! admin with the same session, permission, CSRF and error handling a resource
-//! gets. Reach for it only when descriptors cannot express the screen.
+//! A [`Resource`](crate::Resource) covers list and form screens as data. A
+//! [`Screen`] is the substrate underneath: any routes a module wants, mounted
+//! inside the admin with the same session, permission, CSRF and error handling a
+//! resource gets. Reach for it only when descriptors cannot express the screen.
+//!
+//! A [`PublicRoute`] is the same idea outside the admin, for the endpoints that
+//! have to live at a literal path: `/robots.txt`, a sitemap, a feed, a webhook.
 
 use std::sync::Arc;
 
 use axum::Router;
 use laterite_core::{Db, Text};
 
-/// What a screen is given at boot.
+/// What a contributed route is given at boot.
 ///
 /// Deliberately narrow: the admin's own router state stays private, so its
 /// composition can change without breaking a screen. Fields are read through
 /// accessors, so this can gain context after 1.0; `new` cannot, and extra context
 /// would arrive as a builder.
 #[derive(Clone)]
-pub struct ScreenCtx {
+pub struct RouteCtx {
     db: Db,
     base_path: Arc<str>,
+    admin_path: Arc<str>,
 }
 
-impl ScreenCtx {
-    pub(crate) fn new(db: Db, base_path: &str) -> Self {
+impl RouteCtx {
+    pub(crate) fn new(db: Db, base_path: &str, admin_path: &str) -> Self {
         Self {
             db,
             base_path: Arc::from(base_path),
+            admin_path: Arc::from(admin_path),
         }
     }
 
@@ -38,6 +43,13 @@ impl ScreenCtx {
     /// it declared, the deployment's overrides and the admin mount.
     pub fn base_path(&self) -> &str {
         &self.base_path
+    }
+
+    /// Where the admin panel is mounted, after `backend.path`. Ask rather than
+    /// assuming `/admin`: an operator may have moved it, and a module building a
+    /// link into the panel, or excluding it from a sitemap, needs the real one.
+    pub fn admin_path(&self) -> &str {
+        &self.admin_path
     }
 
     /// An absolute admin URL under this screen. Build every self-link this way:
@@ -61,7 +73,7 @@ fn join(base: &str, relative: &str) -> String {
 pub trait Screen: Send + Sync + 'static {
     /// The routes this screen serves, relative to its own base. Handlers capture
     /// what they need from `ctx`, so the router carries no framework state.
-    fn mount(&self, ctx: &ScreenCtx) -> Router;
+    fn mount(&self, ctx: &RouteCtx) -> Router;
 }
 
 /// A registered screen: where it mounts, what it is called, and who may reach it.
@@ -97,6 +109,35 @@ impl ScreenReg {
     }
 }
 
+/// A module's own route outside the admin.
+///
+/// Public by definition: no permission gate and no admin chrome, though the
+/// styled error pages still apply. A route that accepts a POST declares its own
+/// stance on CSRF, because the admin's blanket protection assumes a session.
+pub trait PublicRoute: Send + Sync + 'static {
+    /// The routes this endpoint serves, relative to its declared path.
+    fn mount(&self, ctx: &RouteCtx) -> Router;
+}
+
+/// A registered public route.
+///
+/// The path is literal and never namespaced: `/robots.txt` has to be exactly
+/// that. Collisions are therefore likelier than in the admin, so two claims on
+/// one path, or a claim on the admin mount, abort the boot.
+pub struct PublicRouteReg {
+    pub path: String,
+    pub route: Arc<dyn PublicRoute>,
+}
+
+impl PublicRouteReg {
+    pub fn new(path: impl Into<String>, route: Arc<dyn PublicRoute>) -> Self {
+        Self {
+            path: path.into(),
+            route,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,7 +162,7 @@ mod tests {
     fn a_registration_defaults_to_no_menu_entry() {
         struct Noop;
         impl Screen for Noop {
-            fn mount(&self, _ctx: &ScreenCtx) -> Router {
+            fn mount(&self, _ctx: &RouteCtx) -> Router {
                 Router::new()
             }
         }
