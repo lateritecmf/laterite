@@ -34,6 +34,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   still runs after the commit.
 - On an update a persister may supply the pre-write row (`Persister::load`), and
   listeners read it through `Record::original`, `has_original` and `changed`.
+- **Breaking**: every save states its `Actor`, either a signed-in `User` or the
+  `System` process performing it, reaching listeners and the persister. A write
+  with no person behind it names its process rather than borrowing a user.
+- **Breaking**: `ModelListener::after_save` takes a `SavedCx` (the pool and the
+  actor) rather than a database handle, so it can gain context after 1.0.
+- The framework audits descriptor-form writes through a listener rather than a
+  call in each handler, so a new descriptor screen is audited by existing.
+  Screens that write through their own store functions keep their explicit
+  calls.
 - **Breaking**: `router` takes the model-listener contributions. Applications
   boot through `Bootstrap` and are unaffected.
 - The built-in persister binds typed values (integers, booleans as integers,

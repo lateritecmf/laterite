@@ -324,6 +324,11 @@ impl Record {
     /// Whether this write changes `key`. Always false without a snapshot, so a
     /// change-based listener should check [`Record::has_original`] first rather
     /// than read "unchanged" into its absence.
+    ///
+    /// The comparison is text-level today: a snapshot is read back as text, so a
+    /// listener that re-types an unchanged value (a date parsed into a
+    /// [`AttrValue::DateTime`]) reads as changed. Fine for stamping, not yet
+    /// sufficient for a per-attribute diff.
     pub fn changed(&self, key: &str) -> bool {
         match (&self.original, self.attrs.get(key)) {
             (Some(prev), Some(next)) => prev.get(key) != Some(next),
@@ -364,20 +369,74 @@ impl Record {
     }
 }
 
+/// Who is performing a write. Every save states one, so a listener always has a
+/// total answer and a missing actor cannot be confused with a non-human write.
+///
+/// Non-exhaustive: an unauthenticated public submission joins when the public web
+/// surface gains a write path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Actor {
+    /// A signed-in operator.
+    User { id: i64, username: String },
+    /// The process itself, named for the trail: `seed`, `job:purge-sessions`,
+    /// `lat admin create`. Not a stand-in user row.
+    System { process: String },
+}
+
+impl Actor {
+    pub fn user(id: i64, username: impl Into<String>) -> Self {
+        Actor::User {
+            id,
+            username: username.into(),
+        }
+    }
+
+    pub fn system(process: impl Into<String>) -> Self {
+        Actor::System {
+            process: process.into(),
+        }
+    }
+
+    /// The user to attribute a row to, `None` when no person is behind the write.
+    pub fn user_id(&self) -> Option<i64> {
+        match self {
+            Actor::User { id, .. } => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// The text a trail snapshots: the username, or the process name.
+    pub fn label(&self) -> &str {
+        match self {
+            Actor::User { username, .. } => username,
+            Actor::System { process } => process,
+        }
+    }
+}
+
 /// The open transaction a save runs in, shared by the listeners and the
 /// persister so a read sees the in-flight write.
 ///
 /// Holding a transaction across listener code keeps the write consistent, at the
 /// cost of keeping it open: a listener should do its own work and return, not
 /// call out to a slow service.
+///
+/// Fields are private and read through accessors, so this can gain context after
+/// 1.0. `new` cannot: extra context arrives as a `with_*` builder instead.
 pub struct SaveCx<'c> {
     backend: DbBackend,
     conn: &'c mut sqlx::AnyConnection,
+    actor: Actor,
 }
 
 impl<'c> SaveCx<'c> {
-    pub fn new(backend: DbBackend, conn: &'c mut sqlx::AnyConnection) -> Self {
-        Self { backend, conn }
+    pub fn new(backend: DbBackend, conn: &'c mut sqlx::AnyConnection, actor: Actor) -> Self {
+        Self {
+            backend,
+            conn,
+            actor,
+        }
     }
 
     /// Which database this is, for the portable query helpers.
@@ -389,6 +448,40 @@ impl<'c> SaveCx<'c> {
     pub fn conn(&mut self) -> &mut sqlx::AnyConnection {
         self.conn
     }
+
+    /// Who is performing this write.
+    pub fn actor(&self) -> &Actor {
+        &self.actor
+    }
+}
+
+/// A committed write, for [`ModelListener::after_save`]. Carries the pool rather
+/// than the transaction, because the transaction is gone by then.
+///
+/// Fields are private for the same reason as [`SaveCx`].
+pub struct SavedCx<'a> {
+    db: &'a Db,
+    actor: &'a Actor,
+}
+
+impl<'a> SavedCx<'a> {
+    pub fn new(db: &'a Db, actor: &'a Actor) -> Self {
+        Self { db, actor }
+    }
+
+    /// The pool. `Db` is `Clone`, so a listener that spawns work clones it.
+    pub fn db(&self) -> &Db {
+        self.db
+    }
+
+    pub fn backend(&self) -> DbBackend {
+        self.db.backend
+    }
+
+    /// Who performed the write.
+    pub fn actor(&self) -> &Actor {
+        self.actor
+    }
 }
 
 /// Which entities a listener runs for.
@@ -396,8 +489,13 @@ impl<'c> SaveCx<'c> {
 pub enum ListenerTarget {
     /// One entity, by name.
     Entity(String),
-    /// Every entity, the hook a cross-cutting concern (auditing, timestamps)
-    /// attaches to.
+    /// Every entity, for a concern that genuinely applies to all of them, such
+    /// as auditing.
+    ///
+    /// Not for a listener that **adds** attributes: the built-in persister writes
+    /// whatever the record holds, so an attribute added for every entity reaches
+    /// tables that have no such column and fails their writes. Stamping a column
+    /// (timestamps, `updated_by`) targets the entities that have it.
     All,
 }
 
@@ -435,8 +533,8 @@ pub trait ModelListener: Send + Sync + 'static {
 
     /// Runs after the transaction commits, for side effects. Not atomic with the
     /// write: it cannot roll one back, and its own failure leaves the row saved.
-    async fn after_save(&self, db: &Db, rec: &Record, op: Op) {
-        let _ = (db, rec, op);
+    async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) {
+        let _ = (cx, rec, op);
     }
 }
 

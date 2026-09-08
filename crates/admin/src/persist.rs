@@ -14,7 +14,7 @@ use laterite_core::query::{bind_values, build as to_sql, insert_returning_id_on,
 use laterite_core::strata::async_trait;
 use laterite_core::validation::ErrorBag;
 use laterite_core::AnyRowExt;
-use laterite_core::{AttrValue, Db, ModelListener, Op, Record, SaveCx};
+use laterite_core::{Actor, AttrValue, Db, ModelListener, Op, Record, SaveCx, SavedCx};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::form::FormConfig;
@@ -72,21 +72,43 @@ fn bind(value: Option<&AttrValue>) -> SimpleExpr {
 /// `after_save` runs. `after_save` is not atomic with the write.
 ///
 /// `id` is the row to update, and is ignored on a create.
-pub(crate) async fn save(
-    db: &Db,
-    listeners: &[Arc<dyn ModelListener>],
-    persister: &dyn Persister,
-    rec: &mut Record,
-    op: Op,
-    id: Option<&str>,
-) -> Result<(), SaveError> {
+pub(crate) struct SaveRequest<'a> {
+    pub db: &'a Db,
+    pub listeners: &'a [Arc<dyn ModelListener>],
+    pub persister: &'a dyn Persister,
+    /// Who is performing the write; reaches listeners and the persister.
+    pub actor: &'a Actor,
+    pub op: Op,
+    /// The row to update; `None` on a create.
+    pub id: Option<&'a str>,
+}
+
+pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), SaveError> {
+    let SaveRequest {
+        db,
+        listeners,
+        persister,
+        actor,
+        op,
+        id,
+    } = req;
     let mut tx = db
         .pool
         .begin()
         .await
         .map_err(|e| SaveError::Failed(e.to_string()))?;
 
-    let outcome = save_in(&mut tx, db.backend, listeners, persister, rec, op, id).await;
+    let outcome = save_in(
+        &mut tx,
+        db.backend,
+        listeners,
+        persister,
+        actor.clone(),
+        rec,
+        op,
+        id,
+    )
+    .await;
     match outcome {
         Ok(()) => tx
             .commit()
@@ -101,24 +123,27 @@ pub(crate) async fn save(
     }
 
     // After the commit, so a listener here cannot roll the write back.
+    let saved = SavedCx::new(db, actor);
     for listener in listeners {
-        listener.after_save(db, rec, op).await;
+        listener.after_save(&saved, rec, op).await;
     }
     Ok(())
 }
 
 /// Everything a save does inside the transaction: read the pre-write row, run
 /// the listeners, then write.
+#[allow(clippy::too_many_arguments)]
 async fn save_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Any>,
     backend: laterite_core::migration::DbBackend,
     listeners: &[Arc<dyn ModelListener>],
     persister: &dyn Persister,
+    actor: Actor,
     rec: &mut Record,
     op: Op,
     id: Option<&str>,
 ) -> Result<(), SaveError> {
-    let mut cx = SaveCx::new(backend, tx);
+    let mut cx = SaveCx::new(backend, tx, actor);
 
     if op == Op::Update {
         if let Some(id) = id {
@@ -343,7 +368,7 @@ mod pipeline_tests {
             rec.set(self.key, "set");
             Ok(())
         }
-        async fn after_save(&self, _db: &Db, _rec: &Record, _op: Op) {
+        async fn after_save(&self, _cx: &SavedCx<'_>, _rec: &Record, _op: Op) {
             self.log.lock().unwrap().push(self.key);
         }
     }
@@ -366,6 +391,10 @@ mod pipeline_tests {
         }
     }
 
+    fn actor() -> Actor {
+        Actor::system("test")
+    }
+
     fn listeners(regs: &[ModelListenerReg], entity: &str) -> Vec<Arc<dyn ModelListener>> {
         regs.iter()
             .filter(|r| r.matches(entity))
@@ -386,12 +415,15 @@ mod pipeline_tests {
         rec.set("name", "Chair");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &spy,
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &spy,
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .unwrap();
@@ -411,12 +443,15 @@ mod pipeline_tests {
         let mut rec = Record::new("samples");
 
         let err = save(
-            &db,
-            &listeners(&regs, "samples"),
-            &spy,
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &spy,
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .expect_err("the veto refuses the write");
@@ -448,12 +483,15 @@ mod pipeline_tests {
         let mut rec = Record::new("samples");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &SpyPersister::default(),
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &SpyPersister::default(),
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .unwrap();
@@ -481,12 +519,15 @@ mod pipeline_tests {
         let mut rec = Record::new("samples");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &SpyPersister::default(),
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &SpyPersister::default(),
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .unwrap();
@@ -512,12 +553,15 @@ mod pipeline_tests {
         rec.set("name", "Chair");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &spy,
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &spy,
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .unwrap();
@@ -615,12 +659,15 @@ mod pipeline_tests {
         rec.set("name", "Stool");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &SnapshotPersister,
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &SnapshotPersister,
+                actor: &actor(),
+                op: Op::Update,
+                id: Some("1"),
+            },
             &mut rec,
-            Op::Update,
-            Some("1"),
         )
         .await
         .unwrap();
@@ -639,12 +686,15 @@ mod pipeline_tests {
         rec.set("name", "Chair");
 
         save(
-            &db,
-            &listeners(&regs, "samples"),
-            &SnapshotPersister,
+            SaveRequest {
+                db: &db,
+                listeners: &listeners(&regs, "samples"),
+                persister: &SnapshotPersister,
+                actor: &actor(),
+                op: Op::Create,
+                id: None,
+            },
             &mut rec,
-            Op::Create,
-            None,
         )
         .await
         .unwrap();
@@ -658,9 +708,19 @@ mod pipeline_tests {
         let spy = SpyPersister::default();
         let mut rec = Record::with_id("samples", 7);
 
-        save(&db, &[], &spy, &mut rec, Op::Update, Some("7"))
-            .await
-            .unwrap();
+        save(
+            SaveRequest {
+                db: &db,
+                listeners: &[],
+                persister: &spy,
+                actor: &actor(),
+                op: Op::Update,
+                id: Some("7"),
+            },
+            &mut rec,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(spy.seen.lock().unwrap()[0].0, "update:7");
     }
@@ -671,9 +731,19 @@ mod pipeline_tests {
         let spy = SpyPersister::default();
         let mut rec = Record::new("samples");
 
-        let err = save(&db, &[], &spy, &mut rec, Op::Update, None)
-            .await
-            .expect_err("an update needs an id");
+        let err = save(
+            SaveRequest {
+                db: &db,
+                listeners: &[],
+                persister: &spy,
+                actor: &actor(),
+                op: Op::Update,
+                id: None,
+            },
+            &mut rec,
+        )
+        .await
+        .expect_err("an update needs an id");
 
         assert!(matches!(err, SaveError::Failed(_)));
         assert!(spy.seen.lock().unwrap().is_empty());

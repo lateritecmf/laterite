@@ -32,6 +32,8 @@ pub use laterite_macros::{t, tn, tp};
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
-pub use record::{AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record, SaveCx};
+pub use record::{
+    Actor, AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record, SaveCx, SavedCx,
+};
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

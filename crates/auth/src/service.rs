@@ -104,6 +104,14 @@ pub struct AuthenticatedUser {
     pub permissions: PermissionSet,
 }
 
+/// The acting operator as a record-layer actor, so a write attributes itself
+/// without the admin mapping it by hand.
+impl From<&AuthenticatedUser> for laterite_core::Actor {
+    fn from(user: &AuthenticatedUser) -> Self {
+        laterite_core::Actor::user(user.user.id, &user.user.username)
+    }
+}
+
 /// A resolved live session: the authenticated identity plus the opaque data
 /// blob the surface stored on it (`None` until the surface writes one). Auth
 /// does not interpret the blob.

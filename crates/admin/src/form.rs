@@ -26,7 +26,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
-use laterite_core::{t, AnyRowExt, ErrorBag, ModelListener, ModelListenerReg, Op, Record, Text};
+use laterite_core::{
+    t, Actor, AnyRowExt, ErrorBag, ModelListener, ModelListenerReg, Op, Record, Text,
+};
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
@@ -315,30 +317,23 @@ pub(crate) async fn create(
     }
 
     let mut rec = declared_record(form, &data);
+    let actor = Actor::from(user);
     match persist::save(
-        &state.db,
-        &form.listeners,
-        form.persister.as_ref(),
+        persist::SaveRequest {
+            db: &state.db,
+            listeners: &form.listeners,
+            persister: form.persister.as_ref(),
+            actor: &actor,
+            op: Op::Create,
+            id: None,
+        },
         &mut rec,
-        Op::Create,
-        None,
     )
     .await
     {
-        Ok(()) => {
-            let audit_action = format!("backend.{}.create", form.config.entity);
-            let target_id = rec.id().unwrap_or_default().to_string();
-            crate::audit::record(
-                state,
-                user,
-                &audit_action,
-                Some(form.config.entity.as_str()),
-                Some(target_id.as_str()),
-                None,
-            )
-            .await;
-            Redirect::to(&form.config.base_path).into_response()
-        }
+        // The audit entry is written by the framework's audit listener, which
+        // runs on every entity after the commit.
+        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
         // A persist-time domain check re-renders 422 with its per-field messages.
         Err(SaveError::Invalid(bag)) => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -468,29 +463,21 @@ pub(crate) async fn update(
     if let Ok(n) = id.parse::<i64>() {
         rec.set_id(n);
     }
+    let actor = Actor::from(user);
     match persist::save(
-        &state.db,
-        &form.listeners,
-        form.persister.as_ref(),
+        persist::SaveRequest {
+            db: &state.db,
+            listeners: &form.listeners,
+            persister: form.persister.as_ref(),
+            actor: &actor,
+            op: Op::Update,
+            id: Some(&id),
+        },
         &mut rec,
-        Op::Update,
-        Some(&id),
     )
     .await
     {
-        Ok(()) => {
-            let audit_action = format!("backend.{}.update", form.config.entity);
-            crate::audit::record(
-                state,
-                user,
-                &audit_action,
-                Some(form.config.entity.as_str()),
-                Some(id.as_str()),
-                None,
-            )
-            .await;
-            Redirect::to(&form.config.base_path).into_response()
-        }
+        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
         Err(SaveError::Invalid(bag)) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             render(build(state, form, &action, None, &data, &bag, &shell)),

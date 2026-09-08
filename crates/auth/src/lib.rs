@@ -11,6 +11,7 @@
 //! [`AuthenticatedUser`] identity; the admin crate wraps these in Axum
 //! extractors, cookie handling, and the rendered login screen.
 
+pub mod audit_listener;
 pub mod error;
 pub mod migrations;
 pub mod password;
@@ -21,6 +22,7 @@ pub mod store;
 mod models;
 mod schema;
 
+pub use audit_listener::AuditListener;
 pub use error::AuthError;
 pub use migrations::{migrations, MODULE_ID};
 pub use models::{AccessEvent, BackendUser, BackendUserSummary};
@@ -40,5 +42,10 @@ impl laterite_core::Module for AuthModule {
     }
     fn migrations(&self) -> laterite_core::MigrationSet {
         migrations()
+    }
+    fn register(&self, registry: &mut laterite_core::Registry) {
+        registry.add(laterite_core::ModelListenerReg::all(std::sync::Arc::new(
+            audit_listener::AuditListener,
+        )));
     }
 }
