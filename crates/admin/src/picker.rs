@@ -22,12 +22,13 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
+use laterite_core::search::SearchProfile;
 use laterite_core::strata::async_trait;
 use laterite_core::{AnyRowExt, Db};
-use sea_query::{Alias, Expr, Func, LikeExpr, Query, SelectStatement};
+use sea_query::{Alias, Expr, Query, SelectStatement};
 use serde::{Deserialize, Serialize};
 
-use crate::sql::{like_escape, valid_ident};
+use crate::sql::valid_ident;
 use crate::AdminState;
 
 /// One candidate or resolved node. `id` is a string: the generic form layer
@@ -94,6 +95,7 @@ pub struct TableSource {
     id_col: String,
     label_col: String,
     hint_col: Option<String>,
+    search: SearchProfile,
 }
 
 impl TableSource {
@@ -107,12 +109,27 @@ impl TableSource {
             id_col: id_col.into(),
             label_col: label_col.into(),
             hint_col: None,
+            // Case folding only. A wider fold applies to the query alone, so
+            // against this raw column it would stop a folded query from reaching
+            // an accented stored value; `with_search` is for a source whose
+            // column is folded to match.
+            search: SearchProfile::new(),
         }
     }
 
     /// Sets the column supplying each node's disambiguating hint.
     pub fn with_hint(mut self, hint_col: impl Into<String>) -> Self {
         self.hint_col = Some(hint_col.into());
+        self
+    }
+
+    /// Sets how a query folds and widens before it is matched.
+    ///
+    /// A profile that folds more than case (diacritics, punctuation) only helps
+    /// where `label_col` holds values folded the same way, since the fold runs on
+    /// the query. Against a raw column, keep the default.
+    pub fn with_search(mut self, search: SearchProfile) -> Self {
+        self.search = search;
         self
     }
 
@@ -158,13 +175,15 @@ impl PickerSource for TableSource {
         let (sql, values) = {
             let cast = text_cast(db.backend);
             let mut sel = self.base_select(cast);
-            // Escape the user's term so its %/_ match literally, with an explicit
-            // ESCAPE char (SQLite has no default) for cross-backend behaviour.
-            let pattern = format!("%{}%", like_escape(&q.to_lowercase()));
-            sel.and_where(
-                Expr::expr(Func::lower(Expr::col(Alias::new(&self.label_col))))
-                    .like(LikeExpr::new(pattern).escape('\\')),
-            );
+            // Capability-gated matchers are deferred (adr/0017), and `Db` does
+            // not carry the boot capability set yet, so the portable default is
+            // what applies. This argument is the one line that changes when it does.
+            let caps = laterite_core::capabilities::CapabilitySet::default();
+            // No terms means no filter: the picker opens as a dropdown and asks
+            // with an empty query to show the first rows.
+            if let Some(cond) = self.search.condition(&caps, &self.label_col, q) {
+                sel.cond_where(cond);
+            }
             sel.limit(limit as u64);
             to_sql(db.backend, sel)
         };
@@ -416,5 +435,19 @@ mod tests {
         assert_eq!(underscore[0].label, "A_B");
         // `%` is literal too: no row contains it, so it matches nothing (not all rows).
         assert!(source.search(&db, "%", 10).await.unwrap().is_empty());
+    }
+
+    /// The picker opens as a dropdown: focusing it asks with an empty query and
+    /// expects the first rows, so a blank query must not filter to nothing.
+    #[tokio::test]
+    async fn an_empty_query_lists_the_first_rows() {
+        let (db, _guard) = test_db().await;
+        insert(&db, "Kigali", "Rwanda").await;
+        insert(&db, "Kampala", "Uganda").await;
+        let source = TableSource::new("places", "id", "name");
+
+        assert_eq!(source.search(&db, "", 10).await.unwrap().len(), 2);
+        // The limit still applies, so the dropdown stays bounded.
+        assert_eq!(source.search(&db, "", 1).await.unwrap().len(), 1);
     }
 }

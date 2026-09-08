@@ -17,6 +17,7 @@ pub mod pagination;
 pub mod query;
 pub mod record;
 pub mod registry;
+pub mod search;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;

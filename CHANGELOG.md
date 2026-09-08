@@ -25,11 +25,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Lists sort and page through HTMX, swapping the table region and pushing the
   URL, so back, refresh and a copied link all land on the same view. Without
   scripting they stay ordinary links.
+- `laterite_core::search`: a `SearchProfile` composing text folds
+  (`Normalizer`), query expanders, and a `Matcher` that builds the SQL condition.
+  Folding runs in Rust so it behaves identically on all three databases. Guide at
+  `docs/src/extend/search.md`.
+- `TableSource::with_search` sets a picker source's search behaviour.
 
 ### Changed
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- The picker matches through a `SearchProfile` rather than its own `LIKE`.
+  Behaviour is unchanged: case folding, literal wildcards, and an empty query
+  still lists the first rows.
 
 ## [0.4.0] - 2026-09-09
 
