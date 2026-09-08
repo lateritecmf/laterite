@@ -2049,6 +2049,7 @@ mod tests {
             id_field: "id".to_string(),
             fields: vec![],
             persist: None,
+            timestamps: false,
         }
     }
 

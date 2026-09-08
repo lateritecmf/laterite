@@ -17,6 +17,7 @@
 - [Validation](extend/validation.md)
 - [Errors](extend/errors.md)
 - [Localization](extend/localization.md)
+- [Model Listeners](extend/model-listeners.md)
 - [Audit Log](extend/audit-log.md)
 - [Sessions and CSRF](extend/sessions.md)
 - [Database Portability](extend/database-portability.md)

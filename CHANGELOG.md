@@ -43,6 +43,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   call in each handler, so a new descriptor screen is audited by existing.
   Screens that write through their own store functions keep their explicit
   calls.
+- A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
+  supplied `created_at` alone so an import keeps its history.
+- The Model Listeners guide.
 - **Breaking**: `router` takes the model-listener contributions. Applications
   boot through `Bootstrap` and are unaffected.
 - The built-in persister binds typed values (integers, booleans as integers,

@@ -155,6 +155,10 @@ pub struct FormConfig {
     /// The registered persister that writes this form (a dotted `vendor.name`),
     /// or `None` for the built-in descriptor insert/update. See [`crate::persist`].
     pub persist: Option<String>,
+    /// Stamp `created_at` and `updated_at` on write. Opt in per form, because
+    /// the columns have to exist on this entity's table.
+    #[serde(default)]
+    pub timestamps: bool,
 }
 
 impl FormConfig {
@@ -218,11 +222,19 @@ impl PreparedForm {
                 .ok_or_else(|| format!("form names unregistered persister `{key}`"))?,
             None => Arc::new(DefaultPersister::from_config(&config)),
         };
-        let listeners = listeners
-            .iter()
-            .filter(|reg| reg.matches(&config.entity))
-            .map(|reg| reg.listener.clone())
-            .collect();
+        // The framework's own listeners run first, so a contributed one can see
+        // or override what they set.
+        let mut resolved: Vec<Arc<dyn ModelListener>> = Vec::new();
+        if config.timestamps {
+            resolved.push(Arc::new(laterite_core::Timestamps));
+        }
+        resolved.extend(
+            listeners
+                .iter()
+                .filter(|reg| reg.matches(&config.entity))
+                .map(|reg| reg.listener.clone()),
+        );
+        let listeners = resolved;
         Ok(Self {
             config,
             fields,
@@ -637,6 +649,10 @@ mod tests {
                     )
                     .col(ColumnDef::new(Alias::new("code")).text().not_null())
                     .col(ColumnDef::new(Alias::new("name")).text().not_null())
+                    // Nullable, so a form that does not opt into timestamps
+                    // still inserts.
+                    .col(ColumnDef::new(Alias::new("created_at")).text())
+                    .col(ColumnDef::new(Alias::new("updated_at")).text())
                     .to_owned(),
             )
             .await
@@ -654,6 +670,7 @@ mod tests {
                 FormField::text("name", "Name").required(),
             ],
             persist: None,
+            timestamps: false,
         };
         PreparedForm::prepare(
             config,
@@ -673,14 +690,14 @@ mod tests {
 
     /// A fresh test database holding a minimal `samples` table, on whichever
     /// backend the run targets. Hold the returned guard for the test's lifetime.
-    async fn test_db() -> (Db, TestGuard) {
+    pub(super) async fn test_db() -> (Db, TestGuard) {
         let samples = MigrationSet::new("test.samples", vec![Box::new(CreateSamples)]);
         connect_test(&[samples]).await
     }
 
     /// Reads a single text column from the one row matching `code`, so a test can
     /// assert what was persisted without depending on the read path under test.
-    async fn fetch_text(db: &Db, column: &str, code: &str) -> Option<String> {
+    pub(super) async fn fetch_text(db: &Db, column: &str, code: &str) -> Option<String> {
         let stmt = Query::select()
             .expr_as(
                 Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(db.backend))),
@@ -844,6 +861,7 @@ mod tests {
                         .required(),
                 ],
                 persist: None,
+                timestamps: false,
             },
             &st.field_types,
             &PersisterRegistry::new(),
@@ -883,6 +901,7 @@ mod tests {
             id_field: "id".to_string(),
             fields: vec![FormField::of("place", "Place", "no.such.type")],
             persist: None,
+            timestamps: false,
         };
         let Err(err) = PreparedForm::prepare(
             config,
@@ -908,6 +927,7 @@ mod tests {
                 FormField::of("email", "Email", "text").options(serde_json::json!({ "input": 7 }))
             ],
             persist: None,
+            timestamps: false,
         };
         let Err(err) = PreparedForm::prepare(
             config,
@@ -979,6 +999,7 @@ mod tests {
                 FormField::text("name", "Name").required(),
             ],
             persist: Some(persister.to_string()),
+            timestamps: false,
         }
     }
 
@@ -1047,5 +1068,75 @@ mod tests {
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert!(body_of(resp).await.contains("Code is not allowed here."));
+    }
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::tests::*;
+    use super::*;
+    use laterite_core::listeners::{CREATED_AT, UPDATED_AT};
+    use laterite_core::Actor;
+
+    fn timestamped(on: bool) -> FormConfig {
+        FormConfig {
+            entity: "samples".to_string(),
+            title: "Sample".into(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![
+                FormField::text("code", "Code").required(),
+                FormField::text("name", "Name").required(),
+            ],
+            persist: None,
+            timestamps: on,
+        }
+    }
+
+    async fn create_through_pipeline(db: &laterite_core::Db, on: bool) -> Record {
+        let form = PreparedForm::prepare(
+            timestamped(on),
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+            &[],
+        )
+        .unwrap();
+        let mut data = HashMap::new();
+        data.insert("code".to_string(), "c1".to_string());
+        data.insert("name".to_string(), "Chair".to_string());
+        let mut rec = declared_record(&form, &data);
+        let actor = Actor::system("test");
+        persist::save(
+            persist::SaveRequest {
+                db,
+                listeners: &form.listeners,
+                persister: form.persister.as_ref(),
+                actor: &actor,
+                op: Op::Create,
+                id: None,
+            },
+            &mut rec,
+        )
+        .await
+        .expect("the insert should succeed");
+        rec
+    }
+
+    #[tokio::test]
+    async fn opting_in_stamps_the_row() {
+        let (db, _guard) = test_db().await;
+        let rec = create_through_pipeline(&db, true).await;
+        assert!(rec.datetime(CREATED_AT).is_some());
+        assert!(rec.datetime(UPDATED_AT).is_some());
+        // The stamp reached the table, not just the record.
+        assert!(fetch_text(&db, CREATED_AT, "c1").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn leaving_it_off_writes_no_timestamps() {
+        let (db, _guard) = test_db().await;
+        let rec = create_through_pipeline(&db, false).await;
+        assert!(rec.get(CREATED_AT).is_none());
+        assert_eq!(fetch_text(&db, CREATED_AT, "c1").await, None);
     }
 }

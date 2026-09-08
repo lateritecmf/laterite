@@ -10,7 +10,9 @@ Each entry captures:
 
 - **When** the change happened.
 - **The operator** who made it. The username is stored on the entry itself, so a
-  record stays legible even after that account is later removed.
+  record stays legible even after that account is later removed. A change made by
+  the system rather than a person, from the command line or a background job,
+  records the process name and no operator.
 - **The action**, as a dot-keyed name such as `backend.role.update` or
   `backend.plugin.disable`.
 - **The target** it acted on (a type and id), when the action has one.
@@ -22,6 +24,11 @@ resource's form.
 
 A settings value can hold secrets, so its entry records that the settings model
 changed, not the new contents.
+
+Writes through a resource's form are recorded by a [model
+listener](model-listeners.md), so a screen you build from descriptors is audited
+without doing anything. The framework's own role, user, plugin and settings
+screens write through their own stores and record their entries directly.
 
 ## What is not recorded
 
