@@ -48,6 +48,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   two plugins cannot collide. `Module::admin_base` declares a shorter base, and
   `[backend.paths]` lets a deployment move a module or one of its screens without
   forking it. Two claims on one path abort the boot naming both.
+- A module can mount its own admin screens: contribute a `ScreenReg` and the
+  framework nests its routes under the module's resolved path, wrapped in the
+  session, the permission guard it declares, CSRF and the styled error pages. The
+  screen reads a narrow `ScreenCtx` and builds self-links through `ctx.url`, so a
+  moved screen moves its links with it.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.
 - The Model Listeners guide.

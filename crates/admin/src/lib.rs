@@ -27,6 +27,7 @@ pub mod picker;
 pub mod plugins;
 mod roles;
 mod routemap;
+pub mod screen;
 mod session;
 pub mod settings;
 mod sql;
@@ -69,6 +70,9 @@ pub trait AdminRegistry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
     /// Adds a form persister, selectable by a form descriptor's `persist` key.
     fn add_persister(&mut self, persister: persist::PersisterReg);
+    /// Mounts a screen of this module's own: any routes descriptors cannot
+    /// express, inside the admin with its session, permission and error handling.
+    fn add_screen(&mut self, screen: screen::ScreenReg);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -83,6 +87,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_picker_source(&mut self, source: picker::PickerSourceReg) {
         self.add(source);
+    }
+    fn add_screen(&mut self, screen: screen::ScreenReg) {
+        self.add(screen);
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -749,6 +756,7 @@ pub fn router(
     app_picker_sources: Vec<picker::PickerSourceReg>,
     app_persisters: Vec<persist::PersisterReg>,
     app_listeners: Vec<laterite_core::ModelListenerReg>,
+    app_screens: Vec<screen::ScreenReg>,
     config: AdminConfig,
     catalogs: Arc<CatalogStore>,
 ) -> Router {
@@ -862,6 +870,18 @@ pub fn router(
             &app_listeners,
         ));
     }
+    // A module's own screens: routes it wrote, mounted inside the protected tree
+    // so they inherit the session, the permission guard, CSRF and the error pages.
+    // Nested as a service, so the screen's router carries no framework state.
+    for reg in &app_screens {
+        let base = format!("{admin_path}{}", reg.base_path);
+        let ctx = screen::ScreenCtx::new(state.db.clone(), &base);
+        protected = protected.merge(guard_with_permission(
+            Router::new().nest_service(&base, reg.screen.mount(&ctx)),
+            &reg.permission,
+        ));
+    }
+
     // The roles screen has a dedicated create/edit form (the permission editor),
     // gated by the same permission as its list.
     protected = protected.merge(guard_with_permission(

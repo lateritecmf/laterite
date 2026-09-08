@@ -351,6 +351,14 @@ impl Bootstrap {
             );
             resources.push((owner, resource));
         }
+        let mut screens = Vec::new();
+        for (owner, mut reg) in contributions.take_owned::<crate::screen::ScreenReg>() {
+            let base = bases.get(owner.as_str()).copied().flatten();
+            reg.base_path =
+                crate::routemap::resolve(owner, &reg.base_path, base, &config.backend.paths);
+            screens.push((owner, reg));
+        }
+
         // Every admin path in one list, the framework's own included, so a module
         // shadowing a built-in screen is caught as loudly as two modules clashing.
         let mut claims: Vec<(String, String)> = crate::builtin_resources()
@@ -362,8 +370,14 @@ impl Bootstrap {
                 .iter()
                 .map(|(owner, r)| (r.base_path.clone(), owner.to_string())),
         );
+        claims.extend(
+            screens
+                .iter()
+                .map(|(owner, s)| (s.base_path.clone(), owner.to_string())),
+        );
         crate::routemap::check_collisions(&claims);
         let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
+        let screens: Vec<crate::screen::ScreenReg> = screens.into_iter().map(|(_, s)| s).collect();
         let settings = contributions.take::<SettingsItem>();
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
@@ -407,6 +421,7 @@ impl Bootstrap {
             picker_sources,
             persisters,
             listeners,
+            screens,
             admin_config,
             std::sync::Arc::new(catalogs.build()),
         );
