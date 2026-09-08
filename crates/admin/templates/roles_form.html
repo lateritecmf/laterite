@@ -4,35 +4,6 @@
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
 <div class="lat-toolbar"><h1>{{ title }}</h1></div>
 <div class="lat-card" style="max-width:620px">
-  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-  <form method="post" action="{{ action }}">
-    {% include "_csrf.html" %}
-    <div class="lat-field">
-      <label class="lat-field__label" for="code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
-      <input class="lat-input" type="text" id="code" name="code" value="{{ code }}" required>
-    </div>
-    <div class="lat-field">
-      <label class="lat-field__label" for="name">{{ shell.t("Name") }}<span class="lat-field__req">*</span></label>
-      <input class="lat-input" type="text" id="name" name="name" value="{{ name }}" required>
-    </div>
-    <div class="lat-field">
-      <span class="lat-field__label">{{ shell.t("Permissions") }}</span>
-      {% for group in groups %}
-      <fieldset class="lat-permgroup">
-        <legend class="lat-permgroup__legend">{{ group.name }}</legend>
-        {% for perm in group.perms %}
-        <label class="lat-check">
-          <input type="checkbox" name="perm" value="{{ perm.code }}"{% if perm.checked %} checked{% endif %}>
-          <span>{{ perm.label }}</span>
-        </label>
-        {% endfor %}
-      </fieldset>
-      {% endfor %}
-    </div>
-    <div class="lat-actions">
-      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
-      <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
-    </div>
-  </form>
+  {% include "_roles_form_fields.html" %}
 </div>
 {% endblock %}

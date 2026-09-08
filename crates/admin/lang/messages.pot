@@ -66,7 +66,7 @@ msgid "Build sites. Ship solid."
 msgstr ""
 
 #: templates/_form_fields.html
-#: templates/roles_form.html
+#: templates/_roles_form_fields.html
 #: templates/settings_form.html
 #: templates/users_form.html
 msgid "Cancel"
@@ -76,7 +76,7 @@ msgstr ""
 msgid "Choose a section from the list to configure it."
 msgstr ""
 
-#: templates/roles_form.html
+#: templates/_roles_form_fields.html
 #: (descriptors)
 msgid "Code"
 msgstr ""
@@ -234,7 +234,7 @@ msgstr ""
 msgid "Menu"
 msgstr ""
 
-#: templates/roles_form.html
+#: templates/_roles_form_fields.html
 #: (descriptors)
 msgid "Name"
 msgstr ""
@@ -289,7 +289,7 @@ msgstr ""
 msgid "Permission overrides"
 msgstr ""
 
-#: templates/roles_form.html
+#: templates/_roles_form_fields.html
 msgid "Permissions"
 msgstr ""
 
@@ -362,8 +362,8 @@ msgid "Roles"
 msgstr ""
 
 #: templates/_form_fields.html
+#: templates/_roles_form_fields.html
 #: templates/preferences.html
-#: templates/roles_form.html
 #: templates/settings_form.html
 #: templates/users_form.html
 msgid "Save"

@@ -34,6 +34,21 @@ Validation returns a [`laterite_core::validation::ErrorBag`]. An empty bag means
 the submission is valid. The form reads it per field; an API serialises it as a
 `422` body shaped `{ "field": ["message", ...] }`.
 
+## What a refused submission answers
+
+A refused save answers `422` and re-renders the form with the submitted values
+still in place. The admin's forms post through HTMX, so the response body is the
+form on its own and it swaps into the page where it stands. With scripting off,
+the same handler answers the whole page at the same status, and the screen keeps
+working.
+
+A save that succeeds sets a session flash and sends the browser to the list: an
+HTMX submit gets `HX-Redirect`, a plain one gets a `303`. Both land on a `GET`,
+so a refresh repeats nothing.
+
+Nothing in a form declares this. The generic handlers answer both ways from the
+`HX-Request` header on the submission.
+
 Call the engine directly with `validate_fields` for the cheap rules alone (no
 database round-trip), or `validate` to add the `unique` probe:
 

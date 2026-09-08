@@ -14,6 +14,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   successful one redirects through the `HX-Redirect` header. A browser with
   scripting off still gets the whole page and an ordinary redirect.
 - The generic form flashes on success, which only the roles form did before.
+- The role editor submits through HTMX on the same contract, so a rejected code
+  or name re-renders the permission editor in place with the ticks intact.
+
+### Changed
+
+- A refused save answers 422 rather than 200, on both the descriptor form and
+  the role editor.
 
 ## [0.4.0] - 2026-09-09
 

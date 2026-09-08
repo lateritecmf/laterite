@@ -572,7 +572,7 @@ fn invalid_response(
 /// Where to send the browser after a successful save. HTMX will not follow a
 /// 303 usefully (it would swap the redirected page into the form), so it gets
 /// the header it understands instead.
-fn saved_response(htmx: bool, to: &str) -> Response {
+pub(crate) fn saved_response(htmx: bool, to: &str) -> Response {
     if htmx {
         ([("HX-Redirect", to)], StatusCode::NO_CONTENT).into_response()
     } else {
@@ -581,7 +581,7 @@ fn saved_response(htmx: bool, to: &str) -> Response {
 }
 
 /// Whether this request came from HTMX rather than a plain form post.
-fn is_htmx(headers: &axum::http::HeaderMap) -> bool {
+pub(crate) fn is_htmx(headers: &axum::http::HeaderMap) -> bool {
     headers.contains_key("hx-request")
 }
 
