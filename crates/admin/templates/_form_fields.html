@@ -1,0 +1,15 @@
+<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML">
+  {% include "_csrf.html" %}
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  {% for field in fields %}
+  <div class="lat-field">
+    <label class="lat-field__label" for="{{ field.id }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
+    {{ field.control|safe }}
+    {% for message in field.errors %}<p class="lat-field__error">{{ message }}</p>{% endfor %}
+  </div>
+  {% endfor %}
+  <div class="lat-actions">
+    <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
+    <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
+  </div>
+</form>

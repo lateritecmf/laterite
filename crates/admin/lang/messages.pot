@@ -65,7 +65,7 @@ msgstr ""
 msgid "Build sites. Ship solid."
 msgstr ""
 
-#: templates/form.html
+#: templates/_form_fields.html
 #: templates/roles_form.html
 #: templates/settings_form.html
 #: templates/users_form.html
@@ -361,12 +361,16 @@ msgstr ""
 msgid "Roles"
 msgstr ""
 
-#: templates/form.html
+#: templates/_form_fields.html
 #: templates/preferences.html
 #: templates/roles_form.html
 #: templates/settings_form.html
 #: templates/users_form.html
 msgid "Save"
+msgstr ""
+
+#: src/form.rs
+msgid "Saved."
 msgstr ""
 
 #: templates/setup.html

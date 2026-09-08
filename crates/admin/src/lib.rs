@@ -1260,9 +1260,13 @@ fn mount_resource(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
                       Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
+                      headers: axum::http::HeaderMap,
                       Form(data): Form<HashMap<String, String>>| {
                     let pf = create_pf.clone();
-                    async move { form::create(&state, &pf, data, shell, &user).await }
+                    async move {
+                        form::create(&state, &pf, data, shell, &user, &session, &headers).await
+                    }
                 },
             ),
         );
@@ -1282,10 +1286,14 @@ fn mount_resource(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
                       Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
                       Path(id): Path<String>,
+                      headers: axum::http::HeaderMap,
                       Form(data): Form<HashMap<String, String>>| {
                     let pf = update_pf.clone();
-                    async move { form::update(&state, &pf, id, data, shell, &user).await }
+                    async move {
+                        form::update(&state, &pf, id, data, shell, &user, &session, &headers).await
+                    }
                 },
             ),
         );

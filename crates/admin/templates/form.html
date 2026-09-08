@@ -4,20 +4,6 @@
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
 <div class="lat-toolbar"><h1>{{ title }}</h1></div>
 <div class="lat-card" style="max-width:620px">
-  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-  <form method="post" action="{{ action }}">
-    {% include "_csrf.html" %}
-    {% for field in fields %}
-    <div class="lat-field">
-      <label class="lat-field__label" for="{{ field.id }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
-      {{ field.control|safe }}
-      {% for message in field.errors %}<p class="lat-field__error">{{ message }}</p>{% endfor %}
-    </div>
-    {% endfor %}
-    <div class="lat-actions">
-      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
-      <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
-    </div>
-  </form>
+  {% include "_form_fields.html" %}
 </div>
 {% endblock %}

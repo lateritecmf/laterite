@@ -311,10 +311,13 @@ pub(crate) async fn create(
     data: HashMap<String, String>,
     shell: crate::Shell,
     user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
     }
+    let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
 
     let bag = match validate(
@@ -334,11 +337,7 @@ pub(crate) async fn create(
     if !bag.is_empty() {
         // A failed submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, form, &action, None, &data, &bag, &shell)),
-        )
-            .into_response();
+        return invalid_response(htmx, state, form, &action, None, &data, &bag, &shell);
     }
 
     let mut rec = match declared_record(form, &data, Mode::Create) {
@@ -364,13 +363,14 @@ pub(crate) async fn create(
     {
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
-        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
+        Ok(()) => {
+            session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
+            saved_response(htmx, &form.config.base_path)
+        }
         // A persist-time domain check re-renders 422 with its per-field messages.
-        Err(SaveError::Invalid(bag)) => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, form, &action, None, &data, &bag, &shell)),
-        )
-            .into_response(),
+        Err(SaveError::Invalid(bag)) => {
+            invalid_response(htmx, state, form, &action, None, &data, &bag, &shell)
+        }
         Err(SaveError::Failed(msg)) => {
             tracing::error!(error = %msg, "admin create failed");
             render(build(
@@ -455,6 +455,9 @@ pub(crate) async fn edit_form(
 
 /// Persists an edited record, then redirects to the list. Re-renders with
 /// per-field errors when validation fails.
+// The generic handlers thread the request's pieces explicitly rather than through
+// a context struct; the list is long but each argument is named at the call site.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn update(
     state: &AdminState,
     form: &PreparedForm,
@@ -462,10 +465,13 @@ pub(crate) async fn update(
     data: HashMap<String, String>,
     shell: crate::Shell,
     user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
     }
+    let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
 
     let bag = match validate(
@@ -485,11 +491,7 @@ pub(crate) async fn update(
     if !bag.is_empty() {
         // A failed submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, form, &action, None, &data, &bag, &shell)),
-        )
-            .into_response();
+        return invalid_response(htmx, state, form, &action, None, &data, &bag, &shell);
     }
 
     let mut rec = match declared_record(form, &data, Mode::Update) {
@@ -516,12 +518,13 @@ pub(crate) async fn update(
     )
     .await
     {
-        Ok(()) => Redirect::to(&form.config.base_path).into_response(),
-        Err(SaveError::Invalid(bag)) => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            render(build(state, form, &action, None, &data, &bag, &shell)),
-        )
-            .into_response(),
+        Ok(()) => {
+            session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
+            saved_response(htmx, &form.config.base_path)
+        }
+        Err(SaveError::Invalid(bag)) => {
+            invalid_response(htmx, state, form, &action, None, &data, &bag, &shell)
+        }
         Err(SaveError::Failed(msg)) => {
             tracing::error!(error = %msg, "admin update failed");
             render(build(
@@ -535,6 +538,51 @@ pub(crate) async fn update(
             ))
         }
     }
+}
+
+/// The 422 response for a failed save. An HTMX submit gets the form alone, which
+/// replaces the form in place; anything else gets the whole page, so the admin
+/// still works with scripting off.
+#[allow(clippy::too_many_arguments)]
+fn invalid_response(
+    htmx: bool,
+    state: &AdminState,
+    form: &PreparedForm,
+    action: &str,
+    error: Option<Text>,
+    values: &HashMap<String, String>,
+    bag: &ErrorBag,
+    shell: &crate::Shell,
+) -> Response {
+    let page = build(state, form, action, error, values, bag, shell);
+    let body = if htmx {
+        render(FormFragment {
+            shell: page.shell,
+            action: page.action,
+            cancel_path: page.cancel_path,
+            error: page.error,
+            fields: page.fields,
+        })
+    } else {
+        render(page)
+    };
+    (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+}
+
+/// Where to send the browser after a successful save. HTMX will not follow a
+/// 303 usefully (it would swap the redirected page into the form), so it gets
+/// the header it understands instead.
+fn saved_response(htmx: bool, to: &str) -> Response {
+    if htmx {
+        ([("HX-Redirect", to)], StatusCode::NO_CONTENT).into_response()
+    } else {
+        Redirect::to(to).into_response()
+    }
+}
+
+/// Whether this request came from HTMX rather than a plain form post.
+fn is_htmx(headers: &axum::http::HeaderMap) -> bool {
+    headers.contains_key("hx-request")
 }
 
 fn build(
@@ -632,6 +680,18 @@ struct FieldView {
     errors: Vec<String>,
 }
 
+/// Just the form element, for an HTMX submit that failed validation: the
+/// response replaces the form in place rather than reloading the page.
+#[derive(Template)]
+#[template(path = "_form_fields.html")]
+struct FormFragment {
+    shell: crate::Shell,
+    action: String,
+    cancel_path: String,
+    error: Option<String>,
+    fields: Vec<FieldView>,
+}
+
 #[derive(Template)]
 #[template(path = "form.html")]
 struct FormTemplate {
@@ -708,7 +768,7 @@ mod tests {
         .unwrap()
     }
 
-    fn state(db: Db) -> AdminState {
+    pub(super) fn state(db: Db) -> AdminState {
         AdminState::new(
             laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db,
@@ -762,6 +822,13 @@ mod tests {
             .collect()
     }
 
+    /// The header htmx sets on every request it makes.
+    pub(super) fn htmx_headers() -> axum::http::HeaderMap {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("hx-request", "true".parse().unwrap());
+        h
+    }
+
     #[tokio::test]
     async fn create_then_fetch() {
         let (db, _guard) = test_db().await;
@@ -774,6 +841,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Content Editor")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -795,6 +864,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
 
@@ -810,6 +881,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Senior Editor")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -832,6 +905,8 @@ mod tests {
             data(&[("code", ""), ("name", "No Code")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         // Re-renders the form (200), does not redirect.
@@ -852,6 +927,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
 
@@ -862,6 +939,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Other")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -902,6 +981,8 @@ mod tests {
             data(&[("code", "c1"), ("name", "nope")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -913,6 +994,8 @@ mod tests {
             data(&[("code", "c1"), ("name", "a@b.test")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
@@ -1063,6 +1146,8 @@ mod tests {
             data(&[("code", "rolled"), ("name", "back")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         // The persister failed, so the form re-renders (200) and its in-tx insert
@@ -1091,6 +1176,8 @@ mod tests {
             data(&[("code", "editor"), ("name", "Editor")]),
             crate::Shell::test(),
             &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -1165,5 +1252,102 @@ mod timestamp_tests {
         let rec = create_through_pipeline(&db, false).await;
         assert!(rec.get(CREATED_AT).is_none());
         assert_eq!(fetch_text(&db, CREATED_AT, "c1").await, None);
+    }
+}
+
+#[cfg(test)]
+mod htmx_tests {
+    use super::tests::*;
+    use super::*;
+    use axum::http::StatusCode;
+
+    /// A submission missing a required field, so validation refuses it.
+    fn invalid() -> HashMap<String, String> {
+        let mut d = HashMap::new();
+        d.insert("code".to_string(), String::new());
+        d.insert("name".to_string(), "No code".to_string());
+        d
+    }
+
+    fn valid() -> HashMap<String, String> {
+        let mut d = HashMap::new();
+        d.insert("code".to_string(), "c1".to_string());
+        d.insert("name".to_string(), "Chair".to_string());
+        d
+    }
+
+    async fn post(data: HashMap<String, String>, headers: axum::http::HeaderMap) -> Response {
+        let (db, _guard) = test_db().await;
+        let st = state(db);
+        let form = PreparedForm::prepare(
+            FormConfig {
+                entity: "samples".to_string(),
+                title: "Sample".into(),
+                base_path: "/admin/samples".to_string(),
+                id_field: "id".to_string(),
+                fields: vec![
+                    FormField::text("code", "Code").required(),
+                    FormField::text("name", "Name").required(),
+                ],
+                persist: None,
+                timestamps: false,
+            },
+            &st.field_types,
+            &PersisterRegistry::new(),
+            &[],
+        )
+        .unwrap();
+        create(
+            &st,
+            &form,
+            data,
+            crate::Shell::test(),
+            &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &headers,
+        )
+        .await
+    }
+
+    async fn body_of(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_htmx_submit_that_fails_returns_the_form_alone() {
+        let resp = post(invalid(), htmx_headers()).await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_of(resp).await;
+        assert!(html.contains("<form"), "the form comes back");
+        assert!(html.contains("lat-field__error"), "with its errors");
+        // A fragment, not a page: swapping a whole document into the form would
+        // nest the admin inside itself.
+        assert!(!html.contains("<body"), "no page chrome");
+    }
+
+    #[tokio::test]
+    async fn a_plain_submit_that_fails_returns_the_whole_page() {
+        let resp = post(invalid(), axum::http::HeaderMap::new()).await;
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_of(resp).await;
+        assert!(html.contains("<body"), "the admin still works without htmx");
+        assert!(html.contains("lat-field__error"));
+    }
+
+    #[tokio::test]
+    async fn an_htmx_submit_that_succeeds_redirects_by_header() {
+        let resp = post(valid(), htmx_headers()).await;
+        // htmx cannot follow a 303 usefully; it reads this header instead.
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(resp.headers().get("HX-Redirect").unwrap(), "/admin/samples");
+    }
+
+    #[tokio::test]
+    async fn a_plain_submit_that_succeeds_still_redirects() {
+        let resp = post(valid(), axum::http::HeaderMap::new()).await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     }
 }

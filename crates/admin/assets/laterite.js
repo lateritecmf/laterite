@@ -23,6 +23,16 @@ function latDismissFlash(btn) {
   setTimeout(function () { t.remove(); }, 180);
 }
 
+// htmx ignores a non-2xx response by default, so a form that failed validation
+// would post and appear to do nothing. A 422 is our "here is the form again,
+// with errors": let it swap, into the element that asked.
+document.addEventListener('htmx:beforeSwap', function (e) {
+  if (e.detail.xhr.status === 422) {
+    e.detail.shouldSwap = true;
+    e.detail.isError = false;
+  }
+});
+
 // Widget (island) registry: register an initialiser by name; every element with
 // a matching data-lat-widget is initialised exactly once, on first load and
 // after an htmx swap (swapped fragments carry their own widgets).

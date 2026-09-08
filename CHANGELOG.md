@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Descriptor forms submit through HTMX. A failed save re-renders the form in
+  place with its per-field errors instead of reloading the page, and a
+  successful one redirects through the `HX-Redirect` header. A browser with
+  scripting off still gets the whole page and an ordinary redirect.
+- The generic form flashes on success, which only the roles form did before.
+
 ## [0.4.0] - 2026-09-09
 
 Three steps: the record layer (writes run through one transaction with lifecycle
