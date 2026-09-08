@@ -1235,10 +1235,13 @@ fn mount_resource(
             move |State(state): State<AdminState>,
                   Extension(shell): Extension<Shell>,
                   Query(params): Query<list::ListParams>,
+                  Query(raw): Query<std::collections::HashMap<String, String>>,
                   headers: axum::http::HeaderMap| {
                 let cfg = list_cfg.clone();
                 let path = list_path.clone();
-                async move { list::handle(&state, &cfg, &path, params, shell, &headers).await }
+                async move {
+                    list::handle(&state, &cfg, &path, params, &raw, shell, &headers).await
+                }
             },
         ),
     );
@@ -1963,6 +1966,10 @@ fn backend_users_list_config() -> list::ListConfig {
         // CLI or first-run setup, so no "New" screen here.
         edit_base: Some("/users".to_string()),
         creatable: false,
+        filters: vec![
+            list::ListFilter::boolean("is_active", "Active"),
+            list::ListFilter::boolean("is_superuser", "Superuser"),
+        ],
     }
 }
 
@@ -1981,6 +1988,7 @@ fn roles_list_config() -> list::ListConfig {
         id_field: "id".to_string(),
         edit_base: Some("/roles".to_string()),
         creatable: true,
+        filters: Vec::new(),
     }
 }
 
@@ -2003,6 +2011,7 @@ fn audit_log_list_config() -> list::ListConfig {
         id_field: "id".to_string(),
         edit_base: None,
         creatable: false,
+        filters: Vec::new(),
     }
 }
 

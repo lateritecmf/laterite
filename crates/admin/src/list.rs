@@ -331,6 +331,68 @@ fn status_slug(value: &str) -> String {
         .collect()
 }
 
+/// One value a [`FilterKind::Select`] offers.
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterOption {
+    pub value: String,
+    /// The option's label, localized at render.
+    pub label: Text,
+}
+
+impl FilterOption {
+    pub fn new(value: &str, label: impl Into<Text>) -> Self {
+        Self {
+            value: value.to_string(),
+            label: label.into(),
+        }
+    }
+}
+
+/// What a filter offers and how its value becomes a condition.
+#[derive(Debug, Clone, Serialize)]
+pub enum FilterKind {
+    /// A yes/no column. Booleans are integer columns on every backend, so the
+    /// value binds as an integer and compares portably.
+    Boolean,
+    /// One of a declared set of values. Only a declared value reaches the query.
+    Select { options: Vec<FilterOption> },
+}
+
+/// One filter offered above a list: a column, its label, and what it offers.
+#[derive(Debug, Clone, Serialize)]
+pub struct ListFilter {
+    pub field: String,
+    /// The control's label, localized at render.
+    pub label: Text,
+    pub kind: FilterKind,
+}
+
+impl ListFilter {
+    /// A yes/no filter over a boolean column.
+    pub fn boolean(field: &str, label: impl Into<Text>) -> Self {
+        Self {
+            field: field.to_string(),
+            label: label.into(),
+            kind: FilterKind::Boolean,
+        }
+    }
+
+    /// A filter offering a fixed set of values.
+    pub fn select(field: &str, label: impl Into<Text>, options: Vec<FilterOption>) -> Self {
+        Self {
+            field: field.to_string(),
+            label: label.into(),
+            kind: FilterKind::Select { options },
+        }
+    }
+
+    /// The query-string key carrying this filter's value. Prefixed so a filter
+    /// on a column named `q` or `sort` cannot collide with the list's own params.
+    pub(crate) fn param(&self) -> String {
+        format!("f_{}", self.field)
+    }
+}
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 #[derive(Debug, Clone, Serialize)]
@@ -348,6 +410,8 @@ pub struct ListConfig {
     /// Whether to offer a "New" link to `{edit_base}/new`. A resource that only
     /// edits existing records (no create screen) sets this false.
     pub creatable: bool,
+    /// Filters offered above the table. Empty hides the bar.
+    pub filters: Vec<ListFilter>,
 }
 
 /// Query-string parameters for a list view.
@@ -398,6 +462,67 @@ pub(crate) struct ListQuery<'a> {
     pub order_by: &'a str,
     pub order_dir: SortDir,
     pub q: &'a str,
+    pub filters: &'a [ActiveFilter<'a>],
+}
+
+/// A filter the request actually selected: the declared filter and its accepted
+/// value. Built only from declared filters and, for a select, declared options,
+/// so a crafted parameter cannot reach the query.
+pub(crate) struct ActiveFilter<'a> {
+    filter: &'a ListFilter,
+    /// The raw value as submitted, for re-rendering the control and the links.
+    raw: String,
+    value: sea_query::Value,
+}
+
+/// Reads the declared filters out of the request's query parameters, dropping
+/// anything undeclared, unrecognised, or blank.
+pub(crate) fn resolve_filters<'a>(
+    config: &'a ListConfig,
+    params: &HashMap<String, String>,
+) -> Vec<ActiveFilter<'a>> {
+    let mut out = Vec::new();
+    for filter in &config.filters {
+        let Some(raw) = params.get(&filter.param()).map(|v| v.trim()) else {
+            continue;
+        };
+        if raw.is_empty() {
+            continue;
+        }
+        let value = match &filter.kind {
+            // Only the two spellings the control emits; anything else is dropped
+            // rather than guessed at.
+            FilterKind::Boolean => match raw {
+                "1" => sea_query::Value::Bool(Some(true)),
+                "0" => sea_query::Value::Bool(Some(false)),
+                _ => continue,
+            },
+            FilterKind::Select { options } => {
+                if !options.iter().any(|o| o.value == raw) {
+                    continue;
+                }
+                sea_query::Value::String(Some(Box::new(raw.to_string())))
+            }
+        };
+        out.push(ActiveFilter {
+            filter,
+            raw: raw.to_string(),
+            value,
+        });
+    }
+    out
+}
+
+/// The filters ANDed together, or `None` when none are active.
+fn filter_condition(active: &[ActiveFilter<'_>]) -> Option<sea_query::Condition> {
+    if active.is_empty() {
+        return None;
+    }
+    let mut all = sea_query::Condition::all();
+    for f in active {
+        all = all.add(Expr::col(Alias::new(&f.filter.field)).eq(f.value.clone()));
+    }
+    Some(all)
 }
 
 /// The condition matching `q` across the searchable columns, or `None` when
@@ -434,6 +559,7 @@ pub(crate) async fn query(
         || !valid_ident(req.order_by)
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
+        || !config.filters.iter().all(|f| valid_ident(&f.field))
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
@@ -465,6 +591,9 @@ pub(crate) async fn query(
         if let Some(cond) = search_condition(config, req.q) {
             select.cond_where(cond);
         }
+        if let Some(cond) = filter_condition(req.filters) {
+            select.cond_where(cond);
+        }
         build(db.backend, select)
     };
     let raw = bind_values(sqlx::query(&sql), values)
@@ -476,8 +605,11 @@ pub(crate) async fn query(
         count
             .expr(Expr::col(Alias::new(&config.id_field)).count())
             .from(Alias::new(&config.entity));
-        // The same filter, so the pager counts what the search returns.
+        // The same conditions, so the pager counts what the list returns.
         if let Some(cond) = search_condition(config, req.q) {
+            count.cond_where(cond);
+        }
+        if let Some(cond) = filter_condition(req.filters) {
             count.cond_where(cond);
         }
         build(db.backend, count)
@@ -510,11 +642,13 @@ fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
 }
 
 /// Renders a list view for the given config.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle(
     state: &AdminState,
     config: &ListConfig,
     path: &str,
     params: ListParams,
+    raw: &HashMap<String, String>,
     shell: crate::Shell,
     headers: &axum::http::HeaderMap,
 ) -> Response {
@@ -522,12 +656,23 @@ pub(crate) async fn handle(
     let offset = (page - 1) * config.per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
+    let active = resolve_filters(config, raw);
     let req = ListQuery {
         offset,
         order_by: &order_by,
         order_dir,
         q: q.trim(),
+        filters: &active,
     };
+    // Everything a sort or pager link must preserve, as raw `&k=v` pairs. Askama
+    // escapes it into the href, so the ampersands are correct in the markup.
+    let mut carry = String::new();
+    if !q.trim().is_empty() {
+        carry.push_str(&format!("&q={}", urlencode(q.trim())));
+    }
+    for f in &active {
+        carry.push_str(&format!("&{}={}", f.filter.param(), urlencode(&f.raw)));
+    }
     match query(&state.db, config, &req).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
@@ -602,6 +747,7 @@ pub(crate) async fn handle(
                     }
                 })
                 .collect();
+            let filter_views = filter_views(config, &active, &shell);
             let page_view = ListTemplate {
                 shell,
                 title,
@@ -618,6 +764,9 @@ pub(crate) async fn handle(
                 q: q.trim().to_string(),
                 searchable: config.columns.iter().any(|c| c.is_searchable()),
                 path: path.to_string(),
+                filters: filter_views,
+                filtered: !active.is_empty() || !q.trim().is_empty(),
+                carry: carry.clone(),
             };
             // An htmx request gets the list region alone, which replaces itself in
             // place; anything else gets the whole page, so sorting and paging still
@@ -635,6 +784,8 @@ pub(crate) async fn handle(
                     sort: page_view.sort,
                     dir: page_view.dir,
                     q: page_view.q,
+                    carry: page_view.carry,
+                    filtered: page_view.filtered,
                 })
             } else {
                 render(page_view)
@@ -676,6 +827,93 @@ struct ListTemplate {
     searchable: bool,
     /// This list's own path, for the search form to post back to.
     path: String,
+    /// The filter controls, with the active value marked.
+    filters: Vec<FilterView>,
+    /// Whether anything is narrowing the list, so a Clear link is offered.
+    filtered: bool,
+    /// The query-string pairs a sort or pager link must carry.
+    carry: String,
+}
+
+/// One rendered filter control.
+pub struct FilterView {
+    pub param: String,
+    pub label: String,
+    pub boolean: bool,
+    pub options: Vec<FilterOptionView>,
+    /// The selected value, empty when the filter is off.
+    pub value: String,
+}
+
+pub struct FilterOptionView {
+    pub value: String,
+    pub label: String,
+}
+
+/// Builds the filter controls, marking whichever value the request selected.
+fn filter_views(
+    config: &ListConfig,
+    active: &[ActiveFilter<'_>],
+    shell: &crate::Shell,
+) -> Vec<FilterView> {
+    config
+        .filters
+        .iter()
+        .map(|f| {
+            let value = active
+                .iter()
+                .find(|a| a.filter.field == f.field)
+                .map(|a| a.raw.clone())
+                .unwrap_or_default();
+            let (boolean, options) = match &f.kind {
+                FilterKind::Boolean => (
+                    true,
+                    vec![
+                        FilterOptionView {
+                            value: "1".to_string(),
+                            label: shell.tt(&laterite_core::t!("Yes")),
+                        },
+                        FilterOptionView {
+                            value: "0".to_string(),
+                            label: shell.tt(&laterite_core::t!("No")),
+                        },
+                    ],
+                ),
+                FilterKind::Select { options } => (
+                    false,
+                    options
+                        .iter()
+                        .map(|o| FilterOptionView {
+                            value: o.value.clone(),
+                            label: shell.tt(&o.label),
+                        })
+                        .collect(),
+                ),
+            };
+            FilterView {
+                param: f.param(),
+                label: shell.tt(&f.label),
+                boolean,
+                options,
+                value,
+            }
+        })
+        .collect()
+}
+
+/// Percent-encodes a query-string value.
+fn urlencode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /// The list region alone, for an htmx sort or page that swaps it in place.
@@ -693,6 +931,10 @@ struct ListFragment {
     sort: String,
     dir: String,
     q: String,
+    carry: String,
+    /// Rendered onto the region as `data-filtered`, so the bar's Clear link can
+    /// react without the bar itself having to swap.
+    filtered: bool,
 }
 
 #[cfg(test)]
@@ -713,6 +955,7 @@ mod tests {
             id_field: "id".to_string(),
             edit_base: None,
             creatable: false,
+            filters: vec![ListFilter::boolean("is_superuser", "Superuser")],
         }
     }
 
@@ -846,6 +1089,14 @@ mod tests {
     }
 
     async fn get(params: ListParams, headers: axum::http::HeaderMap) -> String {
+        get_with(params, HashMap::new(), headers).await
+    }
+
+    async fn get_with(
+        params: ListParams,
+        raw: HashMap<String, String>,
+        headers: axum::http::HeaderMap,
+    ) -> String {
         let (db, _guard) = test_db().await;
         let state = AdminState::new(
             laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
@@ -856,6 +1107,7 @@ mod tests {
             &config(),
             "/admin/users",
             params,
+            &raw,
             crate::Shell::test(),
             &headers,
         )
@@ -875,13 +1127,14 @@ mod tests {
         }
     }
 
-    /// The default window and ordering, with no search.
+    /// The default window and ordering, with no search and no filter.
     fn plain(config: &ListConfig) -> ListQuery<'_> {
         ListQuery {
             offset: 0,
             order_by: &config.order_by,
             order_dir: config.order_dir,
             q: "",
+            filters: &[],
         }
     }
 
@@ -891,7 +1144,22 @@ mod tests {
             order_by: &config.order_by,
             order_dir: config.order_dir,
             q,
+            filters: &[],
         }
+    }
+
+    /// Both `&amp;` and `&#38;` are an ampersand; the escaper picks one, and a
+    /// test should assert on the link, not on which spelling it chose.
+    fn amps(html: &str) -> String {
+        html.replace("&#38;", "&").replace("&amp;", "&")
+    }
+
+    /// The request's filter parameters, as the query string would carry them.
+    fn filter_params(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[tokio::test]
@@ -961,6 +1229,113 @@ mod tests {
             .is_searchable());
     }
 
+    async fn seed_users(db: &Db) {
+        for (name, su) in [("ada", true), ("brendan", false), ("clara", false)] {
+            let hash = laterite_auth::password::hash_password("x").unwrap();
+            laterite_auth::store::create_user(
+                db,
+                name,
+                &format!("{name}@example.test"),
+                name,
+                None,
+                &hash,
+                su,
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    async fn total_with(db: &Db, c: &ListConfig, params: &HashMap<String, String>) -> i64 {
+        let active = resolve_filters(c, params);
+        let req = ListQuery {
+            offset: 0,
+            order_by: &c.order_by,
+            order_dir: c.order_dir,
+            q: "",
+            filters: &active,
+        };
+        query(db, c, &req).await.unwrap().total
+    }
+
+    #[tokio::test]
+    async fn a_filter_narrows_the_rows_and_the_total() {
+        let (db, _guard) = test_db().await;
+        seed_users(&db).await;
+        let c = config();
+
+        assert_eq!(total_with(&db, &c, &filter_params(&[])).await, 3);
+        assert_eq!(
+            total_with(&db, &c, &filter_params(&[("f_is_superuser", "1")])).await,
+            1
+        );
+        assert_eq!(
+            total_with(&db, &c, &filter_params(&[("f_is_superuser", "0")])).await,
+            2
+        );
+    }
+
+    /// The whitelist: only a declared filter, and for a select only a declared
+    /// option, reaches the query. Anything else is dropped, not guessed at.
+    #[test]
+    fn an_undeclared_filter_or_value_is_ignored() {
+        let c = config();
+        // A column that exists but is not a declared filter.
+        assert!(resolve_filters(&c, &filter_params(&[("f_username", "ada")])).is_empty());
+        // A declared boolean filter with a value its control never emits.
+        for bad in ["yes", "true", "1 or 1=1", "", "  "] {
+            assert!(
+                resolve_filters(&c, &filter_params(&[("f_is_superuser", bad)])).is_empty(),
+                "{bad} must not reach the query"
+            );
+        }
+
+        let with_select = ListConfig {
+            filters: vec![ListFilter::select(
+                "status",
+                "Status",
+                vec![FilterOption::new("live", "Live")],
+            )],
+            ..config()
+        };
+        assert_eq!(
+            resolve_filters(&with_select, &filter_params(&[("f_status", "live")])).len(),
+            1
+        );
+        assert!(
+            resolve_filters(&with_select, &filter_params(&[("f_status", "draft")])).is_empty(),
+            "an option the descriptor never offered is dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_filter_survives_a_sort_link_and_shows_as_selected() {
+        let mut p = params(Some("username"));
+        p.q = None;
+        let html = get_with(
+            p,
+            filter_params(&[("f_is_superuser", "1")]),
+            axum::http::HeaderMap::new(),
+        )
+        .await;
+        let links = amps(&html);
+        assert!(
+            links.contains("?sort=is_superuser&dir=asc&f_is_superuser=1"),
+            "a sort link carries the filter"
+        );
+        // The sorted column's own link flips direction and keeps it too.
+        assert!(links.contains("?sort=username&dir=desc&f_is_superuser=1"));
+        assert!(
+            html.contains(r#"<option value="1" selected>"#),
+            "the control shows the active value"
+        );
+        assert!(html.contains("Clear"), "and a way back to the full list");
+        assert!(
+            html.contains(r#"data-filtered="true""#),
+            "the region says the list is narrowed, which is what reveals Clear"
+        );
+    }
+
     #[tokio::test]
     async fn an_htmx_sort_returns_the_list_region_alone() {
         let mut headers = axum::http::HeaderMap::new();
@@ -971,6 +1346,8 @@ mod tests {
         // A fragment, not a page: swapping a document into the region would nest
         // the admin inside itself.
         assert!(!html.contains("<body"), "no page chrome");
+        // The bar cannot re-render per swap, so the region carries the state.
+        assert!(html.contains(r#"data-filtered="false""#));
     }
 
     /// A sort or a page must not silently drop the search, or the second click
@@ -981,7 +1358,7 @@ mod tests {
         p.q = Some("bren".to_string());
         let html = get(p, axum::http::HeaderMap::new()).await;
         assert!(
-            html.contains("&amp;q=bren"),
+            amps(&html).contains("?sort=username&dir=desc&q=bren"),
             "sort and pager links carry the term"
         );
         assert!(

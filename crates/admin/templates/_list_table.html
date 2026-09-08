@@ -1,12 +1,12 @@
-<div id="lat-list">
+<div id="lat-list" data-filtered="{{ filtered }}">
   <div class="lat-tablewrap">
     <table class="lat-table">
       <thead><tr>
         {% for c in columns %}
         <th{% if c.active == "asc" %} aria-sort="ascending"{% else if c.active == "desc" %} aria-sort="descending"{% endif %}>
           <a class="lat-sort{% if !c.active.is_empty() %} is-active{% endif %}"
-             href="?sort={{ c.field }}&amp;dir={{ c.next_dir }}&amp;q={{ q|urlencode }}"
-             hx-get="?sort={{ c.field }}&amp;dir={{ c.next_dir }}&amp;q={{ q|urlencode }}"
+             href="?sort={{ c.field }}&amp;dir={{ c.next_dir }}{{ carry }}"
+             hx-get="?sort={{ c.field }}&amp;dir={{ c.next_dir }}{{ carry }}"
              hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">
             <span>{{ c.label }}</span>
             <span class="lat-sort__arrow" aria-hidden="true">{% if c.active == "asc" %}&#9650;{% else if c.active == "desc" %}&#9660;{% endif %}</span>
@@ -32,9 +32,9 @@
   <div class="lat-listfoot">
     <span>{{ shell.tf("Displayed records: {shown} of {total}", [("shown", shown), ("total", total)]) }}</span>
     <span class="lat-pager">
-      {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}&amp;q={{ q|urlencode }}" hx-get="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}&amp;q={{ q|urlencode }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">&larr; {{ shell.t("Prev") }}</a>{% endif %}
+      {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-get="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">&larr; {{ shell.t("Prev") }}</a>{% endif %}
       <span style="align-self:center">{{ shell.tf("Page {page} of {pages}", [("page", page), ("pages", total_pages)]) }}</span>
-      {% if page < total_pages %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page + 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}&amp;q={{ q|urlencode }}" hx-get="?page={{ page + 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}&amp;q={{ q|urlencode }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">{{ shell.t("Next") }} &rarr;</a>{% endif %}
+      {% if page < total_pages %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page + 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-get="?page={{ page + 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">{{ shell.t("Next") }} &rarr;</a>{% endif %}
     </span>
   </div>
 </div>

@@ -52,8 +52,19 @@ match against a boolean or a stored timestamp answers nonsense. Override it per
 column with `ListColumn::searchable`. A sort or a page keeps the term, and a
 blank term is no filter rather than a filter matching nothing.
 
-With scripting off the headers and pager stay ordinary links, and the same
-handler answers the whole page.
+Filters sit in the same bar. A filter declares a column and what it offers
+(`ListFilter::boolean`, or `ListFilter::select` with a fixed set of options), and
+only a declared filter, and for a select only a declared option, reaches the
+query. Changing one re-asks immediately; the term, the filters and the sort all
+travel together on every link.
+
+The bar sits outside the swapped region, so it cannot re-render per swap. The
+region instead declares `data-filtered` and the stylesheet reads it, which is how
+the Clear link appears only when something is narrowing the list. Prefer that
+shape over an out-of-band swap for anything the region already knows.
+
+With scripting off the headers, pager and bar stay ordinary links and a GET form,
+and the same handler answers the whole page.
 
 ## Islands
 
@@ -85,5 +96,5 @@ whose assets are not already on the page.
 
 ## What is not built yet
 
-A confirm dialog for destructive actions, and list filters. Both are planned; a
-screen needing one today does it with a full page load.
+A confirm dialog for destructive actions. It is planned; a screen needing one
+today does it with a full page load.

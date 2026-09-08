@@ -3,20 +3,37 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
-  {% if searchable %}
-  {# A GET form, so Enter searches with scripting off. With htmx it asks as you
-     type. The box sits outside #lat-list, so a swap never steals the caret. #}
-  <form class="lat-search" method="get" action="{{ path }}"
-        hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:find input[name='q'], search from:find input[name='q'], submit">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="dir" value="{{ dir }}">
-    <input class="lat-input lat-search__input" type="search" name="q" value="{{ q }}"
-           placeholder='{{ shell.t("Search") }}' aria-label='{{ shell.t("Search") }}'>
-    <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Search") }}</button></noscript>
-  </form>
-  {% endif %}
   {% if creatable %}{% if let Some(base) = edit_base %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--primary" href="{{ base }}/new">+ {{ shell.t("New") }}</a></div>{% endif %}{% endif %}
 </div>
+{% if searchable || !filters.is_empty() %}
+{# One GET form carries the search term, every filter, and the current sort, so
+   Enter works with scripting off. With htmx it asks on typing or on a change.
+   It sits outside #lat-list, so a swap never steals the caret or the focus. #}
+<form class="lat-listbar" method="get" action="{{ path }}"
+      hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
+      hx-trigger="input changed delay:300ms from:find input[name='q'], search from:find input[name='q'], change from:find select, submit">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
+  {% if searchable %}
+  <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}"
+         placeholder='{{ shell.t("Search") }}' aria-label='{{ shell.t("Search") }}'>
+  {% endif %}
+  {% for f in filters %}
+  <label class="lat-listbar__filter">
+    <span class="lat-listbar__label">{{ f.label }}</span>
+    <select class="lat-input lat-select" name="{{ f.param }}">
+      <option value="">{{ shell.t("Any") }}</option>
+      {% for o in f.options %}
+      <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  {# The bar sits outside the swapped region, so it cannot re-render per swap.
+     The region declares whether anything narrows the list and CSS reads it. #}
+  <a class="lat-listbar__clear" href="{{ path }}">{{ shell.t("Clear") }}</a>
+  <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button></noscript>
+</form>
+{% endif %}
 {% include "_list_table.html" %}
 {% endblock %}

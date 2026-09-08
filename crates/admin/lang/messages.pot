@@ -30,8 +30,16 @@ msgstr ""
 msgid "Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked."
 msgstr ""
 
+#: templates/list.html
+msgid "Any"
+msgstr ""
+
 #: (descriptors)
 msgid "Application name"
+msgstr ""
+
+#: templates/list.html
+msgid "Apply"
 msgstr ""
 
 #: (descriptors)
@@ -74,6 +82,10 @@ msgstr ""
 
 #: templates/settings_index.html
 msgid "Choose a section from the list to configure it."
+msgstr ""
+
+#: templates/list.html
+msgid "Clear"
 msgstr ""
 
 #: templates/_roles_form_fields.html

@@ -30,6 +30,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- List filters. A descriptor declares a filter per column (`ListFilter::boolean`,
+  or `select` with a fixed option set) and the framework renders the controls,
+  applies them to the rows and the count, and keeps them across a sort or a page.
+  Only a declared filter, and for a select only a declared option, reaches the
+  query. The backend users list filters on Active and Superuser.
 - List search. A box in the toolbar filters as you type, across the columns the
   descriptor marks searchable (text columns by default; `ListColumn::searchable`
   overrides). It sits outside the swapped region so it keeps the caret, the term
@@ -40,6 +45,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- **Breaking**: `ListConfig` gained a `filters` field. A descriptor with no
+  filters sets `filters: Vec::new()`.
 - The picker matches through a `SearchProfile` rather than its own `LIKE`.
   Behaviour is unchanged: case folding, literal wildcards, and an empty query
   still lists the first rows.
