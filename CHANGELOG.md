@@ -61,6 +61,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A screen that declares `in_menu` appears in the main menu; one that does not
   mounts silently, reached from a link elsewhere.
 - The Screens and Routes guide.
+- A field type decides what its value stores and how it comes back:
+  `FieldType::to_attr` turns a submission into a typed attribute (or omits it, so
+  a blank password on an edit leaves the stored one alone), and
+  `FieldType::to_control` turns a stored value back into what the control shows.
+- A `switch` field type over a boolean column. An unchecked box submits nothing,
+  so it stores `false` rather than leaving the previous value.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.
 - The Model Listeners guide.

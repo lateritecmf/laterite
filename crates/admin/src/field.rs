@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use askama::Template;
-use laterite_core::validation::Rule;
+use laterite_core::validation::{Mode, Rule};
+use laterite_core::AttrValue;
 use serde::{Deserialize, Serialize};
 
 use crate::html::Markup;
@@ -123,6 +124,42 @@ pub trait FieldType: Send + Sync + 'static {
     /// called when an override wins.
     fn render_default(&self, vm: &FieldVm) -> Markup;
 
+    /// How a submitted value becomes the attribute that gets stored.
+    ///
+    /// `raw` is `None` when the submission omits the field entirely, which is
+    /// how an unchecked checkbox arrives. Returning `None` leaves the attribute
+    /// out of the write, so the column keeps whatever it held: that is how a
+    /// blank password on an edit means "unchanged" rather than "erase".
+    ///
+    /// Validation has already run, so a type that needs its input to parse
+    /// should guarantee that with an [`intrinsic_rules`](FieldType::intrinsic_rules)
+    /// entry and treat the value here as sound. The error is for a genuine
+    /// failure (hashing), not a bad value, and surfaces as a failed save.
+    ///
+    /// Default: the submitted text, unchanged.
+    fn to_attr(
+        &self,
+        raw: Option<&str>,
+        opts: &ResolvedOptions,
+        mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        let _ = (opts, mode);
+        Ok(raw.map(|v| AttrValue::Text(v.to_string())))
+    }
+
+    /// How a stored value is presented back in the control on an edit.
+    ///
+    /// The counterpart of [`to_attr`](FieldType::to_attr): storage and
+    /// presentation differ whenever a type stores something other than the text
+    /// the browser sent, and a type that never shows its value (a password)
+    /// returns the empty string here.
+    ///
+    /// Default: the stored text, unchanged.
+    fn to_control(&self, stored: Option<&str>, opts: &ResolvedOptions) -> String {
+        let _ = opts;
+        stored.unwrap_or_default().to_string()
+    }
+
     /// Whether the framework wraps this field in standard chrome.
     fn chrome(&self) -> Chrome {
         Chrome::Wrapped
@@ -217,6 +254,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(TextField::new(inputs)),
         Arc::new(TextareaField),
         Arc::new(SelectField),
+        Arc::new(SwitchField),
     ]
 }
 
@@ -727,6 +765,68 @@ impl FieldType for SelectField {
     }
 }
 
+#[derive(Template)]
+#[template(path = "fields/switch.html")]
+struct SwitchTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    on: bool,
+}
+
+/// A boolean toggle over a bool column.
+///
+/// The only field whose submission can be absent rather than empty: a browser
+/// sends nothing for an unchecked box, which is why absence has to mean `false`
+/// here rather than "leave it alone".
+pub(crate) struct SwitchField;
+
+/// Whether a stored value reads as true. Accepts what each backend gives back
+/// for a boolean column, since `sqlx::Any` reads them all as text.
+fn stored_is_on(stored: Option<&str>) -> bool {
+    matches!(
+        stored.map(str::trim).unwrap_or_default(),
+        "1" | "true" | "TRUE" | "t" | "yes" | "on"
+    )
+}
+
+impl FieldType for SwitchField {
+    fn view_key(&self) -> &'static str {
+        "switch"
+    }
+
+    fn to_attr(
+        &self,
+        raw: Option<&str>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        // Absent means unchecked, so this always writes a value: leaving the
+        // attribute out would keep the old one and the box would never clear.
+        Ok(Some(AttrValue::Bool(stored_is_on(raw))))
+    }
+
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        if stored_is_on(stored) {
+            "1".to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        scalar_vm("switch", cx)
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        Markup::from_template(&SwitchTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            on: stored_is_on(Some(vm.value.as_text())),
+        })
+        .unwrap_or_default()
+    }
+}
+
 /// The view-model common to scalar text-like fields (no per-type `data`).
 fn scalar_vm(view_key: &str, cx: &FieldCx<'_>) -> FieldVm {
     FieldVm {
@@ -1134,5 +1234,54 @@ mod tests {
             field.assets(&opts),
             vec!["fields/ref-picker.js", "fields/ref-picker.css"]
         );
+    }
+}
+
+#[cfg(test)]
+mod save_contract_tests {
+    use super::*;
+
+    fn none() -> ResolvedOptions {
+        ResolvedOptions::none()
+    }
+
+    #[test]
+    fn a_switch_stores_a_bool_and_absence_means_off() {
+        let f = SwitchField;
+        // A browser sends nothing for an unchecked box, so absence must write
+        // false rather than leave the column as it was.
+        assert_eq!(
+            f.to_attr(None, &none(), Mode::Update).unwrap(),
+            Some(AttrValue::Bool(false))
+        );
+        assert_eq!(
+            f.to_attr(Some("on"), &none(), Mode::Create).unwrap(),
+            Some(AttrValue::Bool(true))
+        );
+    }
+
+    #[test]
+    fn a_switch_reads_back_whatever_the_backend_gave() {
+        let f = SwitchField;
+        // sqlx::Any hands every backend's boolean back as text, and they differ.
+        for on in ["1", "true", "t", "on"] {
+            assert_eq!(f.to_control(Some(on), &none()), "1", "{on} reads as on");
+        }
+        for off in ["0", "false", "f", ""] {
+            assert!(f.to_control(Some(off), &none()).is_empty(), "{off} is off");
+        }
+        assert!(f.to_control(None, &none()).is_empty());
+    }
+
+    #[test]
+    fn a_plain_field_stores_and_shows_the_text_unchanged() {
+        let f = TextareaField;
+        assert_eq!(
+            f.to_attr(Some("hello"), &none(), Mode::Create).unwrap(),
+            Some(AttrValue::Text("hello".into()))
+        );
+        // Absent stays absent, so the write leaves that column alone.
+        assert_eq!(f.to_attr(None, &none(), Mode::Update).unwrap(), None);
+        assert_eq!(f.to_control(Some("hello"), &none()), "hello");
     }
 }

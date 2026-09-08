@@ -186,6 +186,8 @@ pub(crate) struct PreparedForm {
 /// One field's boot-resolved state: its typed options and its merged rules (the
 /// type's intrinsic rules ahead of the descriptor's own).
 struct PreparedField {
+    /// Resolved once at boot, so the save and load hooks need no lookup.
+    field_type: Arc<dyn crate::field::FieldType>,
     opts: ResolvedOptions,
     rules: Vec<Rule>,
 }
@@ -213,7 +215,11 @@ impl PreparedForm {
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
             let mut rules = ft.intrinsic_rules(&opts);
             rules.extend(f.rules.clone());
-            fields.push(PreparedField { opts, rules });
+            fields.push(PreparedField {
+                field_type: ft.clone(),
+                opts,
+                rules,
+            });
         }
         let persister: Arc<dyn Persister> = match &config.persist {
             Some(key) => persisters
@@ -247,15 +253,22 @@ impl PreparedForm {
 /// The submission as a record, carrying only the fields the descriptor declares.
 /// A request cannot introduce an attribute this way, so the persister may widen
 /// its write to whatever the record holds; only registered listeners add keys.
-fn declared_record(form: &PreparedForm, data: &HashMap<String, String>) -> Record {
+///
+/// Each value passes through its field type, which decides what gets stored and
+/// may leave the attribute out entirely (a blank password on an edit).
+fn declared_record(
+    form: &PreparedForm,
+    data: &HashMap<String, String>,
+    mode: Mode,
+) -> Result<Record, String> {
     let mut rec = Record::new(&form.config.entity);
-    for field in &form.config.fields {
-        rec.set(
-            field.name.clone(),
-            data.get(&field.name).cloned().unwrap_or_default(),
-        );
+    for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
+        let raw = data.get(&field.name).map(String::as_str);
+        if let Some(value) = prepared.field_type.to_attr(raw, &prepared.opts, mode)? {
+            rec.set(field.name.clone(), value);
+        }
     }
-    rec
+    Ok(rec)
 }
 
 /// The merged validation rules for every field, in order.
@@ -328,7 +341,13 @@ pub(crate) async fn create(
             .into_response();
     }
 
-    let mut rec = declared_record(form, &data);
+    let mut rec = match declared_record(form, &data, Mode::Create) {
+        Ok(rec) => rec,
+        Err(e) => {
+            tracing::error!(entity = %form.config.entity, error = %e, "preparing the write failed");
+            return render_error();
+        }
+    };
     let actor = Actor::from(user);
     match persist::save(
         persist::SaveRequest {
@@ -407,16 +426,18 @@ pub(crate) async fn edit_form(
         return not_found();
     };
 
+    // Each stored value goes back through its field type: what a column holds and
+    // what its control shows are not always the same string.
     let values = form
         .config
         .fields
         .iter()
-        .map(|f| {
-            let value = row
-                .get_text_opt(f.name.as_str())
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+        .zip(&form.fields)
+        .map(|(f, prepared)| {
+            let stored = row.get_text_opt(f.name.as_str()).ok().flatten();
+            let value = prepared
+                .field_type
+                .to_control(stored.as_deref(), &prepared.opts);
             (f.name.clone(), value)
         })
         .collect();
@@ -471,7 +492,13 @@ pub(crate) async fn update(
             .into_response();
     }
 
-    let mut rec = declared_record(form, &data);
+    let mut rec = match declared_record(form, &data, Mode::Update) {
+        Ok(rec) => rec,
+        Err(e) => {
+            tracing::error!(entity = %form.config.entity, error = %e, "preparing the write failed");
+            return render_error();
+        }
+    };
     if let Ok(n) = id.parse::<i64>() {
         rec.set_id(n);
     }
@@ -1104,7 +1131,7 @@ mod timestamp_tests {
         let mut data = HashMap::new();
         data.insert("code".to_string(), "c1".to_string());
         data.insert("name".to_string(), "Chair".to_string());
-        let mut rec = declared_record(&form, &data);
+        let mut rec = declared_record(&form, &data, Mode::Create).unwrap();
         let actor = Actor::system("test");
         persist::save(
             persist::SaveRequest {
