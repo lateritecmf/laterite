@@ -91,6 +91,17 @@ pub trait Module: Send + Sync + 'static {
         let _ = registry;
     }
 
+    /// Where this module's admin screens mount, relative to the admin root.
+    ///
+    /// `None` (the default) namespaces them under the module's identity, so
+    /// `rainmill.location` contributing `/nodes` serves `/rainmill/location/nodes`
+    /// and two modules cannot collide by accident. Declaring a base takes that
+    /// path instead, which is a claim: a clash with another module aborts boot.
+    /// A deployment can override either through `backend.paths`.
+    fn admin_base(&self) -> Option<&'static str> {
+        None
+    }
+
     /// This module's UI-string catalogs, as `(locale, po_text)` pairs, each an
     /// `include_str!`'d gettext PO baked into the binary. English needs none (its
     /// source string is the key); other locales ship a PO. The boot loader merges

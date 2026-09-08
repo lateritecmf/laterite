@@ -26,6 +26,7 @@ pub mod persist;
 pub mod picker;
 pub mod plugins;
 mod roles;
+mod routemap;
 mod session;
 pub mod settings;
 mod sql;
@@ -976,6 +977,23 @@ pub fn normalize_path(path: &str) -> String {
 
 /// Resolves a resource's authored-relative paths (`base_path`, the list's
 /// `edit_base`, the form's `base_path`) to full paths under the admin mount.
+/// Moves a resource to `base`, taking its list and form links with it. Used when
+/// a module's screens resolve to a namespaced or overridden path.
+pub(crate) fn rebase_resource(base: &str, resource: &mut Resource) {
+    let old = resource.base_path.clone();
+    resource.base_path = base.to_string();
+    if let Some(edit_base) = &mut resource.list.edit_base {
+        if edit_base == &old {
+            *edit_base = base.to_string();
+        }
+    }
+    if let Some(form) = &mut resource.form {
+        if form.base_path == old {
+            form.base_path = base.to_string();
+        }
+    }
+}
+
 fn prefix_resource(admin_path: &str, resource: &mut Resource) {
     resource.base_path = format!("{admin_path}{}", resource.base_path);
     if let Some(edit_base) = &mut resource.list.edit_base {

@@ -43,6 +43,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   call in each handler, so a new descriptor screen is audited by existing.
   Screens that write through their own store functions keep their explicit
   calls.
+- **Breaking**: a module's admin screens mount under its identity by default, so
+  `rainmill.location` contributing `/nodes` serves `/rainmill/location/nodes` and
+  two plugins cannot collide. `Module::admin_base` declares a shorter base, and
+  `[backend.paths]` lets a deployment move a module or one of its screens without
+  forking it. Two claims on one path abort the boot naming both.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.
 - The Model Listeners guide.

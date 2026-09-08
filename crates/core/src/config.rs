@@ -126,6 +126,12 @@ pub struct BackendConfig {
     /// `Asia/Kolkata`). Storage is always UTC; this only affects how dates render.
     /// An operator's own preference overrides it (later); it falls back to UTC.
     pub timezone: String,
+    /// Admin path overrides, keyed by module id (`"rainmill.location"`) or by a
+    /// module id and one contribution's declared path
+    /// (`"rainmill.location/nodes"`), the more specific winning. Values are
+    /// absolute under the admin mount, so they survive a relocated panel. Lets a
+    /// deployment move a plugin's screens without forking it.
+    pub paths: std::collections::BTreeMap<String, String>,
     /// The URL path the admin panel is mounted under, without a trailing slash
     /// (default `/admin`). Change it to move or obscure the panel (`/manage`,
     /// `/backend`). A leading slash is added if missing and a trailing slash is
@@ -138,6 +144,7 @@ impl Default for BackendConfig {
         Self {
             secure_cookie: false,
             timezone: "UTC".to_string(),
+            paths: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
         }
     }

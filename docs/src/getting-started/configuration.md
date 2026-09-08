@@ -43,6 +43,10 @@ timezone = "UTC"                 # default admin display timezone (IANA name); s
 locale = "en"                    # default admin UI language; falls back to en if no catalog is loaded
 path = "/admin"                  # URL path the admin panel mounts under; move or obscure it
 
+[backend.paths]                  # move a module's admin screens, without forking it
+"rainmill.location" = "/places"          # the whole module
+"rainmill.location/nodes" = "/places"    # one screen; the more specific key wins
+
 [auth]
 session_ttl_secs = 43200         # session lifetime, 12h default
 max_failures = 5                 # failed logins before a username is locked out
@@ -50,6 +54,14 @@ failure_window_secs = 900        # window the failures are counted over
 ```
 
 Every `[auth]` and `[backend]` key is optional and falls back to a built-in default when omitted.
+
+## Where a module's screens mount
+
+A module's admin screens namespace under its identity, so `rainmill.location`
+contributing `/nodes` serves `/admin/rainmill/location/nodes` and two plugins
+cannot collide by accident. A module may declare a shorter base of its own, and a
+deployment has the last word through `backend.paths` above. Two claims on one path
+abort the boot naming both, rather than one silently shadowing the other.
 
 ## How `lat` finds the application
 

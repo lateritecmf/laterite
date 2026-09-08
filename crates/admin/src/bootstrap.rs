@@ -335,7 +335,35 @@ impl Bootstrap {
                 }
             }
         }
-        let resources = contributions.take::<Resource>();
+        // Resolve where each module's screens mount before any route is built,
+        // so a namespace, a declared base and a deployment override all land in
+        // one place and a clash is caught below.
+        let bases: HashMap<String, Option<&'static str>> = active
+            .iter()
+            .map(|m| (m.id().to_string(), m.admin_base()))
+            .collect();
+        let mut resources = Vec::new();
+        for (owner, mut resource) in contributions.take_owned::<Resource>() {
+            let base = bases.get(owner.as_str()).copied().flatten();
+            crate::rebase_resource(
+                &crate::routemap::resolve(owner, &resource.base_path, base, &config.backend.paths),
+                &mut resource,
+            );
+            resources.push((owner, resource));
+        }
+        // Every admin path in one list, the framework's own included, so a module
+        // shadowing a built-in screen is caught as loudly as two modules clashing.
+        let mut claims: Vec<(String, String)> = crate::builtin_resources()
+            .iter()
+            .map(|r| (r.base_path.clone(), "the framework".to_string()))
+            .collect();
+        claims.extend(
+            resources
+                .iter()
+                .map(|(owner, r)| (r.base_path.clone(), owner.to_string())),
+        );
+        crate::routemap::check_collisions(&claims);
+        let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
         let settings = contributions.take::<SettingsItem>();
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();

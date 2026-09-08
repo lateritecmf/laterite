@@ -131,6 +131,13 @@ impl Registry {
     /// Removes and returns the items of type `T` as owned values, resolved the
     /// same way as [`items`](Registry::items). For a one-time collection at boot;
     /// the type's contributions are consumed, so no `Clone` bound is needed.
+    /// Like [`Registry::take`], but keeps each item's owning module, for a
+    /// consumer that resolves per-module behaviour (an admin path namespace).
+    pub fn take_owned<T: 'static>(&mut self) -> Vec<(ModuleId, T)> {
+        let owners: Vec<ModuleId> = self.contributions::<T>().iter().map(|c| c.owner).collect();
+        owners.into_iter().zip(self.take::<T>()).collect()
+    }
+
     pub fn take<T: 'static>(&mut self) -> Vec<T> {
         let Some(entries) = self.by_type.remove(&TypeId::of::<T>()) else {
             return Vec::new();

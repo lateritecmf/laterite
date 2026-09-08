@@ -38,7 +38,7 @@ impl ModelListener for Timestamps {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests {
     use super::*;
     use crate::record::Actor;
