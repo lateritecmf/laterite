@@ -255,6 +255,8 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(TextareaField),
         Arc::new(SelectField),
         Arc::new(SwitchField),
+        Arc::new(DateField),
+        Arc::new(PasswordField),
     ]
 }
 
@@ -827,6 +829,126 @@ impl FieldType for SwitchField {
     }
 }
 
+#[derive(Template)]
+#[template(path = "fields/date.html")]
+struct DateTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+}
+
+/// A calendar date.
+///
+/// Stores `YYYY-MM-DD`, the format a date control sends. Presenting is where the
+/// work is: the column may hold a full timestamp, which a date input rejects, so
+/// a stored value is trimmed back to its date.
+pub(crate) struct DateField;
+
+impl FieldType for DateField {
+    fn view_key(&self) -> &'static str {
+        "date"
+    }
+
+    fn intrinsic_rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
+        vec![Rule::Date]
+    }
+
+    fn to_attr(
+        &self,
+        raw: Option<&str>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(raw.map(|v| match v.trim() {
+            "" => AttrValue::Null,
+            date => AttrValue::Text(date.to_string()),
+        }))
+    }
+
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        let stored = stored.unwrap_or_default().trim();
+        // A timestamp column hands back the whole instant; the control wants the
+        // date, and everything the framework stores starts with one.
+        stored
+            .split(['T', ' '])
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        scalar_vm("date", cx)
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        Markup::from_template(&DateTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+        })
+        .unwrap_or_default()
+    }
+}
+
+#[derive(Template)]
+#[template(path = "fields/password.html")]
+struct PasswordTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    required: bool,
+}
+
+/// A password: hashed on the way in, never shown on the way out.
+///
+/// Both halves matter. The control renders with no value, so a stored hash
+/// cannot leak into the page, and a blank submission omits the attribute, so
+/// editing a record without touching its password leaves that password alone.
+/// Require it on create (`required_on(Mode::Create)`) if a blank one is not
+/// acceptable there.
+pub(crate) struct PasswordField;
+
+impl FieldType for PasswordField {
+    fn view_key(&self) -> &'static str {
+        "password"
+    }
+
+    fn to_attr(
+        &self,
+        raw: Option<&str>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        match raw.map(str::trim).unwrap_or_default() {
+            // Absent or blank: leave the stored password as it is.
+            "" => Ok(None),
+            plain => laterite_auth::password::hash_password(plain)
+                .map(|hash| Some(AttrValue::Text(hash)))
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Never echoes: a hash must not reach the page, and a browser must not be
+    /// invited to refill it.
+    fn to_control(&self, _stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        String::new()
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        scalar_vm("password", cx)
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        Markup::from_template(&PasswordTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            required: vm.required,
+        })
+        .unwrap_or_default()
+    }
+}
+
 /// The view-model common to scalar text-like fields (no per-type `data`).
 fn scalar_vm(view_key: &str, cx: &FieldCx<'_>) -> FieldVm {
     FieldVm {
@@ -1271,6 +1393,63 @@ mod save_contract_tests {
             assert!(f.to_control(Some(off), &none()).is_empty(), "{off} is off");
         }
         assert!(f.to_control(None, &none()).is_empty());
+    }
+
+    #[test]
+    fn a_date_shows_only_the_date_part_of_a_stored_instant() {
+        let f = DateField;
+        // A timestamp column hands back the whole instant; a date input rejects it.
+        assert_eq!(
+            f.to_control(Some("2026-09-09T12:30:45.000000Z"), &none()),
+            "2026-09-09"
+        );
+        assert_eq!(
+            f.to_control(Some("2026-09-09 12:30:45"), &none()),
+            "2026-09-09"
+        );
+        assert_eq!(f.to_control(Some("2026-09-09"), &none()), "2026-09-09");
+        assert_eq!(f.to_control(None, &none()), "");
+    }
+
+    #[test]
+    fn a_cleared_date_stores_null_not_an_empty_string() {
+        let f = DateField;
+        assert_eq!(
+            f.to_attr(Some(""), &none(), Mode::Update).unwrap(),
+            Some(AttrValue::Null)
+        );
+        assert_eq!(
+            f.to_attr(Some("2026-09-09"), &none(), Mode::Create)
+                .unwrap(),
+            Some(AttrValue::Text("2026-09-09".into()))
+        );
+        assert!(matches!(f.intrinsic_rules(&none())[..], [Rule::Date]));
+    }
+
+    #[test]
+    fn a_password_hashes_and_never_echoes() {
+        let f = PasswordField;
+        let stored = f
+            .to_attr(Some("hunter2hunter2"), &none(), Mode::Create)
+            .unwrap()
+            .unwrap();
+        let hash = stored.as_str().unwrap();
+        assert!(
+            hash.starts_with("$argon2"),
+            "stored as a hash, not plaintext"
+        );
+        assert_ne!(hash, "hunter2hunter2");
+        // The hash must never reach the page, whatever is stored.
+        assert_eq!(f.to_control(Some(hash), &none()), "");
+    }
+
+    #[test]
+    fn a_blank_password_on_an_edit_leaves_the_stored_one_alone() {
+        let f = PasswordField;
+        // Omitted, so the write does not touch the column.
+        assert_eq!(f.to_attr(Some(""), &none(), Mode::Update).unwrap(), None);
+        assert_eq!(f.to_attr(Some("   "), &none(), Mode::Update).unwrap(), None);
+        assert_eq!(f.to_attr(None, &none(), Mode::Update).unwrap(), None);
     }
 
     #[test]

@@ -11,6 +11,10 @@ msgid "{label} is required."
 msgstr ""
 
 #: src/validation.rs
+msgid "{label} must be a date."
+msgstr ""
+
+#: src/validation.rs
 msgid "{label} must be a number."
 msgstr ""
 

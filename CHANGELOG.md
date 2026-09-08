@@ -67,6 +67,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `FieldType::to_control` turns a stored value back into what the control shows.
 - A `switch` field type over a boolean column. An unchecked box submits nothing,
   so it stores `false` rather than leaving the previous value.
+- A `date` field type. It stores the date a control sends and trims a stored
+  timestamp back to its date when presenting, since a date input rejects a full
+  instant. Carries a `Date` validation rule.
+- A `password` field type: hashed with Argon2 on save, never rendered back into
+  the page, and a blank submission on an edit leaves the stored password alone.
+- `Rule::Date`, and `Rule` is now non-exhaustive so later rules are additive.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.
 - The Model Listeners guide.

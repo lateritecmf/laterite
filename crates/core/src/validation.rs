@@ -36,8 +36,12 @@ pub enum Mode {
 /// A single rule applied to one field's submitted value. Serde-serialisable so
 /// a descriptor (later YAML) can author rules by name (`required`, `email`,
 /// `max_length`, ...).
+///
+/// Non-exhaustive: rules are added as field types need them, so match with a `_`
+/// arm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Rule {
     /// Non-empty after trimming, in every mode.
     Required,
@@ -54,6 +58,8 @@ pub enum Rule {
     Numeric,
     /// A syntactically valid absolute URL with a host. Skipped when empty.
     Url,
+    /// A calendar date, `YYYY-MM-DD`. Skipped when empty.
+    Date,
     /// The value must not already exist in this field's column of the target
     /// table. On update, the edited row is ignored.
     Unique,
@@ -103,6 +109,12 @@ impl ErrorBag {
     pub fn messages(&self, field: &str) -> &[Text] {
         self.fields.get(field).map(Vec::as_slice).unwrap_or(&[])
     }
+}
+
+/// Whether the value is a calendar date in the one format a date control sends
+/// and the framework stores.
+fn is_date(value: &str) -> bool {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
 }
 
 /// A validation message carrying the field `label` as a nested [`Text`] argument,
@@ -178,6 +190,9 @@ pub fn validate_fields(
                         &f.field,
                         field_msg("{label} must be a valid URL.", &f.label),
                     );
+                }
+                Rule::Date if !trimmed.is_empty() && !is_date(trimmed) => {
+                    bag.add(&f.field, field_msg("{label} must be a date.", &f.label));
                 }
                 _ => {}
             }
