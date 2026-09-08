@@ -146,11 +146,11 @@ msgstr ""
 msgid "Display timezone"
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "Displayed records: {shown} of {total}"
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "Edit"
 msgstr ""
 
@@ -243,7 +243,7 @@ msgstr ""
 msgid "New"
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "Next"
 msgstr ""
 
@@ -251,7 +251,7 @@ msgstr ""
 msgid "No plugins installed."
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "No records."
 msgstr ""
 
@@ -276,7 +276,7 @@ msgstr ""
 msgid "Operator"
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "Page {page} of {pages}"
 msgstr ""
 
@@ -329,7 +329,7 @@ msgstr ""
 msgid "Preferences saved."
 msgstr ""
 
-#: templates/list.html
+#: templates/_list_table.html
 msgid "Prev"
 msgstr ""
 

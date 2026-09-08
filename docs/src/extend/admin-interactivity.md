@@ -33,6 +33,21 @@ window.lat.flash('Import finished.', 'success');
 A flash set on the server survives a redirect and needs no script; reach for this
 only when something completes without a page change.
 
+## Lists
+
+A list screen wraps its table and pager in one region, `#lat-list`. Column
+headers and pager links `hx-get` the same URL the link points at and swap that
+region, with `hx-push-url` so the address bar tracks the sort and page. The back
+button and a refresh both land on the same view, and a copied URL opens it.
+
+Every header sorts. A click orders by that column ascending, and a second click
+on the sorted column flips it. Only a column the descriptor declares can be
+sorted: a `sort` naming anything else falls back to the descriptor's own order,
+so the query never orders by an arbitrary column.
+
+With scripting off the headers and pager stay ordinary links, and the same
+handler answers the whole page.
+
 ## Islands
 
 An island is a named initialiser. Every element carrying a matching
@@ -63,6 +78,5 @@ whose assets are not already on the page.
 
 ## What is not built yet
 
-A confirm dialog for destructive actions, and AJAX pagination and filtering on
-lists. Both are planned; a screen needing one today does it with a full page
-load.
+A confirm dialog for destructive actions, and list filters and search. Both are
+planned; a screen needing one today does it with a full page load.

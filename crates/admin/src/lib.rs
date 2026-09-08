@@ -1233,9 +1233,10 @@ fn mount_resource(
         get(
             move |State(state): State<AdminState>,
                   Extension(shell): Extension<Shell>,
-                  Query(params): Query<list::ListParams>| {
+                  Query(params): Query<list::ListParams>,
+                  headers: axum::http::HeaderMap| {
                 let cfg = list_cfg.clone();
-                async move { list::handle(&state, &cfg, params, shell).await }
+                async move { list::handle(&state, &cfg, params, shell, &headers).await }
             },
         ),
     );

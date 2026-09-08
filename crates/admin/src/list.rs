@@ -337,6 +337,28 @@ pub struct ListConfig {
 #[derive(Deserialize)]
 pub struct ListParams {
     page: Option<i64>,
+    sort: Option<String>,
+    dir: Option<String>,
+}
+
+/// The ordering a request resolves to: the submitted `sort` when it names a
+/// column the descriptor declares, the descriptor's own order otherwise. Only a
+/// declared column reaches the query, so a crafted `sort` cannot order by an
+/// arbitrary column. An unrecognised `dir` falls back the same way.
+fn resolve_sort(config: &ListConfig, sort: Option<&str>, dir: Option<&str>) -> (String, SortDir) {
+    let by = match sort.filter(|s| config.columns.iter().any(|c| c.field == *s)) {
+        Some(field) => field.to_string(),
+        None => config.order_by.clone(),
+    };
+    let dir = match dir {
+        Some("asc") => SortDir::Asc,
+        Some("desc") => SortDir::Desc,
+        // No explicit direction: the configured one for the configured column, so
+        // a list ordered newest-first stays that way until a header is clicked.
+        _ if by == config.order_by => config.order_dir,
+        _ => SortDir::Asc,
+    };
+    (by, dir)
 }
 
 /// One rendered row: its id (for edit links) and its display cells.
@@ -355,16 +377,23 @@ pub struct ListPage {
 /// Built with `sea-query` and dynamic identifiers (`Alias`), and every selected
 /// column is cast to text so a value of any type reads back uniformly as a
 /// string for display, without a Postgres-specific `row_to_json`.
-pub(crate) async fn query(db: &Db, config: &ListConfig, offset: i64) -> anyhow::Result<ListPage> {
+pub(crate) async fn query(
+    db: &Db,
+    config: &ListConfig,
+    offset: i64,
+    order_by: &str,
+    order_dir: SortDir,
+) -> anyhow::Result<ListPage> {
     if !valid_ident(&config.entity)
         || !valid_ident(&config.order_by)
+        || !valid_ident(order_by)
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
 
-    let dir = match config.order_dir {
+    let dir = match order_dir {
         SortDir::Asc => Order::Asc,
         SortDir::Desc => Order::Desc,
     };
@@ -385,7 +414,7 @@ pub(crate) async fn query(db: &Db, config: &ListConfig, offset: i64) -> anyhow::
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
-            .order_by(Alias::new(&config.order_by), dir)
+            .order_by(Alias::new(order_by), dir)
             .limit(config.per_page.max(0) as u64)
             .offset(offset.max(0) as u64);
         build(db.backend, select)
@@ -434,10 +463,12 @@ pub(crate) async fn handle(
     config: &ListConfig,
     params: ListParams,
     shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
-    match query(&state.db, config, offset).await {
+    let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
+    match query(&state.db, config, offset, &order_by, order_dir).await {
         Ok(result) => {
             let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
             let date_loc = date_locale(shell.locale());
@@ -484,8 +515,34 @@ pub(crate) async fn handle(
             let shown = rows.len() as i64;
             // Localize the title and column headers before the shell is moved in.
             let title = shell.tt(&config.title);
-            let columns = config.columns.iter().map(|c| shell.tt(&c.label)).collect();
-            render(ListTemplate {
+            let active_dir = match order_dir {
+                SortDir::Asc => "asc",
+                SortDir::Desc => "desc",
+            };
+            let columns: Vec<ColumnHead> = config
+                .columns
+                .iter()
+                .map(|c| {
+                    let active = c.field == order_by;
+                    ColumnHead {
+                        label: shell.tt(&c.label),
+                        field: c.field.clone(),
+                        // Clicking the sorted column flips it; any other column
+                        // starts ascending.
+                        next_dir: if active && active_dir == "asc" {
+                            "desc".to_string()
+                        } else {
+                            "asc".to_string()
+                        },
+                        active: if active {
+                            active_dir.to_string()
+                        } else {
+                            String::new()
+                        },
+                    }
+                })
+                .collect();
+            let page_view = ListTemplate {
                 shell,
                 title,
                 columns,
@@ -496,10 +553,40 @@ pub(crate) async fn handle(
                 total_pages,
                 edit_base: config.edit_base.clone(),
                 creatable: config.creatable,
-            })
+                sort: order_by,
+                dir: active_dir.to_string(),
+            };
+            // An htmx request gets the list region alone, which replaces itself in
+            // place; anything else gets the whole page, so sorting and paging still
+            // work as ordinary links with scripting off.
+            if crate::form::is_htmx(headers) {
+                render(ListFragment {
+                    shell: page_view.shell,
+                    columns: page_view.columns,
+                    rows: page_view.rows,
+                    shown: page_view.shown,
+                    page: page_view.page,
+                    total: page_view.total,
+                    total_pages: page_view.total_pages,
+                    edit_base: page_view.edit_base,
+                    sort: page_view.sort,
+                    dir: page_view.dir,
+                })
+            } else {
+                render(page_view)
+            }
         }
         Err(_) => render_error(),
     }
+}
+
+/// One column header: its label, the field a click sorts by, the direction that
+/// click asks for, and the direction it is sorted in now (empty when it is not).
+pub struct ColumnHead {
+    pub label: String,
+    pub field: String,
+    pub next_dir: String,
+    pub active: String,
 }
 
 #[derive(Template)]
@@ -507,7 +594,7 @@ pub(crate) async fn handle(
 struct ListTemplate {
     shell: crate::Shell,
     title: String,
-    columns: Vec<String>,
+    columns: Vec<ColumnHead>,
     rows: Vec<RowView>,
     /// The count on this page (`rows.len()`), precomputed as `i64` for the footer.
     shown: i64,
@@ -516,6 +603,25 @@ struct ListTemplate {
     total_pages: i64,
     edit_base: Option<String>,
     creatable: bool,
+    /// The active ordering, carried on the pager links so paging keeps the sort.
+    sort: String,
+    dir: String,
+}
+
+/// The list region alone, for an htmx sort or page that swaps it in place.
+#[derive(Template)]
+#[template(path = "_list_table.html")]
+struct ListFragment {
+    shell: crate::Shell,
+    columns: Vec<ColumnHead>,
+    rows: Vec<RowView>,
+    shown: i64,
+    page: i64,
+    total: i64,
+    total_pages: i64,
+    edit_base: Option<String>,
+    sort: String,
+    dir: String,
 }
 
 #[cfg(test)]
@@ -571,6 +677,59 @@ mod tests {
     }
 
     #[test]
+    fn sort_falls_back_to_the_configured_order() {
+        let c = config();
+        assert_eq!(
+            resolve_sort(&c, None, None),
+            ("created_at".to_string(), SortDir::Desc)
+        );
+    }
+
+    #[test]
+    fn a_declared_column_can_be_sorted_either_way() {
+        let c = config();
+        assert_eq!(
+            resolve_sort(&c, Some("username"), Some("asc")),
+            ("username".to_string(), SortDir::Asc)
+        );
+        assert_eq!(
+            resolve_sort(&c, Some("username"), Some("desc")),
+            ("username".to_string(), SortDir::Desc)
+        );
+    }
+
+    /// The whitelist: a column the descriptor does not declare never reaches the
+    /// query, however it is spelled.
+    #[test]
+    fn an_undeclared_sort_column_is_ignored() {
+        let c = config();
+        for crafted in [
+            "password_hash",
+            "id) --",
+            "username; drop table backend_users",
+            "",
+        ] {
+            assert_eq!(
+                resolve_sort(&c, Some(crafted), Some("asc")).0,
+                "created_at",
+                "{crafted} must not reach the query"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_direction_falls_back() {
+        let c = config();
+        // On a column other than the configured one, ascending.
+        assert_eq!(
+            resolve_sort(&c, Some("username"), Some("sideways")).1,
+            SortDir::Asc
+        );
+        // On the configured column, its configured direction.
+        assert_eq!(resolve_sort(&c, Some("created_at"), None).1, SortDir::Desc);
+    }
+
+    #[test]
     fn status_pill_renders_a_slugged_markup_span() {
         let vm = StatusPillColumn.view_model(&CellCx {
             value: "In Progress",
@@ -604,7 +763,8 @@ mod tests {
         .await
         .unwrap();
 
-        let result = query(&db, &config(), 0).await.unwrap();
+        let c = config();
+        let result = query(&db, &c, 0, &c.order_by, c.order_dir).await.unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].cells[0], "root");
@@ -614,11 +774,55 @@ mod tests {
         assert!(!result.rows[0].id.is_empty());
     }
 
+    async fn get(params: ListParams, headers: axum::http::HeaderMap) -> String {
+        let (db, _guard) = test_db().await;
+        let state = AdminState::new(
+            laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
+            db,
+        );
+        let resp = handle(&state, &config(), params, crate::Shell::test(), &headers).await;
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    fn params(sort: Option<&str>) -> ListParams {
+        ListParams {
+            page: None,
+            sort: sort.map(|s| s.to_string()),
+            dir: Some("asc".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_htmx_sort_returns_the_list_region_alone() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("hx-request", "true".parse().unwrap());
+        let html = get(params(Some("username")), headers).await;
+        assert!(html.contains(r#"id="lat-list""#), "the region comes back");
+        assert!(html.contains("aria-sort=\"ascending\""), "sorted ascending");
+        // A fragment, not a page: swapping a document into the region would nest
+        // the admin inside itself.
+        assert!(!html.contains("<body"), "no page chrome");
+    }
+
+    #[tokio::test]
+    async fn a_plain_sort_returns_the_whole_page() {
+        let html = get(params(Some("username")), axum::http::HeaderMap::new()).await;
+        assert!(html.contains("<body"), "lists still work without htmx");
+        assert!(html.contains(r#"id="lat-list""#));
+        // The links work without scripting, so they carry a real href.
+        assert!(html.contains(r#"href="?sort=username"#));
+    }
+
     #[tokio::test]
     async fn query_rejects_bad_identifiers() {
         let (db, _guard) = test_db().await;
         let mut bad = config();
         bad.entity = "backend_users; drop table backend_users".to_string();
-        assert!(query(&db, &bad, 0).await.is_err());
+        assert!(query(&db, &bad, 0, "created_at", SortDir::Desc)
+            .await
+            .is_err());
     }
 }

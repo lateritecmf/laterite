@@ -20,6 +20,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   flight, a disabled submit button for the round trip, and a toast when a request
   fails, which htmx would otherwise discard in silence.
 - `window.lat.flash(text, level)` raises a toast from a screen's own script.
+- Sortable list columns. Every header sorts, a second click on the sorted column
+  reverses it, and only a column the descriptor declares can be ordered by.
+- Lists sort and page through HTMX, swapping the table region and pushing the
+  URL, so back, refresh and a copied link all land on the same view. Without
+  scripting they stay ordinary links.
 
 ### Changed
 
