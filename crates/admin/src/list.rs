@@ -783,9 +783,9 @@ pub(crate) async fn handle(
                     edit_base: page_view.edit_base,
                     sort: page_view.sort,
                     dir: page_view.dir,
-                    q: page_view.q,
                     carry: page_view.carry,
                     filtered: page_view.filtered,
+                    creatable: page_view.creatable,
                 })
             } else {
                 render(page_view)
@@ -930,11 +930,12 @@ struct ListFragment {
     edit_base: Option<String>,
     sort: String,
     dir: String,
-    q: String,
     carry: String,
     /// Rendered onto the region as `data-filtered`, so the bar's Clear link can
-    /// react without the bar itself having to swap.
+    /// react without the bar itself having to swap. Also picks the empty state:
+    /// a filtered list with no rows has not run out of records, it has no match.
     filtered: bool,
+    creatable: bool,
 }
 
 #[cfg(test)]
@@ -1334,6 +1335,56 @@ mod tests {
             html.contains(r#"data-filtered="true""#),
             "the region says the list is narrowed, which is what reveals Clear"
         );
+    }
+
+    /// A filtered list with no rows has not run out of records; it has no match.
+    /// Saying "No records yet" there reads as an empty table and hides the filter.
+    #[tokio::test]
+    async fn the_empty_state_distinguishes_no_records_from_no_match() {
+        let (db, _guard) = test_db().await;
+        let state = AdminState::new(
+            laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
+            db,
+        );
+        let render = |raw: HashMap<String, String>, q: Option<&str>| {
+            let q = q.map(String::from);
+            let state = state.clone();
+            async move {
+                let p = ListParams {
+                    page: None,
+                    sort: None,
+                    dir: None,
+                    q,
+                };
+                let resp = handle(
+                    &state,
+                    &config(),
+                    "/admin/users",
+                    p,
+                    &raw,
+                    crate::Shell::test(),
+                    &axum::http::HeaderMap::new(),
+                )
+                .await;
+                let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                String::from_utf8(bytes.to_vec()).unwrap()
+            }
+        };
+
+        // Nothing stored and nothing asked for: the table is genuinely empty.
+        let bare = render(HashMap::new(), None).await;
+        assert!(bare.contains("No records yet."));
+
+        // Filtered to nothing: the records may exist, the filter excluded them.
+        let filtered = render(filter_params(&[("f_is_superuser", "1")]), None).await;
+        assert!(filtered.contains("No records match."));
+        assert!(!filtered.contains("No records yet."));
+
+        // A search that matches nothing reads the same way.
+        let searched = render(HashMap::new(), Some("zzz")).await;
+        assert!(searched.contains("No records match."));
     }
 
     #[tokio::test]

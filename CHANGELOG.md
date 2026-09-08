@@ -30,6 +30,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- Empty list states read correctly: a table with nothing in it offers a New link,
+  while a search or filter that matches nothing says so instead of reporting the
+  table as empty.
 - List filters. A descriptor declares a filter per column (`ListFilter::boolean`,
   or `select` with a fixed option set) and the framework renders the controls,
   applies them to the rows and the count, and keeps them across a sort or a page.

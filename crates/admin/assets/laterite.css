@@ -271,6 +271,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-table tbody tr:hover{background:var(--surface-row-hover)}
 .lat-table__actions{text-align:right;white-space:nowrap}
 .lat-table__empty{padding:28px 16px;text-align:center;color:var(--text-muted)}
+.lat-table__emptyaction{margin-left:10px}
 
 /* List footer + pager */
 .lat-listfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;font-size:var(--fs-12);color:var(--text-muted)}

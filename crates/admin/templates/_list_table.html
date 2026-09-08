@@ -17,7 +17,16 @@
       </tr></thead>
       <tbody>
         {% if rows.is_empty() %}
-        <tr><td class="lat-table__empty" colspan="99">{% if q.is_empty() %}{{ shell.t("No records.") }}{% else %}{{ shell.t("No records match your search.") }}{% endif %}</td></tr>
+        <tr><td class="lat-table__empty" colspan="99">
+          {% if filtered %}
+          {{ shell.t("No records match.") }}
+          {% else %}
+          {{ shell.t("No records yet.") }}
+          {% if creatable %}{% if let Some(base) = edit_base %}
+          <a class="lat-btn lat-btn--primary lat-btn--sm lat-table__emptyaction" href="{{ base }}/new">+ {{ shell.t("New") }}</a>
+          {% endif %}{% endif %}
+          {% endif %}
+        </td></tr>
         {% else %}
         {% for row in rows %}
         <tr>

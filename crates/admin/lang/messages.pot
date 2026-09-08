@@ -251,6 +251,7 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
+#: templates/_list_table.html
 #: templates/list.html
 msgid "New"
 msgstr ""
@@ -264,11 +265,11 @@ msgid "No plugins installed."
 msgstr ""
 
 #: templates/_list_table.html
-msgid "No records match your search."
+msgid "No records match."
 msgstr ""
 
 #: templates/_list_table.html
-msgid "No records."
+msgid "No records yet."
 msgstr ""
 
 #: templates/settings_index.html
