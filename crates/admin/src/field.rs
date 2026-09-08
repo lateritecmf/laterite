@@ -257,6 +257,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(SwitchField),
         Arc::new(DateField),
         Arc::new(PasswordField),
+        Arc::new(RadioField),
     ]
 }
 
@@ -949,6 +950,69 @@ impl FieldType for PasswordField {
     }
 }
 
+#[derive(Template)]
+#[template(path = "fields/radio.html")]
+struct RadioTmpl<'a> {
+    name: &'a str,
+    options: &'a [OptionView],
+    required: bool,
+}
+
+/// One choice from a fixed list, shown as radios rather than a dropdown.
+///
+/// The same options as `select`, so a descriptor swaps between them by changing
+/// the type alone. Suits a short list where seeing every choice matters.
+pub(crate) struct RadioField;
+
+impl FieldType for RadioField {
+    fn view_key(&self) -> &'static str {
+        "radio"
+    }
+
+    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+        let opts: SelectOptions =
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
+        Ok(ResolvedOptions::new(opts))
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let current = cx.value.as_text();
+        let views: Vec<OptionView> = cx
+            .opts
+            .get::<SelectOptions>()
+            .map(|o| {
+                o.options
+                    .iter()
+                    .map(|so| OptionView {
+                        value: so.value.clone(),
+                        label: so.label.clone().unwrap_or_else(|| so.value.clone()),
+                        selected: so.value == current,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        FieldVm {
+            view_key: "radio".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::to_value(&views).unwrap_or_default(),
+        }
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let options: Vec<OptionView> = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&RadioTmpl {
+            name: &vm.name,
+            options: &options,
+            required: vm.required,
+        })
+        .unwrap_or_default()
+    }
+}
+
 /// The view-model common to scalar text-like fields (no per-type `data`).
 fn scalar_vm(view_key: &str, cx: &FieldCx<'_>) -> FieldVm {
     FieldVm {
@@ -1291,6 +1355,32 @@ mod tests {
         assert!(html.contains(r#"<option value="open">Open</option>"#));
         // The current value is selected; a missing label falls back to the value.
         assert!(html.contains(r#"<option value="closed" selected>closed</option>"#));
+    }
+
+    #[test]
+    fn radio_renders_the_same_options_with_the_current_one_checked() {
+        let raw = serde_json::json!({
+            "options": [{"value": "open", "label": "Open"}, {"value": "closed"}]
+        });
+        let opts = RadioField.resolve_options(&raw).unwrap();
+        let value = FieldValue::Text("closed".to_string());
+        let markup = render_field(
+            &RadioField,
+            &NoOverrides,
+            &scope(),
+            &cx("status", &value, &opts),
+        );
+        let html = markup.as_str();
+        assert!(html.contains(r#"value="open""#));
+        assert!(
+            html.contains(r#"value="closed" checked"#),
+            "current is checked"
+        );
+        // Every radio shares the field's name, or the browser treats them as
+        // separate controls and lets more than one be chosen.
+        assert_eq!(html.matches(r#"name="status""#).count(), 2);
+        // A missing label falls back to the value, as select does.
+        assert!(html.contains("closed</label>"));
     }
 
     fn scope<'a>() -> OverrideScope<'a> {

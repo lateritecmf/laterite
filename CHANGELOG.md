@@ -72,6 +72,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   instant. Carries a `Date` validation rule.
 - A `password` field type: hashed with Argon2 on save, never rendered back into
   the page, and a blank submission on an edit leaves the stored password alone.
+- A `radio` field type over the same options as `select`, so a descriptor swaps
+  between them by changing the type alone.
 - `Rule::Date`, and `Rule` is now non-exhaustive so later rules are additive.
 - A `timestamps` flag on a form stamps `created_at` and `updated_at`, leaving a
   supplied `created_at` alone so an import keeps its history.

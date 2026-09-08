@@ -1,0 +1,5 @@
+<div class="lat-radios">
+  {% for o in options %}
+  <label class="lat-check"><input type="radio" name="{{ name }}" value="{{ o.value }}"{% if o.selected %} checked{% endif %}{% if required %} required{% endif %}> {{ o.label }}</label>
+  {% endfor %}
+</div>
