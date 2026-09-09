@@ -113,3 +113,36 @@ have moved it with `backend.path` or `backend.paths`.
 One note on robots files specifically: listing the admin path tells anyone reading
 it where your panel is, and authentication already keeps crawlers out. Silence is
 the stronger choice.
+
+## Contributing a column type
+
+A list cell renders through a column type resolved by key, and the registry is
+open: a module contributes its own for something the framework has no built-in
+for.
+
+```rust
+# use std::sync::Arc;
+# use laterite_admin::list::{CellCx, CellVm, ColumnType, ColumnTypeReg};
+# use laterite_admin::html::Markup;
+struct Rating;
+
+impl ColumnType for Rating {
+    fn view_key(&self) -> &'static str {
+        "acme.rating"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm { /* ... */ }
+    fn render_default(&self, vm: &CellVm) -> Markup { /* ... */ }
+}
+```
+
+Contribute it from the module's `register`, and a descriptor reaches it by key:
+
+```rust
+# use std::sync::Arc;
+# use laterite_admin::list::{ColumnTypeReg, ListColumn};
+registry.add(ColumnTypeReg::new(Arc::new(Rating)));
+```
+
+The key is the type's own `view_key`, so a registration cannot disagree with what
+it registers. Use a dotted `vendor.name`: a key already taken, by a built-in or
+another module, aborts the boot naming it rather than quietly winning.

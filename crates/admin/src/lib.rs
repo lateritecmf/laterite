@@ -764,6 +764,7 @@ pub fn router(
     app_picker_sources: Vec<picker::PickerSourceReg>,
     app_persisters: Vec<persist::PersisterReg>,
     app_listeners: Vec<laterite_core::ModelListenerReg>,
+    app_column_types: Vec<list::ColumnTypeReg>,
     app_screens: Vec<routes::ScreenReg>,
     app_public: Vec<routes::PublicRouteReg>,
     config: AdminConfig,
@@ -860,6 +861,20 @@ pub fn router(
         }
     }
 
+    // The column-type registry: the built-ins, plus whatever the modules
+    // contributed. A bad or duplicate key is a wiring bug, so it aborts boot the
+    // way a duplicate persister or picker source does.
+    let mut column_types = list::builtin_column_registry();
+    for reg in app_column_types {
+        let name = reg.name().to_string();
+        if !field::is_name(&name, true) {
+            panic!("invalid column type name `{name}`");
+        }
+        if column_types.insert(name.clone(), reg.column_type).is_some() {
+            panic!("duplicate column type `{name}`");
+        }
+    }
+
     let state = AdminState {
         auth,
         db,
@@ -875,7 +890,7 @@ pub fn router(
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field_types),
-        column_types: Arc::new(list::builtin_column_registry()),
+        column_types: Arc::new(column_types),
         assets: Arc::new(builtin_assets()),
         pickers,
         overrides: Arc::new(field::NoOverrides),

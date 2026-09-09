@@ -30,6 +30,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- The column-type registry is open to modules. A module contributes a
+  `ColumnTypeReg` and its type renders those cells; the key is the type's own
+  `view_key`, and a duplicate aborts the boot naming it.
 - List export. Every list offers CSV and JSON from the toolbar, carrying the
   current columns, search, filters and sort, so the file matches the screen. An
   export beyond 20,000 rows is refused rather than truncated.
@@ -78,6 +81,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- **Breaking**: `router` takes the contributed column types. Applications boot
+  through `Bootstrap` and are unaffected.
 - **Breaking**: `ListConfig` gained `filters`, `deletable` and `toolbar` fields. A descriptor now ends with
   `..Default::default()` and sets only what it means, which is also why this is
   the last such break.

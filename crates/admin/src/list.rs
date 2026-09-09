@@ -137,6 +137,27 @@ pub trait ColumnType: Send + Sync + 'static {
     }
 }
 
+/// A column type a module contributes, so a list can render a cell the framework
+/// has no built-in for (a rating, a map thumbnail, a currency amount).
+///
+/// The key is the type's own [`ColumnType::view_key`], so a registration cannot
+/// disagree with the type it registers. Use a dotted `vendor.name` to stay clear
+/// of the built-ins and of other modules.
+pub struct ColumnTypeReg {
+    pub column_type: Arc<dyn ColumnType>,
+}
+
+impl ColumnTypeReg {
+    pub fn new(column_type: Arc<dyn ColumnType>) -> Self {
+        Self { column_type }
+    }
+
+    /// The key this type registers under.
+    pub fn name(&self) -> &'static str {
+        self.column_type.view_key()
+    }
+}
+
 /// The column-type registry, keyed by [`ColumnType::view_key`].
 pub type ColumnRegistry = HashMap<String, Arc<dyn ColumnType>>;
 
@@ -1342,6 +1363,69 @@ mod tests {
         );
         // On the configured column, its configured direction.
         assert_eq!(resolve_sort(&c, Some("created_at"), None).1, SortDir::Desc);
+    }
+
+    /// A module's own column type renders its cells, which is the point of the
+    /// registry being open rather than a fixed set.
+    #[test]
+    fn a_contributed_column_type_renders_its_cell() {
+        struct Rating;
+        impl ColumnType for Rating {
+            fn view_key(&self) -> &'static str {
+                "acme.rating"
+            }
+            fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+                let stars = cx.value.parse::<usize>().unwrap_or(0);
+                text_cell("acme.rating", cx.value, "*".repeat(stars))
+            }
+            fn render_default(&self, vm: &CellVm) -> Markup {
+                render_text(vm)
+            }
+        }
+
+        let reg = ColumnTypeReg::new(Arc::new(Rating));
+        assert_eq!(reg.name(), "acme.rating", "the type names itself");
+
+        let mut registry = builtin_column_registry();
+        registry.insert(reg.name().to_string(), reg.column_type);
+        let rendered = render_cell(
+            registry.get("acme.rating").unwrap().as_ref(),
+            &crate::field::NoOverrides,
+            &OverrideScope {
+                surface: Surface::Column,
+                view_key: "acme.rating",
+                resource: Some("products"),
+                field: Some("stars"),
+            },
+            &CellCx {
+                value: "3",
+                tz: Tz::UTC,
+                locale: chrono::Locale::en_US,
+            },
+        );
+        assert!(rendered.into_string().contains("***"));
+    }
+
+    /// A contributed type cannot quietly replace a built-in: the key is the
+    /// type's own `view_key`, and the router refuses a duplicate at boot.
+    #[test]
+    fn a_contributed_key_is_the_types_own_and_collides_visibly() {
+        struct Impostor;
+        impl ColumnType for Impostor {
+            fn view_key(&self) -> &'static str {
+                "text"
+            }
+            fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+                text_cell("text", cx.value, String::new())
+            }
+            fn render_default(&self, vm: &CellVm) -> Markup {
+                render_text(vm)
+            }
+        }
+        let reg = ColumnTypeReg::new(Arc::new(Impostor));
+        assert_eq!(reg.name(), "text");
+        // The router inserts into this map and panics when one is already there.
+        assert!(builtin_column_registry().contains_key(reg.name()));
     }
 
     #[test]

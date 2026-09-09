@@ -39,6 +39,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         config,
         Arc::new(CatalogStore::default()),
     )

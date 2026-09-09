@@ -43,6 +43,7 @@ fn app_in_menu(db: Db) -> Router {
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         vec![
             ScreenReg::new("/import", PERMISSION, Arc::new(Importer)).in_menu("Import places"),
             ScreenReg::new("/hidden", PERMISSION, Arc::new(Importer)),
@@ -58,6 +59,7 @@ fn app(db: Db, base: &str) -> Router {
     router(
         auth,
         db,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -195,6 +197,7 @@ fn app_with_public(db: Db) -> Router {
     router(
         auth,
         db,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
