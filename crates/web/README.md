@@ -8,8 +8,12 @@ Where [`laterite_admin`](https://docs.rs/laterite-admin) renders the private
 admin, this crate renders the public face of an application. Its first
 capability is **static-site generation**: an application renders its pages to
 HTML strings and hands them to a [`StaticSite`], which writes them as files,
-copies static assets, and generates a `sitemap.xml` and `robots.txt`. The
-output is a plain directory suitable for any static host or CDN.
+and copies static assets. The output is a plain directory suitable for any
+static host or CDN.
+
+It writes no `robots.txt` and no `sitemap.xml`: how a site wants to be crawled,
+and which URLs it advertises, are the application's decisions. `paths()` and
+`base_url()` give the material, and `file()` publishes whatever the site decides.
 
 Page templates live in the application (Askama, or any renderer that produces
 a `String`); this crate owns the file layout, the sitemap, and the shared
@@ -25,7 +29,7 @@ let home = render_home(&meta.head_tags());
 let mut site = StaticSite::new("dist", "https://acme.example")?;
 site.page("/", &home)?;
 site.assets("static", "static")?;
-site.finish()?;
+site.file("robots.txt", "User-agent: *\nAllow: /\n")?;
 ```
 
 ## Part of Laterite

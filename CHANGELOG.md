@@ -33,6 +33,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The column-type registry is open to modules. A module contributes a
   `ColumnTypeReg` and its type renders those cells; the key is the type's own
   `view_key`, and a duplicate aborts the boot naming it.
+- `StaticSite::file` writes a file verbatim at the output root, for the files a
+  site decides for itself (`robots.txt`, `sitemap.xml`, `humans.txt`, `llms.txt`,
+  a `CNAME`, a verification token). It creates parent directories and refuses a
+  path that climbs out of the output directory.
+- `StaticSite::paths` and `StaticSite::base_url` report every page written and
+  the prefix to form absolute URLs from, which is what a sitemap is built from.
 - List export. Every list offers CSV and JSON from the toolbar, carrying the
   current columns, search, filters and sort, so the file matches the screen. An
   export beyond 20,000 rows is refused rather than truncated.
@@ -76,6 +82,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   overrides). It sits outside the swapped region so it keeps the caret, the term
   survives a sort or a page, and a blank term is no filter. With scripting off it
   is a GET form and Enter searches.
+
+### Removed
+
+- **Breaking**: `laterite-web` no longer writes a `robots.txt` or a
+  `sitemap.xml`, and `StaticSite::finish` is gone with them. How a site wants to
+  be crawled, and which URLs it advertises at what priority, are the
+  application's decisions. `StaticSite::paths` and `base_url` give the material
+  and `file` publishes the result, so a site keeps both files by writing them.
 
 ### Changed
 

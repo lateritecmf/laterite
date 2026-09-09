@@ -4,8 +4,14 @@
 //! admin, this crate renders the public face of an application. Its first
 //! capability is **static-site generation**: an application renders its pages to
 //! HTML strings and hands them to a [`StaticSite`], which writes them as files,
-//! copies static assets, and generates a `sitemap.xml` and `robots.txt`. The
-//! output is a plain directory suitable for any static host or CDN.
+//! and copies static assets. The output is a plain directory suitable for any
+//! static host or CDN.
+//!
+//! It writes **no `robots.txt` and no `sitemap.xml`**. How a site wants to be
+//! crawled, and which of its URLs it advertises at what priority, are the
+//! application's decisions, not the framework's. What this crate offers is the
+//! material for them: [`StaticSite::paths`] reports every page written, and
+//! [`StaticSite::file`] writes whatever the site decides to publish.
 //!
 //! Page templates live in the application (Askama, or any renderer that produces
 //! a `String`); this crate owns the file layout, the sitemap, and the shared
@@ -23,7 +29,9 @@
 //! let mut site = StaticSite::new("dist", "https://acme.example")?;
 //! site.page("/", &home)?;
 //! site.assets("static", "static")?;
-//! site.finish()?;
+//!
+//! // What the site publishes about itself is its own decision.
+//! site.file("robots.txt", "User-agent: *\nAllow: /\n")?;
 //! # Ok(()) }
 //! ```
 
@@ -100,8 +108,7 @@ impl Meta {
 
 /// A static site being assembled into an output directory. Pages are written as
 /// `index.html` under a directory per path (so URLs are clean and extensionless),
-/// static assets are copied verbatim, and [`StaticSite::finish`] writes a
-/// `sitemap.xml` and `robots.txt` covering every page added.
+/// and static assets are copied verbatim.
 pub struct StaticSite {
     out: PathBuf,
     base_url: String,
@@ -109,8 +116,9 @@ pub struct StaticSite {
 }
 
 impl StaticSite {
-    /// Prepares an output directory and records the site's base URL (used for the
-    /// sitemap and robots entries), for example `https://acme.example`.
+    /// Prepares an output directory and records the site's base URL, for example
+    /// `https://acme.example`. The base URL is what [`Meta::canonical`] and any
+    /// absolute link the site builds are formed against.
     pub fn new(out_dir: impl Into<PathBuf>, base_url: impl Into<String>) -> io::Result<Self> {
         let out = out_dir.into();
         fs::create_dir_all(&out)?;
@@ -123,7 +131,8 @@ impl StaticSite {
 
     /// Writes a page's rendered `html` for the URL `path`. The path maps to a
     /// clean-URL file: `/` becomes `index.html`, `/features/` becomes
-    /// `features/index.html`. The page is recorded for the sitemap.
+    /// `features/index.html`. The path is recorded, and [`paths`](Self::paths)
+    /// reports it.
     pub fn page(&mut self, path: &str, html: &str) -> io::Result<&mut Self> {
         let file = self.out.join(path_to_file(path));
         if let Some(parent) = file.parent() {
@@ -140,32 +149,44 @@ impl StaticSite {
         copy_dir(from.as_ref(), &self.out.join(to))
     }
 
-    /// Writes `sitemap.xml` and `robots.txt` covering every page added so far.
-    /// Call once, after all pages are written.
-    pub fn finish(&self) -> io::Result<()> {
-        fs::write(self.out.join("sitemap.xml"), self.sitemap())?;
-        fs::write(self.out.join("robots.txt"), self.robots())?;
-        Ok(())
-    }
-
-    fn sitemap(&self) -> String {
-        let mut xml = String::from(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-             <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
-        );
-        for path in &self.paths {
-            let loc = escape(&format!("{}{}", self.base_url, path));
-            xml.push_str(&format!("  <url><loc>{loc}</loc></url>\n"));
+    /// Writes a file verbatim at `path`, relative to the output root.
+    ///
+    /// For the files a site decides for itself and a generator should not invent:
+    /// `robots.txt`, `humans.txt`, `llms.txt`, a `CNAME`, a verification token.
+    /// Unlike [`page`](Self::page) the contents are written as given, with no
+    /// clean-URL mapping, and the path is not added to the sitemap.
+    ///
+    /// The path is confined to the output directory: a leading slash is trimmed
+    /// and a `..` segment is refused, so a caller cannot write outside `dist`.
+    pub fn file(&self, path: &str, contents: &str) -> io::Result<()> {
+        let relative = path.trim_start_matches('/');
+        if relative.split('/').any(|part| part == "..") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("`{path}` climbs out of the output directory"),
+            ));
         }
-        xml.push_str("</urlset>\n");
-        xml
+        let target = self.out.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(target, contents)
     }
 
-    fn robots(&self) -> String {
-        format!(
-            "User-agent: *\nAllow: /\n\nSitemap: {}/sitemap.xml\n",
-            self.base_url
-        )
+    /// The site's base URL, without a trailing slash. Paired with
+    /// [`paths`](Self::paths) it gives the absolute URL of every page written,
+    /// which is what a sitemap is built from.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Every page path written so far, normalised, in the order they were added.
+    ///
+    /// This is the material a sitemap is built from, without this crate deciding
+    /// what the sitemap says. Which URLs a site advertises, at what priority and
+    /// change frequency, is the site's own policy.
+    pub fn paths(&self) -> &[String] {
+        &self.paths
     }
 }
 
@@ -245,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn builds_pages_assets_sitemap_and_robots() {
+    fn builds_pages_and_copies_assets() {
         let tmp = tempfile::tempdir().unwrap();
         let assets = tmp.path().join("static");
         fs::create_dir_all(&assets).unwrap();
@@ -256,7 +277,6 @@ mod tests {
         site.page("/", "<h1>Home</h1>").unwrap();
         site.page("/features/", "<h1>Features</h1>").unwrap();
         site.assets(&assets, "static").unwrap();
-        site.finish().unwrap();
 
         assert_eq!(
             fs::read_to_string(out.join("index.html")).unwrap(),
@@ -265,11 +285,47 @@ mod tests {
         assert!(out.join("features/index.html").exists());
         assert!(out.join("static/site.css").exists());
 
-        let sitemap = fs::read_to_string(out.join("sitemap.xml")).unwrap();
-        assert!(sitemap.contains("<loc>https://acme.example/</loc>"));
-        assert!(sitemap.contains("<loc>https://acme.example/features/</loc>"));
+        // Neither file is invented here: what a site advertises and what it
+        // allows are its own decisions.
+        assert!(!out.join("sitemap.xml").exists());
+        assert!(!out.join("robots.txt").exists());
+
+        // What it does offer is the material: every page it wrote, and the base
+        // URL to form them against.
+        assert_eq!(site.paths(), ["/", "/features/"]);
+        assert_eq!(site.base_url(), "https://acme.example");
+    }
+
+    #[test]
+    fn a_site_writes_its_own_root_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("dist");
+        let site = StaticSite::new(&out, "https://acme.example").unwrap();
+
+        site.file("robots.txt", "User-agent: *\nDisallow: /private/\n")
+            .unwrap();
+        // A leading slash is the same path, and nesting creates its directory.
+        site.file(
+            "/.well-known/security.txt",
+            "Contact: mailto:x@acme.example\n",
+        )
+        .unwrap();
 
         let robots = fs::read_to_string(out.join("robots.txt")).unwrap();
-        assert!(robots.contains("Sitemap: https://acme.example/sitemap.xml"));
+        assert!(robots.contains("Disallow: /private/"));
+        assert!(out.join(".well-known/security.txt").exists());
+
+        // Written verbatim, and never counted as a page.
+        assert!(site.paths().is_empty());
+    }
+
+    #[test]
+    fn a_root_file_cannot_escape_the_output_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("dist");
+        let site = StaticSite::new(&out, "https://acme.example").unwrap();
+        assert!(site.file("../escaped.txt", "no").is_err());
+        assert!(site.file("a/../../escaped.txt", "no").is_err());
+        assert!(!tmp.path().join("escaped.txt").exists());
     }
 }

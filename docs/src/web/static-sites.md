@@ -22,20 +22,20 @@ laterite-web = "0.4"
 `laterite-web` owns the file layout, not the templating. Your application turns
 data into an HTML `String` however it likes (Askama, or any renderer), and hands
 each page to a `StaticSite`. The crate writes the files, copies your assets, and
-generates a `sitemap.xml` and `robots.txt`.
+and copies your assets.
 
 Two types carry the whole flow:
 
 - `Meta` builds the shared `<head>` tags (title, description, canonical URL, and
   Open Graph / Twitter card) so every page is described and shareable the same
   way.
-- `StaticSite` collects rendered pages, copies static assets, and finishes by
-  writing the sitemap and robots file.
+- `StaticSite` collects rendered pages and copies static assets, and reports
+  what it wrote so the site can publish whatever it decides to.
 
 ## A minimal generator
 
 A generator is an ordinary binary. It renders each page, writes it under its URL
-path, copies the `static/` directory, and finishes:
+path and copies the `static/` directory:
 
 ```rust
 use laterite_web::{Meta, StaticSite};
@@ -55,7 +55,6 @@ fn main() -> std::io::Result<()> {
     let mut site = StaticSite::new("dist", base_url)?;
     site.page("/", &home)?;
     site.assets("static", "static")?;
-    site.finish()?;
     Ok(())
 }
 ```
@@ -92,15 +91,13 @@ let head = meta.head_tags();
 `canonical` also becomes the Open Graph URL; `image` becomes the social-share
 image. Both are optional.
 
-## Assets, sitemap, and robots
+## Assets
 
 `assets(from, to)` copies a directory of CSS, fonts, and images into the output,
-recursively. `finish()` writes a `sitemap.xml` listing every page you added and a
-`robots.txt` that points at it. Call `finish()` once, after the last page:
+recursively:
 
 ```rust
 site.assets("static", "static")?;
-site.finish()?;
 ```
 
 ## Deploying
@@ -119,3 +116,27 @@ the admin itself) stays on the live server. Pre-render the content-facing pages,
 keep the interactive parts served, and decide the split per page. An application
 whose core is auth-gated or write-heavy is served by the live server; static
 generation is for its public, content-facing pages.
+
+## What the site publishes about itself
+
+Nothing here writes a `robots.txt` or a `sitemap.xml`. How a site wants to be
+crawled, and which of its URLs it advertises at what priority, are the
+application's decisions rather than the generator's.
+
+What you get instead is the material. `paths()` reports every page written, in
+order, and `base_url()` gives the prefix to form absolute URLs from. `file()`
+writes whatever you decide to publish, verbatim, at the output root:
+
+```rust
+let urls: Vec<String> = site
+    .paths()
+    .iter()
+    .map(|path| format!("{}{path}", site.base_url()))
+    .collect();
+
+site.file("sitemap.xml", &your_sitemap(&urls))?;
+site.file("robots.txt", "User-agent: *\nAllow: /\n")?;
+```
+
+`file()` creates parent directories, so `/.well-known/security.txt` works, and
+refuses a path that climbs out of the output directory.
