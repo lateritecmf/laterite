@@ -30,6 +30,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- List export. Every list offers CSV and JSON from the toolbar, carrying the
+  current columns, search, filters and sort, so the file matches the screen. An
+  export beyond 20,000 rows is refused rather than truncated.
+- Toolbar buttons are descriptor data. A resource declares its own with
+  `ToolbarButton`, optionally gated by a permission and carrying an icon, and the
+  framework contributes New and the export menu the same way.
+- `ListConfig` implements `Default`, so a descriptor sets what it means and ends
+  with `..Default::default()`. Fields added to it after this are additive.
 - Per-operator column configuration. A list offers a Columns disclosure, and the
   choice is stored against the account and applied on every visit. It narrows the
   descriptor once per request, so the visible columns are what gets queried,
@@ -70,8 +78,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
-- **Breaking**: `ListConfig` gained `filters` and `deletable` fields. A descriptor with no filters and no
-  delete sets `filters: Vec::new(), deletable: false`.
+- **Breaking**: `ListConfig` gained `filters`, `deletable` and `toolbar` fields. A descriptor now ends with
+  `..Default::default()` and sets only what it means, which is also why this is
+  the last such break.
 - The picker matches through a `SearchProfile` rather than its own `LIKE`.
   Behaviour is unchanged: case folding, literal wildcards, and an empty query
   still lists the first rows.

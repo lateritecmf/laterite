@@ -73,6 +73,25 @@ Picking every column clears the preference rather than storing them all, so the
 operator keeps following the descriptor as it gains columns; a stored choice that
 no longer matches any declared column falls back to showing everything.
 
+Every list offers an Export menu, writing CSV or JSON. The file is the query the
+screen just ran: the operator's columns, the active search, the filters and the
+sort, without the paging. An export larger than 20,000 rows is refused rather
+than truncated, with a message asking for a narrower list, because a short file
+that does not say it is short is worse than no file.
+
+A resource adds its own toolbar buttons by declaring them:
+
+```rust
+# use laterite_admin::list::ToolbarButton;
+ToolbarButton::new("Reports", "/reports")
+    .icon("history")
+    .require("acme.view_reports");
+```
+
+A button whose permission the operator lacks is not rendered, rather than
+rendered and answering 403 when they reach it. A path starting with a slash
+resolves under the admin mount, so a moved panel moves its buttons with it.
+
 ## Confirming a destructive action
 
 A control carrying `data-lat-confirm` asks before it acts:

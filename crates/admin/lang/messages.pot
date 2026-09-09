@@ -73,6 +73,10 @@ msgstr ""
 msgid "Build sites. Ship solid."
 msgstr ""
 
+#: templates/list.html
+msgid "CSV"
+msgstr ""
+
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
 #: templates/base.html
@@ -215,6 +219,10 @@ msgstr ""
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: templates/list.html
+msgid "Export"
+msgstr ""
+
 #: templates/setup.html
 #: (descriptors)
 msgid "First name"
@@ -234,6 +242,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Invalid username or password."
+msgstr ""
+
+#: templates/list.html
+msgid "JSON"
 msgstr ""
 
 #: templates/preferences.html
@@ -282,8 +294,8 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
+#: src/list.rs
 #: templates/_list_table.html
-#: templates/list.html
 msgid "New"
 msgstr ""
 
@@ -513,12 +525,20 @@ msgstr ""
 msgid "That is not a supported language."
 msgstr ""
 
+#: src/export.rs
+msgid "That is too many records to export at once. Narrow the list and try again."
+msgstr ""
+
 #: templates/preferences.html
 msgid "The admin renders in this language. It only changes the interface, not your content."
 msgstr ""
 
 #: (descriptors)
 msgid "The application name shown across the admin."
+msgstr ""
+
+#: src/export.rs
+msgid "The export could not be produced."
 msgstr ""
 
 #: src/error.rs

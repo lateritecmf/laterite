@@ -393,10 +393,144 @@ impl ListFilter {
     }
 }
 
+/// A button a list offers in its toolbar, beside the built-in New.
+///
+/// A resource declares its own; the framework contributes New and the export
+/// menu the same way, so the toolbar is one list of buttons rather than a
+/// hardcoded bar with special cases.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolbarButton {
+    /// The button's text, localized at render.
+    pub label: Text,
+    /// Where it goes: a path under the admin root (starting with a slash), or an
+    /// absolute URL.
+    pub href: String,
+    /// An icon name from the shared set. Absent renders the label alone.
+    pub icon: Option<String>,
+    /// Hidden from an operator who lacks this permission. Absent shows it to
+    /// anyone who can reach the screen.
+    pub permission: Option<String>,
+    /// Rendered as the prominent action rather than a secondary one.
+    pub primary: bool,
+}
+
+impl ToolbarButton {
+    pub fn new(label: impl Into<Text>, href: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            href: href.into(),
+            icon: None,
+            permission: None,
+            primary: false,
+        }
+    }
+
+    pub fn icon(mut self, icon: &str) -> Self {
+        self.icon = Some(icon.to_string());
+        self
+    }
+
+    /// Hides the button from an operator without this permission.
+    pub fn require(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
+    }
+}
+
+/// One rendered toolbar button.
+pub struct ToolbarView {
+    pub label: String,
+    pub href: String,
+    /// Inline SVG for the icon, empty when the button has none.
+    pub icon: String,
+    pub primary: bool,
+}
+
+/// The toolbar an operator sees: the framework's New (when the resource creates)
+/// followed by the resource's own buttons, minus anything they lack permission
+/// for.
+fn toolbar_views(
+    config: &ListConfig,
+    admin_path: &str,
+    user: &laterite_auth::AuthenticatedUser,
+    shell: &crate::Shell,
+) -> Vec<ToolbarView> {
+    let mut out = Vec::new();
+    if config.creatable {
+        if let Some(base) = &config.edit_base {
+            out.push(ToolbarView {
+                label: shell.tt(&laterite_core::t!("New")),
+                href: format!("{admin_path}{base}/new"),
+                icon: String::new(),
+                primary: true,
+            });
+        }
+    }
+    for button in &config.toolbar {
+        if let Some(needed) = &button.permission {
+            if !user.permissions.allows(needed) {
+                continue;
+            }
+        }
+        let href = if button.href.starts_with('/') {
+            format!("{admin_path}{}", button.href)
+        } else {
+            button.href.clone()
+        };
+        out.push(ToolbarView {
+            label: shell.tt(&button.label),
+            href,
+            icon: crate::icons::svg(button.icon.as_deref()).to_string(),
+            primary: button.primary,
+        });
+    }
+    out
+}
+
 /// The preference key holding one operator's chosen columns for a list. Keyed by
 /// the list's own path, so two resources over the same table stay separate.
 pub(crate) fn columns_preference_key(base_path: &str) -> String {
     format!("list.columns.{base_path}")
+}
+
+/// One operator's stored column choice for a list, or `None` if they have none.
+///
+/// A failed read is a warning, not an error: a preference is a convenience, so
+/// the screen shows every column rather than failing.
+pub(crate) async fn stored_columns(
+    state: &AdminState,
+    path: &str,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Option<String> {
+    match laterite_auth::store::user_preference(
+        &state.db,
+        user.user.id,
+        &columns_preference_key(path),
+    )
+    .await
+    {
+        Ok(stored) => stored,
+        Err(e) => {
+            tracing::warn!(error = %e, "reading the column preference failed");
+            None
+        }
+    }
+}
+
+/// The descriptor with only the columns this operator sees.
+pub(crate) fn narrowed(config: &ListConfig, stored: Option<&str>) -> ListConfig {
+    ListConfig {
+        columns: visible_columns(config, stored)
+            .into_iter()
+            .cloned()
+            .collect(),
+        ..config.clone()
+    }
 }
 
 /// The columns to show: the operator's stored choice, narrowed to what the
@@ -451,6 +585,33 @@ pub struct ListConfig {
     /// a list that shows a log, or records another screen owns, has no business
     /// offering it.
     pub deletable: bool,
+    /// Extra buttons in the toolbar, beside New and the export menu.
+    pub toolbar: Vec<ToolbarButton>,
+}
+
+impl Default for ListConfig {
+    /// A minimal list: no columns, newest-id first, 25 to a page, read-only.
+    ///
+    /// Descriptors use this as the tail of a struct literal
+    /// (`..Default::default()`) and set only what they mean. A field added here
+    /// later is then additive for every descriptor rather than breaking it, which
+    /// three consecutive additions made the case for.
+    fn default() -> Self {
+        Self {
+            entity: String::new(),
+            title: Text::new(""),
+            columns: Vec::new(),
+            order_by: "id".to_string(),
+            order_dir: SortDir::Desc,
+            per_page: 25,
+            id_field: "id".to_string(),
+            edit_base: None,
+            creatable: false,
+            filters: Vec::new(),
+            deletable: false,
+            toolbar: Vec::new(),
+        }
+    }
 }
 
 /// Query-string parameters for a list view.
@@ -466,7 +627,11 @@ pub struct ListParams {
 /// column the descriptor declares, the descriptor's own order otherwise. Only a
 /// declared column reaches the query, so a crafted `sort` cannot order by an
 /// arbitrary column. An unrecognised `dir` falls back the same way.
-fn resolve_sort(config: &ListConfig, sort: Option<&str>, dir: Option<&str>) -> (String, SortDir) {
+pub(crate) fn resolve_sort(
+    config: &ListConfig,
+    sort: Option<&str>,
+    dir: Option<&str>,
+) -> (String, SortDir) {
     let by = match sort.filter(|s| config.columns.iter().any(|c| c.field == *s)) {
         Some(field) => field.to_string(),
         None => config.order_by.clone(),
@@ -502,6 +667,9 @@ pub(crate) struct ListQuery<'a> {
     pub order_dir: SortDir,
     pub q: &'a str,
     pub filters: &'a [ActiveFilter<'a>],
+    /// Rows per round trip. `None` uses the descriptor's page size; the export
+    /// reads larger pages because it is building a file, not a screen.
+    pub per_page: Option<i64>,
 }
 
 /// A filter the request actually selected: the declared filter and its accepted
@@ -625,7 +793,7 @@ pub(crate) async fn query(
             )
             .from(Alias::new(&config.entity))
             .order_by(Alias::new(req.order_by), dir)
-            .limit(config.per_page.max(0) as u64)
+            .limit(req.per_page.unwrap_or(config.per_page).max(0) as u64)
             .offset(req.offset.max(0) as u64);
         if let Some(cond) = search_condition(config, req.q) {
             select.cond_where(cond);
@@ -695,29 +863,9 @@ pub(crate) async fn handle(
     // The operator's chosen columns narrow the descriptor once, here, so
     // everything downstream (the query, the headers, sorting, searching) works
     // from one list: what is shown is what is queried.
-    let stored = match laterite_auth::store::user_preference(
-        &state.db,
-        user.user.id,
-        &columns_preference_key(path),
-    )
-    .await
-    {
-        Ok(stored) => stored,
-        // A preference is a convenience: failing to read one shows the full list
-        // rather than failing the screen. Logged, because it should not happen.
-        Err(e) => {
-            tracing::warn!(error = %e, "reading the column preference failed");
-            None
-        }
-    };
+    let stored = stored_columns(state, path, user).await;
     let declared = config;
-    let narrowed = ListConfig {
-        columns: visible_columns(config, stored.as_deref())
-            .into_iter()
-            .cloned()
-            .collect(),
-        ..config.clone()
-    };
+    let narrowed = narrowed(config, stored.as_deref());
     let config = &narrowed;
 
     let page = params.page.unwrap_or(1).max(1);
@@ -731,6 +879,7 @@ pub(crate) async fn handle(
         order_dir,
         q: q.trim(),
         filters: &active,
+        per_page: None,
     };
     // Everything a sort or pager link must preserve, as raw `&k=v` pairs. Askama
     // escapes it into the href, so the ampersands are correct in the markup.
@@ -815,6 +964,7 @@ pub(crate) async fn handle(
                     }
                 })
                 .collect();
+            let shell_for_toolbar = shell.clone();
             let filter_views = filter_views(config, &active, &shell);
             let pickers: Vec<ColumnChoice> = declared
                 .columns
@@ -825,6 +975,9 @@ pub(crate) async fn handle(
                     shown: config.columns.iter().any(|v| v.field == c.field),
                 })
                 .collect();
+            // Built before the literal moves `order_by` into `sort`.
+            let export_query = format!("&sort={order_by}&dir={active_dir}{carry}");
+            let toolbar = toolbar_views(declared, &state.admin_path, user, &shell_for_toolbar);
             let page_view = ListTemplate {
                 shell,
                 title,
@@ -841,6 +994,8 @@ pub(crate) async fn handle(
                 q: q.trim().to_string(),
                 searchable: config.columns.iter().any(|c| c.is_searchable()),
                 pickers,
+                toolbar,
+                export_query,
                 path: path.to_string(),
                 filters: filter_views,
                 deletable: config.deletable,
@@ -962,6 +1117,11 @@ struct ListTemplate {
     deletable: bool,
     /// Every declared column, with the shown ones ticked, for the picker.
     pickers: Vec<ColumnChoice>,
+    /// The toolbar buttons this operator may see.
+    toolbar: Vec<ToolbarView>,
+    /// The search, filters and sort, as `&k=v` pairs, so an export link carries
+    /// the same view the screen is showing.
+    export_query: String,
     /// This list's own path, for the search form to post back to.
     path: String,
     /// The filter controls, with the active value marked.
@@ -1096,6 +1256,7 @@ mod tests {
             creatable: false,
             filters: vec![ListFilter::boolean("is_superuser", "Superuser")],
             deletable: true,
+            ..Default::default()
         }
     }
 
@@ -1276,6 +1437,7 @@ mod tests {
             order_dir: config.order_dir,
             q: "",
             filters: &[],
+            per_page: None,
         }
     }
 
@@ -1286,6 +1448,7 @@ mod tests {
             order_dir: config.order_dir,
             q,
             filters: &[],
+            per_page: None,
         }
     }
 
@@ -1395,6 +1558,7 @@ mod tests {
             order_dir: c.order_dir,
             q: "",
             filters: &active,
+            per_page: None,
         };
         query(db, c, &req).await.unwrap().total
     }
@@ -1559,6 +1723,80 @@ mod tests {
         assert_eq!(visible_columns(&c, Some("  , ")).len(), c.columns.len());
         // A partly stale choice keeps what still exists.
         assert_eq!(visible_columns(&c, Some("gone,username")).len(), 1);
+    }
+
+    /// A button the operator cannot use is not shown, rather than shown and
+    /// answering 403 when they reach it.
+    #[test]
+    fn the_toolbar_hides_what_the_operator_may_not_do() {
+        let shell = crate::Shell::test();
+        let cfg = ListConfig {
+            creatable: false,
+            toolbar: vec![
+                ToolbarButton::new("Open", "/reports"),
+                ToolbarButton::new("Audit", "/audit").require("backend.view_audit"),
+            ],
+            ..config()
+        };
+
+        // A superuser sees everything, gated or not.
+        let root = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(true, [], [], []),
+            ..crate::audit::test_actor()
+        };
+        let views = toolbar_views(&cfg, "/admin", &root, &shell);
+        assert_eq!(
+            views.iter().map(|v| v.label.as_str()).collect::<Vec<_>>(),
+            ["Open", "Audit"]
+        );
+
+        // Someone holding the named permission sees it too.
+        let granted = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(
+                false,
+                ["backend.view_audit".to_string()],
+                [],
+                [],
+            ),
+            ..crate::audit::test_actor()
+        };
+        assert_eq!(toolbar_views(&cfg, "/admin", &granted, &shell).len(), 2);
+
+        // Someone holding nothing sees only the ungated button.
+        let plain = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(false, [], [], []),
+            ..crate::audit::test_actor()
+        };
+        let views = toolbar_views(&cfg, "/admin", &plain, &shell);
+        assert_eq!(
+            views.iter().map(|v| v.label.as_str()).collect::<Vec<_>>(),
+            ["Open"]
+        );
+    }
+
+    /// A relative href is resolved against the configured admin mount, so a moved
+    /// panel moves its buttons with it.
+    #[test]
+    fn a_toolbar_href_follows_the_admin_mount() {
+        let shell = crate::Shell::test();
+        let cfg = ListConfig {
+            creatable: true,
+            edit_base: Some("/roles".to_string()),
+            toolbar: vec![
+                ToolbarButton::new("Reports", "/reports"),
+                ToolbarButton::new("Docs", "https://example.test/docs"),
+            ],
+            ..config()
+        };
+        let root = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(true, [], [], []),
+            ..crate::audit::test_actor()
+        };
+        let views = toolbar_views(&cfg, "/backoffice", &root, &shell);
+        assert_eq!(views[0].href, "/backoffice/roles/new", "New comes first");
+        assert_eq!(views[1].href, "/backoffice/reports");
+        // An absolute URL is left alone.
+        assert_eq!(views[2].href, "https://example.test/docs");
     }
 
     #[tokio::test]

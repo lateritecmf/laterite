@@ -338,6 +338,16 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-page:has(#lat-list[data-filtered="true"]) .lat-listbar__clear{display:inline}
 .lat-listbar__clear:hover{color:var(--accent)}
 
+/* A small disclosure menu (export formats), and toolbar button icons. */
+.lat-menu{position:relative}
+.lat-menu>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center}
+.lat-menu>summary::-webkit-details-marker{display:none}
+.lat-menu__panel{position:absolute;z-index:50;top:calc(100% + 6px);right:0;min-width:140px;padding:6px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-md);display:flex;flex-direction:column}
+.lat-menu__panel a{padding:7px 10px;border-radius:var(--radius-sm);color:var(--text-body);font-size:var(--fs-13)}
+.lat-menu__panel a:hover{background:var(--surface-row-hover);text-decoration:none}
+.lat-btn__icon{display:inline-flex;width:15px;height:15px;margin-right:6px}
+.lat-btn__icon svg{width:100%;height:100%}
+
 /* Column picker: a native disclosure holding the choices. */
 .lat-listbar__columns{position:relative}
 .lat-listbar__columns>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center}

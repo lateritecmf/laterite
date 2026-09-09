@@ -18,6 +18,7 @@ mod audit;
 pub mod bootstrap;
 mod bulk;
 mod error;
+mod export;
 pub mod field;
 pub mod form;
 pub mod html;
@@ -1248,6 +1249,25 @@ fn mount_resource(
         ),
     );
 
+    let (export_cfg, export_path) = (resource.list.clone(), resource.base_path.clone());
+    router =
+        router.route(
+            &format!("{base}/export"),
+            get(
+                move |state: State<AdminState>,
+                      Query(raw): Query<std::collections::HashMap<String, String>>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(session): Extension<session::SessionHandle>| {
+                    let cfg = export_cfg.clone();
+                    let path = export_path.clone();
+                    async move {
+                        export::handle(state, &cfg, &path, &raw, &user, &shell, &session).await
+                    }
+                },
+            ),
+        );
+
     let (columns_cfg, columns_path) = (resource.list.clone(), resource.base_path.clone());
     router = router.route(
         &format!("{base}/columns"),
@@ -2021,13 +2041,9 @@ fn backend_users_list_config() -> list::ListConfig {
             list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
-        order_dir: list::SortDir::Desc,
-        per_page: 25,
-        id_field: "id".to_string(),
         // Rows link to the per-user permission editor; users are created from the
         // CLI or first-run setup, so no "New" screen here.
         edit_base: Some("/users".to_string()),
-        creatable: false,
         filters: vec![
             list::ListFilter::boolean("is_active", "Active"),
             list::ListFilter::boolean("is_superuser", "Superuser"),
@@ -2035,7 +2051,7 @@ fn backend_users_list_config() -> list::ListConfig {
         // Operators are created by the CLI and first-run setup, and removing one
         // from a list is too easy to do by accident; deactivating is the reversible
         // equivalent and is what the filter above is for.
-        deletable: false,
+        ..Default::default()
     }
 }
 
@@ -2049,13 +2065,10 @@ fn roles_list_config() -> list::ListConfig {
             list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
-        order_dir: list::SortDir::Desc,
-        per_page: 25,
-        id_field: "id".to_string(),
         edit_base: Some("/roles".to_string()),
         creatable: true,
-        filters: Vec::new(),
         deletable: true,
+        ..Default::default()
     }
 }
 
@@ -2073,14 +2086,9 @@ fn audit_log_list_config() -> list::ListConfig {
             list::ListColumn::new("target_id", "Target ID"),
         ],
         order_by: "created_at".to_string(),
-        order_dir: list::SortDir::Desc,
         per_page: 50,
-        id_field: "id".to_string(),
-        edit_base: None,
-        creatable: false,
-        filters: Vec::new(),
         // Append-only: the log is evidence, so nothing removes from it here.
-        deletable: false,
+        ..Default::default()
     }
 }
 
