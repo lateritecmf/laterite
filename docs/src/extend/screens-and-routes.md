@@ -146,3 +146,48 @@ registry.add(ColumnTypeReg::new(Arc::new(Rating)));
 The key is the type's own `view_key`, so a registration cannot disagree with what
 it registers. Use a dotted `vendor.name`: a key already taken, by a built-in or
 another module, aborts the boot naming it rather than quietly winning.
+
+## Reading another module's contributions
+
+A module can define its own kind of extension point. It declares a type, other
+modules contribute it from their `register`, and the module's route reads them:
+
+```rust
+# use laterite_admin::routes::{PublicRoute, RouteCtx};
+# use axum::Router;
+/// The type this module invites others to contribute.
+pub struct FeedReg {
+    pub name: String,
+}
+
+# struct Feeds;
+impl PublicRoute for Feeds {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let feeds: Vec<&FeedReg> = ctx.contributions::<FeedReg>();
+        // ...
+#       let _ = feeds;
+#       Router::new()
+    }
+}
+```
+
+The framework never learns the type. Registration order does not matter either,
+because every module has registered before any route is mounted, so a module that
+registers later than the one reading is still seen.
+
+Contributions the framework itself consumes (resources, screens, settings,
+permissions, persisters, listeners, column types, public routes) are taken during
+boot and are not visible here. This is for the types the framework knows nothing
+about.
+
+A contribution must be `Send + Sync`, since it stays readable from request
+handlers on any thread.
+
+## Absolute URLs
+
+`ctx.base_url()` gives the site's own origin, from the configured `app.url` and
+falling back to the bind address. Use it for a URL a route has to *emit* rather
+than link: a `<loc>` in a sitemap, a canonical URL, an entry in a feed.
+
+Do not build these from the request's `Host` header. Behind a proxy it is
+whatever the proxy sent, so the URLs you publish would follow whoever asked.

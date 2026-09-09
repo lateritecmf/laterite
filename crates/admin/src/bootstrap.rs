@@ -439,6 +439,10 @@ impl Bootstrap {
                 column_types,
                 screens,
                 public_routes: public,
+                // Whatever is left is plugin-defined: types the framework knows
+                // nothing about, kept so one module's route can read another's
+                // contributions.
+                plugin_defined: std::sync::Arc::new(contributions),
             },
             admin_config,
             std::sync::Arc::new(catalogs.build()),

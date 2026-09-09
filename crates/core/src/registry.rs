@@ -42,7 +42,7 @@ struct Entry {
     owner: ModuleId,
     priority: i32,
     mode: ContributeMode,
-    item: Box<dyn Any>,
+    item: Box<dyn Any + Send + Sync>,
 }
 
 /// A borrowed contribution: the item plus the envelope the registry stamped.
@@ -73,12 +73,15 @@ impl Registry {
     }
 
     /// Contributes `item`, keyed by its type, with the default envelope.
-    pub fn add<T: 'static>(&mut self, item: T) {
+    pub fn add<T: Send + Sync + 'static>(&mut self, item: T) {
         self.add_with(item, ContributeOpts::default());
     }
 
     /// Contributes `item` with an explicit priority and mode.
-    pub fn add_with<T: 'static>(&mut self, item: T, opts: ContributeOpts) {
+    ///
+    /// `Send + Sync` because a contribution the framework does not consume stays
+    /// readable after boot, from request handlers on any thread.
+    pub fn add_with<T: Send + Sync + 'static>(&mut self, item: T, opts: ContributeOpts) {
         let owner = self
             .current
             .expect("Registry::add called outside a module register() pass");

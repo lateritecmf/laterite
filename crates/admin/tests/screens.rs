@@ -169,6 +169,110 @@ async fn an_unauthenticated_request_never_reaches_the_screen() {
     );
 }
 
+/// A module's own extension point: a type the framework knows nothing about,
+/// which other modules contribute and this module's route reads.
+struct FeedReg {
+    name: &'static str,
+}
+
+/// A public endpoint that reads what other modules contributed to it, and the
+/// site's own origin, which is what a sitemap or a feed needs.
+struct Feeds;
+
+impl PublicRoute for Feeds {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let mut names: Vec<&str> = ctx
+            .contributions::<FeedReg>()
+            .iter()
+            .map(|r| r.name)
+            .collect();
+        names.sort_unstable();
+        let listed = names.join(",");
+        let origin = ctx.base_url().to_string();
+        Router::new()
+            .route("/", get(move || async move { listed }))
+            .route("/origin", get(move || async move { origin }))
+    }
+}
+
+fn app_with_plugin_defined(db: Db) -> Router {
+    app_with_origin(db, "")
+}
+
+fn app_with_origin(db: Db, origin: &str) -> Router {
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    // AdminConfig is non-exhaustive, so it is built rather than literalled.
+    let mut config = AdminConfig::default();
+    config.origin = origin.to_string();
+    // Two modules contribute a type only they know about; a third reads it.
+    let mut registry = laterite_core::Registry::new();
+    registry.set_owner(laterite_core::ModuleId::new("acme.blog"));
+    registry.add(FeedReg { name: "posts" });
+    registry.set_owner(laterite_core::ModuleId::new("acme.shop"));
+    registry.add(FeedReg { name: "products" });
+
+    router(
+        auth,
+        db,
+        Contributions {
+            public_routes: vec![PublicRouteReg::new("/feeds", Arc::new(Feeds))],
+            plugin_defined: Arc::new(registry),
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    )
+}
+
+#[tokio::test]
+async fn a_route_reads_contributions_the_framework_never_learns_about() {
+    let (db, _guard) = test_db().await;
+    let app = app_with_plugin_defined(db);
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/feeds")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    // Both modules' contributions reached the reading module, whatever order
+    // they registered in: everything is collected before any route runs.
+    assert_eq!(String::from_utf8(body.to_vec()).unwrap(), "posts,products");
+}
+
+#[tokio::test]
+async fn a_route_is_told_the_sites_own_origin() {
+    let (db, _guard) = test_db().await;
+    // Configured with a trailing slash, which the admin trims: a `<loc>` built
+    // from this must not end up with a doubled separator.
+    let resp = app_with_origin(db, "https://acme.example/")
+        .oneshot(
+            Request::builder()
+                .uri("/feeds/origin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    // Absolute URLs come from configuration, never the request Host, which a
+    // proxy controls.
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "https://acme.example"
+    );
+}
+
 /// A public endpoint: no session, no permission, a literal path.
 struct Robots;
 

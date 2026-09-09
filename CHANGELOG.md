@@ -30,6 +30,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- A module can read another module's contributions. It defines a type, others
+  contribute it from `register`, and its routes read them with
+  `RouteCtx::contributions`. The framework never learns the type, and everything
+  is collected before any route mounts, so registration order does not matter.
+  This is what `Module::register` already promised by "plugin-defined extension
+  items".
+- `RouteCtx::base_url` reports the site's own origin, for the absolute URLs a
+  route emits rather than links (a sitemap `<loc>`, a canonical URL, a feed).
 - The column-type registry is open to modules. A module contributes a
   `ColumnTypeReg` and its type renders those cells; the key is the type's own
   `view_key`, and a duplicate aborts the boot naming it.
@@ -95,6 +103,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- **Breaking**: a registry contribution must be `Send + Sync`, since the ones the
+  framework does not consume stay readable from request handlers. Every existing
+  contribution type already was.
 - **Breaking**: `router` takes one `Contributions` value rather than nine
   positional vectors, including the new column types. Build it with the fields you
   mean and end with `..Default::default()`; a later kind of contribution is then a

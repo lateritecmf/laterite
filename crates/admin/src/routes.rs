@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use laterite_core::{Db, Text};
+use laterite_core::{Db, Registry, Text};
 
 /// What a contributed route is given at boot.
 ///
@@ -24,19 +24,50 @@ pub struct RouteCtx {
     db: Db,
     base_path: Arc<str>,
     admin_path: Arc<str>,
+    base_url: Arc<str>,
+    plugin_defined: Arc<Registry>,
 }
 
 impl RouteCtx {
-    pub(crate) fn new(db: Db, base_path: &str, admin_path: &str) -> Self {
+    pub(crate) fn new(
+        db: Db,
+        base_path: &str,
+        admin_path: &str,
+        base_url: &str,
+        plugin_defined: Arc<Registry>,
+    ) -> Self {
         Self {
             db,
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
+            base_url: Arc::from(base_url),
+            plugin_defined,
         }
     }
 
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// The site's own origin, without a trailing slash: the configured
+    /// `app.url`, falling back to the bind address when none is declared.
+    ///
+    /// For the absolute URLs a route has to emit rather than link: a `<loc>` in a
+    /// sitemap, a canonical URL, an entry in a feed. The request's `Host` header
+    /// is not a substitute, because behind a proxy it is whatever the proxy sent.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// The contributions of type `T` that the framework itself does not consume.
+    ///
+    /// This is how one module reads another's contributions. A module declaring
+    /// its own kind of extension point defines a type, other modules contribute
+    /// it from their `register`, and the route reads them here: the framework
+    /// never learns the type, and registration order does not matter because
+    /// everything is collected before any route runs.
+    pub fn contributions<T: Send + Sync + 'static>(&self) -> Vec<&T> {
+        self.plugin_defined.items::<T>()
     }
 
     /// Where this screen actually mounted, after the module namespace, any base

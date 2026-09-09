@@ -142,6 +142,9 @@ pub(crate) struct AdminState {
     /// The column-type registry: resolves a list column's type key to its cell
     /// rendering. Sibling to `field_types`; shares the override resolver.
     column_types: Arc<list::ColumnRegistry>,
+    /// Contributions the framework does not consume, readable by a module's own
+    /// routes through `RouteCtx`.
+    plugin_defined: Arc<laterite_core::Registry>,
     /// Embedded admin assets served under `{admin}/assets/` (see [`AdminAsset`]).
     assets: Arc<AssetRegistry>,
     /// The reference-picker source registry: resolves a picker field's `source`
@@ -172,6 +175,7 @@ impl AdminState {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
             pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
@@ -790,6 +794,11 @@ pub struct Contributions {
     pub screens: Vec<routes::ScreenReg>,
     /// Routes mounted outside the admin, at literal paths.
     pub public_routes: Vec<routes::PublicRouteReg>,
+    /// Everything the framework itself does not consume: the contribution types
+    /// modules define for each other. Kept whole so a contributed route can read
+    /// them through [`routes::RouteCtx::contributions`], which is what makes a
+    /// module's own extension point usable by another module.
+    pub plugin_defined: Arc<laterite_core::Registry>,
 }
 
 pub fn router(
@@ -809,6 +818,7 @@ pub fn router(
         column_types: app_column_types,
         screens: app_screens,
         public_routes: app_public,
+        plugin_defined,
     } = contributions;
     let admin_path = normalize_path(&config.path);
 
@@ -931,6 +941,7 @@ pub fn router(
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
+        plugin_defined,
         assets: Arc::new(builtin_assets()),
         pickers,
         overrides: Arc::new(field::NoOverrides),
@@ -950,7 +961,13 @@ pub fn router(
     // Nested as a service, so the screen's router carries no framework state.
     for reg in &app_screens {
         let base = format!("{admin_path}{}", reg.base_path);
-        let ctx = routes::RouteCtx::new(state.db.clone(), &base, &admin_path);
+        let ctx = routes::RouteCtx::new(
+            state.db.clone(),
+            &base,
+            &admin_path,
+            &state.origin,
+            state.plugin_defined.clone(),
+        );
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,
@@ -1030,7 +1047,13 @@ pub fn router(
         // A module's own public endpoints, at the literal paths they declared and
         // outside the admin entirely: no session, no permission, no chrome. They
         // sit above the fallback, so an unmatched URL still renders the 404.
-        .merge(mount_public(&app_public, &state.db, &admin_path))
+        .merge(mount_public(
+            &app_public,
+            &state.db,
+            &admin_path,
+            &state.origin,
+            &state.plugin_defined,
+        ))
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
         // The CSRF origin gate wraps every route (login and setup included); the
@@ -1077,10 +1100,22 @@ pub fn normalize_path(path: &str) -> String {
 /// Resolves a resource's authored-relative paths (`base_path`, the list's
 /// `edit_base`, the form's `base_path`) to full paths under the admin mount.
 /// Every contributed public route, nested at its declared path.
-fn mount_public(regs: &[routes::PublicRouteReg], db: &Db, admin_path: &str) -> Router<AdminState> {
+fn mount_public(
+    regs: &[routes::PublicRouteReg],
+    db: &Db,
+    admin_path: &str,
+    origin: &str,
+    plugin_defined: &Arc<laterite_core::Registry>,
+) -> Router<AdminState> {
     let mut router = Router::new();
     for reg in regs {
-        let ctx = routes::RouteCtx::new(db.clone(), &reg.path, admin_path);
+        let ctx = routes::RouteCtx::new(
+            db.clone(),
+            &reg.path,
+            admin_path,
+            origin,
+            plugin_defined.clone(),
+        );
         router = router.nest_service(&reg.path, reg.route.mount(&ctx));
     }
     router
@@ -2480,6 +2515,7 @@ mod tests {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
             pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
