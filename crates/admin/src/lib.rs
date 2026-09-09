@@ -751,25 +751,65 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
 /// screens; `app_settings` are its settings models; `app_permissions` are the
 /// permissions it defines, offered in the role editor alongside the framework's.
 /// All are mounted alongside the framework's built-in equivalents.
-// The admin entry point collects each contribution kind as its own vec; it has
-// grown past clippy's arg ceiling and will keep growing as registries are added
-// (a `Contributions` bundle is the eventual tidy-up).
-#[allow(clippy::too_many_arguments)]
+/// Everything the modules and the application contribute to the admin, in one
+/// value.
+///
+/// Build it with the fields you mean and leave the rest to `Default`:
+///
+/// ```
+/// # use laterite_admin::Contributions;
+/// let contributions = Contributions {
+///     permissions: Vec::new(),
+///     ..Default::default()
+/// };
+/// ```
+///
+/// It exists so that a new kind of contribution is a new field rather than a new
+/// argument. The nine of them were positional before, and a run of interchangeable
+/// `Vec::new()` placeholders is a mistake the compiler cannot catch: swap two and
+/// it still builds. Naming them removes that whole class of error, and ending a
+/// literal with `..Default::default()` means a later field does not break the
+/// call.
+#[derive(Default)]
+pub struct Contributions {
+    /// List and form screens, mounted beside the framework's own.
+    pub resources: Vec<Resource>,
+    /// Settings models, offered in the settings area.
+    pub settings: Vec<settings::SettingsItem>,
+    /// Permissions defined by the application, offered in the role editor.
+    pub permissions: Vec<Permission>,
+    /// Sources a reference field searches and resolves against.
+    pub picker_sources: Vec<picker::PickerSourceReg>,
+    /// Named write handlers a form can select.
+    pub persisters: Vec<persist::PersisterReg>,
+    /// Listeners run around every save and delete.
+    pub listeners: Vec<laterite_core::ModelListenerReg>,
+    /// Column types a list cell can render through.
+    pub column_types: Vec<list::ColumnTypeReg>,
+    /// Screens a module mounts itself, for anything that is not a list or form.
+    pub screens: Vec<routes::ScreenReg>,
+    /// Routes mounted outside the admin, at literal paths.
+    pub public_routes: Vec<routes::PublicRouteReg>,
+}
+
 pub fn router(
     auth: AuthService,
     db: Db,
-    app_resources: Vec<Resource>,
-    app_settings: Vec<settings::SettingsItem>,
-    app_permissions: Vec<Permission>,
-    app_picker_sources: Vec<picker::PickerSourceReg>,
-    app_persisters: Vec<persist::PersisterReg>,
-    app_listeners: Vec<laterite_core::ModelListenerReg>,
-    app_column_types: Vec<list::ColumnTypeReg>,
-    app_screens: Vec<routes::ScreenReg>,
-    app_public: Vec<routes::PublicRouteReg>,
+    contributions: Contributions,
     config: AdminConfig,
     catalogs: Arc<CatalogStore>,
 ) -> Router {
+    let Contributions {
+        resources: app_resources,
+        settings: app_settings,
+        permissions: app_permissions,
+        picker_sources: app_picker_sources,
+        persisters: app_persisters,
+        listeners: app_listeners,
+        column_types: app_column_types,
+        screens: app_screens,
+        public_routes: app_public,
+    } = contributions;
     let admin_path = normalize_path(&config.path);
 
     let mut resources = builtin_resources();

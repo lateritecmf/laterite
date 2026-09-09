@@ -7,7 +7,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use laterite_admin::{router, AdminConfig};
+use laterite_admin::{router, AdminConfig, Contributions};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
 use std::sync::Arc;
@@ -74,15 +74,7 @@ async fn admin_mutations_require_origin_and_token() {
         router(
             AuthService::new(pool.clone(), AuthConfig::default()),
             pool.clone(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            Contributions::default(),
             config,
             Arc::new(CatalogStore::default()),
         )

@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
 use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
-use laterite_admin::{router, AdminConfig};
+use laterite_admin::{router, AdminConfig, Contributions};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
 use std::sync::Arc;
@@ -37,18 +37,13 @@ fn app_in_menu(db: Db) -> Router {
     router(
         auth,
         db,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        vec![
-            ScreenReg::new("/import", PERMISSION, Arc::new(Importer)).in_menu("Import places"),
-            ScreenReg::new("/hidden", PERMISSION, Arc::new(Importer)),
-        ],
-        Vec::new(),
+        Contributions {
+            screens: vec![
+                ScreenReg::new("/import", PERMISSION, Arc::new(Importer)).in_menu("Import places"),
+                ScreenReg::new("/hidden", PERMISSION, Arc::new(Importer)),
+            ],
+            ..Default::default()
+        },
         AdminConfig::default(),
         Arc::new(CatalogStore::default()),
     )
@@ -59,15 +54,10 @@ fn app(db: Db, base: &str) -> Router {
     router(
         auth,
         db,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        vec![ScreenReg::new(base, PERMISSION, Arc::new(Importer))],
-        Vec::new(),
+        Contributions {
+            screens: vec![ScreenReg::new(base, PERMISSION, Arc::new(Importer))],
+            ..Default::default()
+        },
         AdminConfig::default(),
         Arc::new(CatalogStore::default()),
     )
@@ -197,15 +187,10 @@ fn app_with_public(db: Db) -> Router {
     router(
         auth,
         db,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        vec![PublicRouteReg::new("/robots.txt", Arc::new(Robots))],
+        Contributions {
+            public_routes: vec![PublicRouteReg::new("/robots.txt", Arc::new(Robots))],
+            ..Default::default()
+        },
         AdminConfig::default(),
         Arc::new(CatalogStore::default()),
     )

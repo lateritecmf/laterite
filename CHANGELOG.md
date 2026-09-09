@@ -81,8 +81,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
-- **Breaking**: `router` takes the contributed column types. Applications boot
-  through `Bootstrap` and are unaffected.
+- **Breaking**: `router` takes one `Contributions` value rather than nine
+  positional vectors, including the new column types. Build it with the fields you
+  mean and end with `..Default::default()`; a later kind of contribution is then a
+  new field rather than a new argument. Applications boot through `Bootstrap` and
+  are unaffected.
 - **Breaking**: `ListConfig` gained `filters`, `deletable` and `toolbar` fields. A descriptor now ends with
   `..Default::default()` and sets only what it means, which is also why this is
   the last such break.

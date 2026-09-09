@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use laterite_admin::settings::{save, BrandSetting};
-use laterite_admin::{router, AdminConfig};
+use laterite_admin::{router, AdminConfig, Contributions};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
 use std::sync::Arc;
@@ -31,15 +31,7 @@ fn app_at(db: Db, app_name: &str, path: &str) -> Router {
     router(
         auth,
         db,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
+        Contributions::default(),
         config,
         Arc::new(CatalogStore::default()),
     )

@@ -3,7 +3,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use laterite_admin::{router, AdminConfig};
+use laterite_admin::{router, AdminConfig, Contributions};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
 use std::sync::Arc;
@@ -109,15 +109,7 @@ async fn resource_routes_enforce_their_permission() {
         router(
             AuthService::new(pool.clone(), AuthConfig::default()),
             pool.clone(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            Contributions::default(),
             AdminConfig::default(),
             Arc::new(CatalogStore::default()),
         )
