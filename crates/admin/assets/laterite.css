@@ -337,6 +337,18 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-page:has(#lat-list[data-filtered="true"]) .lat-listbar__clear{display:inline}
 .lat-listbar__clear:hover{color:var(--accent)}
 
+/* Bulk selection and the confirm dialog. */
+.lat-bulkbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.lat-table__pick{width:36px;text-align:center}
+.lat-modal{position:fixed;inset:0;z-index:400;display:none}
+.lat-modal.is-open{display:block}
+.lat-modal__backdrop{position:absolute;inset:0;background:var(--surface-overlay)}
+.lat-modal__panel{position:relative;margin:18vh auto 0;width:min(420px,calc(100vw - 32px));background:var(--surface-card);border-radius:var(--radius-card);box-shadow:var(--shadow-lg);padding:20px}
+.lat-modal__text{margin:0 0 18px;color:var(--text-body)}
+.lat-modal__actions{display:flex;gap:8px;justify-content:flex-end}
+.lat-btn--danger{background:var(--danger);color:var(--text-on-accent);border-color:transparent}
+.lat-btn--danger:hover{background:var(--danger-700)}
+
 /* Sortable column headers. */
 .lat-sort{display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none;white-space:nowrap}
 .lat-sort:hover{color:var(--accent)}

@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use crate::migration::DbBackend;
 use crate::validation::ErrorBag;
-use crate::Db;
+use crate::{Db, Text};
 
 /// One attribute's value.
 ///
@@ -180,9 +180,16 @@ impl<T: Into<AttrValue>> From<Option<T>> for AttrValue {
     }
 }
 
-/// Which stage of a write a listener is seeing.
+/// Which stage of a save a listener is seeing.
 ///
-/// Non-exhaustive: deletion joins when the delete path lands.
+/// Deletion is deliberately **not** a variant here. It has its own pair of
+/// listener methods ([`ModelListener::before_delete`] and `after_delete`),
+/// because a listener written for saves must not silently start receiving
+/// deletes: [`crate::listeners::Timestamps`], for one, stamps `updated_at` on
+/// every save, which is nonsense for a row being removed. Separate methods mean
+/// a listener opts into deletion rather than inheriting it.
+///
+/// Non-exhaustive so a further save stage stays additive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Op {
@@ -535,6 +542,26 @@ pub trait ModelListener: Send + Sync + 'static {
     /// write: it cannot roll one back, and its own failure leaves the row saved.
     async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) {
         let _ = (cx, rec, op);
+    }
+
+    /// Runs before the row is removed, inside the transaction, holding the row
+    /// as it currently stands. Returning a message refuses the delete and rolls
+    /// it back, and the operator sees that message.
+    ///
+    /// This is where a listener guards its own references: a module that points
+    /// at this record refuses here rather than leaving a dangling row behind.
+    /// The record is read-only, since there is nothing to change about a row
+    /// being removed.
+    async fn before_delete(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        let _ = (cx, rec);
+        Ok(())
+    }
+
+    /// Runs after the delete commits, for side effects such as removing files
+    /// the row owned. Not atomic with it, exactly as `after_save` is not: the
+    /// row is already gone, so failing here cannot bring it back.
+    async fn after_delete(&self, cx: &SavedCx<'_>, rec: &Record) {
+        let _ = (cx, rec);
     }
 }
 

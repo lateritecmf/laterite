@@ -145,10 +145,89 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   });
 })();
 
+// Confirm dialog: a control carrying data-lat-confirm asks before it acts. A
+// modal rather than window.confirm, because a native dialog blocks the page and
+// cannot be styled or localized with the rest of the admin.
+(function () {
+  var pending = null;
+
+  function box() {
+    var el = document.getElementById('lat-confirm');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'lat-confirm';
+    el.className = 'lat-modal';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.innerHTML =
+      '<div class="lat-modal__backdrop" data-lat-close></div>' +
+      '<div class="lat-modal__panel">' +
+      '<p class="lat-modal__text"></p>' +
+      '<div class="lat-modal__actions">' +
+      '<button type="button" class="lat-btn lat-btn--ghost" data-lat-close></button>' +
+      '<button type="button" class="lat-btn lat-btn--danger" data-lat-go></button>' +
+      '</div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      if (e.target.hasAttribute('data-lat-close')) close();
+      if (e.target.hasAttribute('data-lat-go')) go();
+    });
+    return el;
+  }
+
+  function close() {
+    pending = null;
+    var el = document.getElementById('lat-confirm');
+    if (el) el.classList.remove('is-open');
+  }
+
+  function go() {
+    var el = pending;
+    close();
+    if (!el) return;
+    // Marked so the second pass through the handler lets it through.
+    el.setAttribute('data-lat-confirmed', '1');
+    el.click();
+    el.removeAttribute('data-lat-confirmed');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+  });
+
+  // Capture phase, so the click never reaches htmx or the form until confirmed.
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-lat-confirm]') : null;
+    if (!el || el.hasAttribute('data-lat-confirmed')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pending = el;
+    var modal = box();
+    modal.querySelector('.lat-modal__text').textContent = el.getAttribute('data-lat-confirm');
+    modal.querySelector('[data-lat-go]').textContent = el.textContent.trim() || 'OK';
+    modal.querySelector('[data-lat-close]:not(.lat-modal__backdrop)').textContent =
+      document.body.getAttribute('data-lat-cancel') || 'Cancel';
+    modal.classList.add('is-open');
+    modal.querySelector('[data-lat-go]').focus();
+  }, true);
+})();
+
 // Flash toasts: auto-dismiss non-error messages after a few seconds.
 window.lat.widget('flash', function (el) {
   if (el.classList.contains('is-error')) return;
   setTimeout(function () { latDismissFlash(el); }, 5000);
+});
+
+// Select-all checkbox in a list header: ticks every row box in its table. Bound
+// by structure, and re-bound after a swap because the header comes back with it.
+window.lat.widget('pick-all', function (box) {
+  var table = box.closest('table');
+  if (!table) return;
+  box.addEventListener('change', function () {
+    table.querySelectorAll('tbody input[type="checkbox"][name="id"]').forEach(function (row) {
+      row.checked = box.checked;
+    });
+  });
 });
 
 // Copy button: copies its input group's value, with brief confirmation. Binds by

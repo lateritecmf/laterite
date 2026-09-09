@@ -35,5 +35,17 @@
   <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button></noscript>
 </form>
 {% endif %}
+{% if deletable %}
+{# The form lives outside the table: rows are inside the swapped region and
+   carry `form="lat-list-actions"`, so a swap replaces the checkboxes without
+   destroying the form they belong to. #}
+<form id="lat-list-actions" class="lat-bulkbar" method="post" action="{{ path }}/delete">
+  {% include "_csrf.html" %}
+  <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
+          data-lat-confirm='{{ shell.t("Delete the selected records? This cannot be undone.") }}'>
+    {{ shell.t("Delete") }}
+  </button>
+</form>
+{% endif %}
 {% include "_list_table.html" %}
 {% endblock %}

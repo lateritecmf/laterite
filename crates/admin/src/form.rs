@@ -768,6 +768,70 @@ mod tests {
         .unwrap()
     }
 
+    /// The whole delete path against a real table: the row is read, the
+    /// listeners run, the row goes, and the after-stage sees what went.
+    #[tokio::test]
+    async fn a_delete_removes_the_row_through_the_pipeline() {
+        use crate::persist::{delete, DefaultPersister, DeleteRequest};
+
+        let (db, _guard) = test_db().await;
+        let st = state(db.clone());
+        let form = config();
+
+        let mut data = HashMap::new();
+        data.insert("code".to_string(), "c1".to_string());
+        data.insert("name".to_string(), "Chair".to_string());
+        create(
+            &st,
+            &form,
+            data,
+            crate::Shell::test(),
+            &crate::audit::test_actor(),
+            &crate::session::SessionHandle::from_blob(None),
+            &axum::http::HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(
+            fetch_text(&db, "name", "c1").await.as_deref(),
+            Some("Chair")
+        );
+
+        let id = row_id(&db, "c1").await;
+        let persister = DefaultPersister::from_config(&form.config);
+        let rec = delete(DeleteRequest {
+            db: &db,
+            listeners: &[],
+            persister: &persister,
+            actor: &laterite_core::Actor::system("test"),
+            entity: "samples",
+            id: &id,
+        })
+        .await
+        .expect("deleted");
+
+        // Gone from the table, and the caller learns what it removed.
+        assert_eq!(fetch_text(&db, "name", "c1").await, None);
+        assert_eq!(rec.text("code"), Some("c1"));
+    }
+
+    /// The stored id for a row, as text, the shape the delete path takes.
+    async fn row_id(db: &Db, code: &str) -> String {
+        let stmt = Query::select()
+            .expr_as(
+                Expr::col(Alias::new("id")).cast_as(Alias::new(text_cast(db.backend))),
+                Alias::new("v"),
+            )
+            .from(Alias::new("samples"))
+            .and_where(Expr::col(Alias::new("code")).eq(code))
+            .to_owned();
+        let (sql, values) = laterite_core::query::build(db.backend, stmt);
+        let row = bind_values(sqlx::query(&sql), values)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        row.get_text("v").unwrap()
+    }
+
     pub(super) fn state(db: Db) -> AdminState {
         AdminState::new(
             laterite_auth::AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),

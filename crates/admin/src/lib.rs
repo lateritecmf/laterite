@@ -16,6 +16,7 @@
 
 mod audit;
 pub mod bootstrap;
+mod bulk;
 mod error;
 pub mod field;
 pub mod form;
@@ -1246,6 +1247,48 @@ fn mount_resource(
         ),
     );
 
+    if resource.list.deletable {
+        // The write path for a delete: the form's persister when the resource has
+        // a generic form, otherwise one over the list's own table, so a bespoke
+        // editor (roles) still deletes through the pipeline rather than beside it.
+        let persister: Arc<dyn persist::Persister> =
+            match resource.form.as_ref().and_then(|f| f.persist.as_ref()) {
+                Some(key) => persisters.get(key).cloned().unwrap_or_else(|| {
+                    panic!(
+                        "admin resource `{}`: unregistered persister `{key}`",
+                        resource.base_path
+                    )
+                }),
+                None => Arc::new(persist::DefaultPersister::from_list(&resource.list)),
+            };
+        let ctx = Arc::new(bulk::BulkContext {
+            base_path: resource.base_path.clone(),
+            entity: resource.list.entity.clone(),
+            persister,
+            listeners: listeners
+                .iter()
+                .filter(|reg| reg.matches(&resource.list.entity))
+                .map(|reg| reg.listener.clone())
+                .collect(),
+        });
+        router =
+            router.route(
+                &format!("{base}/delete"),
+                post(
+                    move |state: State<AdminState>,
+                          user: Extension<AuthenticatedUser>,
+                          session: Extension<session::SessionHandle>,
+                          headers: axum::http::HeaderMap,
+                          form: Form<Vec<(String, String)>>| {
+                        let ctx = ctx.clone();
+                        async move {
+                            bulk::delete_handler(state, user, session, ctx, headers, form).await
+                        }
+                    },
+                ),
+            );
+    }
+
     if let Some(form_cfg) = resource.form.clone() {
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
@@ -1970,6 +2013,10 @@ fn backend_users_list_config() -> list::ListConfig {
             list::ListFilter::boolean("is_active", "Active"),
             list::ListFilter::boolean("is_superuser", "Superuser"),
         ],
+        // Operators are created by the CLI and first-run setup, and removing one
+        // from a list is too easy to do by accident; deactivating is the reversible
+        // equivalent and is what the filter above is for.
+        deletable: false,
     }
 }
 
@@ -1989,6 +2036,7 @@ fn roles_list_config() -> list::ListConfig {
         edit_base: Some("/roles".to_string()),
         creatable: true,
         filters: Vec::new(),
+        deletable: true,
     }
 }
 
@@ -2012,6 +2060,8 @@ fn audit_log_list_config() -> list::ListConfig {
         edit_base: None,
         creatable: false,
         filters: Vec::new(),
+        // Append-only: the log is evidence, so nothing removes from it here.
+        deletable: false,
     }
 }
 

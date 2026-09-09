@@ -13,13 +13,7 @@ use crate::{store, AuthError};
 pub struct AuditListener;
 
 impl AuditListener {
-    async fn write(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) -> Result<(), AuthError> {
-        let verb = match op {
-            Op::Create => "create",
-            Op::Update => "update",
-            // `Op` is non-exhaustive; an unnamed stage is still worth recording.
-            _ => "write",
-        };
+    async fn write(&self, cx: &SavedCx<'_>, rec: &Record, verb: &str) -> Result<(), AuthError> {
         let target_id = rec.id().map(|id| id.to_string());
         store::insert_audit_log(
             cx.db(),
@@ -40,7 +34,22 @@ impl ModelListener for AuditListener {
     /// records: the log line is the signal to investigate, not a reason to tell
     /// the operator their save failed.
     async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) {
-        if let Err(e) = self.write(cx, rec, op).await {
+        let verb = match op {
+            Op::Create => "create",
+            Op::Update => "update",
+            // `Op` is non-exhaustive; an unnamed stage is still worth recording.
+            _ => "write",
+        };
+        if let Err(e) = self.write(cx, rec, verb).await {
+            tracing::error!(entity = rec.entity(), error = %e, "failed to write audit log entry");
+        }
+    }
+
+    /// A delete is a change to the record of what happened, so it is logged like
+    /// any other write. The row is already gone, which is exactly why the entry
+    /// matters.
+    async fn after_delete(&self, cx: &SavedCx<'_>, rec: &Record) {
+        if let Err(e) = self.write(cx, rec, "delete").await {
             tracing::error!(entity = rec.entity(), error = %e, "failed to write audit log entry");
         }
     }

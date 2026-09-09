@@ -75,6 +75,7 @@ msgstr ""
 
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
+#: templates/base.html
 #: templates/settings_form.html
 #: templates/users_form.html
 msgid "Cancel"
@@ -139,6 +140,24 @@ msgstr ""
 
 #: templates/setup.html
 msgid "Dates render in this zone. Storage is always UTC, and you can change it later in Preferences."
+msgstr ""
+
+#: templates/list.html
+msgid "Delete"
+msgstr ""
+
+#: templates/list.html
+msgid "Delete the selected records? This cannot be undone."
+msgstr ""
+
+#: src/bulk.rs
+msgid "Deleted {n} record."
+msgid_plural "Deleted {n} records."
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/persist.rs
+msgid "Deleting this kind of record is not supported."
 msgstr ""
 
 #: templates/users_form.html
@@ -394,6 +413,18 @@ msgstr ""
 msgid "Search"
 msgstr ""
 
+#: src/bulk.rs
+msgid "Select a record first."
+msgstr ""
+
+#: templates/_list_table.html
+msgid "Select all"
+msgstr ""
+
+#: templates/_list_table.html
+msgid "Select record"
+msgstr ""
+
 #: templates/setup.html
 msgid "Set up"
 msgstr ""
@@ -424,6 +455,10 @@ msgstr ""
 
 #: templates/dashboard.html
 msgid "Signed in as {name}."
+msgstr ""
+
+#: src/bulk.rs
+msgid "Some records could not be deleted."
 msgstr ""
 
 #: src/error.rs

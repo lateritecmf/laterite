@@ -66,6 +66,21 @@ shape over an out-of-band swap for anything the region already knows.
 With scripting off the headers, pager and bar stay ordinary links and a GET form,
 and the same handler answers the whole page.
 
+## Confirming a destructive action
+
+A control carrying `data-lat-confirm` asks before it acts:
+
+```html
+<button type="submit" data-lat-confirm="Delete the selected records? This cannot be undone.">
+  Delete
+</button>
+```
+
+The click is caught in the capture phase, so neither the form nor htmx sees it
+until the operator confirms; Cancel and Escape close the dialog and nothing is
+sent. It is a modal rather than `window.confirm` because a native dialog blocks
+the page and cannot carry the admin's styling or its translations.
+
 ## Islands
 
 An island is a named initialiser. Every element carrying a matching
@@ -96,5 +111,4 @@ whose assets are not already on the page.
 
 ## What is not built yet
 
-A confirm dialog for destructive actions. It is planned; a screen needing one
-today does it with a full page load.
+Per-operator column configuration, and inline editing in a list row.

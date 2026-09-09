@@ -118,3 +118,37 @@ It sets `created_at` on create and `updated_at` on every write, and leaves a
 Do not register a column-stamping listener for every entity. The built-in
 persister writes whatever the record holds, so an attribute added everywhere
 reaches tables that have no such column and fails their writes.
+
+## Deletion
+
+Deleting runs the same shape as saving: the pipeline owns the transaction, and a
+listener sees the row before it goes.
+
+```rust
+# use laterite_core::{ModelListener, Record, SaveCx, Text};
+# struct Guard;
+#[laterite_core::strata::async_trait]
+impl ModelListener for Guard {
+    async fn before_delete(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        // Read through cx.conn(), inside the same transaction as the delete.
+        Err(laterite_core::t!("Three records still reference this one."))
+    }
+}
+```
+
+Returning a message refuses the delete and rolls it back, and the operator sees
+that message. This is where a module guards records that point at this one,
+rather than discovering the dangling row later.
+
+`after_delete` runs once the delete has committed, for side effects such as
+removing files the row owned. Like `after_save` it is not atomic with the write:
+the row is already gone, so failing there cannot bring it back.
+
+Deletion is deliberately not an `Op` variant. A listener written for saves must
+not silently start receiving deletes: `Timestamps` stamps `updated_at` on every
+save, which is nonsense for a row being removed. Separate methods mean a listener
+opts into deletion.
+
+A `Persister` refuses deletion by default. One that writes across more than one
+table has to say how those rows come apart, and guessing at that is worse than
+declining, so an implementor opts in by overriding `delete`.

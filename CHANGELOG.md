@@ -30,6 +30,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- Deleting joins the record layer. `ModelListener::before_delete` sees the row
+  inside the transaction and can refuse the delete with a message the operator
+  reads; `after_delete` runs once it has committed. `Persister::delete` performs
+  it, and refuses by default so a persister that has not implemented deletion
+  says so rather than appearing to succeed. Deletes are audited by the same
+  listener that records every other write.
+- Bulk delete on a list. A list marked `deletable` carries a checkbox per row and
+  a select-all header, and the Delete button asks for confirmation first. Each
+  record goes through the delete pipeline in its own transaction, so one refusal
+  reports its reason and leaves the rest of the selection deleted. The roles list
+  is deletable; the users list and the audit log are not.
+- A confirm dialog for any control carrying `data-lat-confirm`: the click is held
+  in the capture phase until the operator agrees, and Escape or Cancel drops it.
 - Empty list states read correctly: a table with nothing in it offers a New link,
   while a search or filter that matches nothing says so instead of reporting the
   table as empty.
@@ -48,8 +61,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
-- **Breaking**: `ListConfig` gained a `filters` field. A descriptor with no
-  filters sets `filters: Vec::new()`.
+- **Breaking**: `ListConfig` gained `filters` and `deletable` fields. A descriptor with no filters and no
+  delete sets `filters: Vec::new(), deletable: false`.
 - The picker matches through a `SearchProfile` rather than its own `LIKE`.
   Behaviour is unchanged: case folding, literal wildcards, and an empty query
   still lists the first rows.

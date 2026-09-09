@@ -412,6 +412,10 @@ pub struct ListConfig {
     pub creatable: bool,
     /// Filters offered above the table. Empty hides the bar.
     pub filters: Vec<ListFilter>,
+    /// Whether rows can be selected and deleted from this list. Off by default:
+    /// a list that shows a log, or records another screen owns, has no business
+    /// offering it.
+    pub deletable: bool,
 }
 
 /// Query-string parameters for a list view.
@@ -765,6 +769,7 @@ pub(crate) async fn handle(
                 searchable: config.columns.iter().any(|c| c.is_searchable()),
                 path: path.to_string(),
                 filters: filter_views,
+                deletable: config.deletable,
                 filtered: !active.is_empty() || !q.trim().is_empty(),
                 carry: carry.clone(),
             };
@@ -786,6 +791,7 @@ pub(crate) async fn handle(
                     carry: page_view.carry,
                     filtered: page_view.filtered,
                     creatable: page_view.creatable,
+                    deletable: page_view.deletable,
                 })
             } else {
                 render(page_view)
@@ -825,6 +831,8 @@ struct ListTemplate {
     q: String,
     /// Whether any column is searchable, so the box appears at all.
     searchable: bool,
+    /// Whether rows carry a checkbox and the Delete button is offered.
+    deletable: bool,
     /// This list's own path, for the search form to post back to.
     path: String,
     /// The filter controls, with the active value marked.
@@ -936,6 +944,7 @@ struct ListFragment {
     /// a filtered list with no rows has not run out of records, it has no match.
     filtered: bool,
     creatable: bool,
+    deletable: bool,
 }
 
 #[cfg(test)]
@@ -957,6 +966,7 @@ mod tests {
             edit_base: None,
             creatable: false,
             filters: vec![ListFilter::boolean("is_superuser", "Superuser")],
+            deletable: true,
         }
     }
 

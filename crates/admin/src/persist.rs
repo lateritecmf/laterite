@@ -14,7 +14,7 @@ use laterite_core::query::{bind_values, build as to_sql, insert_returning_id_on,
 use laterite_core::strata::async_trait;
 use laterite_core::validation::ErrorBag;
 use laterite_core::AnyRowExt;
-use laterite_core::{Actor, AttrValue, Db, ModelListener, Op, Record, SaveCx, SavedCx};
+use laterite_core::{t, Actor, AttrValue, Db, ModelListener, Op, Record, SaveCx, SavedCx, Text};
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::form::FormConfig;
@@ -27,6 +27,18 @@ pub enum SaveError {
     Invalid(ErrorBag),
     /// The write itself failed: logged, and the form re-renders the generic
     /// banner.
+    Failed(String),
+}
+
+/// Why a delete failed.
+#[derive(Debug)]
+pub enum DeleteError {
+    /// A listener or the persister refused it. Unlike a save, a delete has no
+    /// fields to hang messages on, so this is one sentence for the operator,
+    /// such as "three records still reference this one".
+    Refused(Text),
+    /// The delete itself failed: logged, and the operator sees a generic
+    /// message.
     Failed(String),
 }
 
@@ -47,6 +59,18 @@ pub trait Persister: Send + Sync + 'static {
     async fn load(&self, cx: &mut SaveCx<'_>, id: &str) -> Result<Option<Record>, SaveError> {
         let _ = (cx, id);
         Ok(None)
+    }
+
+    /// Removes the record with primary key `id`, on the pipeline's transaction.
+    ///
+    /// The default refuses. A persister that writes through more than one table
+    /// has to say how those rows come apart, and guessing at that is worse than
+    /// declining: an implementor opts in by overriding this.
+    async fn delete(&self, cx: &mut SaveCx<'_>, id: &str, rec: &Record) -> Result<(), DeleteError> {
+        let _ = (cx, id, rec);
+        Err(DeleteError::Refused(t!(
+            "Deleting this kind of record is not supported."
+        )))
     }
 }
 
@@ -128,6 +152,108 @@ pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), S
         listener.after_save(&saved, rec, op).await;
     }
     Ok(())
+}
+
+/// What one delete needs: where to write, who is doing it, and which record.
+pub(crate) struct DeleteRequest<'a> {
+    pub db: &'a Db,
+    pub listeners: &'a [Arc<dyn ModelListener>],
+    pub persister: &'a dyn Persister,
+    pub actor: &'a Actor,
+    pub entity: &'a str,
+    pub id: &'a str,
+}
+
+/// Removes one record through the same pipeline a save runs through: the
+/// transaction is owned here, the listeners run inside it and may refuse, and
+/// the after-stage runs once it has committed.
+///
+/// Returns the record as it was, so the caller can report what went.
+pub(crate) async fn delete(req: DeleteRequest<'_>) -> Result<Record, DeleteError> {
+    let DeleteRequest {
+        db,
+        listeners,
+        persister,
+        actor,
+        entity,
+        id,
+    } = req;
+
+    let mut tx = db
+        .pool
+        .begin()
+        .await
+        .map_err(|e| DeleteError::Failed(e.to_string()))?;
+
+    let outcome = delete_in(
+        &mut tx,
+        db.backend,
+        listeners,
+        persister,
+        actor.clone(),
+        entity,
+        id,
+    )
+    .await;
+    let rec = match outcome {
+        Ok(rec) => {
+            tx.commit()
+                .await
+                .map_err(|e| DeleteError::Failed(e.to_string()))?;
+            rec
+        }
+        Err(e) => {
+            // A veto or a failed delete rolls the whole thing back, the read
+            // included.
+            let _ = tx.rollback().await;
+            return Err(e);
+        }
+    };
+
+    // After the commit: the row is gone, so nothing here can undo it.
+    let saved = SavedCx::new(db, actor);
+    for listener in listeners {
+        listener.after_delete(&saved, &rec).await;
+    }
+    Ok(rec)
+}
+
+/// Everything a delete does inside the transaction: read the row, offer it to
+/// the listeners, then remove it.
+async fn delete_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
+    backend: laterite_core::migration::DbBackend,
+    listeners: &[Arc<dyn ModelListener>],
+    persister: &dyn Persister,
+    actor: Actor,
+    entity: &str,
+    id: &str,
+) -> Result<Record, DeleteError> {
+    let mut cx = SaveCx::new(backend, tx, actor);
+
+    // The row as it stands, so a listener can decide on its contents and the
+    // after-stage can report what was removed. A persister that supplies no
+    // snapshot leaves an identity-only record, the same as on an update.
+    let loaded = persister.load(&mut cx, id).await.map_err(|e| match e {
+        SaveError::Invalid(_) => DeleteError::Failed("snapshot read refused".to_string()),
+        SaveError::Failed(m) => DeleteError::Failed(m),
+    })?;
+    let mut rec = loaded.unwrap_or_else(|| Record::new(entity));
+    if rec.id().is_none() {
+        if let Ok(numeric) = id.parse::<i64>() {
+            rec.set_id(numeric);
+        }
+    }
+
+    for listener in listeners {
+        listener
+            .before_delete(&mut cx, &rec)
+            .await
+            .map_err(DeleteError::Refused)?;
+    }
+
+    persister.delete(&mut cx, id, &rec).await?;
+    Ok(rec)
 }
 
 /// Everything a save does inside the transaction: read the pre-write row, run
@@ -219,6 +345,17 @@ impl DefaultPersister {
         cols
     }
 
+    /// A persister over a list's own table, for a resource whose writes are not
+    /// a generic form (a bespoke editor, or a read screen that still deletes).
+    /// The list's columns become the snapshot a listener sees.
+    pub(crate) fn from_list(config: &crate::list::ListConfig) -> Self {
+        Self {
+            entity: config.entity.clone(),
+            id_field: config.id_field.clone(),
+            columns: config.columns.iter().map(|c| c.field.clone()).collect(),
+        }
+    }
+
     pub(crate) fn from_config(config: &FormConfig) -> Self {
         Self {
             entity: config.entity.clone(),
@@ -268,6 +405,32 @@ impl Persister for DefaultPersister {
             .await
             .map(|_| ())
             .map_err(|e| SaveError::Failed(e.to_string()))
+    }
+
+    /// Removes the row. One table, one statement, on the pipeline's transaction,
+    /// so a listener's veto rolls it back with everything else.
+    async fn delete(
+        &self,
+        cx: &mut SaveCx<'_>,
+        id: &str,
+        _rec: &Record,
+    ) -> Result<(), DeleteError> {
+        let backend = cx.backend();
+        let (sql, values) = {
+            let mut del = Query::delete();
+            del.from_table(Alias::new(&self.entity));
+            del.and_where(
+                Expr::col(Alias::new(&self.id_field))
+                    .cast_as(Alias::new(text_cast(backend)))
+                    .eq(id),
+            );
+            to_sql(backend, del)
+        };
+        bind_values(sqlx::query(&sql), values)
+            .execute(cx.conn())
+            .await
+            .map(|_| ())
+            .map_err(|e| DeleteError::Failed(e.to_string()))
     }
 
     /// Reads the row's declared columns in the transaction, so a listener sees
@@ -348,6 +511,154 @@ mod pipeline_tests {
                 .push((format!("update:{id}"), rec.to_text_map()));
             Ok(())
         }
+    }
+
+    /// Records deletes, and can refuse them.
+    #[derive(Default)]
+    struct DeleteSpy {
+        deleted: Mutex<Vec<String>>,
+        refuse: Option<&'static str>,
+    }
+
+    #[async_trait]
+    impl Persister for DeleteSpy {
+        async fn create(&self, _cx: &mut SaveCx<'_>, _rec: &Record) -> Result<i64, SaveError> {
+            Ok(1)
+        }
+        async fn update(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            _id: &str,
+            _rec: &Record,
+        ) -> Result<(), SaveError> {
+            Ok(())
+        }
+        async fn load(&self, _cx: &mut SaveCx<'_>, id: &str) -> Result<Option<Record>, SaveError> {
+            let mut rec = Record::new("samples");
+            rec.set("code", format!("code-{id}"));
+            if let Ok(n) = id.parse::<i64>() {
+                rec.set_id(n);
+            }
+            Ok(Some(rec))
+        }
+        async fn delete(
+            &self,
+            _cx: &mut SaveCx<'_>,
+            id: &str,
+            _rec: &Record,
+        ) -> Result<(), DeleteError> {
+            if let Some(why) = self.refuse {
+                return Err(DeleteError::Refused(Text::new(why)));
+            }
+            self.deleted.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+    }
+
+    /// Refuses every delete, the way a listener guarding its references would.
+    struct Guard;
+
+    #[async_trait]
+    impl ModelListener for Guard {
+        async fn before_delete(&self, _cx: &mut SaveCx<'_>, _rec: &Record) -> Result<(), Text> {
+            Err(Text::new("still referenced"))
+        }
+    }
+
+    /// Notes what the after-stage saw, which is the record as it was.
+    #[derive(Default)]
+    struct Mourner {
+        seen: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl ModelListener for Mourner {
+        async fn after_delete(&self, _cx: &SavedCx<'_>, rec: &Record) {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(rec.text("code").unwrap_or_default().to_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_delete_runs_the_listeners_around_the_persister() {
+        let (db, _guard) = connect_test(&[]).await;
+        let persister = DeleteSpy::default();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let listeners: Vec<Arc<dyn ModelListener>> = vec![Arc::new(Mourner { seen: seen.clone() })];
+
+        let rec = delete(DeleteRequest {
+            db: &db,
+            listeners: &listeners,
+            persister: &persister,
+            actor: &actor(),
+            entity: "samples",
+            id: "7",
+        })
+        .await
+        .expect("deleted");
+
+        assert_eq!(persister.deleted.lock().unwrap().as_slice(), ["7"]);
+        // The after-stage sees the row as it was, which is the point of reading
+        // it before the delete.
+        assert_eq!(seen.lock().unwrap().as_slice(), ["code-7"]);
+        assert_eq!(rec.text("code"), Some("code-7"));
+        assert_eq!(rec.id(), Some(7));
+    }
+
+    /// A listener's refusal stops the delete: the persister is never reached and
+    /// the after-stage never runs.
+    #[tokio::test]
+    async fn a_listener_can_refuse_a_delete() {
+        let (db, _guard) = connect_test(&[]).await;
+        let persister = DeleteSpy::default();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let listeners: Vec<Arc<dyn ModelListener>> =
+            vec![Arc::new(Guard), Arc::new(Mourner { seen: seen.clone() })];
+
+        let err = delete(DeleteRequest {
+            db: &db,
+            listeners: &listeners,
+            persister: &persister,
+            actor: &actor(),
+            entity: "samples",
+            id: "7",
+        })
+        .await
+        .expect_err("refused");
+
+        match err {
+            DeleteError::Refused(message) => assert_eq!(message.source(), "still referenced"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(
+            persister.deleted.lock().unwrap().is_empty(),
+            "nothing removed"
+        );
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "no after-stage on a refusal"
+        );
+    }
+
+    /// A persister with no delete of its own says so rather than reporting
+    /// success, since a silent no-op would look like the record went.
+    #[tokio::test]
+    async fn a_persister_without_delete_refuses() {
+        let (db, _guard) = connect_test(&[]).await;
+        let persister = SpyPersister::default();
+        let err = delete(DeleteRequest {
+            db: &db,
+            listeners: &[],
+            persister: &persister,
+            actor: &actor(),
+            entity: "samples",
+            id: "1",
+        })
+        .await
+        .expect_err("unsupported");
+        assert!(matches!(err, DeleteError::Refused(_)));
     }
 
     /// Sets an attribute before the write, and appends its name to a shared log

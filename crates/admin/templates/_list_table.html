@@ -2,6 +2,7 @@
   <div class="lat-tablewrap">
     <table class="lat-table">
       <thead><tr>
+        {% if deletable %}<th class="lat-table__pick"><input type="checkbox" data-lat-widget="pick-all" aria-label='{{ shell.t("Select all") }}'></th>{% endif %}
         {% for c in columns %}
         <th{% if c.active == "asc" %} aria-sort="ascending"{% else if c.active == "desc" %} aria-sort="descending"{% endif %}>
           <a class="lat-sort{% if !c.active.is_empty() %} is-active{% endif %}"
@@ -30,6 +31,7 @@
         {% else %}
         {% for row in rows %}
         <tr>
+          {% if deletable %}<td class="lat-table__pick"><input type="checkbox" name="id" value="{{ row.id }}" form="lat-list-actions" aria-label='{{ shell.t("Select record") }}'></td>{% endif %}
           {% for cell in row.cells %}<td>{{ cell|safe }}</td>{% endfor %}
           {% if let Some(base) = edit_base %}<td class="lat-table__actions"><a href="{{ base }}/{{ row.id }}/edit">{{ shell.t("Edit") }}</a></td>{% endif %}
         </tr>
