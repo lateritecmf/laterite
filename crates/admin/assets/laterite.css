@@ -328,6 +328,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* List search box, in the toolbar beside the title. */
 /* List bar: search box plus filter controls, above the table. */
 .lat-listbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px;background:var(--surface-filterbar);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
+.lat-listbar__form{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;flex:1}
 .lat-listbar__search{width:min(260px,42vw)}
 .lat-listbar__filter{display:flex;flex-direction:column;gap:4px}
 .lat-listbar__label{font-size:var(--fs-11);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted)}
@@ -336,6 +337,14 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
    it. Same browser generation the stylesheet already assumes for @layer. */
 .lat-page:has(#lat-list[data-filtered="true"]) .lat-listbar__clear{display:inline}
 .lat-listbar__clear:hover{color:var(--accent)}
+
+/* Column picker: a native disclosure holding the choices. */
+.lat-listbar__columns{position:relative}
+.lat-listbar__columns>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center}
+.lat-listbar__columns>summary::-webkit-details-marker{display:none}
+.lat-colpicker{position:absolute;z-index:50;top:calc(100% + 6px);right:0;min-width:200px;padding:12px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-md)}
+.lat-colpicker .lat-check{display:flex;gap:8px;align-items:center;padding:3px 0}
+.lat-colpicker button{margin-top:10px;width:100%}
 
 /* Bulk selection and the confirm dialog. */
 .lat-bulkbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}

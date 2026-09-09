@@ -30,6 +30,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- Per-operator column configuration. A list offers a Columns disclosure, and the
+  choice is stored against the account and applied on every visit. It narrows the
+  descriptor once per request, so the visible columns are what gets queried,
+  sorted and searched. A stale choice falls back to every column rather than
+  leaving an empty table.
+- `backend_user_preferences`, a per-operator key/value store, with
+  `store::user_preference`, `set_user_preference` and `clear_user_preference`.
+  The settled preferences every account has (locale, timezone) stay as columns on
+  `backend_users`; this is for per-screen choices that arrive one screen at a time.
 - Deleting joins the record layer. `ModelListener::before_delete` sees the row
   inside the transaction and can refuse the delete with a message the operator
   reads; `after_delete` runs once it has committed. `Persister::delete` performs

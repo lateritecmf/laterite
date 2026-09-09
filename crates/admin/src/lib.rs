@@ -1237,11 +1237,30 @@ fn mount_resource(
                   Extension(shell): Extension<Shell>,
                   Query(params): Query<list::ListParams>,
                   Query(raw): Query<std::collections::HashMap<String, String>>,
+                  Extension(user): Extension<AuthenticatedUser>,
                   headers: axum::http::HeaderMap| {
                 let cfg = list_cfg.clone();
                 let path = list_path.clone();
                 async move {
-                    list::handle(&state, &cfg, &path, params, &raw, shell, &headers).await
+                    list::handle(&state, &cfg, &path, params, &raw, &user, shell, &headers).await
+                }
+            },
+        ),
+    );
+
+    let (columns_cfg, columns_path) = (resource.list.clone(), resource.base_path.clone());
+    router = router.route(
+        &format!("{base}/columns"),
+        post(
+            move |State(state): State<AdminState>,
+                  Extension(user): Extension<AuthenticatedUser>,
+                  Extension(session): Extension<session::SessionHandle>,
+                  headers: axum::http::HeaderMap,
+                  Form(pairs): Form<Vec<(String, String)>>| {
+                let cfg = columns_cfg.clone();
+                let path = columns_path.clone();
+                async move {
+                    list::set_columns(&state, &cfg, &path, &user, &session, &headers, &pairs).await
                 }
             },
         ),

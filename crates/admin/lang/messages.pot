@@ -106,8 +106,20 @@ msgstr ""
 msgid "Colour mode"
 msgstr ""
 
+#: templates/list.html
+msgid "Columns"
+msgstr ""
+
+#: src/list.rs
+msgid "Columns updated."
+msgstr ""
+
 #: src/lib.rs
 msgid "Could not create the account. The username or email may already be taken."
+msgstr ""
+
+#: src/list.rs
+msgid "Could not save your column choice."
 msgstr ""
 
 #: src/form.rs

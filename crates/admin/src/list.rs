@@ -393,6 +393,41 @@ impl ListFilter {
     }
 }
 
+/// The preference key holding one operator's chosen columns for a list. Keyed by
+/// the list's own path, so two resources over the same table stay separate.
+pub(crate) fn columns_preference_key(base_path: &str) -> String {
+    format!("list.columns.{base_path}")
+}
+
+/// The columns to show: the operator's stored choice, narrowed to what the
+/// descriptor still declares.
+///
+/// A stored choice that no longer names any declared column falls back to all of
+/// them, so a descriptor that drops or renames a column leaves an operator with a
+/// working list rather than an empty one.
+pub(crate) fn visible_columns<'a>(
+    config: &'a ListConfig,
+    stored: Option<&str>,
+) -> Vec<&'a ListColumn> {
+    let Some(stored) = stored else {
+        return config.columns.iter().collect();
+    };
+    let chosen: Vec<&str> = stored
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let kept: Vec<&ListColumn> = config
+        .columns
+        .iter()
+        .filter(|c| chosen.iter().any(|n| *n == c.field))
+        .collect();
+    if kept.is_empty() {
+        return config.columns.iter().collect();
+    }
+    kept
+}
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 #[derive(Debug, Clone, Serialize)]
@@ -653,9 +688,38 @@ pub(crate) async fn handle(
     path: &str,
     params: ListParams,
     raw: &HashMap<String, String>,
+    user: &laterite_auth::AuthenticatedUser,
     shell: crate::Shell,
     headers: &axum::http::HeaderMap,
 ) -> Response {
+    // The operator's chosen columns narrow the descriptor once, here, so
+    // everything downstream (the query, the headers, sorting, searching) works
+    // from one list: what is shown is what is queried.
+    let stored = match laterite_auth::store::user_preference(
+        &state.db,
+        user.user.id,
+        &columns_preference_key(path),
+    )
+    .await
+    {
+        Ok(stored) => stored,
+        // A preference is a convenience: failing to read one shows the full list
+        // rather than failing the screen. Logged, because it should not happen.
+        Err(e) => {
+            tracing::warn!(error = %e, "reading the column preference failed");
+            None
+        }
+    };
+    let declared = config;
+    let narrowed = ListConfig {
+        columns: visible_columns(config, stored.as_deref())
+            .into_iter()
+            .cloned()
+            .collect(),
+        ..config.clone()
+    };
+    let config = &narrowed;
+
     let page = params.page.unwrap_or(1).max(1);
     let offset = (page - 1) * config.per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
@@ -752,6 +816,15 @@ pub(crate) async fn handle(
                 })
                 .collect();
             let filter_views = filter_views(config, &active, &shell);
+            let pickers: Vec<ColumnChoice> = declared
+                .columns
+                .iter()
+                .map(|c| ColumnChoice {
+                    field: c.field.clone(),
+                    label: shell.tt(&c.label),
+                    shown: config.columns.iter().any(|v| v.field == c.field),
+                })
+                .collect();
             let page_view = ListTemplate {
                 shell,
                 title,
@@ -767,6 +840,7 @@ pub(crate) async fn handle(
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
                 searchable: config.columns.iter().any(|c| c.is_searchable()),
+                pickers,
                 path: path.to_string(),
                 filters: filter_views,
                 deletable: config.deletable,
@@ -801,6 +875,59 @@ pub(crate) async fn handle(
     }
 }
 
+/// Stores which columns this operator wants on this list.
+///
+/// Choosing every column clears the preference rather than storing them all, so
+/// the operator keeps following the descriptor as it gains or loses columns.
+/// Choosing none is refused: a list with no columns shows nothing and offers no
+/// way back, so the request is treated as "no preference".
+pub(crate) async fn set_columns(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    headers: &axum::http::HeaderMap,
+    pairs: &[(String, String)],
+) -> Response {
+    let chosen: Vec<&str> = pairs
+        .iter()
+        .filter(|(k, _)| k == "column")
+        .map(|(_, v)| v.trim())
+        .filter(|v| config.columns.iter().any(|c| c.field == *v))
+        .collect();
+
+    let key = columns_preference_key(path);
+    let result = if chosen.is_empty() || chosen.len() == config.columns.len() {
+        laterite_auth::store::clear_user_preference(&state.db, user.user.id, &key).await
+    } else {
+        laterite_auth::store::set_user_preference(&state.db, user.user.id, &key, &chosen.join(","))
+            .await
+    };
+    match result {
+        Ok(()) => session.push_flash(
+            crate::session::FlashLevel::Success,
+            laterite_core::t!("Columns updated."),
+        ),
+        Err(e) => {
+            tracing::error!(error = %e, "storing the column choice failed");
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                laterite_core::t!("Could not save your column choice."),
+            );
+        }
+    }
+    let back = format!("{}{}", state.admin_path, path);
+    crate::form::saved_response(crate::form::is_htmx(headers), &back)
+}
+
+/// One row of the column picker.
+pub struct ColumnChoice {
+    pub field: String,
+    pub label: String,
+    pub shown: bool,
+}
+
 /// One column header: its label, the field a click sorts by, the direction that
 /// click asks for, and the direction it is sorted in now (empty when it is not).
 pub struct ColumnHead {
@@ -833,6 +960,8 @@ struct ListTemplate {
     searchable: bool,
     /// Whether rows carry a checkbox and the Delete button is offered.
     deletable: bool,
+    /// Every declared column, with the shown ones ticked, for the picker.
+    pickers: Vec<ColumnChoice>,
     /// This list's own path, for the search form to post back to.
     path: String,
     /// The filter controls, with the active value marked.
@@ -1119,6 +1248,7 @@ mod tests {
             "/admin/users",
             params,
             &raw,
+            &crate::audit::test_actor(),
             crate::Shell::test(),
             &headers,
         )
@@ -1372,6 +1502,7 @@ mod tests {
                     "/admin/users",
                     p,
                     &raw,
+                    &crate::audit::test_actor(),
                     crate::Shell::test(),
                     &axum::http::HeaderMap::new(),
                 )
@@ -1395,6 +1526,39 @@ mod tests {
         // A search that matches nothing reads the same way.
         let searched = render(HashMap::new(), Some("zzz")).await;
         assert!(searched.contains("No records match."));
+    }
+
+    #[test]
+    fn a_stored_choice_narrows_the_columns_in_descriptor_order() {
+        let c = config();
+        // Stored out of order; the descriptor's order still wins, because the
+        // choice is about which columns, not where they sit.
+        let kept = visible_columns(&c, Some("is_superuser,username"));
+        assert_eq!(
+            kept.iter().map(|c| c.field.as_str()).collect::<Vec<_>>(),
+            ["username", "is_superuser"]
+        );
+    }
+
+    #[test]
+    fn no_stored_choice_shows_every_column() {
+        let c = config();
+        assert_eq!(visible_columns(&c, None).len(), c.columns.len());
+    }
+
+    /// A descriptor that drops or renames a column must not leave an operator
+    /// staring at an empty table because of a choice they made months ago.
+    #[test]
+    fn a_stale_choice_falls_back_to_every_column() {
+        let c = config();
+        assert_eq!(
+            visible_columns(&c, Some("gone,removed")).len(),
+            c.columns.len()
+        );
+        assert_eq!(visible_columns(&c, Some("")).len(), c.columns.len());
+        assert_eq!(visible_columns(&c, Some("  , ")).len(), c.columns.len());
+        // A partly stale choice keeps what still exists.
+        assert_eq!(visible_columns(&c, Some("gone,username")).len(), 1);
     }
 
     #[tokio::test]

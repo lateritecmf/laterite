@@ -66,6 +66,13 @@ shape over an out-of-band swap for anything the region already knows.
 With scripting off the headers, pager and bar stay ordinary links and a GET form,
 and the same handler answers the whole page.
 
+Each operator chooses which columns a list shows, from a native disclosure in the
+bar, and the choice is remembered against their account. It narrows the descriptor
+once per request, so what is shown is also what is queried, sorted and searched.
+Picking every column clears the preference rather than storing them all, so the
+operator keeps following the descriptor as it gains columns; a stored choice that
+no longer matches any declared column falls back to showing everything.
+
 ## Confirming a destructive action
 
 A control carrying `data-lat-confirm` asks before it acts:
@@ -111,4 +118,5 @@ whose assets are not already on the page.
 
 ## What is not built yet
 
-Per-operator column configuration, and inline editing in a list row.
+Inline editing in a list row, and reordering columns (the picker chooses which,
+not where).

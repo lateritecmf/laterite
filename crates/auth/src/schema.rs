@@ -63,6 +63,19 @@ pub(crate) enum BackendAccessLog {
     CreatedAt,
 }
 
+/// One operator's choice about how a screen is shown, keyed by screen.
+#[derive(Iden)]
+pub(crate) enum BackendUserPreferences {
+    Table,
+    Id,
+    /// The operator the choice belongs to; the row goes with the account.
+    UserId,
+    /// What the choice is about, e.g. `list.columns./roles`.
+    PreferenceKey,
+    /// The stored value, shaped by whoever owns the key.
+    Value,
+}
+
 #[derive(Iden)]
 pub(crate) enum BackendAuditLog {
     Table,

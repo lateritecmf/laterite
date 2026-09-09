@@ -22,8 +22,8 @@ use sqlx::Row;
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
 use crate::schema::{
-    BackendAccessLog, BackendAuditLog, BackendRoles, BackendSessions, BackendUserRoles,
-    BackendUsers,
+    BackendAccessLog, BackendAuditLog, BackendRoles, BackendSessions, BackendUserPreferences,
+    BackendUserRoles, BackendUsers,
 };
 
 fn now_ts() -> String {
@@ -669,4 +669,180 @@ pub async fn clear_failed_attempts(db: &Db, username: &str) -> Result<u64, AuthE
         .execute(&db.pool)
         .await?;
     Ok(result.rows_affected())
+}
+
+/// One operator's stored choice for `key`, or `None` if they have not made one.
+pub async fn user_preference(
+    db: &Db,
+    user_id: i64,
+    key: &str,
+) -> Result<Option<String>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUserPreferences::Value)
+            .from(BackendUserPreferences::Table)
+            .and_where(Expr::col(BackendUserPreferences::UserId).eq(user_id))
+            .and_where(Expr::col(BackendUserPreferences::PreferenceKey).eq(key))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(row.and_then(|r| r.get_text_opt("value").ok().flatten()))
+}
+
+/// Stores one operator's choice for `key`, replacing any previous one.
+///
+/// Written as delete-then-insert rather than an upsert: the three backends spell
+/// `ON CONFLICT` differently, and a preference write is rare and already inside
+/// its own request, so the portable pair costs nothing worth optimising.
+pub async fn set_user_preference(
+    db: &Db,
+    user_id: i64,
+    key: &str,
+    value: &str,
+) -> Result<(), AuthError> {
+    let mut tx = db.pool.begin().await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendUserPreferences::Table)
+            .and_where(Expr::col(BackendUserPreferences::UserId).eq(user_id))
+            .and_where(Expr::col(BackendUserPreferences::PreferenceKey).eq(key))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendUserPreferences::Table)
+            .columns([
+                BackendUserPreferences::UserId,
+                BackendUserPreferences::PreferenceKey,
+                BackendUserPreferences::Value,
+            ])
+            .values_panic([
+                user_id.into(),
+                key.to_string().into(),
+                value.to_string().into(),
+            ])
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Removes one operator's choice for `key`, so they fall back to the default.
+pub async fn clear_user_preference(db: &Db, user_id: i64, key: &str) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendUserPreferences::Table)
+            .and_where(Expr::col(BackendUserPreferences::UserId).eq(user_id))
+            .and_where(Expr::col(BackendUserPreferences::PreferenceKey).eq(key))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use laterite_core::testing::connect_test;
+
+    async fn operator(db: &Db) -> i64 {
+        let svc = crate::AuthService::new(db.clone(), crate::AuthConfig::default());
+        svc.create_superuser(crate::NewOperator {
+            username: "root",
+            email: "root@acme.test",
+            first_name: "Root",
+            last_name: None,
+            password: "rootpw12345",
+            timezone: None,
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_preference_round_trips_and_replaces() {
+        let (db, _guard) = connect_test(&[crate::migrations()]).await;
+        let id = operator(&db).await;
+
+        // Unset reads as absent, not as an empty value.
+        assert_eq!(
+            user_preference(&db, id, "list.columns./roles")
+                .await
+                .unwrap(),
+            None
+        );
+
+        set_user_preference(&db, id, "list.columns./roles", "code,name")
+            .await
+            .unwrap();
+        assert_eq!(
+            user_preference(&db, id, "list.columns./roles")
+                .await
+                .unwrap(),
+            Some("code,name".to_string())
+        );
+
+        // A second write replaces rather than accumulating, which the unique
+        // index would otherwise refuse.
+        set_user_preference(&db, id, "list.columns./roles", "code")
+            .await
+            .unwrap();
+        assert_eq!(
+            user_preference(&db, id, "list.columns./roles")
+                .await
+                .unwrap(),
+            Some("code".to_string())
+        );
+
+        clear_user_preference(&db, id, "list.columns./roles")
+            .await
+            .unwrap();
+        assert_eq!(
+            user_preference(&db, id, "list.columns./roles")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    /// Preferences are per operator and per key: one does not leak into another.
+    #[tokio::test]
+    async fn preferences_are_scoped() {
+        let (db, _guard) = connect_test(&[crate::migrations()]).await;
+        let root = operator(&db).await;
+        let hash = crate::password::hash_password("otherpw12345").unwrap();
+        let other = create_user(&db, "other", "other@acme.test", "Other", None, &hash, false)
+            .await
+            .unwrap();
+
+        set_user_preference(&db, root, "list.columns./roles", "code")
+            .await
+            .unwrap();
+        assert_eq!(
+            user_preference(&db, other, "list.columns./roles")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            user_preference(&db, root, "list.columns./users")
+                .await
+                .unwrap(),
+            None
+        );
+    }
 }
