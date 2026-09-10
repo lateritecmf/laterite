@@ -211,7 +211,7 @@ impl PreparedForm {
                 )
             })?;
             let opts = ft
-                .resolve_options(&f.options)
+                .resolve_options(&f.options, field_types)
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
             let mut rules = ft.intrinsic_rules(&opts);
             rules.extend(f.rules.clone());
@@ -263,8 +263,11 @@ fn declared_record(
 ) -> Result<Record, String> {
     let mut rec = Record::new(&form.config.entity);
     for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
-        let raw = data.get(&field.name).map(String::as_str);
-        if let Some(value) = prepared.field_type.to_attr(raw, &prepared.opts, mode)? {
+        let submitted = crate::field::SubmittedField::new(&field.name, data);
+        if let Some(value) = prepared
+            .field_type
+            .to_attr(&submitted, &prepared.opts, mode)?
+        {
             rec.set(field.name.clone(), value);
         }
     }

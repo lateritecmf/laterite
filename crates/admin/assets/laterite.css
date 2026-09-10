@@ -338,6 +338,13 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-page:has(#lat-list[data-filtered="true"]) .lat-listbar__clear{display:inline}
 .lat-listbar__clear:hover{color:var(--accent)}
 
+/* Repeater: a list of rows in a form. */
+.lat-repeater{display:flex;flex-direction:column;gap:10px}
+.lat-repeater__rows{display:flex;flex-direction:column;gap:10px}
+.lat-repeater__row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
+.lat-repeater__row .lat-field{flex:1;min-width:150px;margin:0}
+.lat-repeater__add{align-self:flex-start}
+
 /* A small disclosure menu (export formats), and toolbar button icons. */
 .lat-menu{position:relative}
 .lat-menu>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center}

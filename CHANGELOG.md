@@ -30,6 +30,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- A `repeater` field type: a list of rows stored as a JSON array of objects.
+  Row controls are named `field[index][subfield]`, and the indices are read back
+  out of the submitted keys and sorted, so a row removed in the browser leaves no
+  hole. A row's sub-fields are ordinary field types, so a switch inside a row
+  stores a bool and a date is a date. `min_items` and `max_items` bound the list.
 - A module can read another module's contributions. It defines a type, others
   contribute it from `register`, and its routes read them with
   `RouteCtx::contributions`. The framework never learns the type, and everything
@@ -103,6 +108,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- **Breaking**: `FieldType::to_attr` takes a `SubmittedField` rather than one
+  value, so a field made of several controls can read its own keys. A scalar type
+  calls `field.value()` for what it had before. This is what kept multi-value
+  fields (a repeater, a checkbox list) out of the field system.
+- **Breaking**: `FieldType::resolve_options` takes the field registry, so a
+  composite field can resolve the types of the fields it holds while the registry
+  is in hand.
 - **Breaking**: a registry contribution must be `Send + Sync`, since the ones the
   framework does not consume stay readable from request handlers. Every existing
   contribution type already was.

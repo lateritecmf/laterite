@@ -218,6 +218,38 @@ window.lat.widget('flash', function (el) {
   setTimeout(function () { latDismissFlash(el); }, 5000);
 });
 
+// Repeater: add and remove rows. Rows are renumbered after every change so the
+// submitted indices read 0,1,2; the server sorts the indices it finds rather
+// than counting, so this is tidiness, not correctness.
+window.lat.widget('repeater', function (root) {
+  var rows = root.querySelector('.lat-repeater__rows');
+  var blank = root.querySelector('.lat-repeater__blank');
+  var add = root.querySelector('.lat-repeater__add');
+  if (!rows || !blank || !add) return;
+
+  function renumber() {
+    rows.querySelectorAll('.lat-repeater__row').forEach(function (row, index) {
+      row.querySelectorAll('[name]').forEach(function (control) {
+        control.name = control.name.replace(/\[[^\]]*\]/, '[' + index + ']');
+      });
+    });
+  }
+
+  add.addEventListener('click', function () {
+    rows.appendChild(blank.content.cloneNode(true));
+    renumber();
+  });
+
+  root.addEventListener('click', function (e) {
+    if (!e.target.classList.contains('lat-repeater__remove')) return;
+    var row = e.target.closest('.lat-repeater__row');
+    if (row) {
+      row.remove();
+      renumber();
+    }
+  });
+});
+
 // Select-all checkbox in a list header: ticks every row box in its table. Bound
 // by structure, and re-bound after a swap because the header comes back with it.
 window.lat.widget('pick-all', function (box) {

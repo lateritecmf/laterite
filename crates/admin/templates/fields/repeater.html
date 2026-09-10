@@ -1,0 +1,31 @@
+{# A list of rows. Each cell's control is rendered by its own field type, so a
+   switch in a row behaves as a switch and a date as a date. #}
+<div class="lat-repeater" data-lat-widget="repeater">
+  <div class="lat-repeater__rows">
+    {% for row in data.rows %}
+    <div class="lat-repeater__row">
+      {% for cell in row %}
+      <div class="lat-field">
+        <span class="lat-field__label">{{ cell.label }}</span>
+        {{ cell.control|safe }}
+      </div>
+      {% endfor %}
+      <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+    </div>
+    {% endfor %}
+  </div>
+  {# Inert until cloned: a template's controls are not submitted and are not
+     form-associated, so the placeholder index never reaches the server. #}
+  <template class="lat-repeater__blank">
+    <div class="lat-repeater__row">
+      {% for cell in data.blank %}
+      <div class="lat-field">
+        <span class="lat-field__label">{{ cell.label }}</span>
+        {{ cell.control|safe }}
+      </div>
+      {% endfor %}
+      <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+    </div>
+  </template>
+  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button">+ Add</button>
+</div>

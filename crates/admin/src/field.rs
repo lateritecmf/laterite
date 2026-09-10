@@ -100,6 +100,54 @@ pub struct FieldVm {
 }
 
 /// A field type: behaviour registered once per string key.
+/// What a field sees of the submission when it produces its stored value.
+///
+/// A scalar field wants [`value`](Self::value), the single entry under its own
+/// name. A field made of more than one control (a repeater, a checkbox list)
+/// reads its own keys with [`nested`](Self::nested): the whole submission is
+/// here because a field's shape is the field's business, not the form's.
+pub struct SubmittedField<'a> {
+    name: &'a str,
+    data: &'a HashMap<String, String>,
+}
+
+impl<'a> SubmittedField<'a> {
+    pub fn new(name: &'a str, data: &'a HashMap<String, String>) -> Self {
+        Self { name, data }
+    }
+
+    /// This field's submitted name, which a multi-value field uses as the prefix
+    /// of its own keys.
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    /// The value submitted under this field's own name.
+    ///
+    /// `None` when the submission omits the field, which is how an unchecked
+    /// checkbox arrives.
+    pub fn value(&self) -> Option<&str> {
+        self.data.get(self.name).map(String::as_str)
+    }
+
+    /// Every submitted key beginning `name[`, as its remainder and value.
+    ///
+    /// `rules[0][path]` on a field named `rules` yields `("0][path]", ..)`; the
+    /// field parses the remainder however its own encoding says.
+    pub fn nested(&self) -> impl Iterator<Item = (&'a str, &'a str)> + '_ {
+        let prefix = format!("{}[", self.name);
+        self.data.iter().filter_map(move |(key, value)| {
+            key.strip_prefix(&prefix).map(|rest| (rest, value.as_str()))
+        })
+    }
+
+    /// The whole submission, for a field whose encoding the helpers above do not
+    /// cover.
+    pub fn all(&self) -> &'a HashMap<String, String> {
+        self.data
+    }
+}
+
 pub trait FieldType: Send + Sync + 'static {
     /// The stable key for override resolution and default-template selection
     /// (bare like `text` for core; dotted `vendor.name` for plugins).
@@ -107,7 +155,15 @@ pub trait FieldType: Send + Sync + 'static {
 
     /// Types the descriptor's raw options blob once at boot. A failure aborts
     /// boot naming the resource + field. Default: no options.
-    fn resolve_options(&self, _raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    ///
+    /// `types` is the field registry, for a composite field (a repeater) that
+    /// holds fields of its own and has to resolve their types and options here,
+    /// while the registry is in hand.
+    fn resolve_options(
+        &self,
+        _raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         Ok(ResolvedOptions::none())
     }
 
@@ -139,12 +195,12 @@ pub trait FieldType: Send + Sync + 'static {
     /// Default: the submitted text, unchanged.
     fn to_attr(
         &self,
-        raw: Option<&str>,
+        field: &SubmittedField<'_>,
         opts: &ResolvedOptions,
         mode: Mode,
     ) -> Result<Option<AttrValue>, String> {
         let _ = (opts, mode);
-        Ok(raw.map(|v| AttrValue::Text(v.to_string())))
+        Ok(field.value().map(|v| AttrValue::Text(v.to_string())))
     }
 
     /// How a stored value is presented back in the control on an edit.
@@ -246,6 +302,260 @@ pub(crate) fn render_field(
     }
 }
 
+/// A repeater's typed options: the fields one row holds, each resolved to its
+/// type and its own options at boot.
+pub(crate) struct RepeaterOptions {
+    rows: Vec<RepeaterSub>,
+    min_items: usize,
+    max_items: Option<usize>,
+}
+
+/// One sub-field of a repeater row, resolved once.
+pub(crate) struct RepeaterSub {
+    field: crate::form::FormField,
+    field_type: Arc<dyn FieldType>,
+    opts: ResolvedOptions,
+}
+
+/// The descriptor shape a repeater's `options` blob takes.
+#[derive(Deserialize)]
+struct RepeaterOptionsRaw {
+    fields: Vec<crate::form::FormField>,
+    #[serde(default)]
+    min_items: usize,
+    #[serde(default)]
+    max_items: Option<usize>,
+}
+
+/// A list of rows, stored as a JSON array of objects.
+///
+/// Row controls are named `field[index][subfield]`. The indices are read back
+/// out of the submitted keys and sorted, so a row removed in the browser leaves
+/// no hole and the page renumbers only for tidiness, never for correctness.
+///
+/// A row's sub-fields are ordinary field types, so a switch inside a row stores
+/// a bool and a date inside a row is a date, exactly as at the top level.
+pub(crate) struct RepeaterField;
+
+impl RepeaterField {
+    /// The placeholder index in the blank row the browser clones.
+    const BLANK: &'static str = "__index__";
+}
+
+impl FieldType for RepeaterField {
+    fn view_key(&self) -> &'static str {
+        "repeater"
+    }
+
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let parsed: RepeaterOptionsRaw =
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
+        let mut rows = Vec::new();
+        for field in parsed.fields {
+            if field.field_type == "repeater" {
+                return Err(OptionsError(
+                    "a repeater cannot hold a repeater".to_string(),
+                ));
+            }
+            let field_type = types
+                .get(&field.field_type)
+                .cloned()
+                .ok_or_else(|| OptionsError(format!("unregistered type `{}`", field.field_type)))?;
+            let opts = field_type.resolve_options(&field.options, types)?;
+            rows.push(RepeaterSub {
+                field,
+                field_type,
+                opts,
+            });
+        }
+        Ok(ResolvedOptions::new(RepeaterOptions {
+            rows,
+            min_items: parsed.min_items,
+            max_items: parsed.max_items,
+        }))
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let opts = cx.opts.get::<RepeaterOptions>();
+        let stored = match cx.value {
+            FieldValue::Json(serde_json::Value::Array(rows)) => rows.clone(),
+            _ => Vec::new(),
+        };
+        let data = RepeaterData {
+            rows: opts
+                .map(|o| {
+                    stored
+                        .iter()
+                        .enumerate()
+                        .map(|(index, row)| render_row(o, cx, &index.to_string(), Some(row)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            blank: opts
+                .map(|o| render_row(o, cx, Self::BLANK, None))
+                .unwrap_or_default(),
+        };
+
+        FieldVm {
+            view_key: self.view_key().to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::to_value(data).unwrap_or_default(),
+        }
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let data: RepeaterData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&RepeaterTmpl { data }).unwrap_or_default()
+    }
+
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        opts: &ResolvedOptions,
+        mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        let Some(options) = opts.get::<RepeaterOptions>() else {
+            return Ok(Some(AttrValue::Json(serde_json::Value::Array(Vec::new()))));
+        };
+
+        // Indices come from the keys, sorted, so a gap left by a removed row
+        // costs nothing and the client never has to renumber for correctness.
+        let mut indices: Vec<usize> = field
+            .nested()
+            .filter_map(|(rest, _)| rest.split_once(']').and_then(|(i, _)| i.parse().ok()))
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+
+        let mut rows = Vec::new();
+        for index in indices {
+            let mut object = serde_json::Map::new();
+            for sub in &options.rows {
+                let key = format!("{}[{index}][{}]", field.name(), sub.field.name);
+                let scoped = SubmittedField::new(&key, field.all());
+                if let Some(value) = sub.field_type.to_attr(&scoped, &sub.opts, mode)? {
+                    object.insert(sub.field.name.clone(), attr_to_json(value));
+                }
+            }
+            let row = serde_json::Value::Object(object);
+            // A row the operator added and left empty is not a row.
+            if !is_blank_row(&row) {
+                rows.push(row);
+            }
+        }
+
+        if rows.len() < options.min_items {
+            return Err(format!("at least {} required", options.min_items));
+        }
+        if let Some(max) = options.max_items {
+            if rows.len() > max {
+                return Err(format!("at most {max} allowed"));
+            }
+        }
+        Ok(Some(AttrValue::Json(serde_json::Value::Array(rows))))
+    }
+
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        stored.unwrap_or("[]").to_string()
+    }
+}
+
+/// One row's sub-fields, rendered. `row` is `None` for the blank row.
+fn render_row(
+    options: &RepeaterOptions,
+    cx: &FieldCx<'_>,
+    index: &str,
+    row: Option<&serde_json::Value>,
+) -> Vec<RepeaterCell> {
+    options
+        .rows
+        .iter()
+        .map(|sub| {
+            let name = format!("{}[{index}][{}]", cx.name, sub.field.name);
+            let stored = row.and_then(|r| r.get(&sub.field.name));
+            let value = match stored {
+                Some(serde_json::Value::String(s)) => FieldValue::Text(s.clone()),
+                Some(serde_json::Value::Null) | None => FieldValue::Text(String::new()),
+                Some(other) => FieldValue::Text(
+                    sub.field_type
+                        .to_control(Some(&other.to_string()), &sub.opts),
+                ),
+            };
+            let sub_cx = FieldCx {
+                name: &name,
+                id: &name,
+                label: cx.label,
+                value: &value,
+                required: false,
+                opts: &sub.opts,
+                base: cx.base,
+            };
+            let vm = sub.field_type.view_model(&sub_cx);
+            RepeaterCell {
+                // Sub-labels render from their source string: a field type has
+                // no request translator, and nested labels are the first strings
+                // to need one. Recorded against 7.1.
+                label: sub.field.label.source().to_string(),
+                control: sub.field_type.render_default(&vm).into_string(),
+            }
+        })
+        .collect()
+}
+
+/// A stored attribute as the JSON a repeater row holds.
+fn attr_to_json(value: AttrValue) -> serde_json::Value {
+    match value {
+        AttrValue::Null => serde_json::Value::Null,
+        AttrValue::Bool(b) => serde_json::Value::Bool(b),
+        AttrValue::Int(i) => serde_json::Value::from(i),
+        AttrValue::Float(f) => serde_json::Value::from(f),
+        AttrValue::Json(j) => j,
+        other => serde_json::Value::String(other.to_text().unwrap_or_default()),
+    }
+}
+
+/// Whether every value in a row is empty or false.
+fn is_blank_row(row: &serde_json::Value) -> bool {
+    row.as_object().is_none_or(|object| {
+        object.values().all(|v| match v {
+            serde_json::Value::String(s) => s.trim().is_empty(),
+            serde_json::Value::Bool(b) => !b,
+            serde_json::Value::Array(items) => items.is_empty(),
+            serde_json::Value::Null => true,
+            _ => false,
+        })
+    })
+}
+
+/// One rendered cell of a repeater row.
+#[derive(Serialize, Deserialize)]
+struct RepeaterCell {
+    label: String,
+    control: String,
+}
+
+/// A repeater's presentation payload, typed on the way out and back so the
+/// template reads fields rather than poking at JSON.
+#[derive(Serialize, Deserialize, Default)]
+struct RepeaterData {
+    rows: Vec<Vec<RepeaterCell>>,
+    blank: Vec<RepeaterCell>,
+}
+
+#[derive(Template)]
+#[template(path = "fields/repeater.html")]
+struct RepeaterTmpl {
+    data: RepeaterData,
+}
+
 /// The framework's built-in field types. The text field is constructed with the
 /// built-in input-type registry it delegates to.
 pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
@@ -253,6 +563,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
     vec![
         Arc::new(TextField::new(inputs)),
         Arc::new(TextareaField),
+        Arc::new(RepeaterField),
         Arc::new(SelectField),
         Arc::new(SwitchField),
         Arc::new(DateField),
@@ -306,7 +617,11 @@ pub trait InputType: Send + Sync + 'static {
     }
     /// Types this input's own keys from the field's options blob (the same blob
     /// the field type reads) once at boot. Default: no options.
-    fn resolve_options(&self, _raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        _raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         Ok(ResolvedOptions::none())
     }
     /// Rules this input contributes (an `email` input adds [`Rule::Email`]).
@@ -381,7 +696,11 @@ impl InputType for NumberInput {
     fn html_type(&self) -> &'static str {
         "number"
     }
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: NumberOptions = if raw.is_null() {
             NumberOptions::default()
         } else {
@@ -434,7 +753,11 @@ impl InputType for UrlInput {
     fn html_type(&self) -> &'static str {
         "url"
     }
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: UrlOptions = if raw.is_null() {
             UrlOptions::default()
         } else {
@@ -576,7 +899,11 @@ impl FieldType for TextField {
     fn view_key(&self) -> &'static str {
         "text"
     }
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: TextOptions = if raw.is_null() {
             TextOptions {
                 input: default_input(),
@@ -591,7 +918,7 @@ impl FieldType for TextField {
             .ok_or_else(|| OptionsError(format!("unknown input type `{}`", opts.input)))?;
         // The input reads its own keys from the same blob, then contributes its
         // control shape; the contributed names are validated before caching.
-        let input_opts = input.resolve_options(raw)?;
+        let input_opts = input.resolve_options(raw, _types)?;
         let attrs = input.attributes(&input_opts);
         let adornments = input.adornments(&input_opts);
         validate_contributions(&attrs, &adornments)?;
@@ -725,7 +1052,11 @@ impl FieldType for SelectField {
     fn view_key(&self) -> &'static str {
         "select"
     }
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: SelectOptions =
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
         Ok(ResolvedOptions::new(opts))
@@ -799,13 +1130,13 @@ impl FieldType for SwitchField {
 
     fn to_attr(
         &self,
-        raw: Option<&str>,
+        field: &SubmittedField<'_>,
         _opts: &ResolvedOptions,
         _mode: Mode,
     ) -> Result<Option<AttrValue>, String> {
         // Absent means unchecked, so this always writes a value: leaving the
         // attribute out would keep the old one and the box would never clear.
-        Ok(Some(AttrValue::Bool(stored_is_on(raw))))
+        Ok(Some(AttrValue::Bool(stored_is_on(field.value()))))
     }
 
     fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
@@ -857,11 +1188,11 @@ impl FieldType for DateField {
 
     fn to_attr(
         &self,
-        raw: Option<&str>,
+        field: &SubmittedField<'_>,
         _opts: &ResolvedOptions,
         _mode: Mode,
     ) -> Result<Option<AttrValue>, String> {
-        Ok(raw.map(|v| match v.trim() {
+        Ok(field.value().map(|v| match v.trim() {
             "" => AttrValue::Null,
             date => AttrValue::Text(date.to_string()),
         }))
@@ -917,11 +1248,11 @@ impl FieldType for PasswordField {
 
     fn to_attr(
         &self,
-        raw: Option<&str>,
+        field: &SubmittedField<'_>,
         _opts: &ResolvedOptions,
         _mode: Mode,
     ) -> Result<Option<AttrValue>, String> {
-        match raw.map(str::trim).unwrap_or_default() {
+        match field.value().map(str::trim).unwrap_or_default() {
             // Absent or blank: leave the stored password as it is.
             "" => Ok(None),
             plain => laterite_auth::password::hash_password(plain)
@@ -969,7 +1300,11 @@ impl FieldType for RadioField {
         "radio"
     }
 
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: SelectOptions =
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
         Ok(ResolvedOptions::new(opts))
@@ -1077,7 +1412,11 @@ impl FieldType for RefPickerField {
     fn view_key(&self) -> &'static str {
         "reference"
     }
-    fn resolve_options(&self, raw: &serde_json::Value) -> Result<ResolvedOptions, OptionsError> {
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
         let opts: RefOptions =
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
         if !self.pickers.contains_key(&opts.source) {
@@ -1217,7 +1556,10 @@ mod tests {
     fn text_input_email_sets_the_type_and_contributes_the_email_rule() {
         let field = text_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "input": "email" }))
+            .resolve_options(
+                &serde_json::json!({ "input": "email" }),
+                &builtin_registry(),
+            )
             .unwrap();
         // The email input variant contributes the Email rule.
         assert!(matches!(
@@ -1232,7 +1574,9 @@ mod tests {
     #[test]
     fn text_default_input_is_plain_text_with_no_extra_rule() {
         let field = text_field();
-        let opts = field.resolve_options(&serde_json::Value::Null).unwrap();
+        let opts = field
+            .resolve_options(&serde_json::Value::Null, &builtin_registry())
+            .unwrap();
         assert!(field.intrinsic_rules(&opts).is_empty());
         let value = FieldValue::Text("hi".to_string());
         let markup = render_field(&field, &NoOverrides, &scope(), &cx("name", &value, &opts));
@@ -1243,7 +1587,10 @@ mod tests {
     fn text_number_input_sets_the_type_and_numeric_rule() {
         let field = text_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "input": "number" }))
+            .resolve_options(
+                &serde_json::json!({ "input": "number" }),
+                &builtin_registry(),
+            )
             .unwrap();
         assert!(matches!(
             field.intrinsic_rules(&opts).as_slice(),
@@ -1258,7 +1605,7 @@ mod tests {
     fn text_tel_input_sets_the_type_with_no_rule() {
         let field = text_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "input": "tel" }))
+            .resolve_options(&serde_json::json!({ "input": "tel" }), &builtin_registry())
             .unwrap();
         assert!(field.intrinsic_rules(&opts).is_empty());
         let value = FieldValue::Text(String::new());
@@ -1270,7 +1617,7 @@ mod tests {
     fn text_url_input_sets_the_type_url_rule_and_copy_button() {
         let field = text_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "input": "url" }))
+            .resolve_options(&serde_json::json!({ "input": "url" }), &builtin_registry())
             .unwrap();
         assert!(matches!(
             field.intrinsic_rules(&opts).as_slice(),
@@ -1288,7 +1635,10 @@ mod tests {
     fn text_url_input_copy_false_omits_the_button() {
         let field = text_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "input": "url", "copy": false }))
+            .resolve_options(
+                &serde_json::json!({ "input": "url", "copy": false }),
+                &builtin_registry(),
+            )
             .unwrap();
         let value = FieldValue::Text("https://example.com".to_string());
         let markup = render_field(&field, &NoOverrides, &scope(), &cx("site", &value, &opts));
@@ -1305,6 +1655,7 @@ mod tests {
         let opts = field
             .resolve_options(
                 &serde_json::json!({ "input": "number", "min": 0, "max": 10, "step": 2 }),
+                &builtin_registry(),
             )
             .unwrap();
         // Rendering runs vm -> data -> render_default, so attributes surviving into
@@ -1322,7 +1673,9 @@ mod tests {
         let mut inputs = builtin_input_registry();
         inputs.insert("bad".to_string(), Arc::new(BadAttrInput));
         let field = TextField::new(Arc::new(inputs));
-        let Err(e) = field.resolve_options(&serde_json::json!({ "input": "bad" })) else {
+        let Err(e) =
+            field.resolve_options(&serde_json::json!({ "input": "bad" }), &builtin_registry())
+        else {
             panic!("expected a reserved-attribute rejection");
         };
         assert!(e.0.contains("class"), "{e}");
@@ -1343,7 +1696,9 @@ mod tests {
         let raw = serde_json::json!({
             "options": [{"value": "open", "label": "Open"}, {"value": "closed"}]
         });
-        let opts = SelectField.resolve_options(&raw).unwrap();
+        let opts = SelectField
+            .resolve_options(&raw, &builtin_registry())
+            .unwrap();
         let value = FieldValue::Text("closed".to_string());
         let markup = render_field(
             &SelectField,
@@ -1362,7 +1717,9 @@ mod tests {
         let raw = serde_json::json!({
             "options": [{"value": "open", "label": "Open"}, {"value": "closed"}]
         });
-        let opts = RadioField.resolve_options(&raw).unwrap();
+        let opts = RadioField
+            .resolve_options(&raw, &builtin_registry())
+            .unwrap();
         let value = FieldValue::Text("closed".to_string());
         let markup = render_field(
             &RadioField,
@@ -1405,7 +1762,10 @@ mod tests {
     #[test]
     fn reference_rejects_an_unknown_source() {
         let field = ref_field();
-        let Err(e) = field.resolve_options(&serde_json::json!({ "source": "no.such" })) else {
+        let Err(e) = field.resolve_options(
+            &serde_json::json!({ "source": "no.such" }),
+            &builtin_registry(),
+        ) else {
             panic!("expected an unknown-source rejection");
         };
         assert!(e.0.contains("no.such"), "{e}");
@@ -1415,7 +1775,10 @@ mod tests {
     fn reference_renders_a_preserved_hidden_id_and_the_combobox() {
         let field = ref_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "source": "acme.place" }))
+            .resolve_options(
+                &serde_json::json!({ "source": "acme.place" }),
+                &builtin_registry(),
+            )
             .unwrap();
         let value = FieldValue::Text("42".to_string());
         let markup = render_field(
@@ -1440,7 +1803,10 @@ mod tests {
     fn reference_declares_its_widget_assets() {
         let field = ref_field();
         let opts = field
-            .resolve_options(&serde_json::json!({ "source": "acme.place" }))
+            .resolve_options(
+                &serde_json::json!({ "source": "acme.place" }),
+                &builtin_registry(),
+            )
             .unwrap();
         assert_eq!(
             field.assets(&opts),
@@ -1450,8 +1816,176 @@ mod tests {
 }
 
 #[cfg(test)]
+mod repeater_tests {
+    use super::*;
+
+    fn options() -> ResolvedOptions {
+        RepeaterField
+            .resolve_options(
+                &serde_json::json!({
+                    "fields": [
+                        { "name": "path", "label": "Path", "type": "text" },
+                        { "name": "allow", "label": "Allow", "type": "switch" },
+                    ]
+                }),
+                &builtin_registry(),
+            )
+            .unwrap()
+    }
+
+    fn submitted(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn stored(data: &HashMap<String, String>, opts: &ResolvedOptions) -> serde_json::Value {
+        let field = SubmittedField::new("rules", data);
+        match RepeaterField.to_attr(&field, opts, Mode::Create).unwrap() {
+            Some(AttrValue::Json(value)) => value,
+            other => panic!("expected a JSON array, got {other:?}"),
+        }
+    }
+
+    /// A row's sub-fields go through their own field types, so a switch inside a
+    /// row stores a bool rather than the string "on". This is the whole reason
+    /// the repeater belongs in the field system.
+    #[test]
+    fn a_row_is_typed_by_its_sub_field_types() {
+        let rows = stored(
+            &submitted(&[
+                ("rules[0][path]", "/private"),
+                ("rules[1][path]", "/public"),
+                ("rules[1][allow]", "on"),
+            ]),
+            &options(),
+        );
+
+        assert_eq!(rows[0]["path"], "/private");
+        assert_eq!(rows[0]["allow"], serde_json::json!(false));
+        assert_eq!(rows[1]["allow"], serde_json::json!(true));
+    }
+
+    /// Removing a row in the browser can leave a gap. Indices are read from the
+    /// keys and sorted, so a gap costs nothing.
+    #[test]
+    fn rows_are_ordered_by_index_not_submission_order() {
+        let rows = stored(
+            &submitted(&[("rules[7][path]", "/last"), ("rules[2][path]", "/first")]),
+            &options(),
+        );
+        assert_eq!(rows.as_array().unwrap().len(), 2);
+        assert_eq!(rows[0]["path"], "/first");
+        assert_eq!(rows[1]["path"], "/last");
+    }
+
+    #[test]
+    fn a_row_left_blank_is_dropped() {
+        let rows = stored(
+            &submitted(&[("rules[0][path]", "/kept"), ("rules[1][path]", "  ")]),
+            &options(),
+        );
+        assert_eq!(rows.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn nothing_submitted_stores_an_empty_list() {
+        assert_eq!(stored(&submitted(&[]), &options()), serde_json::json!([]));
+    }
+
+    #[test]
+    fn a_repeater_refuses_to_hold_a_repeater() {
+        let err = RepeaterField
+            .resolve_options(
+                &serde_json::json!({
+                    "fields": [{ "name": "inner", "label": "Inner", "type": "repeater" }]
+                }),
+                &builtin_registry(),
+            )
+            .err()
+            .expect("a nested repeater is refused");
+        assert!(err.0.contains("cannot hold a repeater"), "{}", err.0);
+    }
+
+    #[test]
+    fn an_unregistered_sub_field_type_is_refused_at_boot() {
+        let err = RepeaterField
+            .resolve_options(
+                &serde_json::json!({
+                    "fields": [{ "name": "x", "label": "X", "type": "acme.nope" }]
+                }),
+                &builtin_registry(),
+            )
+            .err()
+            .expect("an unregistered type is refused");
+        assert!(err.0.contains("acme.nope"), "{}", err.0);
+    }
+
+    #[test]
+    fn row_counts_are_bounded_when_asked() {
+        let opts = RepeaterField
+            .resolve_options(
+                &serde_json::json!({
+                    "fields": [{ "name": "path", "label": "Path", "type": "text" }],
+                    "min_items": 1,
+                    "max_items": 2
+                }),
+                &builtin_registry(),
+            )
+            .unwrap();
+
+        let empty = HashMap::new();
+        let too_few = SubmittedField::new("rules", &empty);
+        assert!(RepeaterField
+            .to_attr(&too_few, &opts, Mode::Create)
+            .is_err());
+
+        let three = submitted(&[
+            ("rules[0][path]", "/a"),
+            ("rules[1][path]", "/b"),
+            ("rules[2][path]", "/c"),
+        ]);
+        let field = SubmittedField::new("rules", &three);
+        assert!(RepeaterField.to_attr(&field, &opts, Mode::Create).is_err());
+    }
+
+    #[test]
+    fn it_renders_a_row_per_stored_entry_plus_a_blank_to_clone() {
+        let value = FieldValue::Json(serde_json::json!([
+            { "path": "/private", "allow": false },
+        ]));
+        let cx = FieldCx {
+            name: "rules",
+            id: "rules",
+            label: "Rules",
+            value: &value,
+            required: false,
+            opts: &options(),
+            base: "/admin",
+        };
+        let html = RepeaterField
+            .render_default(&RepeaterField.view_model(&cx))
+            .into_string();
+
+        assert!(html.contains(r#"name="rules[0][path]""#));
+        assert!(html.contains(r#"value="/private""#));
+        // The blank row is inert inside a <template> until the browser clones it.
+        assert!(html.contains("lat-repeater__blank"));
+        assert!(html.contains(r#"name="rules[__index__][path]""#));
+    }
+}
+
+#[cfg(test)]
 mod save_contract_tests {
     use super::*;
+
+    /// One scalar submission, the way the form builds it for a field.
+    fn one(raw: Option<&str>) -> HashMap<String, String> {
+        raw.into_iter()
+            .map(|v| ("f".to_string(), v.to_string()))
+            .collect()
+    }
 
     fn none() -> ResolvedOptions {
         ResolvedOptions::none()
@@ -1463,11 +1997,17 @@ mod save_contract_tests {
         // A browser sends nothing for an unchecked box, so absence must write
         // false rather than leave the column as it was.
         assert_eq!(
-            f.to_attr(None, &none(), Mode::Update).unwrap(),
+            f.to_attr(&SubmittedField::new("f", &one(None)), &none(), Mode::Update)
+                .unwrap(),
             Some(AttrValue::Bool(false))
         );
         assert_eq!(
-            f.to_attr(Some("on"), &none(), Mode::Create).unwrap(),
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some("on"))),
+                &none(),
+                Mode::Create
+            )
+            .unwrap(),
             Some(AttrValue::Bool(true))
         );
     }
@@ -1505,12 +2045,21 @@ mod save_contract_tests {
     fn a_cleared_date_stores_null_not_an_empty_string() {
         let f = DateField;
         assert_eq!(
-            f.to_attr(Some(""), &none(), Mode::Update).unwrap(),
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some(""))),
+                &none(),
+                Mode::Update
+            )
+            .unwrap(),
             Some(AttrValue::Null)
         );
         assert_eq!(
-            f.to_attr(Some("2026-09-09"), &none(), Mode::Create)
-                .unwrap(),
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some("2026-09-09"))),
+                &none(),
+                Mode::Create
+            )
+            .unwrap(),
             Some(AttrValue::Text("2026-09-09".into()))
         );
         assert!(matches!(f.intrinsic_rules(&none())[..], [Rule::Date]));
@@ -1520,7 +2069,11 @@ mod save_contract_tests {
     fn a_password_hashes_and_never_echoes() {
         let f = PasswordField;
         let stored = f
-            .to_attr(Some("hunter2hunter2"), &none(), Mode::Create)
+            .to_attr(
+                &SubmittedField::new("f", &one(Some("hunter2hunter2"))),
+                &none(),
+                Mode::Create,
+            )
             .unwrap()
             .unwrap();
         let hash = stored.as_str().unwrap();
@@ -1537,20 +2090,49 @@ mod save_contract_tests {
     fn a_blank_password_on_an_edit_leaves_the_stored_one_alone() {
         let f = PasswordField;
         // Omitted, so the write does not touch the column.
-        assert_eq!(f.to_attr(Some(""), &none(), Mode::Update).unwrap(), None);
-        assert_eq!(f.to_attr(Some("   "), &none(), Mode::Update).unwrap(), None);
-        assert_eq!(f.to_attr(None, &none(), Mode::Update).unwrap(), None);
+        assert_eq!(
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some(""))),
+                &none(),
+                Mode::Update
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some("   "))),
+                &none(),
+                Mode::Update
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &one(None)), &none(), Mode::Update)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
     fn a_plain_field_stores_and_shows_the_text_unchanged() {
         let f = TextareaField;
         assert_eq!(
-            f.to_attr(Some("hello"), &none(), Mode::Create).unwrap(),
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some("hello"))),
+                &none(),
+                Mode::Create
+            )
+            .unwrap(),
             Some(AttrValue::Text("hello".into()))
         );
         // Absent stays absent, so the write leaves that column alone.
-        assert_eq!(f.to_attr(None, &none(), Mode::Update).unwrap(), None);
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &one(None)), &none(), Mode::Update)
+                .unwrap(),
+            None
+        );
         assert_eq!(f.to_control(Some("hello"), &none()), "hello");
     }
 }
