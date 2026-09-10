@@ -7,17 +7,12 @@
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ action }}">
     {% include "_csrf.html" %}
+    {# Each control is rendered by its own field type, the same way a descriptor
+       form renders: one field system, so a module's type works on both. #}
     {% for field in fields %}
     <div class="lat-field">
-      {% if field.switch %}
-      <label class="lat-check"><input type="checkbox" id="{{ field.name }}" name="{{ field.name }}" value="on"{% if field.checked %} checked{% endif %}> {{ field.label }}</label>
-      {% else if field.textarea %}
-      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
-      <textarea class="lat-input" id="{{ field.name }}" name="{{ field.name }}">{{ field.value }}</textarea>
-      {% else %}
-      <label class="lat-field__label" for="{{ field.name }}">{{ field.label }}</label>
-      <input class="lat-input" type="text" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}">
-      {% endif %}
+      <label class="lat-field__label">{{ field.label }}</label>
+      {{ field.control|safe }}
       {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
     </div>
     {% endfor %}

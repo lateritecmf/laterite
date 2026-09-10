@@ -85,6 +85,10 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+#: src/settings/mod.rs
+msgid "Check the values and try again."
+msgstr ""
+
 #: templates/settings_index.html
 msgid "Choose a section from the list to configure it."
 msgstr ""
@@ -559,6 +563,14 @@ msgstr ""
 
 #: templates/setup.html
 msgid "This install has no accounts yet. Set one up to sign in."
+msgstr ""
+
+#: src/settings/mod.rs
+msgid "This screen has a malformed field."
+msgstr ""
+
+#: src/settings/mod.rs
+msgid "This screen uses a field type that is not registered."
 msgstr ""
 
 #: templates/users_form.html

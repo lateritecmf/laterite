@@ -30,6 +30,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Folding runs in Rust so it behaves identically on all three databases. Guide at
   `docs/src/extend/search.md`.
 - `TableSource::with_search` sets a picker source's search behaviour.
+- Settings screens render and save through the field-type registry, so every
+  registered type works there and a module's own type works on both surfaces.
+- `FormField` gained constructors for the types that had none: `select`, `radio`,
+  `switch`, `date`, `password` and `repeater`. A descriptor previously reached
+  them through `of` plus a raw options blob.
 - A `repeater` field type: a list of rows stored as a JSON array of objects.
   Row controls are named `field[index][subfield]`, and the indices are read back
   out of the submitted keys and sorted, so a row removed in the browser leaves no
@@ -108,6 +113,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
+- **Breaking**: `SettingsWidget` and `SettingsField` are gone. A settings model
+  declares `FormField`s, the same descriptors a form screen uses, and its widget
+  is its field type. There is no settings-specific field vocabulary.
 - **Breaking**: `FieldType::to_attr` takes a `SubmittedField` rather than one
   value, so a field made of several controls can read its own keys. A scalar type
   calls `field.value()` for what it had before. This is what kept multi-value

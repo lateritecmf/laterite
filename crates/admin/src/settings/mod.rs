@@ -36,63 +36,20 @@ use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
+use laterite_core::validation::Mode;
 use laterite_core::{t, Text, Translator};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::{render, render_error, AdminState};
 
-/// How a settings field is rendered and typed in the stored JSON.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum SettingsWidget {
-    /// A single-line string value.
-    Text,
-    /// A multi-line string value.
-    Textarea,
-    /// A boolean, rendered as a checkbox and stored as a JSON bool.
-    Switch,
-}
-
-/// One editable field of a settings model: the JSON key, its label, its widget,
-/// and optional help text shown beneath the control.
-#[derive(Debug, Clone, Serialize)]
-pub struct SettingsField {
-    pub name: String,
-    /// The field label and optional help, localized at render.
-    pub label: Text,
-    pub widget: SettingsWidget,
-    pub help: Option<Text>,
-}
-
-impl SettingsField {
-    pub fn text(name: &str, label: impl Into<Text>) -> Self {
-        Self {
-            name: name.to_string(),
-            label: label.into(),
-            widget: SettingsWidget::Text,
-            help: None,
-        }
-    }
-
-    pub fn textarea(name: &str, label: impl Into<Text>) -> Self {
-        Self {
-            widget: SettingsWidget::Textarea,
-            ..Self::text(name, label)
-        }
-    }
-
-    pub fn switch(name: &str, label: impl Into<Text>) -> Self {
-        Self {
-            widget: SettingsWidget::Switch,
-            ..Self::text(name, label)
-        }
-    }
-
-    pub fn help(mut self, text: impl Into<Text>) -> Self {
-        self.help = Some(text.into());
-        self
-    }
-}
+/// One editable field of a settings model.
+///
+/// A settings screen renders [`FormField`](crate::form::FormField)s, the same
+/// descriptors a list or form screen uses: the module declares which fields its
+/// settings model has, and the framework renders and stores them through the
+/// field-type registry. There is no settings-specific field vocabulary.
+pub use crate::form::FormField;
 
 /// A settings model surfaced in the admin: a storage `code`, a `category` and
 /// `order` that place it in the index, and the fields to edit.
@@ -117,7 +74,7 @@ pub struct SettingsItem {
     /// its settings form. Used to place list/form screens (like Administrators)
     /// in the settings menu rather than the main menu.
     pub link: Option<String>,
-    pub fields: Vec<SettingsField>,
+    pub fields: Vec<FormField>,
 }
 
 impl SettingsItem {
@@ -152,7 +109,14 @@ pub(crate) async fn edit_form(
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
     prefill_from_config(item, &mut stored, &state.app_name);
-    render(build(item, None, &stored, &shell))
+    render(build(
+        item,
+        &state.field_types,
+        state.overrides.as_ref(),
+        None,
+        &stored,
+        &shell,
+    ))
 }
 
 /// Persists submitted values as the item's JSON object, then returns to the index.
@@ -164,7 +128,26 @@ pub(crate) async fn update(
     session: &crate::session::SessionHandle,
     user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
-    let value = collect(item, &data);
+    // A field type that refuses its input refuses the save: the screen says so
+    // rather than storing a value every later read has to defend against.
+    let value = match collect(item, &state.field_types, &data) {
+        Ok(value) => value,
+        Err(message) => {
+            let stored = store::get(&state.db, &item.code)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(Value::Null);
+            return render(build(
+                item,
+                &state.field_types,
+                state.overrides.as_ref(),
+                Some(message),
+                &stored,
+                &shell,
+            ));
+        }
+    };
     match store::set(&state.db, &item.code, &value).await {
         Ok(()) => {
             // The brand is cached for display; a save to it must invalidate the
@@ -188,6 +171,8 @@ pub(crate) async fn update(
         }
         Err(_) => render(build(
             item,
+            &state.field_types,
+            state.overrides.as_ref(),
             Some(t!("Could not save. Please try again.")),
             &value,
             &shell,
@@ -196,24 +181,49 @@ pub(crate) async fn update(
 }
 
 /// Builds the JSON object to store from the submitted form data, typing each
-/// field by its widget. An unchecked switch is absent from the form, so it
-/// stores `false`.
-fn collect(item: &SettingsItem, data: &HashMap<String, String>) -> Value {
+/// field through its field type.
+///
+/// The same `to_attr` a descriptor form writes through, so a switch stores a
+/// bool, a repeater stores an array of objects, and a module's own field type
+/// behaves identically here and on a form. A type that refuses its input refuses
+/// the save, naming the field.
+fn collect(
+    item: &SettingsItem,
+    types: &crate::field::FieldRegistry,
+    data: &HashMap<String, String>,
+) -> Result<Value, Text> {
     let mut object = Map::new();
     for field in &item.fields {
-        let value = match field.widget {
-            SettingsWidget::Text | SettingsWidget::Textarea => {
-                Value::String(data.get(&field.name).cloned().unwrap_or_default())
-            }
-            SettingsWidget::Switch => Value::Bool(is_checked(data.get(&field.name))),
+        let Some(field_type) = types.get(&field.field_type) else {
+            return Err(t!("This screen uses a field type that is not registered."));
+        };
+        let opts = field_type
+            .resolve_options(&field.options, types)
+            .map_err(|_| t!("This screen has a malformed field."))?;
+        let submitted = crate::field::SubmittedField::new(&field.name, data);
+        // Settings always write every declared key: a settings blob has no
+        // previous row to fall back to the way a table column does.
+        let value = match field_type.to_attr(&submitted, &opts, Mode::Update) {
+            Ok(Some(value)) => attr_to_json(value),
+            Ok(None) => Value::String(String::new()),
+            Err(_) => return Err(t!("Check the values and try again.")),
         };
         object.insert(field.name.clone(), value);
     }
-    Value::Object(object)
+    Ok(Value::Object(object))
 }
 
-fn is_checked(raw: Option<&String>) -> bool {
-    matches!(raw.map(String::as_str), Some("on" | "true" | "1"))
+/// A stored attribute as the JSON a settings blob holds.
+fn attr_to_json(value: laterite_core::AttrValue) -> Value {
+    use laterite_core::AttrValue;
+    match value {
+        AttrValue::Null => Value::String(String::new()),
+        AttrValue::Bool(b) => Value::Bool(b),
+        AttrValue::Int(i) => Value::from(i),
+        AttrValue::Float(f) => Value::from(f),
+        AttrValue::Json(j) => j,
+        other => Value::String(other.to_text().unwrap_or_default()),
+    }
 }
 
 /// Builds the context-sidebar groups: items grouped by category and ordered
@@ -293,6 +303,8 @@ fn prefill_from_config(item: &SettingsItem, stored: &mut Value, app_name: &str) 
 
 fn build(
     item: &SettingsItem,
+    types: &crate::field::FieldRegistry,
+    overrides: &dyn crate::field::OverrideResolver,
     error: Option<Text>,
     stored: &Value,
     shell: &crate::Shell,
@@ -301,19 +313,49 @@ fn build(
         .fields
         .iter()
         .map(|f| {
-            let current = stored.get(&f.name);
+            let label = shell.tt(&f.label);
+            let control = match types.get(&f.field_type) {
+                Some(ft) => {
+                    let opts = ft
+                        .resolve_options(&f.options, types)
+                        .unwrap_or_else(|_| crate::field::ResolvedOptions::none());
+                    let value = match stored.get(&f.name) {
+                        Some(Value::Array(rows)) => {
+                            crate::field::FieldValue::Json(Value::Array(rows.clone()))
+                        }
+                        Some(Value::String(text)) => {
+                            crate::field::FieldValue::Text(ft.to_control(Some(text), &opts))
+                        }
+                        Some(Value::Null) | None => {
+                            crate::field::FieldValue::Text(ft.to_control(None, &opts))
+                        }
+                        Some(other) => crate::field::FieldValue::Text(
+                            ft.to_control(Some(&other.to_string()), &opts),
+                        ),
+                    };
+                    let cx = crate::field::FieldCx {
+                        name: &f.name,
+                        id: &f.name,
+                        label: &label,
+                        value: &value,
+                        required: false,
+                        opts: &opts,
+                        base: &shell.base,
+                    };
+                    let scope = crate::field::OverrideScope {
+                        surface: crate::field::Surface::Field,
+                        view_key: &f.field_type,
+                        resource: Some(&item.code),
+                        field: Some(&f.name),
+                    };
+                    crate::field::render_field(ft.as_ref(), overrides, &scope, &cx).into_string()
+                }
+                None => String::new(),
+            };
             FieldView {
-                name: f.name.clone(),
-                label: shell.tt(&f.label),
+                label,
                 help: f.help.as_ref().map(|h| shell.tt(h)),
-                textarea: matches!(f.widget, SettingsWidget::Textarea),
-                switch: matches!(f.widget, SettingsWidget::Switch),
-                checked: current.and_then(Value::as_bool).unwrap_or(false),
-                value: match current {
-                    Some(Value::String(s)) => s.clone(),
-                    Some(Value::Null) | None => String::new(),
-                    Some(other) => other.to_string(),
-                },
+                control,
             }
         })
         .collect();
@@ -354,13 +396,10 @@ struct SettingsIndexTemplate {
 }
 
 struct FieldView {
-    name: String,
     label: String,
     help: Option<String>,
-    value: String,
-    textarea: bool,
-    switch: bool,
-    checked: bool,
+    /// The control, rendered by the field's own type.
+    control: String,
 }
 
 #[derive(Template)]
@@ -372,6 +411,129 @@ struct SettingsFormTemplate {
     action: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+}
+
+#[cfg(test)]
+mod field_system_tests {
+    use super::*;
+
+    fn item(fields: Vec<FormField>) -> SettingsItem {
+        SettingsItem {
+            code: "acme.test".to_string(),
+            label: Text::new(""),
+            description: Text::new(""),
+            category: Text::new(""),
+            order: 0,
+            icon: None,
+            permission: None,
+            link: None,
+            fields,
+        }
+    }
+
+    fn submitted(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// Settings and forms now share one field system, so a settings screen gets
+    /// every registered type and stores what that type says it stores.
+    #[test]
+    fn settings_store_what_the_field_type_says() {
+        let cfg = item(vec![
+            FormField::text("name", "Name"),
+            FormField::switch("enabled", "Enabled"),
+            FormField::select("freq", "Frequency", vec![("daily", "Daily")]),
+            FormField::date("expires", "Expires"),
+        ]);
+        let stored = collect(
+            &cfg,
+            &crate::field::builtin_registry(),
+            &submitted(&[
+                ("name", "Acme"),
+                ("enabled", "on"),
+                ("freq", "daily"),
+                ("expires", "2026-12-31"),
+            ]),
+        )
+        .unwrap();
+
+        assert_eq!(stored["name"], "Acme");
+        // A bool, not the string "on": the switch field type decided that.
+        assert_eq!(stored["enabled"], serde_json::json!(true));
+        assert_eq!(stored["freq"], "daily");
+        assert_eq!(stored["expires"], "2026-12-31");
+    }
+
+    /// An unticked switch is absent from the submission and must store false,
+    /// or the box could never be cleared.
+    #[test]
+    fn an_unticked_switch_clears() {
+        let cfg = item(vec![FormField::switch("enabled", "Enabled")]);
+        let stored = collect(&cfg, &crate::field::builtin_registry(), &submitted(&[])).unwrap();
+        assert_eq!(stored["enabled"], serde_json::json!(false));
+    }
+
+    /// The repeater works in settings because it is a field type, not a
+    /// settings-only widget: this is the whole point of the unification.
+    #[test]
+    fn a_repeater_works_in_settings() {
+        let cfg = item(vec![FormField::repeater(
+            "rules",
+            "Rules",
+            vec![
+                FormField::text("path", "Path"),
+                FormField::switch("allow", "Allow"),
+            ],
+        )]);
+        let stored = collect(
+            &cfg,
+            &crate::field::builtin_registry(),
+            &submitted(&[
+                ("rules[0][path]", "/private"),
+                ("rules[1][path]", "/public"),
+                ("rules[1][allow]", "on"),
+            ]),
+        )
+        .unwrap();
+
+        let rows = stored["rules"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["path"], "/private");
+        assert_eq!(rows[0]["allow"], serde_json::json!(false));
+        assert_eq!(rows[1]["allow"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn a_screen_naming_an_unregistered_type_refuses_rather_than_rendering_blank() {
+        let cfg = item(vec![FormField::of("x", "X", "acme.nope")]);
+        assert!(collect(&cfg, &crate::field::builtin_registry(), &submitted(&[])).is_err());
+    }
+
+    #[test]
+    fn the_form_renders_each_control_through_its_type() {
+        let cfg = item(vec![
+            FormField::switch("enabled", "Enabled"),
+            FormField::repeater("rules", "Rules", vec![FormField::text("path", "Path")]),
+        ]);
+        let html = build(
+            &cfg,
+            &crate::field::builtin_registry(),
+            &crate::field::NoOverrides,
+            None,
+            &serde_json::json!({ "enabled": true, "rules": [{ "path": "/a" }] }),
+            &crate::Shell::test(),
+        )
+        .render()
+        .unwrap();
+
+        assert!(html.contains(r#"type="checkbox""#));
+        assert!(html.contains(r#"name="rules[0][path]""#));
+        assert!(html.contains(r#"value="/a""#));
+        assert!(html.contains("lat-repeater__blank"));
+    }
 }
 
 #[cfg(test)]
@@ -407,9 +569,9 @@ mod tests {
             permission: None,
             link: None,
             fields: vec![
-                SettingsField::switch("log_events", "Log events"),
-                SettingsField::switch("log_requests", "Log requests"),
-                SettingsField::text("retention_days", "Retention (days)"),
+                FormField::switch("log_events", "Log events"),
+                FormField::switch("log_requests", "Log requests"),
+                FormField::text("retention_days", "Retention (days)"),
             ],
         }
     }

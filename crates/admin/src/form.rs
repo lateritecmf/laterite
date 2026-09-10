@@ -61,6 +61,9 @@ pub struct FormField {
     /// the flag to manage per-locale values.
     #[serde(default)]
     pub translatable: bool,
+    /// Help text shown beneath the control, localized at render.
+    #[serde(default)]
+    pub help: Option<Text>,
 }
 
 impl FormField {
@@ -73,6 +76,7 @@ impl FormField {
             options: serde_json::Value::Null,
             rules: Vec::new(),
             translatable: false,
+            help: None,
         }
     }
 
@@ -89,6 +93,46 @@ impl FormField {
     /// option so a descriptor needs no raw JSON.
     pub fn reference(name: &str, label: impl Into<Text>, source: &str) -> Self {
         Self::of(name, label, "reference").options(serde_json::json!({ "source": source }))
+    }
+
+    /// A dropdown over a fixed set of `(value, label)` choices.
+    pub fn select(name: &str, label: impl Into<Text>, options: Vec<(&str, &str)>) -> Self {
+        Self::of(name, label, "select").options(Self::choices(options))
+    }
+
+    /// The same choices rendered as radio buttons.
+    pub fn radio(name: &str, label: impl Into<Text>, options: Vec<(&str, &str)>) -> Self {
+        Self::of(name, label, "radio").options(Self::choices(options))
+    }
+
+    /// A checkbox over a boolean column.
+    pub fn switch(name: &str, label: impl Into<Text>) -> Self {
+        Self::of(name, label, "switch")
+    }
+
+    /// A calendar date, stored as `YYYY-MM-DD`.
+    pub fn date(name: &str, label: impl Into<Text>) -> Self {
+        Self::of(name, label, "date")
+    }
+
+    /// A password: hashed on save, never rendered back, and left alone when the
+    /// field is submitted blank on an edit.
+    pub fn password(name: &str, label: impl Into<Text>) -> Self {
+        Self::of(name, label, "password")
+    }
+
+    /// A list of rows, each holding `fields`, stored as an array of objects.
+    pub fn repeater(name: &str, label: impl Into<Text>, fields: Vec<FormField>) -> Self {
+        Self::of(name, label, "repeater").options(serde_json::json!({ "fields": fields }))
+    }
+
+    /// The options blob the choice-shaped types read.
+    fn choices(options: Vec<(&str, &str)>) -> serde_json::Value {
+        let options: Vec<serde_json::Value> = options
+            .into_iter()
+            .map(|(value, label)| serde_json::json!({ "value": value, "label": label }))
+            .collect();
+        serde_json::json!({ "options": options })
     }
 
     /// Sets the field type's typed options (the type validates them at render).
@@ -138,6 +182,12 @@ impl FormField {
     /// Marks this field as translatable content (see [`FormField::translatable`]).
     pub fn translatable(mut self) -> Self {
         self.translatable = true;
+        self
+    }
+
+    /// Help text shown beneath the control.
+    pub fn help(mut self, text: impl Into<Text>) -> Self {
+        self.help = Some(text.into());
         self
     }
 }

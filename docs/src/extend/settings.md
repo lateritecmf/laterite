@@ -169,3 +169,37 @@ Because a model is one JSON blob and every field is `#[serde(default)]`:
 - **Renaming a field** is a data change, not a schema change. Treat it like any
   rename: read the old key, write the new one. Never reuse a `CODE` for an
   incompatible model.
+
+## Fields are form fields
+
+A settings model declares which fields it has, and the framework renders and
+stores them through the field-type registry. They are ordinary
+[`FormField`](https://docs.rs/laterite-admin)s, the same descriptors a list or
+form screen uses, so there is no settings-specific field vocabulary to learn and
+a module's own field type works on both surfaces.
+
+```rust
+# use laterite_admin::form::FormField;
+vec![
+    FormField::text("app_name", "Application name").help("Shown as the brand."),
+    FormField::switch("enabled", "Enabled"),
+    FormField::select("freq", "Frequency", vec![("daily", "Daily"), ("weekly", "Weekly")]),
+    FormField::date("expires", "Expires"),
+    FormField::repeater(
+        "rules",
+        "Rules",
+        vec![
+            FormField::text("path", "Path"),
+            FormField::switch("allow", "Allow"),
+        ],
+    ),
+];
+```
+
+Each value is stored as its field type says: a switch stores a JSON bool, a
+repeater an array of objects, text a string. A type that refuses its input
+refuses the save, and the screen says so rather than storing a value every later
+read would have to defend against.
+
+`FormField::of(name, label, "vendor.type")` reaches any registered key, including
+a type your own module contributes.

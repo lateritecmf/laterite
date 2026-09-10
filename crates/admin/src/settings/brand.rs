@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::store::SettingsModel;
-use super::{SettingsField, SettingsItem};
+use super::{FormField, SettingsItem};
 
 /// Brand settings stored under [`BrandSetting::CODE`]. An admin edits these; the
 /// values override the configured application name for display.
@@ -37,7 +37,7 @@ pub(crate) fn settings_item() -> SettingsItem {
         icon: None,
         permission: Some("backend.manage_branding".to_string()),
         link: None,
-        fields: vec![SettingsField::text("app_name", "Application name").help(
+        fields: vec![FormField::text("app_name", "Application name").help(
             "Shown as the admin brand. Clearing it falls back to the configured application name.",
         )],
     }
