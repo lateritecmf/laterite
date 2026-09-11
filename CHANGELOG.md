@@ -9,6 +9,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `laterite_admin::axum`: the axum a contributed route builds against, re-exported
+  so a plugin never declares axum itself. Two axum majors linked side by side make
+  `Router` a different type from `Router`; taking it from here means the
+  framework's manifest is the only place the version is chosen.
+- `RouteCtx::builder(db)`: a route context built by hand, so a plugin can mount and
+  exercise its own `Screen` or `PublicRoute` as an ordinary tower service instead of
+  booting the framework to test a route. It is also how the context grows after 1.0.
 - Descriptor forms submit through HTMX. A failed save re-renders the form in
   place with its per-field errors instead of reloading the page, and a
   successful one redirects through the `HX-Redirect` header. A browser with
@@ -111,6 +118,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- **Breaking:** `ScreenReg` and `PublicRouteReg` are `#[non_exhaustive]`. Both are
+  built with `::new` plus builder methods already, so nothing in tree changes; a
+  struct literal in an out-of-tree plugin no longer compiles. Without this their
+  field set would be frozen at 1.0 and the framework could never learn anything new
+  about a contributed route.
 - A refused save answers 422 rather than 200, on both the descriptor form and
   the role editor.
 - **Breaking**: `SettingsWidget` and `SettingsField` are gone. A settings model
@@ -225,6 +237,9 @@ stores and shows). Plus the CLI and licensing work that had been waiting.
 
 ### Fixed
 
+- A request below a public route (`/robots.txt/anything`) escaped into axum's
+  bodyless 404 instead of the styled error page, because a nested service does not
+  inherit the outer fallback.
 - `lat doctor` and `lat serve` used a fixed environment prefix, so their overrides
   missed an application with its own.
 

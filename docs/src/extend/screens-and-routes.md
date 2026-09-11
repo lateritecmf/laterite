@@ -8,6 +8,71 @@ render them with validation, pagination and a write path already wired. A screen
 is for what a list and a form cannot be: an import wizard, a calendar, a report
 builder, a diff view.
 
+## Never declare axum
+
+A route returns an `axum::Router`, so your module needs the type. Take it from the
+framework:
+
+```rust
+use laterite_admin::axum::{routing::get, Router};
+```
+
+Do **not** add `axum` to your plugin's `Cargo.toml`. If your version and the
+framework's ever differ by a major, both get linked and `Router` stops being the
+same type as `Router`, which produces one of the least helpful errors in Rust.
+Importing it from `laterite_admin` means the framework's manifest is the only place
+the version is chosen.
+
+The same applies to anything else the framework hands you: use
+`laterite_core::strata::async_trait` rather than depending on `async-trait`.
+
+## Middleware
+
+There is no middleware registry, because you do not need one: the router is yours.
+Set headers in the handler, and layer anything from tower inside your own router.
+
+```rust
+async fn robots_txt() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        body,
+    )
+}
+
+fn mount(&self, _ctx: &RouteCtx) -> Router {
+    Router::new()
+        .route("/", get(robots_txt))
+        .layer(CompressionLayer::new())
+}
+```
+
+The ordering is fixed and safe: the framework's layers (session, permission, CSRF,
+panic handling) wrap your router from the outside, and yours run inside. A screen
+can never layer something outside the guards.
+
+## Testing a route
+
+Build a context by hand and mount the route as an ordinary tower service. No
+database fixtures beyond a test pool, and no framework boot:
+
+```rust
+let ctx = RouteCtx::builder(db)
+    .admin_path("/backoffice")
+    .base_url("https://acme.example")
+    .build();
+
+let response = Robots.mount(&ctx)
+    .oneshot(Request::get("/").body(Body::empty())?)
+    .await?;
+```
+
+Every builder field has a default, so name only what you assert on. `admin_path`
+defaults to `/admin`, so a route that excludes the panel should be tested against a
+*different* path: that is what proves it reads the value instead of hardcoding it.
+
 ## An admin screen
 
 ```rust

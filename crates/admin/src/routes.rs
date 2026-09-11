@@ -88,6 +88,78 @@ impl RouteCtx {
     pub fn url(&self, relative: &str) -> String {
         join(&self.base_path, relative)
     }
+
+    /// A context built by hand, for testing a route without booting the framework.
+    ///
+    /// `mount` takes a `RouteCtx`, and the framework's own constructor is private,
+    /// so without this a plugin could only exercise its routes through a full boot.
+    /// With it, a route is an ordinary `tower` service:
+    ///
+    /// ```ignore
+    /// let ctx = RouteCtx::builder(db).admin_path("/backoffice").build();
+    /// let response = MyRoute.mount(&ctx).oneshot(request).await?;
+    /// ```
+    ///
+    /// This is also how the context grows after 1.0: a new field gets a builder
+    /// method and a default, which `new` could not have offered.
+    pub fn builder(db: Db) -> RouteCtxBuilder {
+        RouteCtxBuilder {
+            db,
+            base_path: "/".to_string(),
+            admin_path: "/admin".to_string(),
+            base_url: "http://localhost".to_string(),
+            plugin_defined: None,
+        }
+    }
+}
+
+/// Builds a [`RouteCtx`]. Every field has a default, so a test names only what it
+/// asserts on.
+pub struct RouteCtxBuilder {
+    db: Db,
+    base_path: String,
+    admin_path: String,
+    base_url: String,
+    plugin_defined: Option<Arc<Registry>>,
+}
+
+impl RouteCtxBuilder {
+    /// Where the screen mounted. Defaults to `/`.
+    pub fn base_path(mut self, path: impl Into<String>) -> Self {
+        self.base_path = path.into();
+        self
+    }
+
+    /// Where the panel mounted. Defaults to `/admin`, which is what a route
+    /// excluding the panel should *not* be allowed to assume: set it to something
+    /// else in a test that checks the exclusion is read rather than hardcoded.
+    pub fn admin_path(mut self, path: impl Into<String>) -> Self {
+        self.admin_path = path.into();
+        self
+    }
+
+    /// The site's origin. Defaults to `http://localhost`.
+    pub fn base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = url.into();
+        self
+    }
+
+    /// The contributions `RouteCtx::contributions` will read. Defaults to empty.
+    pub fn contributions(mut self, registry: Arc<Registry>) -> Self {
+        self.plugin_defined = Some(registry);
+        self
+    }
+
+    pub fn build(self) -> RouteCtx {
+        RouteCtx::new(
+            self.db,
+            &self.base_path,
+            &self.admin_path,
+            &self.base_url,
+            self.plugin_defined
+                .unwrap_or_else(|| Arc::new(Registry::new())),
+        )
+    }
 }
 
 fn join(base: &str, relative: &str) -> String {
@@ -108,6 +180,12 @@ pub trait Screen: Send + Sync + 'static {
 }
 
 /// A registered screen: where it mounts, what it is called, and who may reach it.
+///
+/// Built with [`ScreenReg::new`] plus its builder methods. Non-exhaustive so the
+/// framework can learn something new about a screen after 1.0 without a major bump:
+/// anything it needs to know belongs here rather than as another trait method, which
+/// is also what keeps the code half replaceable at the plugin boundary.
+#[non_exhaustive]
 pub struct ScreenReg {
     /// Path relative to the module's admin base, starting with a slash.
     pub base_path: String,
@@ -155,6 +233,9 @@ pub trait PublicRoute: Send + Sync + 'static {
 /// The path is literal and never namespaced: `/robots.txt` has to be exactly
 /// that. Collisions are therefore likelier than in the admin, so two claims on
 /// one path, or a claim on the admin mount, abort the boot.
+/// Built with [`PublicRouteReg::new`]. Non-exhaustive for the same reason as
+/// [`ScreenReg`].
+#[non_exhaustive]
 pub struct PublicRouteReg {
     pub path: String,
     pub route: Arc<dyn PublicRoute>,

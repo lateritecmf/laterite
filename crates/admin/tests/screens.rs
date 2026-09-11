@@ -377,3 +377,68 @@ async fn a_screen_appears_in_the_menu_only_when_it_asks() {
         "a screen with no label stays out of the menu"
     );
 }
+
+/// A public route is nested at its literal path, so a request *below* that path
+/// enters the nested router and matches nothing there. What it must not do is
+/// escape into axum's bare 404: the deployment's styled error page is the whole
+/// point of routing these through the framework rather than beside it. Pinned
+/// because fallback inheritance through `nest_service` is a behaviour, not a
+/// guarantee we control.
+#[tokio::test]
+async fn a_path_below_a_public_route_still_gets_the_framework_404() {
+    let (db, _guard) = test_db().await;
+    superuser(&db).await;
+    let resp = app_with_public(db)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/robots.txt/nonsense")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        body.contains("<!DOCTYPE html>") || body.contains("<html"),
+        "expected the styled error page, got: {body:?}"
+    );
+}
+
+/// A plugin has to be able to exercise its own routes without booting the
+/// framework, which is what the public builder is for. It also defaults the admin
+/// path to `/admin`, so a route that excludes the panel must be tested against a
+/// different one to prove it reads the value rather than hardcoding it.
+#[tokio::test]
+async fn a_route_can_be_mounted_from_a_hand_built_context() {
+    let (db, _guard) = test_db().await;
+    let ctx = RouteCtx::builder(db)
+        .admin_path("/backoffice")
+        .base_url("https://acme.example")
+        .build();
+
+    assert_eq!(ctx.admin_path(), "/backoffice");
+    assert_eq!(ctx.base_url(), "https://acme.example");
+
+    let resp = Robots
+        .mount(&ctx)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/panel")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(String::from_utf8(bytes.to_vec()).unwrap(), "/backoffice");
+}

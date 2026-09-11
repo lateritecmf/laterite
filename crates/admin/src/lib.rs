@@ -35,6 +35,15 @@ pub mod settings;
 mod sql;
 mod users;
 
+/// The axum a contributed route must build against.
+///
+/// A [`Screen`](routes::Screen) or [`PublicRoute`](routes::PublicRoute) returns an
+/// `axum::Router`, so a plugin needs the type. Take it from here and never declare
+/// axum in a plugin manifest: two majors linked side by side make `Router` a
+/// different type from `Router`, and the diagnostic for that is famously unhelpful.
+/// Re-exported so this crate's manifest is the only place the version is chosen.
+pub use axum;
+
 pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
 pub use error::AdminError;
 pub use session::{FlashLevel, SessionHandle};
@@ -1116,7 +1125,14 @@ fn mount_public(
             origin,
             plugin_defined.clone(),
         );
-        router = router.nest_service(&reg.path, reg.route.mount(&ctx));
+        // A nested service does not inherit the outer fallback, so without this a
+        // request *below* a public route (`/robots.txt/anything`) escapes into
+        // axum's bodyless 404 instead of the deployment's styled error page.
+        // Pinned by a test, because it is a behaviour rather than a guarantee.
+        router = router.nest_service(
+            &reg.path,
+            reg.route.mount(&ctx).fallback(not_found_fallback),
+        );
     }
     router
 }
