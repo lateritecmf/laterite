@@ -11,12 +11,14 @@ HTML strings and hands them to a [`StaticSite`], which writes them as files,
 and copies static assets. The output is a plain directory suitable for any
 static host or CDN.
 
-It writes no `robots.txt` and no `sitemap.xml`: how a site wants to be crawled,
-and which URLs it advertises, are the application's decisions. `paths()` and
-`base_url()` give the material, and `file()` publishes whatever the site decides.
+It writes **no `robots.txt` and no `sitemap.xml`**. How a site wants to be
+crawled, and which of its URLs it advertises at what priority, are the
+application's decisions, not the framework's. What this crate offers is the
+material for them: [`StaticSite::paths`] reports every page written, and
+[`StaticSite::file`] writes whatever the site decides to publish.
 
 Page templates live in the application (Askama, or any renderer that produces
-a `String`); this crate owns the file layout, the sitemap, and the shared
+a `String`); this crate owns the file layout and the shared
 [`Meta`] tags (title, description, canonical URL, Open Graph) so pages stay
 consistent and shareable.
 
@@ -29,6 +31,8 @@ let home = render_home(&meta.head_tags());
 let mut site = StaticSite::new("dist", "https://acme.example")?;
 site.page("/", &home)?;
 site.assets("static", "static")?;
+
+// What the site publishes about itself is its own decision.
 site.file("robots.txt", "User-agent: *\nAllow: /\n")?;
 ```
 

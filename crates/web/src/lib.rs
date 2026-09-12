@@ -14,7 +14,7 @@
 //! [`StaticSite::file`] writes whatever the site decides to publish.
 //!
 //! Page templates live in the application (Askama, or any renderer that produces
-//! a `String`); this crate owns the file layout, the sitemap, and the shared
+//! a `String`); this crate owns the file layout and the shared
 //! [`Meta`] tags (title, description, canonical URL, Open Graph) so pages stay
 //! consistent and shareable.
 //!
