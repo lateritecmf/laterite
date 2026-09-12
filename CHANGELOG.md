@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-12
+
+Interactive admin and Lists complete: the admin engine's list screens feature
+complete, and its forms and lists answering in place rather than reloading.
+
 ### Added
 
 - `laterite_admin::axum`: the axum a contributed route builds against, re-exported

@@ -14,7 +14,7 @@ This is provided by the `laterite-web` crate.
 
 ```toml
 [dependencies]
-laterite-web = "0.4"
+laterite-web = "0.5"
 ```
 
 ## The mental model
