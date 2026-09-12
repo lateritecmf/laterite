@@ -7,6 +7,33 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `lat plugin add <path|git-url>` and `lat plugin remove <name>`: a plugin is
+  installed by pointing at it, from a local checkout or a repository, rather than
+  by placing a folder in a layout by hand. A local plugin outside the project is
+  linked into `plugins/` so it stays where it is and edits apply in place.
+- `plugins/plugins.toml`: the declarative list of the plugins an application
+  compiles in, maintained by those two commands. **Folder names no longer carry
+  meaning**, so nothing has to be renamed to be installed: the list says where a
+  plugin is and its own `Cargo.toml` says what it is called, which also means the
+  two can no longer disagree. An application using the previous
+  `plugins/<author>/<plugin>/` layout adopts it into a list on first use.
+- `lat new` scaffolds the plugin layout: the workspace, an empty list, the
+  generated manifest, the dependency on it, and the `.modules(...)` call.
+- Guide: Installing Plugins.
+
+### Fixed
+
+- `lat plugin sync` reported success while writing a manifest nothing compiled.
+  A `lat new` application was never wired for plugins at all, so a plugin added
+  to one silently did nothing; sync now warns when the application does not
+  depend on the generated manifest, and a new application no longer needs the
+  wiring done by hand.
+- Installing one plugin twice produced a manifest with a duplicate dependency key
+  that cargo refused to parse. It is now refused when added, naming where the
+  plugin already is, and nothing is left behind by the refusal.
+
 ## [0.5.0] - 2026-09-12
 
 Interactive admin and Lists complete: the admin engine's list screens feature

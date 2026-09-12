@@ -9,6 +9,7 @@
 - [Friendly Local Domains](getting-started/local-domains.md)
 - [Live Reload in Development](getting-started/live-reload.md)
 - [Dates and Timezones](getting-started/dates-and-timezones.md)
+- [Installing Plugins](getting-started/plugins.md)
 
 # Extending Laterite
 

@@ -475,6 +475,11 @@ fn scaffold(
         &cargo_toml(name, feature, framework),
     )?;
     write(dir.join("src/main.rs"), MAIN_RS)?;
+    // The plugin layout: an empty list and an empty generated manifest, so
+    // `lat plugin add` works here immediately instead of needing the workspace,
+    // the dependency and the `.modules` call wired by hand.
+    fs::create_dir_all(dir.join("plugins"))?;
+    crate::plugin::scaffold(dir)?;
     fs::create_dir_all(dir.join("src/migrations"))?;
     write(dir.join("src/migrations/mod.rs"), &migrations_mod_rs(name))?;
     write(
@@ -544,18 +549,49 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
              laterite-admin = {{ version = \"0.5\", features = [\"{feature}\"] }}"
         ),
     };
+    // Plugins are separate crates linked at build time, so the application is a
+    // workspace from the start: the generated plugins-manifest and every plugin
+    // under plugins/ are members. Scaffolding it here is what lets `lat plugin
+    // add` work on a fresh app without any hand-editing.
+    let patch = match framework {
+        Some(root) => format!(
+            "\n# A plugin states its framework requirement by version. Point those at the\n\
+             # same checkout this app uses, or the plugin links a second copy of the\n\
+             # framework and its Module is a different type from this one's.\n\
+             [patch.crates-io]\n\
+             laterite-core = {{ path = {core:?} }}\n\
+             laterite-admin = {{ path = {admin:?} }}\n",
+            core = root.join("crates/core").display().to_string(),
+            admin = root.join("crates/admin").display().to_string(),
+        ),
+        None => String::new(),
+    };
     format!(
         r#"[package]
 name = "{name}"
 version = "0.1.0"
+edition.workspace = true
+
+# Its own workspace root, so the app builds even when created inside another
+# Cargo workspace's tree, and so plugins can be members.
+# Only the manifest is listed: each plugin is a path dependency of it, and cargo
+# makes path dependencies inside the workspace directory members automatically,
+# so adding a plugin never means editing this file.
+[workspace]
+members = ["plugins-manifest"]
+
+[workspace.package]
 edition = "2021"
 
-# Stand alone as its own workspace root, so the app builds even when it is
-# created inside another Cargo workspace's directory tree.
-[workspace]
-
-[dependencies]
+# Plugins and the generated manifest inherit the framework from here, so one
+# version is chosen in one place.
+[workspace.dependencies]
 {laterite_deps}
+{patch}
+[dependencies]
+laterite-core = {{ workspace = true }}
+laterite-admin = {{ workspace = true }}
+plugins-manifest = {{ path = "plugins-manifest" }}
 anyhow = "1"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
 "#
@@ -574,6 +610,8 @@ mod migrations;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     laterite_admin::Bootstrap::new("config")
+        // Every plugin under plugins/, as listed in plugins/plugins.toml.
+        .modules(plugins_manifest::all())
         .module(migrations::AppModule)
         // Register admin screens, permissions, and settings in AppModule::register().
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
@@ -720,9 +758,35 @@ mod tests {
         let toml = cargo_toml("acme", "sqlite", None);
         assert!(toml.contains("laterite-core = \"0.5\""));
         assert!(toml.contains("laterite-admin = { version = \"0.5\", features = [\"sqlite\"] }"));
-        assert!(!toml.contains("path ="));
+        // No local checkout leaks into a published-mode scaffold. The one path
+        // here is the generated manifest, which is part of the app.
+        assert!(!toml.contains("laterite-core = { path"));
+        assert!(!toml.contains("laterite-admin = { path"));
+        assert!(!toml.contains("[patch.crates-io]"));
         // laterite-auth is no longer a direct dependency (Bootstrap owns auth).
         assert!(!toml.contains("laterite-auth"));
+    }
+
+    /// A fresh app is a workspace that already links the generated manifest, so
+    /// `lat plugin add` needs no hand-wiring. This is the gap that made a plugin
+    /// dropped into a `lat new` app silently do nothing.
+    #[test]
+    fn a_new_app_is_wired_for_plugins() {
+        let toml = cargo_toml("acme", "sqlite", None);
+        assert!(toml.contains(r#"members = ["plugins-manifest"]"#), "{toml}");
+        assert!(toml.contains(r#"plugins-manifest = { path = "plugins-manifest" }"#));
+        assert!(toml.contains("[workspace.dependencies]"));
+        assert!(MAIN_RS.contains(".modules(plugins_manifest::all())"));
+    }
+
+    /// In dev mode a plugin's version-only requirement on the framework has to
+    /// resolve to the same checkout the app uses, or its Module is a different
+    /// type from the one Bootstrap wants.
+    #[test]
+    fn dev_mode_patches_the_framework_for_plugins() {
+        let toml = cargo_toml("acme", "sqlite", Some(Path::new("/opt/laterite")));
+        assert!(toml.contains("[patch.crates-io]"), "{toml}");
+        assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
     }
 
     #[test]

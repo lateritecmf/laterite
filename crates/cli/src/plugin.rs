@@ -1,18 +1,23 @@
-//! `lat plugin`: discover the plugins under `plugins/<author>/<plugin>/` and keep
-//! the generated `plugins-manifest` crate in step with them.
+//! `lat plugin`: the plugins this application compiles in, and the generated
+//! `plugins-manifest` crate that links them.
 //!
 //! Plugin code is linked at build time, so a single binary cannot pick up a
-//! plugin folder at runtime the way a scripting CMS does. Instead `sync` scans
-//! the plugin tree, checks each crate against its folder, and regenerates the
-//! `plugins-manifest` crate that `Bootstrap::modules` reads. Dropping a plugin in
-//! and running `lat plugin sync` (then rebuilding) is the compiled equivalent of
-//! a drop-in install.
+//! folder at runtime the way a scripting CMS does. What is compiled in is
+//! therefore a build-time fact, recorded in `plugins/plugins.toml`; which of
+//! those are *active* is runtime state, held in the database and toggled from
+//! the admin. Two kinds of truth, each owned by the thing that can honour it.
 //!
-//! Each plugin crate exposes `pub fn module() -> Box<dyn Module>` as its entry
-//! point, so the generated manifest collects it without knowing the type name.
+//! `add` and `remove` edit the list, `sync` regenerates the manifest crate from
+//! it, and a rebuild picks the change up. Folder names carry no meaning: the
+//! list says where each plugin is, and the plugin's own `Cargo.toml` says what
+//! it is called, so nothing has to be renamed to be installed.
+//!
+//! Each plugin crate exposes `pub fn module() -> Box<dyn Module>` at its root,
+//! so the generated manifest collects it without knowing the type name.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
@@ -20,31 +25,62 @@ use serde::Deserialize;
 
 /// Where plugins live, relative to the application root.
 const PLUGINS_DIR: &str = "plugins";
+/// The declarative list of compiled-in plugins, inside `plugins/`.
+const LIST_FILE: &str = "plugins.toml";
 /// The generated aggregator crate, a sibling of `plugins/`.
 const MANIFEST_DIR: &str = "plugins-manifest";
 
 #[derive(Subcommand)]
 pub enum PluginCommand {
-    /// Regenerate the plugins-manifest crate from the plugins/ tree.
+    /// Add a plugin from a local path or a git URL, and record it.
+    Add {
+        /// A local directory, or a git URL to clone into plugins/.
+        source: String,
+        /// Folder name to use under plugins/. Defaults to the crate's own name.
+        #[arg(long)]
+        r#as: Option<String>,
+    },
+    /// Remove a plugin from the list by crate name or folder.
+    Remove {
+        /// The plugin's crate name (`rainmill-discovery`) or its folder.
+        name: String,
+        /// Also delete the plugin's folder from plugins/.
+        #[arg(long)]
+        delete: bool,
+    },
+    /// Regenerate the plugins-manifest crate from plugins/plugins.toml.
     Sync,
-    /// List the plugins discovered under plugins/.
+    /// List the plugins this application compiles in.
     List,
 }
 
 pub fn run(command: PluginCommand) -> Result<()> {
     let project = crate::project::Project::locate()?;
     match command {
+        PluginCommand::Add { source, r#as } => add(&project.root, &source, r#as.as_deref()),
+        PluginCommand::Remove { name, delete } => remove(&project.root, &name, delete),
         PluginCommand::Sync => sync(&project.root),
         PluginCommand::List => list(&project.root),
     }
 }
 
-/// A plugin discovered from the `plugins/<author>/<plugin>/` layout, its crate
-/// name verified against the folder names.
+/// One entry in `plugins/plugins.toml`.
+#[derive(Debug, Clone, Deserialize)]
+struct Entry {
+    /// Where the plugin crate is, relative to `plugins/`.
+    path: String,
+    /// Where it came from, when it was cloned. Provenance only; nothing resolves
+    /// it, so a plugin vendored by hand simply has none.
+    #[serde(default)]
+    source: Option<String>,
+}
+
+/// A resolved entry: its recorded path plus the crate name its own manifest
+/// declares. The crate name is never stored in the list, so the two can never
+/// disagree.
 #[derive(Debug)]
 struct Plugin {
-    author: String,
-    name: String,
+    entry: Entry,
     crate_name: String,
 }
 
@@ -54,20 +90,15 @@ impl Plugin {
         self.crate_name.replace('-', "_")
     }
 
-    /// The runtime module id the folder layout implies (`rainmill.location`).
-    fn module_id(&self) -> String {
-        format!("{}.{}", self.author, self.name)
-    }
-
     /// The dependency path from the manifest crate to this plugin.
     fn dep_path(&self) -> String {
-        format!("../{PLUGINS_DIR}/{}/{}", self.author, self.name)
+        format!("../{PLUGINS_DIR}/{}", self.entry.path)
     }
 }
 
-/// The `[package]` slice of a plugin's Cargo.toml that `sync` needs.
+/// The `[package]` slice of a plugin's Cargo.toml that this command needs.
 #[derive(Deserialize)]
-struct Manifest {
+struct CargoManifest {
     package: Package,
 }
 
@@ -76,81 +107,411 @@ struct Package {
     name: String,
 }
 
+/// The whole list file.
+#[derive(Default, Deserialize)]
+struct PluginList {
+    #[serde(default, rename = "plugin")]
+    plugins: Vec<Entry>,
+}
+
+// ---------------------------------------------------------------- the list
+
+fn list_path(root: &Path) -> PathBuf {
+    root.join(PLUGINS_DIR).join(LIST_FILE)
+}
+
+/// Reads `plugins/plugins.toml`, resolving each entry against its crate manifest.
+///
+/// An application with no `plugins/` directory is not using plugins at all, and
+/// gets `None` so callers can stay quiet rather than reporting a problem.
+fn read_list(root: &Path) -> Result<Option<Vec<Plugin>>> {
+    let dir = root.join(PLUGINS_DIR);
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    let file = list_path(root);
+    let entries = if file.is_file() {
+        let text =
+            fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
+        let parsed: PluginList =
+            toml::from_str(&text).with_context(|| format!("parsing {}", file.display()))?;
+        parsed.plugins
+    } else {
+        // An application from before the list existed has its plugins in the old
+        // `<author>/<plugin>` layout. Adopt them once rather than reporting none,
+        // so an upgrade needs no hand-editing.
+        let found = scan_legacy(&dir)?;
+        if !found.is_empty() {
+            write_list(root, &found)?;
+            println!(
+                "Adopted {} plugin(s) from the folder layout into {PLUGINS_DIR}/{LIST_FILE}.",
+                found.len()
+            );
+        }
+        found
+    };
+
+    let mut plugins = Vec::new();
+    for entry in entries {
+        let crate_dir = dir.join(&entry.path);
+        let manifest = crate_dir.join("Cargo.toml");
+        if !manifest.is_file() {
+            bail!(
+                "{PLUGINS_DIR}/{LIST_FILE} lists '{}', but {} has no Cargo.toml.\n\
+                 Fix the path, or drop it with `lat plugin remove {}`.",
+                entry.path,
+                crate_dir.display(),
+                entry.path
+            );
+        }
+        let crate_name = read_crate_name(&manifest)?;
+        plugins.push(Plugin { entry, crate_name });
+    }
+    // Sorted by crate name so the generated manifest is stable across machines.
+    plugins.sort_by(|a, b| a.crate_name.cmp(&b.crate_name));
+    if let Some(pair) = plugins
+        .windows(2)
+        .find(|w| w[0].crate_name == w[1].crate_name)
+    {
+        bail!(
+            "{PLUGINS_DIR}/{LIST_FILE} lists {} twice, at '{}' and '{}'. A plugin can \
+             only be compiled in once.",
+            pair[0].crate_name,
+            pair[0].entry.path,
+            pair[1].entry.path
+        );
+    }
+    Ok(Some(plugins))
+}
+
+/// The pre-list layout: `plugins/<author>/<plugin>/`. Read once, to migrate.
+fn scan_legacy(dir: &Path) -> Result<Vec<Entry>> {
+    let mut found = Vec::new();
+    for author in subdirs(dir)? {
+        for plugin in subdirs(&author)? {
+            if plugin.join("Cargo.toml").is_file() {
+                found.push(Entry {
+                    path: format!("{}/{}", file_name(&author), file_name(&plugin)),
+                    source: None,
+                });
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Writes the list. Hand-formatted rather than serialized, because this file is
+/// read by people and the comment at the top is the point.
+fn write_list(root: &Path, entries: &[Entry]) -> Result<()> {
+    let mut out = String::from(
+        "# The plugins this application compiles in.\n\
+         #\n\
+         # Managed by `lat plugin add` and `lat plugin remove`; run `lat plugin sync`\n\
+         # and rebuild after editing. Paths are relative to this directory, and folder\n\
+         # names carry no meaning: each plugin's own Cargo.toml says what it is called.\n\
+         #\n\
+         # Enabling and disabling a plugin is separate, and needs no rebuild: it is\n\
+         # runtime state, kept in the database and toggled from the admin.\n",
+    );
+    for entry in entries {
+        out.push_str(&format!("\n[[plugin]]\npath = {:?}\n", entry.path));
+        if let Some(source) = &entry.source {
+            out.push_str(&format!("source = {source:?}\n"));
+        }
+    }
+    let file = list_path(root);
+    fs::create_dir_all(file.parent().unwrap())?;
+    fs::write(&file, out).with_context(|| format!("writing {}", file.display()))?;
+    Ok(())
+}
+
+/// Creates the plugin layout for a new application: an empty list and an empty
+/// generated manifest, so `lat plugin add` works on a fresh app with no
+/// hand-editing. Called by `lat new`.
+pub fn scaffold(root: &Path) -> Result<()> {
+    write_list(root, &[])?;
+    write_manifest(&root.join(MANIFEST_DIR), &[])
+}
+
+// ---------------------------------------------------------------- commands
+
+fn add(root: &Path, source: &str, folder: Option<&str>) -> Result<()> {
+    let dir = root.join(PLUGINS_DIR);
+    fs::create_dir_all(&dir)?;
+
+    let existing: Vec<Entry> = read_list(root)?
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.entry)
+        .collect();
+
+    // A local source can be inspected before anything is created, so the common
+    // mistake (installing a plugin twice) is caught without leaving debris.
+    if !is_git_url(source) {
+        if let Ok(name) = read_crate_name(&PathBuf::from(source).join("Cargo.toml")) {
+            refuse_duplicate(&dir, &existing, &name)?;
+        }
+    }
+
+    let (entry, created) = if is_git_url(source) {
+        (clone(&dir, source, folder)?, true)
+    } else {
+        local(&dir, source, folder)?
+    };
+
+    // Anything that fails from here removes what this command created, so a
+    // refused add leaves the tree exactly as it found it.
+    let result = finish_add(root, &dir, &entry, &existing);
+    if result.is_err() && created {
+        let target = dir.join(&entry.path);
+        let _ = if target.is_symlink() {
+            fs::remove_file(&target)
+        } else {
+            fs::remove_dir_all(&target)
+        };
+    }
+    result
+}
+
+fn finish_add(root: &Path, dir: &Path, entry: &Entry, existing: &[Entry]) -> Result<()> {
+    let manifest = dir.join(&entry.path).join("Cargo.toml");
+    if !manifest.is_file() {
+        bail!(
+            "{} has no Cargo.toml, so it is not a plugin crate",
+            dir.join(&entry.path).display()
+        );
+    }
+    let crate_name = read_crate_name(&manifest)?;
+    if let Some(found) = existing.iter().find(|e| e.path == entry.path) {
+        println!("Already installed: {} ({})", crate_name, found.path);
+        return Ok(());
+    }
+    refuse_duplicate(dir, existing, &crate_name)?;
+
+    let mut entries = existing.to_vec();
+    entries.push(entry.clone());
+    write_list(root, &entries)?;
+    sync(root)?;
+    println!("\nAdded {crate_name} at {PLUGINS_DIR}/{}.", entry.path);
+    println!("Rebuild to pick it up; enable or disable it from the admin afterwards.");
+    Ok(())
+}
+
+/// Two folders holding one crate would generate the same dependency key twice
+/// and the manifest would not parse. Refused here, where the fix is obvious.
+fn refuse_duplicate(dir: &Path, existing: &[Entry], crate_name: &str) -> Result<()> {
+    for other in existing {
+        let manifest = dir.join(&other.path).join("Cargo.toml");
+        if read_crate_name(&manifest).ok().as_deref() == Some(crate_name) {
+            bail!(
+                "{crate_name} is already installed at {PLUGINS_DIR}/{}. A plugin can \
+                 only be compiled in once; remove that one first if you meant to \
+                 move it.",
+                other.path
+            );
+        }
+    }
+    Ok(())
+}
+
+fn remove(root: &Path, name: &str, delete: bool) -> Result<()> {
+    let plugins = read_list(root)?.unwrap_or_default();
+    // Accept the crate name, the folder, or the dotted module id, since those are
+    // the three ways a person might refer to the same plugin.
+    let dotted = name.replace('.', "-");
+    let Some(found) = plugins
+        .iter()
+        .find(|p| p.crate_name == name || p.entry.path == name || p.crate_name == dotted)
+    else {
+        bail!("no plugin called '{name}'. `lat plugin list` shows what is installed.");
+    };
+
+    let path = found.entry.path.clone();
+    let crate_name = found.crate_name.clone();
+    let kept: Vec<Entry> = plugins
+        .into_iter()
+        .filter(|p| p.entry.path != path)
+        .map(|p| p.entry)
+        .collect();
+    write_list(root, &kept)?;
+
+    if delete {
+        let target = root.join(PLUGINS_DIR).join(&path);
+        // A symlink is removed, never followed: the checkout it points at is
+        // somebody's working copy, not ours to delete.
+        if target.is_symlink() {
+            fs::remove_file(&target)?;
+        } else {
+            fs::remove_dir_all(&target)
+                .with_context(|| format!("removing {}", target.display()))?;
+        }
+        println!("Deleted {PLUGINS_DIR}/{path}.");
+    }
+    sync(root)?;
+    println!("\nRemoved {crate_name}. Rebuild to drop it from the binary.");
+    if !delete {
+        println!("Its folder is still at {PLUGINS_DIR}/{path}; `--delete` removes that too.");
+    }
+    Ok(())
+}
+
 fn sync(root: &Path) -> Result<()> {
-    let plugins = discover(&root.join(PLUGINS_DIR))?;
+    let Some(plugins) = read_list(root)? else {
+        bail!(
+            "no {PLUGINS_DIR}/ directory here; run this from a Laterite application \
+             that uses plugins"
+        );
+    };
     write_manifest(&root.join(MANIFEST_DIR), &plugins)?;
     if plugins.is_empty() {
-        println!("No plugins under {PLUGINS_DIR}/; wrote an empty {MANIFEST_DIR}.");
+        println!("No plugins listed in {PLUGINS_DIR}/{LIST_FILE}; wrote an empty {MANIFEST_DIR}.");
     } else {
         println!("Synced {} plugin(s) into {MANIFEST_DIR}/:", plugins.len());
         for p in &plugins {
-            println!("  {} ({})", p.module_id(), p.crate_name);
+            println!("  {:<26} {PLUGINS_DIR}/{}", p.crate_name, p.entry.path);
         }
     }
+    warn_if_unwired(root);
     Ok(())
 }
 
 fn list(root: &Path) -> Result<()> {
-    let plugins = discover(&root.join(PLUGINS_DIR))?;
+    let Some(plugins) = read_list(root)? else {
+        println!("This application has no {PLUGINS_DIR}/ directory.");
+        return Ok(());
+    };
     if plugins.is_empty() {
-        println!("No plugins under {PLUGINS_DIR}/.");
+        println!("No plugins listed in {PLUGINS_DIR}/{LIST_FILE}.");
         return Ok(());
     }
     for p in &plugins {
-        println!(
-            "{:<24} {:<24} {}",
-            p.module_id(),
-            p.crate_name,
-            p.dep_path()
-        );
+        println!("{:<26} {PLUGINS_DIR}/{}", p.crate_name, p.entry.path);
     }
+    println!(
+        "\nThese are compiled in. Which are enabled is runtime state: see the \
+         admin's Plugins screen."
+    );
     Ok(())
 }
 
-/// Scans `<root>/<author>/<plugin>/` for plugin crates, checking each crate name
-/// matches its folder (`author-plugin`). Returns them sorted by author then name,
-/// so the generated manifest is stable across runs and machines.
-fn discover(root: &Path) -> Result<Vec<Plugin>> {
-    if !root.is_dir() {
-        bail!(
-            "no {}/ directory here; run this from a Laterite application that uses the plugin layout",
-            root.display()
-        );
+/// A generated manifest nothing depends on is the failure this command used to
+/// report as success: `sync` wrote the file, the application never linked it, and
+/// the plugin silently did nothing.
+fn warn_if_unwired(root: &Path) {
+    let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
+    if cargo.contains("plugins-manifest") {
+        return;
     }
-    let mut plugins = Vec::new();
-    let mut problems = Vec::new();
-    for author_dir in subdirs(root)? {
-        let author = file_name(&author_dir);
-        for plugin_dir in subdirs(&author_dir)? {
-            let manifest = plugin_dir.join("Cargo.toml");
-            if !manifest.is_file() {
-                continue; // not a crate; ignore stray directories
-            }
-            let name = file_name(&plugin_dir);
-            let crate_name = read_crate_name(&manifest)?;
-            let expected = format!("{author}-{name}");
-            if crate_name != expected {
-                problems.push(format!(
-                    "  {}: crate is '{crate_name}', but the {PLUGINS_DIR}/{author}/{name} layout requires '{expected}'",
-                    plugin_dir.display()
-                ));
-                continue;
-            }
-            plugins.push(Plugin {
-                author: author.clone(),
-                name,
-                crate_name,
-            });
-        }
-    }
-    if !problems.is_empty() {
-        bail!(
-            "plugin crate names must match their folders (crate = author-plugin):\n{}",
-            problems.join("\n")
-        );
-    }
-    Ok(plugins)
+    eprintln!(
+        "\nwarning: this application's Cargo.toml does not depend on {MANIFEST_DIR}, so \
+         nothing it generates is compiled in.\n\
+         \x20        Add `plugins-manifest = {{ path = \"{MANIFEST_DIR}\" }}` to \
+         [dependencies], list it under [workspace] members, and register it with\n\
+         \x20        `.modules(plugins_manifest::all())` in main.rs."
+    );
 }
+
+// ---------------------------------------------------------------- sources
+
+fn is_git_url(source: &str) -> bool {
+    source.starts_with("http://")
+        || source.starts_with("https://")
+        || source.starts_with("git@")
+        || source.ends_with(".git")
+}
+
+/// Clones into `plugins/<name>` and records the URL for provenance.
+fn clone(dir: &Path, url: &str, folder: Option<&str>) -> Result<Entry> {
+    let name = folder.map(str::to_string).unwrap_or_else(|| {
+        url.trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("plugin")
+            .trim_end_matches(".git")
+            .to_string()
+    });
+    let target = dir.join(&name);
+    if target.exists() {
+        bail!(
+            "{} already exists; pass --as to choose another folder",
+            target.display()
+        );
+    }
+    let status = Command::new("git")
+        .args(["clone", "--depth", "1", url])
+        .arg(&target)
+        .status()
+        .context("running git clone (is git installed?)")?;
+    if !status.success() {
+        bail!("git clone failed for {url}");
+    }
+    Ok(Entry {
+        path: name,
+        source: Some(url.to_string()),
+    })
+}
+
+/// Records a local directory. One inside the application is recorded as a
+/// relative path; one outside is symlinked into `plugins/` first, so the list
+/// stays portable across machines instead of carrying somebody's home directory.
+fn local(dir: &Path, source: &str, folder: Option<&str>) -> Result<(Entry, bool)> {
+    let from = PathBuf::from(source);
+    let abs = from
+        .canonicalize()
+        .with_context(|| format!("{source} does not exist"))?;
+    if !abs.is_dir() {
+        bail!("{source} is not a directory");
+    }
+    let plugins = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+
+    if let Ok(inside) = abs.strip_prefix(&plugins) {
+        // Already under plugins/: recorded where it is, nothing created.
+        return Ok((
+            Entry {
+                path: inside.to_string_lossy().replace('\\', "/"),
+                source: None,
+            },
+            false,
+        ));
+    }
+
+    let name = match folder {
+        Some(name) => name.to_string(),
+        None => read_crate_name(&abs.join("Cargo.toml"))?,
+    };
+    let link = dir.join(&name);
+    if link.exists() || link.is_symlink() {
+        bail!(
+            "{} already exists; pass --as to choose another folder",
+            link.display()
+        );
+    }
+    symlink(&abs, &link)
+        .with_context(|| format!("linking {} to {}", link.display(), abs.display()))?;
+    println!(
+        "Linked {PLUGINS_DIR}/{name} -> {} (it stays where it is; edits apply in place).",
+        abs.display()
+    );
+    Ok((
+        Entry {
+            path: name,
+            source: None,
+        },
+        true,
+    ))
+}
+
+#[cfg(unix)]
+fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+// ------------------------------------------------------- generated manifest
 
 fn write_manifest(dir: &Path, plugins: &[Plugin]) -> Result<()> {
     fs::create_dir_all(dir.join("src"))
@@ -218,12 +579,12 @@ pub fn all() -> Vec<Box<dyn Module>> {{
 /// Whether the generated manifest matches the current plugin tree under the
 /// application at `app_root`. `None` when the app doesn't use the plugin layout
 /// (no plugins/ dir), so `doctor` can skip the check.
+/// Whether the generated manifest matches the list. `None` when the application
+/// does not use plugins at all, so `lat doctor` can stay quiet about it.
 pub fn manifest_in_sync(app_root: &Path) -> Result<Option<bool>> {
-    let root = app_root.join(PLUGINS_DIR);
-    if !root.is_dir() {
+    let Some(plugins) = read_list(app_root)? else {
         return Ok(None);
-    }
-    let plugins = discover(&root)?;
+    };
     let dir = app_root.join(MANIFEST_DIR);
     let cargo_ok =
         fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default() == manifest_cargo(&plugins);
@@ -235,7 +596,7 @@ pub fn manifest_in_sync(app_root: &Path) -> Result<Option<bool>> {
 fn read_crate_name(manifest: &Path) -> Result<String> {
     let text =
         fs::read_to_string(manifest).with_context(|| format!("reading {}", manifest.display()))?;
-    let parsed: Manifest =
+    let parsed: CargoManifest =
         toml::from_str(&text).with_context(|| format!("parsing {}", manifest.display()))?;
     Ok(parsed.package.name)
 }
@@ -262,83 +623,229 @@ fn file_name(p: &Path) -> String {
 mod tests {
     use super::*;
 
-    fn write_plugin(root: &Path, author: &str, name: &str, crate_name: &str) {
-        let dir = root.join(author).join(name);
+    /// A plugin crate at `plugins/<folder>`, whose name deliberately need not
+    /// match the folder: that freedom is the point of the list.
+    fn write_plugin(root: &Path, folder: &str, crate_name: &str) {
+        let dir = root.join(PLUGINS_DIR).join(folder);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("Cargo.toml"),
-            format!(
-                "[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
-            ),
+            format!("[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\n"),
         )
         .unwrap();
     }
 
-    #[test]
-    fn discover_finds_and_sorts_plugins() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        write_plugin(root, "acme", "shop", "acme-shop");
-        write_plugin(root, "acme", "blog", "acme-blog");
-        let plugins = discover(root).unwrap();
-        assert_eq!(plugins.len(), 2);
-        // Sorted, so the generated manifest is stable: acme/blog before acme/shop.
-        assert_eq!(plugins[0].module_id(), "acme.blog");
-        assert_eq!(plugins[1].module_id(), "acme.shop");
+    fn app() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(PLUGINS_DIR)).unwrap();
+        dir
     }
 
     #[test]
-    fn discover_rejects_a_crate_name_that_mismatches_its_folder() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_plugin(tmp.path(), "acme", "blog", "wrong-name");
-        let err = discover(tmp.path()).unwrap_err().to_string();
-        assert!(err.contains("acme-blog"), "{err}");
+    fn the_list_is_the_source_of_truth_not_the_folder_name() {
+        let app = app();
+        write_plugin(app.path(), "anything-at-all", "rainmill-discovery");
+        write_list(
+            app.path(),
+            &[Entry {
+                path: "anything-at-all".into(),
+                source: None,
+            }],
+        )
+        .unwrap();
+
+        let plugins = read_list(app.path()).unwrap().unwrap();
+        assert_eq!(plugins.len(), 1);
+        // The crate name comes from the crate, never from the folder, so the two
+        // cannot drift apart and nothing has to be renamed to be installed.
+        assert_eq!(plugins[0].crate_name, "rainmill-discovery");
+        assert_eq!(plugins[0].entry.path, "anything-at-all");
     }
 
     #[test]
-    fn discover_ignores_non_crate_directories() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_plugin(tmp.path(), "acme", "blog", "acme-blog");
-        // A directory without a Cargo.toml is not a plugin crate.
-        fs::create_dir_all(tmp.path().join("acme").join("assets")).unwrap();
-        assert_eq!(discover(tmp.path()).unwrap().len(), 1);
+    fn a_folder_present_but_unlisted_is_not_compiled_in() {
+        let app = app();
+        write_plugin(app.path(), "listed", "acme-listed");
+        write_plugin(app.path(), "dropped-in", "acme-dropped");
+        write_list(
+            app.path(),
+            &[Entry {
+                path: "listed".into(),
+                source: None,
+            }],
+        )
+        .unwrap();
+
+        let plugins = read_list(app.path()).unwrap().unwrap();
+        assert_eq!(plugins.len(), 1, "only the listed plugin counts");
+        assert_eq!(plugins[0].crate_name, "acme-listed");
+    }
+
+    #[test]
+    fn a_listed_path_that_is_not_a_crate_is_reported_by_name() {
+        let app = app();
+        write_list(
+            app.path(),
+            &[Entry {
+                path: "gone".into(),
+                source: None,
+            }],
+        )
+        .unwrap();
+        let err = read_list(app.path()).unwrap_err().to_string();
+        assert!(err.contains("gone"), "{err}");
+        assert!(
+            err.contains("lat plugin remove"),
+            "the error says how to fix it"
+        );
+    }
+
+    /// An application from before the list existed keeps working: its folder
+    /// layout is adopted once, rather than reading as no plugins at all.
+    #[test]
+    fn the_old_folder_layout_is_adopted_once() {
+        let app = app();
+        write_plugin(app.path(), "rainmill/location", "rainmill-location");
+        assert!(!list_path(app.path()).is_file());
+
+        let plugins = read_list(app.path()).unwrap().unwrap();
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].entry.path, "rainmill/location");
+        assert!(list_path(app.path()).is_file(), "the list was written");
+
+        // And the second read comes from the file, not another scan.
+        assert_eq!(read_list(app.path()).unwrap().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_application_without_plugins_reports_nothing_rather_than_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_list(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_list_round_trips_through_its_own_writer() {
+        let app = app();
+        let entries = vec![
+            Entry {
+                path: "one".into(),
+                source: None,
+            },
+            Entry {
+                path: "two".into(),
+                source: Some("https://example.test/two.git".into()),
+            },
+        ];
+        write_list(app.path(), &entries).unwrap();
+        let text = fs::read_to_string(list_path(app.path())).unwrap();
+        let parsed: PluginList = toml::from_str(&text).unwrap();
+
+        assert_eq!(parsed.plugins.len(), 2);
+        assert_eq!(
+            parsed.plugins[1].source.as_deref(),
+            Some("https://example.test/two.git")
+        );
+        // The header explains the split that the file exists to express.
+        assert!(text.contains("runtime state"), "{text}");
+    }
+
+    #[test]
+    fn plugins_are_ordered_by_crate_name_so_the_manifest_is_stable() {
+        let app = app();
+        write_plugin(app.path(), "b", "acme-zebra");
+        write_plugin(app.path(), "a", "acme-alpha");
+        write_list(
+            app.path(),
+            &[
+                Entry {
+                    path: "b".into(),
+                    source: None,
+                },
+                Entry {
+                    path: "a".into(),
+                    source: None,
+                },
+            ],
+        )
+        .unwrap();
+        let names: Vec<String> = read_list(app.path())
+            .unwrap()
+            .unwrap()
+            .iter()
+            .map(|p| p.crate_name.clone())
+            .collect();
+        assert_eq!(names, ["acme-alpha", "acme-zebra"]);
+    }
+
+    /// Two folders holding one crate would generate the same dependency key
+    /// twice, and cargo would fail on a duplicate key rather than on anything
+    /// that names the plugin.
+    #[test]
+    fn the_same_crate_cannot_be_listed_twice() {
+        let app = app();
+        write_plugin(app.path(), "here", "acme-thing");
+        write_plugin(app.path(), "there", "acme-thing");
+        write_list(
+            app.path(),
+            &[
+                Entry {
+                    path: "here".into(),
+                    source: None,
+                },
+                Entry {
+                    path: "there".into(),
+                    source: None,
+                },
+            ],
+        )
+        .unwrap();
+        let err = read_list(app.path()).unwrap_err().to_string();
+        assert!(err.contains("acme-thing"), "{err}");
+        assert!(err.contains("only be compiled in once"), "{err}");
     }
 
     #[test]
     fn manifest_lib_lists_each_plugins_entry_point() {
         let plugins = vec![
             Plugin {
-                author: "acme".into(),
-                name: "blog".into(),
-                crate_name: "acme-blog".into(),
+                entry: Entry {
+                    path: "one".into(),
+                    source: None,
+                },
+                crate_name: "acme-one".into(),
             },
             Plugin {
-                author: "rainmill".into(),
-                name: "location".into(),
-                crate_name: "rainmill-location".into(),
+                entry: Entry {
+                    path: "nested/two".into(),
+                    source: None,
+                },
+                crate_name: "acme-two".into(),
             },
         ];
         let lib = manifest_lib(&plugins);
-        assert!(lib.contains("acme_blog::module(),"));
-        assert!(lib.contains("rainmill_location::module(),"));
+        assert!(lib.contains("acme_one::module(),"));
+        assert!(lib.contains("acme_two::module(),"));
         assert!(lib.contains("pub fn all() -> Vec<Box<dyn Module>>"));
-        assert!(lib.contains("@generated"));
     }
 
     #[test]
-    fn manifest_cargo_declares_each_plugin_by_path() {
+    fn manifest_cargo_declares_each_plugin_by_its_listed_path() {
         let plugins = vec![Plugin {
-            author: "rainmill".into(),
-            name: "location".into(),
-            crate_name: "rainmill-location".into(),
+            entry: Entry {
+                path: "nested/two".into(),
+                source: None,
+            },
+            crate_name: "acme-two".into(),
         }];
         let cargo = manifest_cargo(&plugins);
-        assert!(cargo.contains(r#"rainmill-location = { path = "../plugins/rainmill/location" }"#));
-        assert!(cargo.contains("laterite-core = { workspace = true }"));
+        assert!(
+            cargo.contains(r#"acme-two = { path = "../plugins/nested/two" }"#),
+            "{cargo}"
+        );
     }
 
     #[test]
-    fn an_empty_tree_generates_an_empty_manifest() {
+    fn an_empty_list_generates_an_empty_manifest() {
         assert!(manifest_lib(&[]).contains("vec![]"));
     }
 }
