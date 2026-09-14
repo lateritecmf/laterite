@@ -26,6 +26,10 @@ sqlx = { workspace = true }
 tokio = { workspace = true }
 # `plugin sync` reads each plugin's Cargo.toml to verify its crate name.
 toml = "0.8"
+# Compatibility checks compare a plugin's framework requirement against this
+# application's version. Semver has subtle rules (a pre-1.0 minor is the breaking
+# position), so the comparison is not hand-rolled.
+semver = "1"
 # `i18n extract` parses Rust to find the `t!`/`tn!`/`tp!` source strings.
 syn = { version = "2", features = ["full", "visit"] }
 proc-macro2 = "1"

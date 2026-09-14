@@ -15,6 +15,7 @@
 //! Each plugin crate exposes `pub fn module() -> Box<dyn Module>` at its root,
 //! so the generated manifest collects it without knowing the type name.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -96,22 +97,210 @@ impl Plugin {
     }
 }
 
-/// The `[package]` slice of a plugin's Cargo.toml that this command needs.
+/// The slices of a Cargo.toml this command reads. Everything here is available
+/// without building the crate, which is what makes the checks an upfront gate
+/// rather than a compile error later.
 #[derive(Deserialize)]
 struct CargoManifest {
     package: Package,
+    #[serde(default)]
+    dependencies: BTreeMap<String, Dependency>,
+    #[serde(default)]
+    workspace: Option<Workspace>,
 }
 
 #[derive(Deserialize)]
 struct Package {
     name: String,
+    /// Absent when the crate inherits it from its workspace, which a framework
+    /// crate does not.
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    metadata: Option<Metadata>,
 }
+
+#[derive(Deserialize)]
+struct Metadata {
+    #[serde(default)]
+    laterite: Option<LateriteMetadata>,
+}
+
+/// What a crate declares about itself as a plugin.
+///
+/// Its presence is the marker: a crate without it is not a plugin, and `add`
+/// says so rather than letting the build fail on a missing `module()`.
+/// Deliberately **not** a version field. Which Laterite a plugin supports is
+/// already stated by its dependency requirement, and a second copy of that fact
+/// could disagree with the first.
+#[derive(Deserialize)]
+struct LateriteMetadata {
+    /// The module id this crate registers (`vendor.package`), matching its
+    /// `Module::id()`. The marketplace keys on it, and it is what a person
+    /// installing by name asked for.
+    plugin: String,
+}
+
+#[derive(Deserialize)]
+struct Workspace {
+    #[serde(default)]
+    dependencies: BTreeMap<String, Dependency>,
+}
+
+/// A dependency as Cargo writes it: a bare version, or a table.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Dependency {
+    Version(String),
+    Table {
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        path: Option<String>,
+    },
+}
+
+impl Dependency {
+    fn version(&self) -> Option<&str> {
+        match self {
+            Dependency::Version(v) => Some(v),
+            Dependency::Table { version, .. } => version.as_deref(),
+        }
+    }
+
+    fn path(&self) -> Option<&str> {
+        match self {
+            Dependency::Version(_) => None,
+            Dependency::Table { path, .. } => path.as_deref(),
+        }
+    }
+}
+
+/// The framework crates a plugin may depend on. Any one of them states which
+/// Laterite it was built for, since they release in lockstep.
+const FRAMEWORK_CRATES: [&str; 4] = [
+    "laterite-admin",
+    "laterite-core",
+    "laterite-auth",
+    "laterite-web",
+];
 
 /// The whole list file.
 #[derive(Default, Deserialize)]
 struct PluginList {
     #[serde(default, rename = "plugin")]
     plugins: Vec<Entry>,
+}
+
+// -------------------------------------------------------- compatibility
+
+fn read_manifest(path: &Path) -> Result<CargoManifest> {
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+}
+
+/// Which Laterite a crate was built for, read from whichever framework crate it
+/// depends on: they release in lockstep, so any one of them says it.
+///
+/// `None` means the crate names no framework crate by version at all, which for
+/// a plugin means a local checkout (a path dependency) and nothing to check.
+fn framework_requirement(manifest: &CargoManifest) -> Option<(String, semver::VersionReq)> {
+    for name in FRAMEWORK_CRATES {
+        if let Some(raw) = manifest
+            .dependencies
+            .get(name)
+            .and_then(Dependency::version)
+        {
+            if let Ok(req) = semver::VersionReq::parse(raw) {
+                return Some((name.to_string(), req));
+            }
+        }
+    }
+    None
+}
+
+/// The Laterite version this application builds against.
+///
+/// Read from its own manifest rather than from the running `lat`, because the
+/// two can differ: a command installed from one checkout may be run inside an
+/// application pinned to another. A path dependency (a local framework checkout)
+/// is followed to that crate's own version, so development mode is checked as
+/// accurately as a published one.
+fn app_framework_version(root: &Path) -> Option<semver::Version> {
+    let manifest = read_manifest(&root.join("Cargo.toml")).ok()?;
+    let tables = [
+        Some(&manifest.dependencies),
+        manifest.workspace.as_ref().map(|w| &w.dependencies),
+    ];
+    for table in tables.into_iter().flatten() {
+        for name in FRAMEWORK_CRATES {
+            let Some(dep) = table.get(name) else { continue };
+            if let Some(path) = dep.path() {
+                let at = root.join(path).join("Cargo.toml");
+                if let Some(version) = read_manifest(&at)
+                    .ok()
+                    .and_then(|m| m.package.version)
+                    .and_then(|v| semver::Version::parse(&v).ok())
+                {
+                    return Some(version);
+                }
+            }
+            // A requirement is not a version, so take the lowest release it
+            // admits: `"0.5"` means this application is on some 0.5.x.
+            if let Some(req) = dep
+                .version()
+                .and_then(|v| semver::VersionReq::parse(v).ok())
+            {
+                if let Some(c) = req.comparators.first() {
+                    return Some(semver::Version::new(
+                        c.major,
+                        c.minor.unwrap_or(0),
+                        c.patch.unwrap_or(0),
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Refuses a crate that is not a Laterite plugin, or one built for a Laterite
+/// this application is not on.
+///
+/// Both are knowable from the crate's manifest without building it, which is the
+/// point: the alternative is a compile error about a missing `module()`, or a
+/// dependency resolution failure, neither of which names the actual problem.
+/// Boot stays the backstop; this is the earlier, friendlier gate, matching how
+/// a plugin's database capabilities are checked.
+fn check_compatible(root: &Path, manifest: &CargoManifest, crate_name: &str) -> Result<String> {
+    let Some(declared) = manifest
+        .package
+        .metadata
+        .as_ref()
+        .and_then(|m| m.laterite.as_ref())
+    else {
+        bail!(
+            "{crate_name} is not a Laterite plugin: its Cargo.toml has no \
+             [package.metadata.laterite] section.\n\
+             A plugin declares the module id it registers there:\n\n    \
+             [package.metadata.laterite]\n    plugin = \"vendor.package\""
+        );
+    };
+
+    if let (Some((named, req)), Some(version)) =
+        (framework_requirement(manifest), app_framework_version(root))
+    {
+        if !req.matches(&version) {
+            bail!(
+                "{crate_name} needs {named} {req}, and this application is on {version}.\n\
+                 Look for a release of the plugin that supports {}.{}, or upgrade this \
+                 application to one it supports.",
+                version.major,
+                version.minor
+            );
+        }
+    }
+    Ok(declared.plugin.clone())
 }
 
 // ---------------------------------------------------------------- the list
@@ -281,18 +470,36 @@ fn finish_add(root: &Path, dir: &Path, entry: &Entry, existing: &[Entry]) -> Res
             dir.join(&entry.path).display()
         );
     }
-    let crate_name = read_crate_name(&manifest)?;
+    let parsed = read_manifest(&manifest)?;
+    let crate_name = parsed.package.name.clone();
     if let Some(found) = existing.iter().find(|e| e.path == entry.path) {
         println!("Already installed: {} ({})", crate_name, found.path);
         return Ok(());
     }
     refuse_duplicate(dir, existing, &crate_name)?;
+    let module_id = check_compatible(root, &parsed, &crate_name)?;
 
     let mut entries = existing.to_vec();
     entries.push(entry.clone());
     write_list(root, &entries)?;
     sync(root)?;
-    println!("\nAdded {crate_name} at {PLUGINS_DIR}/{}.", entry.path);
+    // Announced only now: a link reported before the checks would be a link a
+    // refusal then silently removed.
+    let target = dir.join(&entry.path);
+    if target.is_symlink() {
+        let at = fs::read_link(&target).unwrap_or_else(|_| target.clone());
+        println!(
+            "\nLinked {PLUGINS_DIR}/{} -> {} (it stays where it is; edits apply in place).",
+            entry.path,
+            at.display()
+        );
+        println!("Added {module_id} ({crate_name}).");
+    } else {
+        println!(
+            "\nAdded {module_id} ({crate_name}) at {PLUGINS_DIR}/{}.",
+            entry.path
+        );
+    }
     println!("Rebuild to pick it up; enable or disable it from the admin afterwards.");
     Ok(())
 }
@@ -488,10 +695,6 @@ fn local(dir: &Path, source: &str, folder: Option<&str>) -> Result<(Entry, bool)
     }
     symlink(&abs, &link)
         .with_context(|| format!("linking {} to {}", link.display(), abs.display()))?;
-    println!(
-        "Linked {PLUGINS_DIR}/{name} -> {} (it stays where it is; edits apply in place).",
-        abs.display()
-    );
     Ok((
         Entry {
             path: name,
@@ -594,11 +797,7 @@ pub fn manifest_in_sync(app_root: &Path) -> Result<Option<bool>> {
 }
 
 fn read_crate_name(manifest: &Path) -> Result<String> {
-    let text =
-        fs::read_to_string(manifest).with_context(|| format!("reading {}", manifest.display()))?;
-    let parsed: CargoManifest =
-        toml::from_str(&text).with_context(|| format!("parsing {}", manifest.display()))?;
-    Ok(parsed.package.name)
+    Ok(read_manifest(manifest)?.package.name)
 }
 
 /// The immediate sub-directories of `dir`, sorted by name. Symlinked directories
@@ -626,13 +825,45 @@ mod tests {
     /// A plugin crate at `plugins/<folder>`, whose name deliberately need not
     /// match the folder: that freedom is the point of the list.
     fn write_plugin(root: &Path, folder: &str, crate_name: &str) {
+        write_crate(root, folder, crate_name, Some("acme.thing"), None);
+    }
+
+    /// A crate with control over its plugin marker and framework requirement.
+    fn write_crate(
+        root: &Path,
+        folder: &str,
+        crate_name: &str,
+        plugin_id: Option<&str>,
+        framework: Option<&str>,
+    ) {
         let dir = root.join(PLUGINS_DIR).join(folder);
         fs::create_dir_all(&dir).unwrap();
+        let mut toml = format!("[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\n");
+        if let Some(id) = plugin_id {
+            toml.push_str(&format!(
+                "\n[package.metadata.laterite]\nplugin = \"{id}\"\n"
+            ));
+        }
+        if let Some(req) = framework {
+            toml.push_str(&format!("\n[dependencies]\nlaterite-core = \"{req}\"\n"));
+        }
+        fs::write(dir.join("Cargo.toml"), toml).unwrap();
+    }
+
+    /// An application manifest declaring the framework version it builds against.
+    fn write_app(root: &Path, framework: &str) {
         fs::write(
-            dir.join("Cargo.toml"),
-            format!("[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\n"),
+            root.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+                 [dependencies]\nlaterite-admin = \"{framework}\"\n"
+            ),
         )
         .unwrap();
+    }
+
+    fn manifest_of(root: &Path, folder: &str) -> CargoManifest {
+        read_manifest(&root.join(PLUGINS_DIR).join(folder).join("Cargo.toml")).unwrap()
     }
 
     fn app() -> tempfile::TempDir {
@@ -802,6 +1033,93 @@ mod tests {
         let err = read_list(app.path()).unwrap_err().to_string();
         assert!(err.contains("acme-thing"), "{err}");
         assert!(err.contains("only be compiled in once"), "{err}");
+    }
+
+    /// The marker is what separates a plugin from any other crate. Without the
+    /// check, an ordinary crate is accepted and the failure arrives later as a
+    /// compile error about a missing `module()`, which names nothing useful.
+    #[test]
+    fn a_crate_without_the_marker_is_not_a_plugin() {
+        let app = app();
+        write_crate(app.path(), "rando", "totally-not-a-plugin", None, None);
+        let manifest = manifest_of(app.path(), "rando");
+        let err = check_compatible(app.path(), &manifest, "totally-not-a-plugin")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not a Laterite plugin"), "{err}");
+        // And says how to become one.
+        assert!(err.contains("[package.metadata.laterite]"), "{err}");
+    }
+
+    #[test]
+    fn the_marker_names_the_module_the_crate_registers() {
+        let app = app();
+        write_crate(app.path(), "p", "acme-blog", Some("acme.blog"), None);
+        let manifest = manifest_of(app.path(), "p");
+        assert_eq!(
+            check_compatible(app.path(), &manifest, "acme-blog").unwrap(),
+            "acme.blog"
+        );
+    }
+
+    /// A plugin built for a Laterite this application is not on is refused
+    /// before anything is fetched or built, naming both versions.
+    #[test]
+    fn a_plugin_for_another_laterite_is_refused_upfront() {
+        let app = app();
+        write_app(app.path(), "0.7");
+        write_crate(app.path(), "old", "acme-old", Some("acme.old"), Some("0.5"));
+        let manifest = manifest_of(app.path(), "old");
+        let err = check_compatible(app.path(), &manifest, "acme-old")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("0.5"), "{err}");
+        assert!(err.contains("0.7"), "{err}");
+    }
+
+    #[test]
+    fn a_plugin_for_this_laterite_is_accepted() {
+        let app = app();
+        write_app(app.path(), "0.5");
+        write_crate(app.path(), "ok", "acme-ok", Some("acme.ok"), Some("0.5"));
+        let manifest = manifest_of(app.path(), "ok");
+        assert!(check_compatible(app.path(), &manifest, "acme-ok").is_ok());
+    }
+
+    /// A plugin developed against a local checkout names no version, so there is
+    /// nothing to compare and the check stays out of the way.
+    #[test]
+    fn a_plugin_with_no_version_requirement_is_not_second_guessed() {
+        let app = app();
+        write_app(app.path(), "0.5");
+        write_crate(app.path(), "dev", "acme-dev", Some("acme.dev"), None);
+        let manifest = manifest_of(app.path(), "dev");
+        assert!(check_compatible(app.path(), &manifest, "acme-dev").is_ok());
+    }
+
+    /// Development mode: the application points at a framework checkout, so the
+    /// version comes from that crate rather than from a requirement string.
+    #[test]
+    fn a_path_dependency_is_followed_to_the_frameworks_own_version() {
+        let app = app();
+        let framework = app.path().join("vendor/laterite/crates/admin");
+        fs::create_dir_all(&framework).unwrap();
+        fs::write(
+            framework.join("Cargo.toml"),
+            "[package]\nname = \"laterite-admin\"\nversion = \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            app.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\n\
+             laterite-admin = { path = \"vendor/laterite/crates/admin\" }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            app_framework_version(app.path()),
+            Some(semver::Version::new(0, 9, 0))
+        );
     }
 
     #[test]

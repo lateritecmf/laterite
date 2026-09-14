@@ -757,7 +757,7 @@ fn filter_condition(active: &[ActiveFilter<'_>]) -> Option<sea_query::Condition>
 /// there is nothing to match: a blank term, a term that folds away, or a list
 /// whose columns are all unsearchable.
 fn search_condition(config: &ListConfig, q: &str) -> Option<sea_query::Condition> {
-    // Capability-gated matchers are deferred (adr/0017) and `Db` carries no
+    // Capability-gated matchers are deferred and `Db` carries no
     // capability set yet, so the portable default applies. Descriptor-named
     // profiles are PR4; until then a list folds case, like the picker.
     let caps = laterite_core::capabilities::CapabilitySet::default();

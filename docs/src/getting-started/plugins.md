@@ -81,6 +81,21 @@ data.
 
 ## Writing one
 
+A plugin crate declares itself in its manifest:
+
+```toml
+[package.metadata.laterite]
+plugin = "acme.blog"
+```
+
+That marks the crate as a plugin and names the module it registers. A tool can
+read it without building anything, which is how `lat plugin add` refuses a crate
+that is not a plugin, and how a marketplace lists one.
+
+There is deliberately **no version field** there. Which Laterite a plugin supports
+is stated by its dependency requirement, below, and stating it twice would give
+you two things to keep in step.
+
 A plugin crate exposes one entry point at its root:
 
 ```rust
@@ -100,6 +115,21 @@ Declare the framework by version, never by path:
 laterite-core = "0.5"
 laterite-admin = "0.5"
 ```
+
+That requirement is also the compatibility statement. `lat plugin add` reads it
+before fetching or building and refuses a plugin built for a Laterite you are not
+on, naming both versions:
+
+```console
+$ lat plugin add ../acme-legacy
+Error: acme-legacy needs laterite-core ^0.2, and this application is on 0.5.0.
+Look for a release of the plugin that supports 0.5, or upgrade this
+application to one it supports.
+```
+
+Because the framework crates release together, a requirement on any one of them
+states the generation. A plugin that names none (one developed against a local
+checkout) is not second-guessed.
 
 That keeps the plugin's manifest independent of where it sits on disk. An
 application building against a local checkout of the framework points those at

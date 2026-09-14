@@ -175,7 +175,7 @@ impl PickerSource for TableSource {
         let (sql, values) = {
             let cast = text_cast(db.backend);
             let mut sel = self.base_select(cast);
-            // Capability-gated matchers are deferred (adr/0017), and `Db` does
+            // Capability-gated matchers are deferred, and `Db` does
             // not carry the boot capability set yet, so the portable default is
             // what applies. This argument is the one line that changes when it does.
             let caps = laterite_core::capabilities::CapabilitySet::default();

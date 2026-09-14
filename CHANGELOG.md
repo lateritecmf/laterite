@@ -21,6 +21,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `plugins/<author>/<plugin>/` layout adopts it into a list on first use.
 - `lat new` scaffolds the plugin layout: the workspace, an empty list, the
   generated manifest, the dependency on it, and the `.modules(...)` call.
+- `[package.metadata.laterite]` in a plugin's manifest, declaring the module it
+  registers. Its presence marks the crate as a plugin, and `lat plugin add` now
+  refuses one without it instead of letting the build fail on a missing
+  `module()`. Readable without building, so a marketplace can list and filter on
+  it. It carries no version field: which Laterite a plugin supports is already
+  stated by its dependency requirement.
+- `lat plugin add` checks that requirement against this application's own version
+  before fetching or building, and refuses a plugin built for another Laterite by
+  name. Boot stays the backstop, as it does for database capabilities.
 - Guide: Installing Plugins.
 
 ### Fixed
