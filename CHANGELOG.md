@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A repeater's sub-field labels rendered untranslated. They are declared inside
+  the field type and never pass through the caller that localizes an ordinary
+  label, so they could only render from their source string: English on every
+  screen, whatever the operator's locale. `FieldCx` now carries the request's
+  translator, which is what a composite field type needs to localize strings of
+  its own.
+
 ## [0.5.1] - 2026-09-15
 
 A security fix for list export, plus the plugin install flow: a plugin is

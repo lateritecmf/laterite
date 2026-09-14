@@ -394,6 +394,12 @@ impl Shell {
         self.i18n.t(text)
     }
 
+    /// The request's translator, for a field type that localizes strings of its
+    /// own (a repeater's sub-field labels) rather than only the label it is given.
+    pub(crate) fn i18n(&self) -> &Translator {
+        &self.i18n
+    }
+
     /// The active locale (most specific in the chain), for `<html lang>`.
     pub(crate) fn locale(&self) -> &str {
         self.i18n.locale()

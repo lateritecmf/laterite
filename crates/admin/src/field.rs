@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use laterite_core::validation::{Mode, Rule};
-use laterite_core::AttrValue;
+use laterite_core::{AttrValue, Translator};
 use serde::{Deserialize, Serialize};
 
 use crate::html::Markup;
@@ -84,6 +84,14 @@ pub struct FieldCx<'a> {
     /// The admin mount path (e.g. `/admin`), so a type that calls an endpoint
     /// (the reference picker) builds its URL without knowing routing conventions.
     pub base: &'a str,
+    /// The request's translator, for the strings a field type localizes itself.
+    ///
+    /// `label` above is already localized by the caller, because the framework
+    /// chrome renders it too. A composite type is the case this exists for: a
+    /// repeater's sub-field labels are declared inside the type and never pass
+    /// through the caller, so without this they could only render from their
+    /// source string, untranslated on every surface.
+    pub i18n: &'a Translator,
 }
 
 /// The serialisable payload both the built-in template and an override render,
@@ -497,13 +505,11 @@ fn render_row(
                 required: false,
                 opts: &sub.opts,
                 base: cx.base,
+                i18n: cx.i18n,
             };
             let vm = sub.field_type.view_model(&sub_cx);
             RepeaterCell {
-                // Sub-labels render from their source string: a field type has
-                // no request translator, and nested labels are the first strings
-                // to need one. Recorded against 7.1.
-                label: sub.field.label.source().to_string(),
+                label: cx.i18n.t(&sub.field.label),
                 control: sub.field_type.render_default(&vm).into_string(),
             }
         })
@@ -1473,7 +1479,18 @@ impl FieldType for RefPickerField {
 mod tests {
     use super::*;
 
-    fn cx<'a>(name: &'a str, value: &'a FieldValue, opts: &'a ResolvedOptions) -> FieldCx<'a> {
+    /// A translator with no catalogs, so every string resolves to its source:
+    /// what a test wants unless it is testing translation itself.
+    fn untranslated() -> Translator {
+        Translator::new("en")
+    }
+
+    fn cx_with<'a>(
+        name: &'a str,
+        value: &'a FieldValue,
+        opts: &'a ResolvedOptions,
+        i18n: &'a Translator,
+    ) -> FieldCx<'a> {
         FieldCx {
             name,
             id: name,
@@ -1482,7 +1499,14 @@ mod tests {
             required: true,
             opts,
             base: "/admin",
+            i18n,
         }
+    }
+
+    fn cx<'a>(name: &'a str, value: &'a FieldValue, opts: &'a ResolvedOptions) -> FieldCx<'a> {
+        // Leaked so the borrow outlives the call; a test process is short-lived
+        // and this keeps every existing call site unchanged.
+        cx_with(name, value, opts, Box::leak(Box::new(untranslated())))
     }
 
     fn text_field() -> TextField {
@@ -1963,6 +1987,7 @@ mod repeater_tests {
             required: false,
             opts: &options(),
             base: "/admin",
+            i18n: &Translator::new("en"),
         };
         let html = RepeaterField
             .render_default(&RepeaterField.view_model(&cx))
@@ -1973,6 +1998,50 @@ mod repeater_tests {
         // The blank row is inert inside a <template> until the browser clones it.
         assert!(html.contains("lat-repeater__blank"));
         assert!(html.contains(r#"name="rules[__index__][path]""#));
+    }
+
+    /// A repeater's sub-field labels are declared inside the field type and never
+    /// pass through the caller that localizes an ordinary label, so before the
+    /// context carried a translator they could only render from their source
+    /// string: English on every screen, whatever the operator's locale.
+    #[test]
+    fn a_sub_field_label_is_localized_like_any_other() {
+        use laterite_core::i18n::CatalogStore;
+        use std::sync::Arc;
+
+        let po = concat!(
+            "msgid \"\"\n",
+            "msgstr \"Content-Type: text/plain; charset=UTF-8\\n\"\n",
+            "\n",
+            "msgid \"Path\"\n",
+            "msgstr \"Path-kn\"\n",
+        );
+        let store = Arc::new(CatalogStore::builder().po("kn", po).unwrap().build());
+        let i18n = Translator::with_chain(vec!["kn".into(), "en".into()], store);
+
+        let value = FieldValue::Text(String::new());
+        let cx = FieldCx {
+            name: "rules",
+            id: "rules",
+            label: "Rules",
+            value: &value,
+            required: false,
+            opts: &options(),
+            base: "/admin",
+            i18n: &i18n,
+        };
+        let html = RepeaterField
+            .render_default(&RepeaterField.view_model(&cx))
+            .into_string();
+
+        assert!(
+            html.contains("Path-kn"),
+            "sub-label was not localized: {html}"
+        );
+        assert!(
+            !html.contains(">Path<"),
+            "the source string still leaked: {html}"
+        );
     }
 }
 

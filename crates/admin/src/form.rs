@@ -666,6 +666,7 @@ fn build(
                 required,
                 opts: &pf.opts,
                 base: &shell.base,
+                i18n: shell.i18n(),
             };
             // The type is registered (prepare validated it); the lookup here is
             // only to render.

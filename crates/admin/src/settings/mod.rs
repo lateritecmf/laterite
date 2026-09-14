@@ -341,6 +341,7 @@ fn build(
                         required: false,
                         opts: &opts,
                         base: &shell.base,
+                        i18n: shell.i18n(),
                     };
                     let scope = crate::field::OverrideScope {
                         surface: crate::field::Surface::Field,
