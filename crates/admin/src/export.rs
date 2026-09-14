@@ -156,11 +156,34 @@ pub(crate) async fn handle(
 }
 
 /// The rows as CSV, quoted and escaped by the `csv` crate rather than by hand.
+/// Characters a spreadsheet reads as the start of a formula rather than as text.
+const FORMULA_TRIGGERS: [char; 5] = ['=', '+', '@', '\t', '\r'];
+
+/// Defuses a cell a spreadsheet would execute instead of display.
+///
+/// A value beginning `=`, `+`, `@`, a tab or a carriage return is a formula to
+/// Excel, Sheets and LibreOffice, so an exported record whose text came from a
+/// visitor can run when someone opens the file. A leading apostrophe is the
+/// convention those applications understand as "this is text".
+///
+/// `-` is a trigger too, but escaping it unconditionally would turn every
+/// negative number in an export into text, so it is escaped only when the cell
+/// is not a number.
+fn defuse(cell: &str) -> String {
+    let dangerous = cell.starts_with(FORMULA_TRIGGERS)
+        || (cell.starts_with('-') && cell.parse::<f64>().is_err());
+    if dangerous {
+        format!("'{cell}")
+    } else {
+        cell.to_string()
+    }
+}
+
 fn to_csv(headers: &[String], rows: &[Vec<String>]) -> Result<String, csv::Error> {
     let mut writer = csv::Writer::from_writer(Vec::new());
-    writer.write_record(headers)?;
+    writer.write_record(headers.iter().map(|h| defuse(h)))?;
     for row in rows {
-        writer.write_record(row)?;
+        writer.write_record(row.iter().map(|cell| defuse(cell)))?;
     }
     let bytes = writer.into_inner().map_err(|e| e.into_error())?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
@@ -310,6 +333,52 @@ mod tests {
         assert_eq!(parsed.as_array().unwrap().len(), 3);
         // Keyed by column name, which is the stable key a script wants.
         assert_eq!(parsed[0]["username"], "ada");
+    }
+
+    /// A spreadsheet executes a cell beginning `=`, `+`, `@`, tab or return, so
+    /// text that came from a visitor could run when the export is opened. The
+    /// leading apostrophe is what those applications read as "this is text".
+    #[test]
+    fn a_cell_a_spreadsheet_would_execute_is_defused() {
+        for value in [
+            "=1+1",
+            "+1",
+            "@SUM(A1)",
+            "=cmd|' /C calc'!A0",
+            "\tleading tab",
+            "\rleading return",
+        ] {
+            assert_eq!(
+                defuse(value),
+                format!("'{value}"),
+                "{value:?} was left live"
+            );
+        }
+    }
+
+    /// Escaping every leading `-` would turn every negative number in every
+    /// export into text, so a number is left alone and only text is defused.
+    #[test]
+    fn a_negative_number_is_still_a_number() {
+        assert_eq!(defuse("-5"), "-5");
+        assert_eq!(defuse("-12.50"), "-12.50");
+        assert_eq!(defuse("-1e3"), "-1e3");
+        assert_eq!(defuse("-cmd|' /C calc'!A0"), "'-cmd|' /C calc'!A0");
+    }
+
+    #[test]
+    fn ordinary_text_is_untouched() {
+        for value in ["hello", "", "a=b", "5", "user@acme.example"] {
+            assert_eq!(defuse(value), value);
+        }
+    }
+
+    /// A header comes from a descriptor rather than from data, but a plugin
+    /// author names its columns, so it goes through the same guard.
+    #[test]
+    fn a_header_is_defused_too() {
+        let csv = to_csv(&["=BAD".to_string()], &[]).unwrap();
+        assert!(csv.starts_with("'=BAD"), "{csv}");
     }
 
     #[test]

@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Security
+
+- **List export wrote spreadsheet formulas verbatim.** A record whose text began
+  `=`, `+`, `@`, a tab or a carriage return was written to CSV unchanged, so a
+  value a visitor supplied could execute when an operator opened the export in
+  Excel, Sheets or LibreOffice. Such cells now carry the leading apostrophe those
+  applications read as "this is text". A leading `-` is escaped only when the cell
+  is not a number, so negative numbers still export as numbers.
+
 ### Added
 
 - `lat plugin add <path|git-url>` and `lat plugin remove <name>`: a plugin is
