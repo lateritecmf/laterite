@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-15
+
+A security fix for list export, plus the plugin install flow: a plugin is
+installed by pointing at it, and one built for another Laterite is refused before
+it is fetched.
+
 ### Security
 
 - **List export wrote spreadsheet formulas verbatim.** A record whose text began
