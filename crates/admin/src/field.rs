@@ -294,6 +294,27 @@ impl OverrideResolver for NoOverrides {
 /// The field-type registry: type key to behaviour, built once at boot.
 pub type FieldRegistry = HashMap<String, Arc<dyn FieldType>>;
 
+/// A field type a module contributes, so a form can offer an input the framework
+/// has no built-in for (a colour picker, a money amount, a map point).
+///
+/// The key is the type's own [`FieldType::view_key`], so a registration cannot
+/// disagree with the type it registers. Use a dotted `vendor.name` to stay clear
+/// of the built-ins and of other modules.
+pub struct FieldTypeReg {
+    pub field_type: Arc<dyn FieldType>,
+}
+
+impl FieldTypeReg {
+    pub fn new(field_type: Arc<dyn FieldType>) -> Self {
+        Self { field_type }
+    }
+
+    /// The key this type registers under.
+    pub fn name(&self) -> &'static str {
+        self.field_type.view_key()
+    }
+}
+
 /// Renders a field: an override if the resolver supplies one, else the compiled
 /// default. The one place the two paths meet.
 pub(crate) fn render_field(
@@ -2004,6 +2025,57 @@ mod repeater_tests {
     /// pass through the caller that localizes an ordinary label, so before the
     /// context carried a translator they could only render from their source
     /// string: English on every screen, whatever the operator's locale.
+    /// A module's own field type is offered to every form and settings screen,
+    /// which is what keeps a custom input from meaning a framework change.
+    #[test]
+    fn a_contributed_field_type_names_itself_and_converts() {
+        struct Money;
+        impl FieldType for Money {
+            fn view_key(&self) -> &'static str {
+                "acme.money"
+            }
+            fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+                scalar_vm("acme.money", cx)
+            }
+            fn render_default(&self, _vm: &FieldVm) -> Markup {
+                Markup::empty()
+            }
+            fn to_attr(
+                &self,
+                field: &SubmittedField<'_>,
+                _opts: &ResolvedOptions,
+                _mode: Mode,
+            ) -> Result<Option<AttrValue>, String> {
+                // Minor units, so the stored value never carries a float.
+                let raw = field.value().unwrap_or("0");
+                let minor = (raw.parse::<f64>().map_err(|_| "not an amount")? * 100.0).round();
+                Ok(Some(AttrValue::Int(minor as i64)))
+            }
+        }
+
+        let reg = FieldTypeReg::new(Arc::new(Money));
+        // The key is the type's own, so a registration cannot disagree with what
+        // it registers.
+        assert_eq!(reg.name(), "acme.money");
+
+        let mut registry = builtin_registry();
+        let name = reg.name().to_string();
+        assert!(
+            registry.insert(name.clone(), reg.field_type).is_none(),
+            "a dotted key does not collide with a built-in"
+        );
+
+        let data = std::collections::HashMap::from([("price".to_string(), "12.50".to_string())]);
+        let submitted = SubmittedField::new("price", &data);
+        let converted = registry[&name]
+            .to_attr(&submitted, &ResolvedOptions::default(), Mode::Create)
+            .unwrap();
+        assert!(
+            matches!(converted, Some(AttrValue::Int(1250))),
+            "{converted:?}"
+        );
+    }
+
     #[test]
     fn a_sub_field_label_is_localized_like_any_other() {
         use laterite_core::i18n::CatalogStore;

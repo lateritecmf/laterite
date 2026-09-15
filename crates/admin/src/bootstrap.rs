@@ -396,6 +396,7 @@ impl Bootstrap {
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();
         let listeners = contributions.take::<laterite_core::ModelListenerReg>();
+        let field_types = contributions.take::<crate::field::FieldTypeReg>();
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
@@ -436,6 +437,7 @@ impl Bootstrap {
                 picker_sources,
                 persisters,
                 listeners,
+                field_types,
                 column_types,
                 screens,
                 public_routes: public,

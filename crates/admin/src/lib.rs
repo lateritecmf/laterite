@@ -83,6 +83,8 @@ pub trait AdminRegistry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
     /// Adds a form persister, selectable by a form descriptor's `persist` key.
     fn add_persister(&mut self, persister: persist::PersisterReg);
+    /// Adds a field type, nameable by any form or settings descriptor.
+    fn add_field_type(&mut self, field_type: field::FieldTypeReg);
     /// Mounts a screen of this module's own: any routes descriptors cannot
     /// express, inside the admin with its session, permission and error handling.
     fn add_screen(&mut self, screen: routes::ScreenReg);
@@ -112,6 +114,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
+    }
+    fn add_field_type(&mut self, field_type: field::FieldTypeReg) {
+        self.add(field_type);
     }
 }
 
@@ -845,6 +850,9 @@ pub struct Contributions {
     /// Listeners run around every save and delete.
     pub listeners: Vec<laterite_core::ModelListenerReg>,
     /// Column types a list cell can render through.
+    /// Field types a module contributes, offered to every form and settings
+    /// screen beside the built-ins.
+    pub field_types: Vec<field::FieldTypeReg>,
     pub column_types: Vec<list::ColumnTypeReg>,
     /// Screens a module mounts itself, for anything that is not a list or form.
     pub screens: Vec<routes::ScreenReg>,
@@ -871,6 +879,7 @@ pub fn router(
         picker_sources: app_picker_sources,
         persisters: app_persisters,
         listeners: app_listeners,
+        field_types: app_field_types,
         column_types: app_column_types,
         screens: app_screens,
         public_routes: app_public,
@@ -964,6 +973,20 @@ pub fn router(
         }
         if persisters.insert(name.clone(), reg.persister).is_some() {
             panic!("duplicate persister `{name}`");
+        }
+    }
+
+    // The field-type registry: the built-ins, plus whatever the modules
+    // contributed. A module can therefore offer an input the framework has none
+    // of, which is what keeps a custom input from meaning a framework change.
+    let mut field_types = field::builtin_registry();
+    for reg in app_field_types {
+        let name = reg.name().to_string();
+        if !field::is_name(&name, true) {
+            panic!("invalid field type name `{name}`");
+        }
+        if field_types.insert(name.clone(), reg.field_type).is_some() {
+            panic!("duplicate field type `{name}`");
         }
     }
 

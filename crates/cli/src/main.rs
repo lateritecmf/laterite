@@ -44,6 +44,9 @@ enum Command {
     /// Scaffold a new plugin crate in the expected layout.
     #[command(name = "make:plugin")]
     MakePlugin(make::MakePluginArgs),
+    /// Scaffold an entity's migration, schema, store and admin screen.
+    #[command(name = "make:resource")]
+    MakeResource(make::MakeResourceArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
     /// Set up local wildcard domains (*.test -> 127.0.0.1) for development.
@@ -116,6 +119,7 @@ async fn main() -> Result<()> {
         Command::New(args) => new::run(args).await,
         Command::MakeMigration(args) => make::run(args),
         Command::MakePlugin(args) => make::run_plugin(args),
+        Command::MakeResource(args) => make::run_resource(args),
         Command::Serve(args) => serve::run(args),
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,

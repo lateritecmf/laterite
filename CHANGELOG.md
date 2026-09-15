@@ -9,6 +9,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A module can contribute a **field type**. The registry held the framework's own
+  types only, so a custom form input meant changing `laterite-admin` itself,
+  while the sibling column-type registry had been open to modules since lists
+  shipped. `FieldTypeReg` and `add_field_type` close that asymmetry; the key is
+  the type's own `view_key`, and a collision aborts boot rather than silently
+  replacing a built-in.
 - `VerifiedUpload`: a file upload whose request token is checked while the form
   is parsed, rather than before. The token travels as the form's first field, as
   it does for any other form, so a scriptless upload needs nothing special. A
