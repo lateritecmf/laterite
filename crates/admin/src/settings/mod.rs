@@ -54,8 +54,15 @@ pub use crate::form::FormField;
 /// A settings model surfaced in the admin: a storage `code`, a `category` and
 /// `order` that place it in the index, and the fields to edit.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct SettingsItem {
     /// Storage key. Matches the model's `SettingsModel::CODE`.
+    ///
+    /// This is a storage key and never a URL. It is dotted, like the module
+    /// identity it derives from, and a dotted identifier in a path is how these
+    /// screens spent months at `/settings/rainmill.discovery.robots`. Where the
+    /// screen mounts is [`SettingsItem::route`], resolved at boot through the
+    /// module's namespace like every other contributed screen.
     pub code: String,
     /// The item's label, description, and category heading, localized at render.
     pub label: Text,
@@ -75,16 +82,106 @@ pub struct SettingsItem {
     /// in the settings menu rather than the main menu.
     pub link: Option<String>,
     pub fields: Vec<FormField>,
+    /// Where this screen mounts, relative to the admin root, resolved at boot
+    /// from the contributing module's namespace. `None` until then.
+    pub(crate) route: Option<String>,
 }
 
 impl SettingsItem {
+    /// A settings screen for `code` (the model's `SettingsModel::CODE`), titled
+    /// `label`, editing `fields`.
+    ///
+    /// Everything else takes a default and is opted into through a builder
+    /// method, so a field added later costs existing callers nothing.
+    pub fn new(code: impl Into<String>, label: impl Into<Text>, fields: Vec<FormField>) -> Self {
+        Self {
+            code: code.into(),
+            label: label.into(),
+            description: Text::from(""),
+            category: Text::from(""),
+            order: 0,
+            icon: None,
+            permission: None,
+            link: None,
+            fields,
+            route: None,
+        }
+    }
+
+    /// The sentence under the item's name in the index and sidebar.
+    pub fn description(mut self, text: impl Into<Text>) -> Self {
+        self.description = text.into();
+        self
+    }
+
+    /// The group heading this item sorts under.
+    pub fn category(mut self, text: impl Into<Text>) -> Self {
+        self.category = text.into();
+        self
+    }
+
+    /// Weight within the category; lower sorts first.
+    pub fn order(mut self, order: i32) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// A Lucide icon name shown beside the item.
+    pub fn icon(mut self, icon: impl Into<String>) -> Self {
+        self.icon = Some(icon.into());
+        self
+    }
+
+    /// The permission required to edit, enforced by middleware.
+    pub fn permission(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    /// Point the item at an existing route instead of its own settings form, so
+    /// a list screen can sit in the settings menu.
+    pub fn link(mut self, link: impl Into<String>) -> Self {
+        self.link = Some(link.into());
+        self
+    }
+
+    /// Records where this screen mounts. Called once at boot, after the
+    /// contributing module's namespace has been resolved.
+    pub(crate) fn mount_at(&mut self, route: impl Into<String>) {
+        self.route = Some(route.into());
+    }
+
+    /// Mounts this screen at a fixed path rather than a module namespace.
+    ///
+    /// For the panel's own settings, which belong to no vendor: they configure
+    /// the admin itself, so they sit under `/settings` with a plain name
+    /// (`/settings/branding`) rather than carrying `laterite` through a URL an
+    /// operator reads. A module's settings live in the module's namespace.
+    pub(crate) fn at(mut self, route: impl Into<String>) -> Self {
+        self.route = Some(route.into());
+        self
+    }
+
+    /// The item's own screen, relative to the admin root, ignoring any `link`.
+    ///
+    /// Before boot resolves it, this falls back to a path under `/settings`
+    /// built from the code's segments rather than the dotted code itself, so
+    /// even the fallback is a URL rather than an identifier. See
+    /// [`SettingsItem::at`] for why the panel's own settings pin theirs.
+    pub(crate) fn route(&self) -> String {
+        match &self.route {
+            Some(route) => route.clone(),
+            None => format!("/settings/{}", self.code.replace('.', "/")),
+        }
+    }
+
     /// Where this item leads, resolved under the admin mount (`admin_path`): its
-    /// `link` target if set, else its own settings form. Both `link` and the form
-    /// path are authored relative to the admin root, so this prepends the mount.
+    /// `link` target if set, else its own settings screen. Both are authored
+    /// relative to the admin root, so this prepends the mount.
     pub fn path(&self, admin_path: &str) -> String {
         match &self.link {
             Some(link) => format!("{admin_path}{link}"),
-            None => format!("{admin_path}/settings/{}", self.code),
+            None => format!("{admin_path}{}", self.route()),
         }
     }
 }
@@ -429,6 +526,7 @@ mod field_system_tests {
             permission: None,
             link: None,
             fields,
+            route: None,
         }
     }
 
@@ -574,6 +672,7 @@ mod tests {
                 FormField::switch("log_requests", "Log requests"),
                 FormField::text("retention_days", "Retention (days)"),
             ],
+            route: None,
         }
     }
 
@@ -610,6 +709,7 @@ mod tests {
                 permission: None,
                 link: None,
                 fields: vec![],
+                route: None,
             },
             SettingsItem {
                 code: "a".into(),
@@ -621,6 +721,7 @@ mod tests {
                 permission: None,
                 link: None,
                 fields: vec![],
+                route: None,
             },
             SettingsItem {
                 code: "l".into(),
@@ -632,6 +733,7 @@ mod tests {
                 permission: None,
                 link: None,
                 fields: vec![],
+                route: None,
             },
         ];
         let groups = sidebar_groups(&items, "/admin", None, &Translator::new("en"));
@@ -660,9 +762,16 @@ mod tests {
 
     #[test]
     fn settings_model_item_path_is_its_form() {
-        assert_eq!(item().path("/admin"), "/admin/settings/test.log");
+        // Unresolved (no module namespace yet), the fallback still builds a
+        // path from the code's segments rather than using the dotted key.
+        assert_eq!(item().path("/admin"), "/admin/settings/test/log");
         // The mount is honoured, so a relocated panel keeps consistent links.
-        assert_eq!(item().path("/manage"), "/manage/settings/test.log");
+        assert_eq!(item().path("/manage"), "/manage/settings/test/log");
+
+        // Once boot resolves it into the module's namespace, that wins.
+        let mut resolved = item();
+        resolved.mount_at("/acme/logging/log");
+        assert_eq!(resolved.path("/admin"), "/admin/acme/logging/log");
     }
 
     #[test]

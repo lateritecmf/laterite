@@ -500,27 +500,33 @@ fn settings_context(
     admin_path: &str,
     path: &str,
 ) -> (bool, Option<String>) {
-    let settings_root = format!("{admin_path}/settings");
-    if path == settings_root {
-        (true, None)
-    } else if let Some(code) = path.strip_prefix(&format!("{settings_root}/")) {
-        (true, Some(code.to_string()))
-    } else {
-        // A linked resource: the settings item whose resolved link is the longest
-        // prefix of this path owns the context (so /admin/roles/5/edit resolves).
-        // Links are stored relative to the admin root, so resolve each here.
-        let active = visible
-            .iter()
-            .filter_map(|i| {
-                i.link
-                    .as_deref()
-                    .map(|link| (format!("{admin_path}{link}"), &i.code))
-            })
-            .filter(|(link, _)| path == link.as_str() || path.starts_with(&format!("{link}/")))
-            .max_by_key(|(link, _)| link.len())
-            .map(|(_, code)| code.clone());
-        (active.is_some(), active)
+    if path == format!("{admin_path}/settings") {
+        return (true, None);
     }
+    // A settings screen mounts in its module's namespace, not under /settings,
+    // so the context is found by matching the resolved paths rather than by
+    // stripping a prefix. A linked item (a resource in the settings menu) owns
+    // the context across its sub-pages, so /admin/roles/5/edit still resolves;
+    // the longest match wins.
+    let own = visible
+        .iter()
+        .filter(|i| i.link.is_none())
+        .find(|i| path == format!("{admin_path}{}", i.route()))
+        .map(|i| i.code.clone());
+    if own.is_some() {
+        return (true, own);
+    }
+    let linked = visible
+        .iter()
+        .filter_map(|i| {
+            i.link
+                .as_deref()
+                .map(|link| (format!("{admin_path}{link}"), &i.code))
+        })
+        .filter(|(link, _)| path == link.as_str() || path.starts_with(&format!("{link}/")))
+        .max_by_key(|(link, _)| link.len())
+        .map(|(_, code)| code.clone());
+    (linked.is_some(), linked)
 }
 
 /// The top-nav item to highlight for `path`. A screen in the settings context
@@ -1043,11 +1049,12 @@ pub fn router(
         }
     }
 
+    let settings = Arc::new(settings);
     let state = AdminState {
         auth,
         db,
         nav: Arc::new(nav),
-        settings: Arc::new(settings),
+        settings: settings.clone(),
         permissions: Arc::new(permissions),
         admin_path: Arc::from(admin_path.as_str()),
         secure_cookie: config.secure_cookie,
@@ -1131,10 +1138,6 @@ pub fn router(
     protected = protected
         .route(&format!("{admin_path}/settings"), get(settings_index))
         .route(
-            &format!("{admin_path}/settings/{{code}}"),
-            get(settings_edit).post(settings_update),
-        )
-        .route(
             &format!("{admin_path}/preferences"),
             get(preferences_form).post(preferences_update),
         )
@@ -1157,6 +1160,36 @@ pub fn router(
             any(picker::resolve),
         )
         .route(&format!("{admin_path}/logout"), post(logout));
+
+    // A route per settings screen, at the path its module resolved to, rather
+    // than one parameterised route keyed by storage code. The code is captured
+    // here, so it never has to survive a trip through the URL.
+    for item in settings.iter().filter(|i| i.link.is_none()) {
+        let path = format!("{admin_path}{}", item.route());
+        let code = item.code.clone();
+        let edit_code = code.clone();
+        protected = protected.route(
+            &path,
+            get(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>| {
+                    let code = edit_code.clone();
+                    async move { settings_edit(state, shell, user, code).await }
+                },
+            )
+            .post(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
+                      Form(data): Form<HashMap<String, String>>| {
+                    let code = code.clone();
+                    async move { settings_update(state, shell, user, session, code, data).await }
+                },
+            ),
+        );
+    }
 
     protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
@@ -2258,10 +2291,10 @@ async fn settings_index(Extension(shell): Extension<Shell>) -> Response {
 }
 
 async fn settings_edit(
-    State(state): State<AdminState>,
-    Extension(shell): Extension<Shell>,
-    Extension(user): Extension<AuthenticatedUser>,
-    Path(code): Path<String>,
+    state: AdminState,
+    shell: Shell,
+    user: AuthenticatedUser,
+    code: String,
 ) -> Response {
     // Filter first, so an operator cannot open a settings form they lack the
     // permission to see.
@@ -2276,12 +2309,12 @@ async fn settings_edit(
 }
 
 async fn settings_update(
-    State(state): State<AdminState>,
-    Extension(shell): Extension<Shell>,
-    Extension(user): Extension<AuthenticatedUser>,
-    Extension(session): Extension<session::SessionHandle>,
-    Path(code): Path<String>,
-    Form(data): Form<HashMap<String, String>>,
+    state: AdminState,
+    shell: Shell,
+    user: AuthenticatedUser,
+    session: session::SessionHandle,
+    code: String,
+    data: HashMap<String, String>,
 ) -> Response {
     let items = visible_settings(&state.settings, &user.permissions);
     match items
@@ -2555,51 +2588,35 @@ fn builtin_resources() -> Vec<Resource> {
 /// screens), rather than as main-menu tabs.
 fn builtin_settings() -> Vec<settings::SettingsItem> {
     vec![
-        settings::SettingsItem {
-            code: "backend.administrators".to_string(),
-            label: "Administrators".into(),
-            description: "Manage backend administrator accounts.".into(),
-            category: "Users".into(),
-            order: 10,
-            icon: Some("users".to_string()),
-            permission: Some("backend.manage_users".to_string()),
-            link: Some("/users".to_string()),
-            fields: Vec::new(),
-        },
-        settings::SettingsItem {
-            code: "backend.roles".to_string(),
-            label: "Roles".into(),
-            description: "Manage roles and their permissions.".into(),
-            category: "Users".into(),
-            order: 20,
-            icon: Some("shield".to_string()),
-            permission: Some("backend.manage_roles".to_string()),
-            link: Some("/roles".to_string()),
-            fields: Vec::new(),
-        },
+        settings::SettingsItem::new("backend.administrators", "Administrators", Vec::new())
+            .description("Manage backend administrator accounts.")
+            .category("Users")
+            .order(10)
+            .icon("users")
+            .permission("backend.manage_users")
+            .link("/users"),
+        settings::SettingsItem::new("backend.roles", "Roles", Vec::new())
+            .description("Manage roles and their permissions.")
+            .category("Users")
+            .order(20)
+            .icon("shield")
+            .permission("backend.manage_roles")
+            .link("/roles"),
         settings::brand::settings_item(),
-        settings::SettingsItem {
-            code: "backend.plugins".to_string(),
-            label: "Plugins".into(),
-            description: "Enable or disable installed plugins.".into(),
-            category: "System".into(),
-            order: 10,
-            icon: Some("plug".to_string()),
-            permission: Some(plugins::MANAGE_PERMISSION.to_string()),
-            link: Some("/plugins".to_string()),
-            fields: Vec::new(),
-        },
-        settings::SettingsItem {
-            code: "backend.audit_log".to_string(),
-            label: "Audit Log".into(),
-            description: "Review the record of administrative changes.".into(),
-            category: "System".into(),
-            order: 20,
-            icon: Some("history".to_string()),
-            permission: Some("backend.view_audit_log".to_string()),
-            link: Some("/audit-log".to_string()),
-            fields: Vec::new(),
-        },
+        settings::SettingsItem::new("backend.plugins", "Plugins", Vec::new())
+            .description("Enable or disable installed plugins.")
+            .category("System")
+            .order(10)
+            .icon("plug")
+            .permission(plugins::MANAGE_PERMISSION)
+            .link("/plugins"),
+        settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
+            .description("Review the record of administrative changes.")
+            .category("System")
+            .order(20)
+            .icon("history")
+            .permission("backend.view_audit_log")
+            .link("/audit-log"),
     ]
 }
 
@@ -3095,6 +3112,7 @@ mod tests {
             permission: permission.map(str::to_string),
             link: None,
             fields: Vec::new(),
+            route: None,
         }
     }
 
@@ -3146,11 +3164,18 @@ mod tests {
         // The settings index shows the sidebar, with nothing active.
         assert!(!sidebar("/admin/settings").is_empty());
         assert_eq!(active_path("/admin/settings"), None);
-        // A settings form activates its own item.
+        // A settings screen of the item's own activates that item. Branding is
+        // the framework's one form-backed setting; unresolved in this test, it
+        // falls back to a path built from its code's segments, which is a URL
+        // rather than the dotted storage key it used to be.
         assert_eq!(
-            active_path("/admin/settings/backend.roles").as_deref(),
-            Some("/admin/roles")
+            active_path("/admin/settings/branding").as_deref(),
+            Some("/admin/settings/branding")
         );
+        // The dotted storage key is not a path at all any more, and neither is
+        // the vendor-qualified form: the panel's own settings carry no vendor.
+        assert_eq!(active_path("/admin/settings/laterite.brand"), None);
+        assert_eq!(active_path("/admin/settings/laterite/brand"), None);
         // The dashboard is not a settings context, so it has no sidebar.
         assert!(sidebar("/admin").is_empty());
     }

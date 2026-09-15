@@ -7,7 +7,7 @@
    columns side by side is a table nobody can read. `details` carries the open
    state, so the collapse works before any script runs. #}
 <div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}" data-lat-widget="repeater">
-  <div class="lat-repeater__rows">
+  <div class="lat-repeater__rows{% if !data.rows.is_empty() %} lat-repeater__rows--filled{% endif %}">
     {% for row in data.rows %}
     {% if data.list %}
     <details class="lat-repeater__row">

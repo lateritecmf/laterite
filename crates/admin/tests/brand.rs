@@ -94,7 +94,7 @@ async fn branding_form_prefills_the_configured_name() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/settings/laterite.brand")
+                .uri("/admin/settings/branding")
                 .header("cookie", format!("laterite_session={token}"))
                 .body(Body::empty())
                 .unwrap(),

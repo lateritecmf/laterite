@@ -28,17 +28,17 @@ impl SettingsModel for BrandSetting {
 /// The settings item that surfaces [`BrandSetting`] in the admin, under a
 /// "System" category.
 pub(crate) fn settings_item() -> SettingsItem {
-    SettingsItem {
-        code: BrandSetting::CODE.to_string(),
-        label: "Branding".into(),
-        description: "The application name shown across the admin.".into(),
-        category: "System".into(),
-        order: 10,
-        icon: None,
-        permission: Some("backend.manage_branding".to_string()),
-        link: None,
-        fields: vec![FormField::text("app_name", "Application name").help(
+    SettingsItem::new(
+        BrandSetting::CODE,
+        "Branding",
+        vec![FormField::text("app_name", "Application name").help(
             "Shown as the admin brand. Clearing it falls back to the configured application name.",
         )],
-    }
+    )
+    .description("The application name shown across the admin.")
+    .category("System")
+    .order(10)
+    .permission("backend.manage_branding")
+    // The panel's own setting, belonging to no vendor.
+    .at("/settings/branding")
 }

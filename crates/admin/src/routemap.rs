@@ -76,6 +76,31 @@ pub(crate) fn check_collisions(claims: &[(String, String)]) {
     }
 }
 
+/// Aborts the boot when a resolved path carries a dotted segment.
+///
+/// A module identity is dotted (`rainmill.discovery`); a URL is not. A dot in a
+/// segment is the signature of an identifier that reached the router without
+/// being resolved into a path, which is how the settings screens spent months
+/// mounted at `/settings/rainmill.discovery.robots`: their storage key was used
+/// as their URL because they were collected unowned and never passed through
+/// [`resolve`].
+///
+/// Checking the resolved set rather than each call site means the next
+/// contribution type that forgets is caught at boot, whatever it is.
+///
+/// Admin paths only. A public route is a literal the module chose and may well
+/// name a file (`/robots.txt`, `/sitemap.xml`), where a dot is the extension
+/// rather than an unresolved identifier.
+pub(crate) fn check_segments(claims: &[(String, String)]) {
+    for (path, claimant) in claims {
+        if let Some(segment) = path.split('/').find(|s| s.contains('.')) {
+            panic!(
+                "admin path `{path}` from `{claimant}` has a dotted segment                  `{segment}`; a module id is dotted but a URL is not, so resolve                  the path through the module's namespace instead of using its                  identifier or storage key as a URL"
+            );
+        }
+    }
+}
+
 /// Aborts the boot when a public route clashes, either with another or with the
 /// admin mount. Public paths are literal, so nothing namespaces them apart.
 pub(crate) fn check_public(claims: &[(String, String)], admin_path: &str) {
@@ -93,6 +118,25 @@ pub(crate) fn check_public(claims: &[(String, String)], admin_path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "has a dotted segment")]
+    fn a_module_id_used_as_a_url_is_refused() {
+        // The exact shape the settings screens shipped with: a storage key
+        // concatenated into a path instead of resolved through the namespace.
+        check_segments(&[(
+            "/settings/rainmill.discovery.robots".to_string(),
+            "rainmill.discovery".to_string(),
+        )]);
+    }
+
+    #[test]
+    fn a_resolved_module_path_passes() {
+        check_segments(&[(
+            "/rainmill/discovery/robots".to_string(),
+            "rainmill.discovery".to_string(),
+        )]);
+    }
 
     fn overrides(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs

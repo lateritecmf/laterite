@@ -377,6 +377,7 @@ impl Bootstrap {
                 .iter()
                 .map(|(owner, s)| (s.base_path.clone(), owner.to_string())),
         );
+        crate::routemap::check_segments(&claims);
         crate::routemap::check_collisions(&claims);
         let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
         let screens: Vec<crate::routes::ScreenReg> = screens.into_iter().map(|(_, s)| s).collect();
@@ -391,7 +392,37 @@ impl Bootstrap {
         );
         let public: Vec<crate::routes::PublicRouteReg> =
             public.into_iter().map(|(_, r)| r).collect();
-        let settings = contributions.take::<SettingsItem>();
+        // Settings screens resolve like every other contributed screen: through
+        // the owning module's namespace. Before this they used their storage key
+        // as a URL, which is both a dotted path and a screen the deployment
+        // could not move with [backend.paths].
+        let mut settings = Vec::new();
+        for (owner, mut item) in contributions.take_owned::<SettingsItem>() {
+            // The screen's own name within its module: the storage key with the
+            // module's prefix removed, since the namespace supplies that part.
+            let declared = item
+                .code
+                .strip_prefix(&format!("{}.", owner.as_str()))
+                .unwrap_or(&item.code)
+                .replace('.', "/");
+            let base = bases.get(owner.as_str()).copied().flatten();
+            item.mount_at(crate::routemap::resolve(
+                owner,
+                &format!("/{declared}"),
+                base,
+                &config.backend.paths,
+            ));
+            settings.push((owner, item));
+        }
+        // A settings screen claims a path like any other, so one shadowing a
+        // resource is caught at boot rather than silently winning.
+        let settings_claims: Vec<(String, String)> = settings
+            .iter()
+            .filter(|(_, i)| i.link.is_none())
+            .map(|(owner, i)| (i.route(), owner.to_string()))
+            .collect();
+        crate::routemap::check_segments(&settings_claims);
+        let settings: Vec<SettingsItem> = settings.into_iter().map(|(_, i)| i).collect();
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();

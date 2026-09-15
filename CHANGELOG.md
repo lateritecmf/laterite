@@ -9,6 +9,20 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- **Breaking:** a settings screen mounts in its module's namespace
+  (`/admin/rainmill/discovery/robots`) rather than at its storage key
+  (`/admin/settings/rainmill.discovery.robots`). `SettingsItem.code` is a storage
+  key and was being used as a URL, which put a dotted identifier in the path and
+  left these the only contributed screens a deployment could not move with
+  `[backend.paths]`. They now resolve through the same module namespace as
+  resources, screens and public routes, and claim their path in the same
+  collision check, so a settings screen shadowing a resource aborts the boot
+  instead of silently winning. `SettingsItem` is `#[non_exhaustive]` with a
+  `new` + builder; construct it with `SettingsItem::new(code, label, fields)`
+  and the builder methods rather than a struct literal. The panel's own settings
+  belong to no vendor, so they pin a plain path under `/settings`
+  (`/settings/branding`) rather than carrying `laterite` through a URL.
+
 - **Breaking:** the session functions on `laterite_auth::store` (`insert_session`,
   `find_valid_session`, `renew_session`, `delete_session`, `set_session_data`) are
   crate-visible. Reading a session row is what pushes its idle clock forward, so a
@@ -50,6 +64,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   first, the title tracks what is typed, and the collapse is a `details` element
   so it works before any script runs. The inline layout stays the default, since
   a single narrow column is better left expanded.
+
+- A dotted segment in an admin path aborts the boot, naming the contribution.
+  A module identity is dotted and a URL is not, so an identifier reaching the
+  router unresolved is now caught for every contribution type rather than found
+  by eye months later. Public routes are exempt, since one may legitimately name
+  a file.
 
 - A repeater's sub-fields render their help text, which the descriptor has always
   accepted and the template silently dropped.

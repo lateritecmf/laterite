@@ -357,7 +357,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
    as adding to a list rather than growing a wall of columns. The rows share one
    bordered container with dividers, like a table, rather than floating as
    separate cards. */
-.lat-repeater--list .lat-repeater__rows:not(:empty){border:1px solid var(--border-subtle);border-radius:var(--radius-card);overflow:hidden;background:var(--surface-card);margin-bottom:12px}
+.lat-repeater--list .lat-repeater__rows--filled{border:1px solid var(--border-subtle);border-radius:var(--radius-card);overflow:hidden;background:var(--surface-card);margin-bottom:12px}
 .lat-repeater--list .lat-repeater__row{display:block;padding:0;margin:0;border:0;border-bottom:1px solid var(--border-subtle);border-radius:0;background:transparent}
 .lat-repeater--list .lat-repeater__row:last-child{border-bottom:0}
 .lat-repeater__summary{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;list-style:none;transition:background .12s}
