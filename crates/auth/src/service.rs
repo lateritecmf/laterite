@@ -575,6 +575,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verify_session_renews_like_the_path_it_wraps() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool.clone());
+
+        let issued = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let stale = Utc::now() - chrono::Duration::minutes(90);
+        set_last_seen(&pool, &issued.token, stale).await;
+
+        svc.verify_session(&issued.token).await.unwrap();
+
+        // The thin wrapper must not become a way to read a session without
+        // ageing it; that is the whole reason the store's session functions
+        // are crate-visible.
+        assert!(last_seen(&pool, &issued.token).await > stale);
+    }
+
+    #[tokio::test]
     async fn a_request_before_the_halfway_mark_writes_nothing() {
         let (pool, _guard) = test_db().await;
         seed_user(&pool, "root", "hunter2", true).await;

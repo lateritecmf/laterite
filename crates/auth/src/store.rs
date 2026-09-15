@@ -7,6 +7,13 @@
 //! [`laterite_core::query::insert_returning_id`]), timestamps are stored as text
 //! and converted to `DateTime<Utc>` here, and permission collections are stored
 //! as JSON text.
+//!
+//! Session rows are the exception to the module being public. Reading one is
+//! what pushes its idle clock forward, so a caller that reached the row directly
+//! would authenticate a request and leave the session ageing as though the
+//! request never happened. The session functions are therefore crate-visible and
+//! [`crate::AuthService`] is the only way in: the renewal cannot be skipped
+//! because there is no path that skips it.
 
 use std::collections::HashMap;
 
@@ -210,7 +217,7 @@ pub async fn set_user_permissions(
     Ok(())
 }
 
-pub async fn insert_session(
+pub(crate) async fn insert_session(
     db: &Db,
     token_hash: &str,
     user_id: i64,
@@ -256,7 +263,7 @@ pub struct ValidSession {
 /// Returns a non-expired session (owner id plus its data blob), if any. The
 /// blob is read in the same query, so exposing session state costs no extra
 /// round-trip.
-pub async fn find_valid_session(
+pub(crate) async fn find_valid_session(
     db: &Db,
     token_hash: &str,
     now: DateTime<Utc>,
@@ -291,7 +298,11 @@ pub async fn find_valid_session(
 
 /// Overwrites a session's opaque data blob. Callers write only when the blob
 /// changed, so an unchanged request adds no write.
-pub async fn set_session_data(db: &Db, token_hash: &str, data: &str) -> Result<(), AuthError> {
+pub(crate) async fn set_session_data(
+    db: &Db,
+    token_hash: &str,
+    data: &str,
+) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,
         Query::update()
@@ -309,7 +320,7 @@ pub async fn set_session_data(db: &Db, token_hash: &str, data: &str) -> Result<(
 /// Pushes a session's idle clock and its effective deadline out together. The
 /// two are written in one statement so a reader can never see a refreshed
 /// last-seen against a stale deadline.
-pub async fn renew_session(
+pub(crate) async fn renew_session(
     db: &Db,
     token_hash: &str,
     now: DateTime<Utc>,
@@ -330,7 +341,7 @@ pub async fn renew_session(
     Ok(())
 }
 
-pub async fn delete_session(db: &Db, token_hash: &str) -> Result<(), AuthError> {
+pub(crate) async fn delete_session(db: &Db, token_hash: &str) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,
         Query::delete()

@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the session functions on `laterite_auth::store` (`insert_session`,
+  `find_valid_session`, `renew_session`, `delete_session`, `set_session_data`) are
+  crate-visible. Reading a session row is what pushes its idle clock forward, so a
+  caller reaching the row directly would authenticate a request while leaving the
+  session ageing as though it never happened. `AuthService` is now the only way
+  in, which makes skipping the renewal unrepresentable rather than merely
+  discouraged. The rest of `store` (users, roles, preferences, audit) is
+  unchanged. Callers outside the crate were already using `AuthService`; the
+  identically named methods on it are the replacement.
+
 ### Fixed
 
 - **"Stay signed in" did nothing.** The login form offered the box and no code
