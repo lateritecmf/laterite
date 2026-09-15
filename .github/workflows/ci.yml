@@ -31,5 +31,14 @@ jobs:
         with:
           crate: cargo-readme
       - run: bash scripts/gen-readmes.sh
+      # `git status`, not `git diff`: a new crate's README is untracked, and
+      # `git diff` does not see untracked files.
       - name: Per-crate READMEs must be regenerated and committed
-        run: git diff --exit-code -- crates/*/README.md
+        run: |
+          drift="$(git status --porcelain -- 'crates/*/README.md')"
+          if [ -n "$drift" ]; then
+            echo "These crate READMEs are stale or missing from git:" >&2
+            echo "$drift" >&2
+            echo "Run scripts/gen-readmes.sh and commit the result." >&2
+            exit 1
+          fi

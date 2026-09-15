@@ -30,6 +30,28 @@ jobs:
           fi
       - name: The CHANGELOG must have a section for this version
         run: grep -q "^## \[${GITHUB_REF_NAME#v}\]" CHANGELOG.md
+      # An unpublished crate has no publisher, so `cargo publish --workspace`
+      # fails part-way and crates.io never re-accepts the version. Failing in
+      # verify means nothing was published and the tag can be dropped.
+      - name: Every crate must already exist on crates.io
+        run: |
+          missing=""
+          for crate in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | .name'); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H 'User-Agent: laterite-release (github.com/lateritecmf/laterite)' \
+              "https://crates.io/api/v1/crates/$crate")"
+            if [ "$code" = "404" ]; then
+              missing="$missing $crate"
+            elif [ "$code" != "200" ]; then
+              echo "crates.io returned $code for $crate; not treating that as missing" >&2
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "These crates have never been published, so they have no publisher:$missing" >&2
+            echo "Publish each first version by hand (cargo publish -p <crate>), add its" >&2
+            echo "Trusted Publishing publisher on crates.io, then re-tag." >&2
+            exit 1
+          fi
       - run: cargo test --workspace --features sqlite
 
   publish:

@@ -16,16 +16,24 @@ if ! cargo readme --version >/dev/null 2>&1; then
   exit 1
 fi
 
+# Every crate under crates/, discovered rather than listed, so adding one needs
+# no edit here.
 gen() {
-  local crate="$1" input="$2"
-  ( cd "crates/$crate" && cargo readme --template "$tpl" --input "$input" --output README.md )
-  echo "generated crates/$crate/README.md"
+  local dir="$1" crate input
+  crate="$(basename "$dir")"
+  if [ -f "$dir/src/lib.rs" ]; then
+    input="src/lib.rs"
+  elif [ -f "$dir/src/main.rs" ]; then
+    input="src/main.rs"
+  else
+    echo "$crate has neither src/lib.rs nor src/main.rs; cannot generate a README" >&2
+    exit 1
+  fi
+  ( cd "$dir" && cargo readme --template "$tpl" --input "$input" --output README.md )
+  echo "generated $dir/README.md"
 }
 
-gen macros src/lib.rs
-gen core src/lib.rs
-gen auth src/lib.rs
-gen admin src/lib.rs
-gen media src/lib.rs
-gen web src/lib.rs
-gen cli src/main.rs
+for dir in crates/*/; do
+  [ -f "$dir/Cargo.toml" ] || continue
+  gen "${dir%/}"
+done
