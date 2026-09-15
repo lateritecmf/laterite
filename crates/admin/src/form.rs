@@ -126,6 +126,27 @@ impl FormField {
         Self::of(name, label, "repeater").options(serde_json::json!({ "fields": fields }))
     }
 
+    /// A repeater whose rows collapse to the line that names them, opening one
+    /// at a time. `summary_field` names the sub-field that titles a row; unset,
+    /// the first one does.
+    ///
+    /// Use it when a row holds more than one or two fields: rendered inline
+    /// those become columns, and a row of four is already unreadable. A single
+    /// narrow column is better left inline, where collapsing would hide the one
+    /// thing worth seeing.
+    pub fn repeater_list(
+        name: &str,
+        label: impl Into<Text>,
+        fields: Vec<FormField>,
+        summary_field: Option<&str>,
+    ) -> Self {
+        Self::of(name, label, "repeater").options(serde_json::json!({
+            "fields": fields,
+            "display": "list",
+            "summary_field": summary_field,
+        }))
+    }
+
     /// The options blob the choice-shaped types read.
     fn choices(options: Vec<(&str, &str)>) -> serde_json::Value {
         let options: Vec<serde_json::Value> = options

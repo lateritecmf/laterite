@@ -1,31 +1,76 @@
 {# A list of rows. Each cell's control is rendered by its own field type, so a
-   switch in a row behaves as a switch and a date as a date. #}
-<div class="lat-repeater" data-lat-widget="repeater">
+   switch in a row behaves as a switch and a date as a date.
+
+   Two layouts. Inline puts every field of every row on the page at once, which
+   suits one narrow column. List collapses a row to the line that names it and
+   opens one at a time, which is what a row of several fields needs: four
+   columns side by side is a table nobody can read. `details` carries the open
+   state, so the collapse works before any script runs. #}
+<div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}" data-lat-widget="repeater">
   <div class="lat-repeater__rows">
     {% for row in data.rows %}
+    {% if data.list %}
+    <details class="lat-repeater__row">
+      <summary class="lat-repeater__summary">
+        <span class="lat-repeater__title">{% let text = data.summaries[loop.index0].clone() %}{% if text.is_empty() %}<span class="lat-repeater__untitled">Untitled</span>{% else %}{{ text }}{% endif %}</span>
+        <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+      </summary>
+      <div class="lat-repeater__fields">
+        {% for cell in row %}
+        <div class="lat-field">
+          <span class="lat-field__label">{{ cell.label }}</span>
+          {{ cell.control|safe }}
+          {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
     <div class="lat-repeater__row">
       {% for cell in row %}
       <div class="lat-field">
         <span class="lat-field__label">{{ cell.label }}</span>
         {{ cell.control|safe }}
+        {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
       </div>
       {% endfor %}
       <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
     </div>
+    {% endif %}
     {% endfor %}
   </div>
   {# Inert until cloned: a template's controls are not submitted and are not
-     form-associated, so the placeholder index never reaches the server. #}
+     form-associated, so the placeholder index never reaches the server. A
+     cloned list row is added open, since the operator just asked for it. #}
   <template class="lat-repeater__blank">
+    {% if data.list %}
+    <details class="lat-repeater__row" open>
+      <summary class="lat-repeater__summary">
+        <span class="lat-repeater__title"><span class="lat-repeater__untitled">Untitled</span></span>
+        <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+      </summary>
+      <div class="lat-repeater__fields">
+        {% for cell in data.blank %}
+        <div class="lat-field">
+          <span class="lat-field__label">{{ cell.label }}</span>
+          {{ cell.control|safe }}
+          {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
     <div class="lat-repeater__row">
       {% for cell in data.blank %}
       <div class="lat-field">
         <span class="lat-field__label">{{ cell.label }}</span>
         {{ cell.control|safe }}
+        {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
       </div>
       {% endfor %}
       <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
     </div>
+    {% endif %}
   </template>
-  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button">+ Add</button>
+  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button" data-lat-summary-index="{{ data.summary_index }}">+ Add</button>
 </div>

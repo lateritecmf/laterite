@@ -42,6 +42,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **A repeater can lay its rows out as a list.** A row of several fields rendered
+  inline is a row of columns, and four of them is already a table nobody can
+  read. `FormField::repeater_list` collapses each row to the line that names it
+  and opens one at a time, so Add reads as adding to a list rather than growing
+  the form. The naming field is nominated by the descriptor or defaults to the
+  first, the title tracks what is typed, and the collapse is a `details` element
+  so it works before any script runs. The inline layout stays the default, since
+  a single narrow column is better left expanded.
+
+- A repeater's sub-fields render their help text, which the descriptor has always
+  accepted and the template silently dropped.
+
 - **Responses say how long they may be reused, and prove it cheaply.** Built-in
   assets are now addressed by a digest of their bytes (`laterite.d10210ad.css`),
   and the cache policy follows the URL rather than being declared per asset: a URL

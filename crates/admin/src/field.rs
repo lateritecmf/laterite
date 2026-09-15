@@ -337,6 +337,27 @@ pub(crate) struct RepeaterOptions {
     rows: Vec<RepeaterSub>,
     min_items: usize,
     max_items: Option<usize>,
+    display: RepeaterDisplay,
+    /// Which sub-field names a collapsed row. Defaults to the first.
+    summary_field: Option<String>,
+}
+
+/// How a repeater's rows are laid out.
+///
+/// A row of several fields rendered inline is a row of columns, and four of
+/// them is already too many to read. `List` collapses each row to a line naming
+/// it, opening one at a time, which is the shape an operator expects of a list
+/// with an Add button.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepeaterDisplay {
+    /// Every row expanded, all fields visible. Right for a single narrow
+    /// column, where collapsing would hide the only thing there is to see.
+    #[default]
+    Inline,
+    /// Rows collapsed to a summary line, expanded one at a time. Adding a row
+    /// opens it.
+    List,
 }
 
 /// One sub-field of a repeater row, resolved once.
@@ -354,6 +375,10 @@ struct RepeaterOptionsRaw {
     min_items: usize,
     #[serde(default)]
     max_items: Option<usize>,
+    #[serde(default)]
+    display: RepeaterDisplay,
+    #[serde(default)]
+    summary_field: Option<String>,
 }
 
 /// A list of rows, stored as a JSON array of objects.
@@ -405,6 +430,8 @@ impl FieldType for RepeaterField {
             rows,
             min_items: parsed.min_items,
             max_items: parsed.max_items,
+            display: parsed.display,
+            summary_field: parsed.summary_field,
         }))
     }
 
@@ -414,6 +441,24 @@ impl FieldType for RepeaterField {
             FieldValue::Json(serde_json::Value::Array(rows)) => rows.clone(),
             _ => Vec::new(),
         };
+        // The cell that names a row: the one the descriptor nominated, else the
+        // first, which is the field an operator reads as the row's identity.
+        let summary_index = opts
+            .and_then(|o| {
+                o.summary_field
+                    .as_ref()
+                    .and_then(|name| o.rows.iter().position(|sub| &sub.field.name == name))
+            })
+            .unwrap_or(0);
+        let summaries = stored
+            .iter()
+            .map(|row| {
+                opts.and_then(|o| o.rows.get(summary_index))
+                    .and_then(|sub| row.get(&sub.field.name))
+                    .map(summary_text)
+                    .unwrap_or_default()
+            })
+            .collect();
         let data = RepeaterData {
             rows: opts
                 .map(|o| {
@@ -427,6 +472,9 @@ impl FieldType for RepeaterField {
             blank: opts
                 .map(|o| render_row(o, cx, Self::BLANK, None))
                 .unwrap_or_default(),
+            list: opts.is_some_and(|o| o.display == RepeaterDisplay::List),
+            summary_index,
+            summaries,
         };
 
         FieldVm {
@@ -498,6 +546,17 @@ impl FieldType for RepeaterField {
 }
 
 /// One row's sub-fields, rendered. `row` is `None` for the blank row.
+/// A stored cell rendered as the one line that names its row. Multi-line text
+/// collapses to its first line: a summary that wraps is not a summary.
+fn summary_text(value: &serde_json::Value) -> String {
+    let raw = match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    };
+    raw.lines().next().unwrap_or_default().trim().to_string()
+}
+
 fn render_row(
     options: &RepeaterOptions,
     cx: &FieldCx<'_>,
@@ -532,6 +591,12 @@ fn render_row(
             RepeaterCell {
                 label: cx.i18n.t(&sub.field.label),
                 control: sub.field_type.render_default(&vm).into_string(),
+                help: sub
+                    .field
+                    .help
+                    .as_ref()
+                    .map(|h| cx.i18n.t(h))
+                    .unwrap_or_default(),
             }
         })
         .collect()
@@ -567,6 +632,10 @@ fn is_blank_row(row: &serde_json::Value) -> bool {
 struct RepeaterCell {
     label: String,
     control: String,
+    /// The sub-field's own help text. A collapsed row shows less context than an
+    /// expanded form, so the line explaining a field earns its place more here,
+    /// not less.
+    help: String,
 }
 
 /// A repeater's presentation payload, typed on the way out and back so the
@@ -575,6 +644,13 @@ struct RepeaterCell {
 struct RepeaterData {
     rows: Vec<Vec<RepeaterCell>>,
     blank: Vec<RepeaterCell>,
+    /// True when rows collapse to a summary line.
+    list: bool,
+    /// Index of the cell whose value names a collapsed row.
+    summary_index: usize,
+    /// Each row's summary text, parallel to `rows`. Empty when a row's naming
+    /// cell has no value yet, which the template shows as a placeholder.
+    summaries: Vec<String>,
 }
 
 #[derive(Template)]
@@ -2019,6 +2095,81 @@ mod repeater_tests {
         // The blank row is inert inside a <template> until the browser clones it.
         assert!(html.contains("lat-repeater__blank"));
         assert!(html.contains(r#"name="rules[__index__][path]""#));
+    }
+
+    /// Resolved options for a list-mode repeater naming rows by `agent`.
+    fn list_options() -> ResolvedOptions {
+        RepeaterField
+            .resolve_options(
+                &serde_json::json!({
+                    "fields": [
+                        { "name": "agent", "label": "Agent", "type": "text" },
+                        { "name": "disallow", "label": "Disallow", "type": "textarea" },
+                    ],
+                    "display": "list",
+                    "summary_field": "agent",
+                }),
+                &builtin_registry(),
+            )
+            .unwrap()
+    }
+
+    fn render_with(opts: &ResolvedOptions, value: &FieldValue) -> String {
+        let cx = FieldCx {
+            name: "rules",
+            id: "rules",
+            label: "Rules",
+            value,
+            required: false,
+            opts,
+            base: "/admin",
+            i18n: &Translator::new("en"),
+        };
+        RepeaterField
+            .render_default(&RepeaterField.view_model(&cx))
+            .into_string()
+    }
+
+    #[test]
+    fn a_list_repeater_collapses_its_rows_and_names_them() {
+        let value = FieldValue::Json(serde_json::json!([
+            { "agent": "Googlebot", "disallow": "/private\n/tmp" },
+        ]));
+        let html = render_with(&list_options(), &value);
+        assert!(html.contains("lat-repeater--list"), "list mode is declared");
+        assert!(html.contains("<details"), "a row collapses");
+        assert!(
+            html.contains("Googlebot"),
+            "the naming field titles the row"
+        );
+        // The fields are still there, just behind the summary.
+        assert!(html.contains(r#"name="rules[0][disallow]""#));
+    }
+
+    #[test]
+    fn a_row_with_no_name_yet_reads_as_untitled() {
+        let value = FieldValue::Json(serde_json::json!([{ "agent": "" }]));
+        let html = render_with(&list_options(), &value);
+        assert!(html.contains("lat-repeater__untitled"));
+    }
+
+    #[test]
+    fn the_default_layout_stays_inline() {
+        // A single narrow column is better left expanded, so the mode is opt-in.
+        let value = FieldValue::Json(serde_json::json!([{ "path": "/private" }]));
+        let html = render_with(&options(), &value);
+        assert!(!html.contains("lat-repeater--list"));
+        assert!(!html.contains("<details"));
+    }
+
+    #[test]
+    fn a_multi_line_value_titles_a_row_with_its_first_line_only() {
+        // A summary that wraps is not a summary.
+        assert_eq!(
+            summary_text(&serde_json::json!("/private\n/tmp\n/secret")),
+            "/private"
+        );
+        assert_eq!(summary_text(&serde_json::json!("")), "");
     }
 
     /// A repeater's sub-field labels are declared inside the field type and never

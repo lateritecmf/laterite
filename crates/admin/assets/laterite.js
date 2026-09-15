@@ -235,9 +235,36 @@ window.lat.widget('repeater', function (root) {
     });
   }
 
+  // The line that names a collapsed row, kept current as the operator types.
+  // Without this a new row would read "Untitled" until the page reloaded.
+  var summaryIndex = parseInt(add.getAttribute('data-lat-summary-index'), 10) || 0;
+
+  function retitle(row) {
+    var title = row.querySelector('.lat-repeater__title');
+    if (!title) return;
+    var control = row.querySelectorAll('.lat-repeater__fields [name]')[summaryIndex];
+    var text = control ? String(control.value || '').split('\n')[0].trim() : '';
+    if (text) {
+      title.textContent = text;
+    } else {
+      title.innerHTML = '<span class="lat-repeater__untitled">Untitled</span>';
+    }
+  }
+
   add.addEventListener('click', function () {
     rows.appendChild(blank.content.cloneNode(true));
     renumber();
+    var added = rows.lastElementChild;
+    // A details row is added open, so focus lands where the operator is looking.
+    if (added) {
+      var first = added.querySelector('.lat-repeater__fields [name], [name]');
+      if (first) first.focus();
+    }
+  });
+
+  root.addEventListener('input', function (e) {
+    var row = e.target.closest('.lat-repeater__row');
+    if (row && row.tagName === 'DETAILS') retitle(row);
   });
 
   root.addEventListener('click', function (e) {

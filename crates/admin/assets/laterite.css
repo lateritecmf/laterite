@@ -353,6 +353,37 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-repeater{display:flex;flex-direction:column;gap:10px}
 .lat-repeater__rows{display:flex;flex-direction:column;gap:10px}
 .lat-repeater__row{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:12px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
+/* List mode: rows collapse to the line that names them, so an Add button reads
+   as adding to a list rather than growing a wall of columns. The rows share one
+   bordered container with dividers, like a table, rather than floating as
+   separate cards. */
+.lat-repeater--list .lat-repeater__rows:not(:empty){border:1px solid var(--border-subtle);border-radius:var(--radius-card);overflow:hidden;background:var(--surface-card);margin-bottom:12px}
+.lat-repeater--list .lat-repeater__row{display:block;padding:0;margin:0;border:0;border-bottom:1px solid var(--border-subtle);border-radius:0;background:transparent}
+.lat-repeater--list .lat-repeater__row:last-child{border-bottom:0}
+.lat-repeater__summary{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;list-style:none;transition:background .12s}
+.lat-repeater__summary:hover{background:var(--surface-row-hover)}
+.lat-repeater__summary::-webkit-details-marker{display:none}
+.lat-repeater__summary::before{content:"";flex:none;width:0;height:0;border-left:5px solid var(--text-muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .12s}
+.lat-repeater__row[open] > .lat-repeater__summary::before{transform:rotate(90deg)}
+.lat-repeater__row[open] > .lat-repeater__summary{border-bottom:1px solid var(--border-subtle)}
+.lat-repeater__title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-13);font-weight:var(--fw-semibold)}
+.lat-repeater__untitled{color:var(--text-muted);font-weight:400}
+/* The remove control stays quiet until the row is under the pointer, so a list
+   of rules does not read as a column of buttons. */
+.lat-repeater--list .lat-repeater__remove{opacity:0;transition:opacity .12s}
+.lat-repeater__summary:hover .lat-repeater__remove,
+.lat-repeater__remove:focus-visible{opacity:1}
+/* Equal columns, and every cell in a grid row shares its height, so a one-line
+   input beside a text area reads as one row rather than two ragged ones. */
+.lat-repeater__fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 16px;padding:14px;background:var(--surface-sunken)}
+.lat-repeater__fields > .lat-field{min-width:0;margin:0}
+/* A fixed height, not a stretch to fill: a cell carrying help text would
+   otherwise squeeze its control shorter than the one beside it, which is the
+   ragged look this layout exists to avoid. Two control heights reads as a text
+   area without towering over the single-line fields next to it. */
+.lat-repeater__fields textarea.lat-input{height:calc(var(--control-h) * 2);min-height:calc(var(--control-h) * 2)}
+.lat-repeater__fields .lat-help{margin-top:6px}
+@media (prefers-reduced-motion:reduce){.lat-repeater__summary,.lat-repeater__summary::before,.lat-repeater--list .lat-repeater__remove{transition:none}}
 .lat-repeater__row .lat-field{flex:1;min-width:150px;margin:0}
 .lat-repeater__add{align-self:flex-start}
 
