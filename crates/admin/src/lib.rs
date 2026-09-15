@@ -23,6 +23,7 @@ mod export;
 pub mod field;
 pub mod form;
 pub mod html;
+pub mod http_cache;
 mod icons;
 pub mod list;
 pub mod persist;
@@ -159,6 +160,8 @@ pub(crate) struct AdminState {
     /// not read from the database on every page. Invalidated when the setting is
     /// saved. `None` means "not resolved yet".
     brand_cache: Arc<RwLock<Option<String>>>,
+    /// Each registered asset's content-named path. See [`asset_urls`].
+    asset_urls: Arc<AssetUrls>,
     /// The field-type registry (built-ins plus contributions): resolves a form
     /// descriptor's type key to its rendering + behaviour. See [`field`].
     field_types: Arc<field::FieldRegistry>,
@@ -201,6 +204,7 @@ impl AdminState {
             column_types: Arc::new(list::builtin_column_registry()),
             plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
+            asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
         }
@@ -320,6 +324,10 @@ pub(crate) struct Shell {
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
+    /// Each asset's content-named path, so chrome in `base.html` links assets
+    /// through [`Shell::asset`] rather than by a stable path the browser would
+    /// be entitled to keep.
+    asset_urls: Arc<AssetUrls>,
     /// The current session's CSRF token, auto-injected into every rendered form
     /// (a hidden field) and into HTMX requests (a header), so a mutating request
     /// carries it without the handler doing anything. See [`session`].
@@ -362,6 +370,7 @@ impl Shell {
         csrf_token: String,
         flash: Vec<session::Flash>,
         i18n: Translator,
+        asset_urls: Arc<AssetUrls>,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -388,6 +397,7 @@ impl Shell {
             })
             .collect();
         Shell {
+            asset_urls,
             base: base.to_string(),
             brand,
             nav,
@@ -399,6 +409,20 @@ impl Shell {
             csrf_token,
             flash,
             assets: Vec::new(),
+        }
+    }
+
+    /// The URL for a built-in asset, named by a digest of its bytes. Templates
+    /// call `{{ shell.asset("laterite.css") }}`. An unregistered key yields the
+    /// plain path, which still serves (revalidating rather than immutable) and
+    /// trips a debug assertion.
+    pub(crate) fn asset(&self, key: &str) -> String {
+        match self.asset_urls.get(key) {
+            Some(path) => format!("{}/assets/{path}", self.base),
+            None => {
+                debug_assert!(false, "asset key `{key}` is not registered");
+                format!("{}/assets/{key}", self.base)
+            }
         }
     }
 
@@ -449,6 +473,7 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn test() -> Self {
         Shell {
+            asset_urls: Arc::new(asset_urls(&builtin_assets())),
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
             nav: Vec::new(),
@@ -1037,6 +1062,7 @@ pub fn router(
         column_types: Arc::new(column_types),
         plugin_defined,
         assets: Arc::new(builtin_assets()),
+        asset_urls: Arc::new(asset_urls(&builtin_assets())),
         pickers,
         overrides: Arc::new(field::NoOverrides),
     };
@@ -1170,6 +1196,25 @@ pub fn router(
             state.clone(),
             capture_client,
         ))
+        // Admin responses are per-operator and carry a request token, so no
+        // shared cache may hold one and no browser may leave one on disk for
+        // the next person at the machine. `if_not_present` leaves the asset
+        // routes alone: those set their own policy from their URL.
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static(http_cache::PRIVATE_NO_STORE),
+            ),
+        )
+        // An htmx fragment and the full page share a URL and differ only by the
+        // request header, so any cache keying on URL alone would serve one for
+        // the other.
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::VARY,
+                axum::http::HeaderValue::from_static("HX-Request"),
+            ),
+        )
         .layer(tower_http::catch_panic::CatchPanicLayer::custom(
             handle_panic,
         ))
@@ -1266,7 +1311,6 @@ fn prefix_resource(admin_path: &str, resource: &mut Resource) {
 /// One embedded admin asset served by [`serve_asset`].
 pub(crate) struct AdminAsset {
     pub mime: &'static str,
-    pub cache: &'static str,
     pub bytes: &'static [u8],
 }
 
@@ -1274,39 +1318,64 @@ pub(crate) struct AdminAsset {
 /// field types and plugins contribute their own (wired when the first one does).
 pub(crate) type AssetRegistry = HashMap<&'static str, AdminAsset>;
 
+/// Registry key to the path it is served at, each carrying a digest of its
+/// bytes. Built once at boot, since the bytes are compiled in and cannot change
+/// while the process runs.
+pub(crate) type AssetUrls = HashMap<&'static str, String>;
+
+/// Names every registered asset by its content.
+pub(crate) fn asset_urls(registry: &AssetRegistry) -> AssetUrls {
+    registry
+        .iter()
+        .map(|(&key, asset)| {
+            (
+                key,
+                http_cache::fingerprint(key, &http_cache::digest(asset.bytes)),
+            )
+        })
+        .collect()
+}
+
 /// Resolves widget asset keys to per-page assets for the shell: an order-
 /// preserving dedup, a single URL builder (`{base}/assets/{key}`), and
 /// stylesheet-vs-script by the registry's mime. A key absent from the registry is
 /// skipped and trips a debug assertion, since a declared asset must be registered.
 /// The URL is stamped as `data-lat-asset` in the head so a later htmx fragment's
 /// `lat.assets.ensure` of the same key is a no-op.
-pub(crate) fn page_assets(keys: &[&str], base: &str, registry: &AssetRegistry) -> Vec<PageAsset> {
+pub(crate) fn page_assets(
+    keys: &[&str],
+    base: &str,
+    registry: &AssetRegistry,
+    urls: &AssetUrls,
+) -> Vec<PageAsset> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for &key in keys {
         if !seen.insert(key) {
             continue;
         }
-        match registry.get(key) {
-            Some(asset) => out.push(PageAsset {
-                url: format!("{base}/assets/{key}"),
+        match (registry.get(key), urls.get(key)) {
+            (Some(asset), Some(path)) => out.push(PageAsset {
+                url: format!("{base}/assets/{path}"),
                 css: asset.mime.contains("css"),
             }),
-            None => debug_assert!(false, "asset key `{key}` is not registered"),
+            _ => debug_assert!(false, "asset key `{key}` is not registered"),
         }
     }
     out
 }
 
-const ASSET_IMMUTABLE: &str = "public, max-age=31536000, immutable";
-
 /// The framework's built-in assets: the stylesheet, brand marks, and webfonts.
-/// The stylesheet is `no-cache` (it changes with the binary and is referenced at
-/// a stable URL); fonts and marks are content-stable, so immutable.
+///
+/// None of them declares a cache policy. Every one is referenced through
+/// [`asset_urls`], which names each by a digest of its bytes, and
+/// [`serve_asset`] reads the policy off the URL: a request that named the
+/// content may keep it forever, one that did not must revalidate. So an asset
+/// changed by a framework upgrade reaches a browser that had cached the old
+/// one, without anybody remembering to say so.
 pub(crate) fn builtin_assets() -> AssetRegistry {
     let font = |bytes: &'static [u8]| AdminAsset {
         mime: "font/woff2",
-        cache: ASSET_IMMUTABLE,
         bytes,
     };
     HashMap::from([
@@ -1314,7 +1383,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "laterite.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                cache: "no-cache",
                 bytes: include_bytes!("../assets/laterite.css"),
             },
         ),
@@ -1322,7 +1390,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "laterite.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                cache: "no-cache",
                 bytes: include_bytes!("../assets/laterite.js"),
             },
         ),
@@ -1330,7 +1397,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "vendor/htmx.min.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                cache: "no-cache",
                 bytes: include_bytes!("../assets/vendor/htmx.min.js"),
             },
         ),
@@ -1338,7 +1404,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "fields/ref-picker.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                cache: "no-cache",
                 bytes: include_bytes!("../assets/fields/ref-picker.js"),
             },
         ),
@@ -1346,7 +1411,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "fields/ref-picker.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                cache: "no-cache",
                 bytes: include_bytes!("../assets/fields/ref-picker.css"),
             },
         ),
@@ -1354,7 +1418,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "mark.svg",
             AdminAsset {
                 mime: "image/svg+xml",
-                cache: ASSET_IMMUTABLE,
                 bytes: include_bytes!("../assets/mark.svg"),
             },
         ),
@@ -1362,7 +1425,6 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "mark.png",
             AdminAsset {
                 mime: "image/png",
-                cache: ASSET_IMMUTABLE,
                 bytes: include_bytes!("../assets/mark.png"),
             },
         ),
@@ -1398,18 +1460,24 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
 }
 
 /// Serves an embedded admin asset by path (public; no auth).
-async fn serve_asset(State(state): State<AdminState>, Path(path): Path<String>) -> Response {
-    match state.assets.get(path.as_str()) {
-        Some(asset) => (
-            [
-                (header::CONTENT_TYPE, asset.mime),
-                (header::CACHE_CONTROL, asset.cache),
-            ],
-            asset.bytes,
-        )
-            .into_response(),
-        None => not_found(),
-    }
+async fn serve_asset(
+    State(state): State<AdminState>,
+    headers: HeaderMap,
+    Path(path): Path<String>,
+) -> Response {
+    // A URL that named the content is answerable forever, because different
+    // bytes would have been a different URL. One that did not gets a validator
+    // instead, so the next request is a cheap 304 rather than a fresh download.
+    let (key, fingerprinted) = http_cache::strip_fingerprint(&path);
+    let Some(asset) = state.assets.get(key.as_str()) else {
+        return not_found();
+    };
+    let policy = if fingerprinted {
+        http_cache::IMMUTABLE
+    } else {
+        http_cache::REVALIDATE
+    };
+    http_cache::conditional(&headers, asset.mime, policy, asset.bytes.to_vec())
 }
 
 /// Builds a resource's list, create, and edit routes as generic handlers that
@@ -1762,6 +1830,7 @@ async fn require_auth(
         handle.csrf_token(),
         flash,
         i18n,
+        state.asset_urls.clone(),
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
@@ -1886,6 +1955,7 @@ async fn login_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
         Ok(false) => Redirect::to(&format!("{}/setup", state.admin_path)).into_response(),
         Ok(true) => render(LoginTemplate {
             base: state.admin_path.to_string(),
+            asset_urls: state.asset_urls.clone(),
             brand: state.brand().await,
             error: None,
             i18n: pre_auth_translator(&state, &headers),
@@ -1944,6 +2014,7 @@ async fn login_submit(
             let i18n = pre_auth_translator(&state, &headers);
             render(LoginTemplate {
                 base: state.admin_path.to_string(),
+                asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await,
                 error: Some(i18n.t(&t!("Invalid username or password."))),
                 i18n,
@@ -2016,6 +2087,7 @@ async fn setup_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
             state.timezone,
             None,
             pre_auth_translator(&state, &headers),
+            state.asset_urls.clone(),
         )),
         Err(_) => render_error(),
     }
@@ -2049,6 +2121,7 @@ async fn setup_submit(
                 "Username, first name, email, and password are all required."
             )),
             pre_auth_translator(&state, &headers),
+            state.asset_urls.clone(),
         ));
     }
     // The setup select always carries a value, but guard against a bad one.
@@ -2059,6 +2132,7 @@ async fn setup_submit(
             state.timezone,
             Some(t!("That is not a recognised timezone.")),
             pre_auth_translator(&state, &headers),
+            state.asset_urls.clone(),
         ));
     }
 
@@ -2079,6 +2153,7 @@ async fn setup_submit(
                 "Could not create the account. The username or email may already be taken."
             )),
             pre_auth_translator(&state, &headers),
+            state.asset_urls.clone(),
         ));
     }
 
@@ -2104,6 +2179,7 @@ fn setup_view(
     default_tz: Tz,
     error: Option<Text>,
     i18n: Translator,
+    asset_urls: Arc<AssetUrls>,
 ) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
@@ -2116,6 +2192,7 @@ fn setup_view(
         .collect();
     SetupTemplate {
         base: admin_path.to_string(),
+        asset_urls,
         brand,
         zones,
         error: error.map(|e| i18n.t(&e)),
@@ -2596,6 +2673,8 @@ fn audit_log_list_config() -> list::ListConfig {
 struct LoginTemplate {
     /// The admin mount path, so pre-auth asset and form URLs match the panel.
     base: String,
+    /// Each asset's content-named path; see [`Shell::asset`].
+    asset_urls: Arc<AssetUrls>,
     brand: String,
     error: Option<String>,
     /// The pre-auth translator (config locale, then `Accept-Language`); no operator
@@ -2603,7 +2682,22 @@ struct LoginTemplate {
     i18n: Translator,
 }
 
+/// Builds a content-named asset URL for the pre-auth screens, which render
+/// before a [`Shell`] exists and so carry the map themselves.
+fn preauth_asset(urls: &AssetUrls, base: &str, key: &str) -> String {
+    match urls.get(key) {
+        Some(path) => format!("{base}/assets/{path}"),
+        None => {
+            debug_assert!(false, "asset key `{key}` is not registered");
+            format!("{base}/assets/{key}")
+        }
+    }
+}
+
 impl LoginTemplate {
+    fn asset(&self, key: &str) -> String {
+        preauth_asset(&self.asset_urls, &self.base, key)
+    }
     fn t(&self, source: &str) -> String {
         self.i18n.t(&Text::dynamic(source))
     }
@@ -2624,6 +2718,8 @@ struct DashboardTemplate {
 struct SetupTemplate {
     /// The admin mount path, so pre-auth asset and form URLs match the panel.
     base: String,
+    /// Each asset's content-named path; see [`Shell::asset`].
+    asset_urls: Arc<AssetUrls>,
     brand: String,
     zones: Vec<TzOption>,
     error: Option<String>,
@@ -2632,6 +2728,9 @@ struct SetupTemplate {
 }
 
 impl SetupTemplate {
+    fn asset(&self, key: &str) -> String {
+        preauth_asset(&self.asset_urls, &self.base, key)
+    }
     fn t(&self, source: &str) -> String {
         self.i18n.t(&Text::dynamic(source))
     }
@@ -2872,26 +2971,34 @@ mod tests {
             "a.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                cache: "no-cache",
-                bytes: b"",
+                bytes: b"//",
             },
         );
         reg.insert(
             "b.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                cache: "no-cache",
-                bytes: b"",
+                bytes: b"body{}",
             },
         );
         // A repeated key collapses to one, keeping first-seen order; the URL is
-        // built from the base; css-vs-js follows the registry mime.
-        let assets = page_assets(&["a.js", "b.css", "a.js"], "/admin", &reg);
+        // built from the base and names the content; css-vs-js follows the mime.
+        let urls = asset_urls(&reg);
+        let assets = page_assets(&["a.js", "b.css", "a.js"], "/admin", &reg, &urls);
         assert_eq!(assets.len(), 2);
-        assert_eq!(assets[0].url, "/admin/assets/a.js");
+        assert_eq!(
+            assets[0].url,
+            format!("/admin/assets/a.{}.js", http_cache::digest(b"//"))
+        );
         assert!(!assets[0].css);
-        assert_eq!(assets[1].url, "/admin/assets/b.css");
+        assert_eq!(
+            assets[1].url,
+            format!("/admin/assets/b.{}.css", http_cache::digest(b"body{}"))
+        );
         assert!(assets[1].css);
+        // Different bytes must produce different URLs, which is the whole
+        // reason these may be served as immutable.
+        assert_ne!(assets[0].url, assets[1].url);
     }
 
     /// A fresh test database with no migrations applied, the blank slate an
@@ -2943,6 +3050,7 @@ mod tests {
             column_types: Arc::new(list::builtin_column_registry()),
             plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
+            asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             overrides: Arc::new(field::NoOverrides),
         };

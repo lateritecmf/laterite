@@ -752,7 +752,7 @@ fn build(
     let shell_title = shell.tt(&form.config.title);
     let error = error.map(|m| shell.tt(&m));
     let mut shell = shell.clone();
-    shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
+    shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
     FormTemplate {
         shell,
         title: shell_title,

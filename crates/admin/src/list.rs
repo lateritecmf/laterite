@@ -1027,7 +1027,7 @@ pub(crate) async fn handle(
                 .flatten()
                 .collect();
             let mut shell = shell;
-            shell.assets = crate::page_assets(&keys, &shell.base, &state.assets);
+            shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
             let shown = rows.len() as i64;
             // Localize the title and column headers before the shell is moved in.
             let title = shell.tt(&config.title);

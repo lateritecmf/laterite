@@ -184,8 +184,10 @@ async fn custom_admin_path_moves_the_whole_panel() {
         html.contains(r#"action="/manage/setup""#),
         "the form posts under the mount"
     );
+    // The stylesheet URL carries a content digest, so match the mount and the
+    // extension rather than the whole name.
     assert!(
-        html.contains("/manage/assets/laterite.css"),
+        html.contains("/manage/assets/laterite.") && html.contains(".css"),
         "assets load under the mount"
     );
     assert!(

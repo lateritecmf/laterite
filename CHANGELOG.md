@@ -42,6 +42,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **Responses say how long they may be reused, and prove it cheaply.** Built-in
+  assets are now addressed by a digest of their bytes (`laterite.d10210ad.css`),
+  and the cache policy follows the URL rather than being declared per asset: a URL
+  that names its content may be kept forever, one that does not must revalidate
+  and carries an `ETag` so revalidation is a bodyless `304`. A framework upgrade
+  therefore reaches a browser that cached the previous build without anyone
+  remembering to say so. Admin screens are `private, no-store`, being
+  per-operator and carrying a request token, and every admin response carries
+  `Vary: HX-Request`, since an htmx fragment and a full page share a URL.
+  `laterite_admin::http_cache` exposes the conditional-response helper to plugin
+  routes. None of this is disabled in development: a validator that only appears
+  in production is one nobody has tested.
+
 - **Sign-ins record where they came from.** `backend_access_log` has carried
   `ip_address` and `user_agent` columns since it was added and wrote null to both:
   `RequestContext` was built with `::default()` at every call site outside tests, so

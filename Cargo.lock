@@ -1271,6 +1271,7 @@ dependencies = [
  "askama",
  "axum",
  "axum-extra",
+ "blake3",
  "chrono",
  "chrono-tz",
  "cookie",
