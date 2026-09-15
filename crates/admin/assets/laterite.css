@@ -260,6 +260,11 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* Page toolbar + breadcrumb */
 .lat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
 .lat-toolbar h1{font-size:var(--fs-24);margin:0;margin-right:auto}
+.lat-toolbar h2{font-size:var(--fs-16);margin:0;margin-right:auto}
+/* A second section on a page needs air above it, or its heading reads as
+   part of the card it follows. */
+.lat-toolbar--section{margin-top:32px;margin-bottom:12px}
+.lat-sectionintro{margin:0 0 16px}
 .lat-toolbar__actions{display:flex;gap:8px;align-items:center}
 .lat-titleblock{margin-right:auto}
 .lat-titleblock h1{margin-right:0}
