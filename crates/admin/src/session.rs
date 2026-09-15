@@ -24,7 +24,7 @@ const VERSION: u8 = 1;
 /// a token plus a few short messages; anything bigger is not ours).
 const MAX_BLOB: usize = 4096;
 const CSRF_HEADER: &str = "x-csrf-token";
-const CSRF_FIELD: &str = "_csrf";
+pub(crate) const CSRF_FIELD: &str = "_csrf";
 
 /// A user-facing flash message, shown once on the next full-page render. The text
 /// is a locale-free [`Text`] so it survives the redirect round-trip in the session
@@ -250,6 +250,27 @@ pub(crate) fn query_token(query: Option<&str>) -> Option<String> {
     form_urlencoded::parse(query.unwrap_or_default().as_bytes())
         .find(|(k, _)| k == CSRF_FIELD)
         .map(|(_, v)| v.into_owned())
+}
+
+/// A CSRF check the guard could not make itself, handed to the handler.
+///
+/// A file upload carries its token in the body, and the guard does not read that
+/// body. Rather than trust a handler to remember, the guard marks the check
+/// outstanding, and refuses the response if it is still outstanding when the
+/// handler returns. Forgetting is therefore not a silent hole: the route simply
+/// stops working, loudly, the first time it is used.
+#[derive(Clone, Default)]
+pub(crate) struct CsrfPending(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl CsrfPending {
+    /// Called by the extractor once it has checked the token.
+    pub(crate) fn satisfy(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn was_satisfied(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 /// Whether this request carries a body this guard must not buffer.

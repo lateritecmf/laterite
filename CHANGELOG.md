@@ -9,6 +9,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `VerifiedUpload`: a file upload whose request token is checked while the form
+  is parsed, rather than before. The token travels as the form's first field, as
+  it does for any other form, so a scriptless upload needs nothing special. A
+  handler that takes the upload with a bare parser instead has its **response
+  refused**: the guard marks the check outstanding and enforces it afterwards, so
+  skipping it is a broken route rather than an unguarded one.
 - `laterite-media`, the storage layer: a `StorageDriver` trait, a local-filesystem
   disk, and a streaming ingest that hashes a file with BLAKE3 as it arrives. A
   file is never held in memory, the size limit stops the read rather than judging

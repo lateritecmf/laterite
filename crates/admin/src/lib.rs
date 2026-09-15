@@ -33,6 +33,7 @@ pub mod routes;
 mod session;
 pub mod settings;
 mod sql;
+mod upload;
 mod users;
 
 /// The axum a contributed route must build against.
@@ -47,6 +48,7 @@ pub use axum;
 pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
 pub use error::AdminError;
 pub use session::{FlashLevel, SessionHandle};
+pub use upload::VerifiedUpload;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -1593,6 +1595,8 @@ async fn require_auth(
     // fails closed when a form omitted the field.
     let mut request = request;
     let safe = session::is_safe_method(request.method());
+    // Set when the token has to be checked by the handler's extractor instead.
+    let mut deferred: Option<session::CsrfPending> = None;
     if !safe {
         let (parts, body) = request.into_parts();
         // A file upload is never buffered: the form limit would truncate it to
@@ -1604,6 +1608,13 @@ async fn require_auth(
         let (body, submitted) = if session::is_multipart(&parts.headers) {
             let token = session::header_token(&parts.headers)
                 .or_else(|| session::query_token(parts.uri.query()));
+            // No token beside the body means it is in the body, where the
+            // reference system reads it from and where a plain form can put it.
+            // The guard cannot look there without consuming the upload, so the
+            // check is deferred to the extractor and enforced below.
+            if token.is_none() {
+                deferred = Some(session::CsrfPending::default());
+            }
             (body, token)
         } else {
             let bytes = axum::body::to_bytes(body, MAX_FORM_BYTES)
@@ -1612,7 +1623,8 @@ async fn require_auth(
             let token = session::submitted_token(&parts.headers, &bytes);
             (Body::from(bytes), token)
         };
-        if !session::token_matches(&handle.csrf_token(), submitted.as_deref()) {
+        if deferred.is_none() && !session::token_matches(&handle.csrf_token(), submitted.as_deref())
+        {
             tracing::warn!(
                 user_id = resolved.identity.user.id,
                 "admin CSRF check failed"
@@ -1630,6 +1642,8 @@ async fn require_auth(
         Vec::new()
     };
     let user = resolved.identity;
+    // Kept past the move into the request, for the deferred-check log below.
+    let acting_user_id = user.user.id;
     let path = request.uri().path().to_string();
     // Resolve the locale chain for this request (operator preference, then the
     // browser's Accept-Language, then the deployment default) over the shared
@@ -1673,7 +1687,25 @@ async fn require_auth(
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
     request.extensions_mut().insert(handle.clone());
+    // Present only when the token check was deferred to an upload extractor.
+    if let Some(pending) = &deferred {
+        request.extensions_mut().insert(pending.clone());
+    }
     let mut response = next.run(request).await;
+
+    // A deferred check that never happened means the handler took the upload
+    // without the verifying extractor. Refuse the response rather than let the
+    // route quietly run unguarded: the origin gate held, but that is the outer
+    // layer, not the whole of it.
+    if let Some(pending) = &deferred {
+        if !pending.was_satisfied() {
+            tracing::error!(
+                user_id = acting_user_id,
+                "a multipart route returned without verifying its request token"
+            );
+            return error::csrf_rejected();
+        }
+    }
 
     // The `ErrorMeta` seam: an `AdminError` renders its page in English from
     // `IntoResponse` (no request context there); re-render it localized now that a
