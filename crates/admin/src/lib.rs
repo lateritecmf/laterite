@@ -17,6 +17,7 @@
 mod audit;
 pub mod bootstrap;
 mod bulk;
+mod clientip;
 mod error;
 mod export;
 pub mod field;
@@ -139,6 +140,8 @@ pub(crate) struct AdminState {
     /// built from it, so one config value moves the whole panel.
     admin_path: Arc<str>,
     secure_cookie: bool,
+    /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
+    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
     /// The public origin for the CSRF origin check (see [`AdminConfig::origin`]).
     origin: Arc<str>,
     timezone: Tz,
@@ -185,6 +188,7 @@ impl AdminState {
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
+            trusted_proxies: Arc::new(Vec::new()),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),
@@ -237,6 +241,10 @@ pub struct AdminConfig {
     /// Set the `Secure` attribute on the session cookie. Enable behind HTTPS in
     /// production; leave off for plain-HTTP local development.
     pub secure_cookie: bool,
+    /// Networks whose `X-Forwarded-For` may be believed, as CIDR ranges. Empty
+    /// trusts nothing and records the peer address. See
+    /// [`laterite_core::config::BackendConfig::trusted_proxies`].
+    pub trusted_proxies: Vec<String>,
     /// Default display timezone for the admin (an IANA name like `Asia/Kolkata`).
     /// Storage is UTC; this only affects rendering. Invalid or empty falls back
     /// to UTC. An operator's own preference overrides it (later).
@@ -264,6 +272,7 @@ impl Default for AdminConfig {
     fn default() -> Self {
         Self {
             secure_cookie: false,
+            trusted_proxies: Vec::new(),
             timezone: "UTC".to_string(),
             locale: "en".to_string(),
             app_name: "Laterite".to_string(),
@@ -1016,6 +1025,7 @@ pub fn router(
         permissions: Arc::new(permissions),
         admin_path: Arc::from(admin_path.as_str()),
         secure_cookie: config.secure_cookie,
+        trusted_proxies: Arc::new(clientip::parse_trusted(&config.trusted_proxies)),
         origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         default_locale: Arc::from(default_locale(&config.locale, &catalogs.locales())),
@@ -1152,6 +1162,12 @@ pub fn router(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             enforce_origin,
+        ))
+        // Outside the origin gate, so a rejected request is still logged with
+        // the address it came from.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            capture_client,
         ))
         .layer(tower_http::catch_panic::CatchPanicLayer::custom(
             handle_panic,
@@ -1614,6 +1630,11 @@ async fn require_auth(
     next: Next,
 ) -> Response {
     let login = format!("{}/login", state.admin_path);
+    let client_ctx = request
+        .extensions()
+        .get::<RequestContext>()
+        .cloned()
+        .unwrap_or_default();
     // A live session is the ordinary path. A missing or expired one falls back
     // to the stay-signed-in credential, which mints a fresh session and rotates
     // itself, so the cookie just presented is never accepted a second time.
@@ -1631,7 +1652,7 @@ async fn require_auth(
     };
     let (token, resolved, recalled) = match live {
         Some((token, resolved)) => (token, resolved, None),
-        None => match recall(&state, &jar).await {
+        None => match recall(&state, &jar, &client_ctx).await {
             Some((token, resolved, credential)) => (token, resolved, Some(credential)),
             // Clear the credential on the way out: a cookie that failed once
             // will fail every time, and retrying it on each request is noise.
@@ -1803,17 +1824,14 @@ async fn require_auth(
 async fn recall(
     state: &AdminState,
     jar: &CookieJar,
+    ctx: &RequestContext,
 ) -> Option<(
     String,
     laterite_auth::ResolvedSession,
     laterite_auth::RememberCredential,
 )> {
     let presented = jar.get(REMEMBER_COOKIE)?.value().to_string();
-    let recalled = state
-        .auth
-        .consume_remember(&presented, &RequestContext::default())
-        .await
-        .ok()?;
+    let recalled = state.auth.consume_remember(&presented, ctx).await.ok()?;
     let token = recalled.session.token.clone();
     let resolved = state.auth.resolve_session(&token).await.ok()?;
     Some((token, resolved, recalled.remember))
@@ -1827,6 +1845,27 @@ const MAX_FORM_BYTES: usize = 1024 * 1024;
 /// request must come from our own origin (see [`session::origin_ok`]). This
 /// covers the login and setup screens, which are deliberately token-less (no
 /// session exists yet), so the origin check is their sole CSRF defense.
+/// Records where a request came from, once, for anything downstream that logs.
+/// Doing it in one layer keeps the trusted-proxy rule in a single place rather
+/// than at each call site that happens to want an address.
+async fn capture_client(
+    State(state): State<AdminState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0);
+    let headers = request.headers();
+    let ctx = RequestContext {
+        ip_address: clientip::client_ip(peer, headers, &state.trusted_proxies),
+        user_agent: clientip::user_agent(headers),
+    };
+    request.extensions_mut().insert(ctx);
+    next.run(request).await
+}
+
 async fn enforce_origin(State(state): State<AdminState>, request: Request, next: Next) -> Response {
     if !session::is_safe_method(request.method())
         && !session::origin_ok(request.headers(), &state.origin)
@@ -1867,11 +1906,12 @@ async fn login_submit(
     State(state): State<AdminState>,
     jar: CookieJar,
     headers: HeaderMap,
+    Extension(ctx): Extension<RequestContext>,
     Form(form): Form<LoginForm>,
 ) -> Response {
     match state
         .auth
-        .authenticate(&form.username, &form.password, &RequestContext::default())
+        .authenticate(&form.username, &form.password, &ctx)
         .await
     {
         Ok(session) => {
@@ -2388,6 +2428,10 @@ async fn session_rows(
                 started: stamp(s.created_at),
                 last_seen: stamp(s.last_seen_at),
                 expires: stamp(s.expires_at),
+                device: clientip::describe(s.user_agent.as_deref())
+                    .or(s.user_agent)
+                    .unwrap_or_else(|| "-".to_string()),
+                ip_address: s.ip_address.unwrap_or_default(),
                 current: s.current,
             })
             .collect(),
@@ -2622,6 +2666,11 @@ struct SessionRow {
     started: String,
     last_seen: String,
     expires: String,
+    /// "Chrome on macOS", or the raw agent when it is not one we name, or a
+    /// dash when the request carried none.
+    device: String,
+    /// Where it signed in from, blank when the deployment records no address.
+    ip_address: String,
     current: bool,
 }
 
@@ -2880,6 +2929,7 @@ mod tests {
             nav: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
+            trusted_proxies: Arc::new(Vec::new()),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),

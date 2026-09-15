@@ -47,6 +47,8 @@ path = "/admin"                  # URL path the admin panel mounts under; move o
 "rainmill.location" = "/places"          # the whole module
 "rainmill.location/nodes" = "/places"    # one screen; the more specific key wins
 
+trusted_proxies = []             # CIDR ranges whose X-Forwarded-For is believed
+
 [auth]
 session_idle_timeout_secs = 7200      # quiet time before a session ends, 2h default
 session_absolute_timeout_secs = 43200 # ceiling counted from login, 12h default
@@ -56,6 +58,21 @@ failure_window_secs = 900        # window the failures are counted over
 ```
 
 Every `[auth]` and `[backend]` key is optional and falls back to a built-in default when omitted.
+
+`trusted_proxies` decides what Laterite records as a client's address. The header
+a proxy uses to pass the original address on, `X-Forwarded-For`, is written by
+whoever is connecting, so believing it from just anyone lets a caller choose what
+appears in the audit log. It is read only when the connecting peer falls inside
+one of these ranges, and the client is then taken to be the rightmost address in
+the chain that is not itself a trusted proxy. Left empty, nothing is believed and
+the peer address is recorded, which is correct for a directly bound server. Set it
+to your load balancer's network when there is one: empty behind a proxy records
+the proxy on every row.
+
+```toml
+[backend]
+trusted_proxies = ["10.0.0.0/8", "172.16.0.0/12"]
+```
 
 A session runs on two clocks. `session_idle_timeout_secs` is measured from the
 last request and moves forward as the operator works, so an active session does

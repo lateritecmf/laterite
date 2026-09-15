@@ -23,4 +23,5 @@ laterite_core::migration_set! {
     m0010_create_backend_audit_log,
     m0011_create_backend_user_preferences,
     m0012_create_backend_remember_tokens,
+    m0013_add_backend_session_client,
 }

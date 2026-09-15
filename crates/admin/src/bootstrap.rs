@@ -403,6 +403,7 @@ impl Bootstrap {
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
+            trusted_proxies: config.backend.trusted_proxies.clone(),
             timezone: config.backend.timezone.clone(),
             locale: config.app.locale.clone(),
             app_name: config.app.name.clone(),
@@ -462,7 +463,11 @@ impl Bootstrap {
         let listener = bind(&config.server.listen).await?;
         let admin_path = normalize_path(&config.backend.path);
         println!("{} on {origin}{admin_path}", config.app.name);
-        axum::serve(listener, app).await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await?;
         Ok(())
     }
 }

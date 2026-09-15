@@ -34,6 +34,7 @@
   <table class="lat-table">
     <thead>
       <tr>
+        <th>{{ shell.t("Device") }}</th>
         <th>{{ shell.t("Signed in") }}</th>
         <th>{{ shell.t("Last active") }}</th>
         <th>{{ shell.t("Expires") }}</th>
@@ -43,7 +44,11 @@
     <tbody>
       {% for item in sessions %}
       <tr>
-        <td>{{ item.started }}{% if item.current %} <span class="lat-badge">{{ shell.t("This device") }}</span>{% endif %}</td>
+        <td>
+          {{ item.device }}{% if item.current %} <span class="lat-badge">{{ shell.t("This device") }}</span>{% endif %}
+          {% if !item.ip_address.is_empty() %}<p class="lat-help">{{ item.ip_address }}</p>{% endif %}
+        </td>
+        <td>{{ item.started }}</td>
         <td>{{ item.last_seen }}</td>
         <td>{{ item.expires }}</td>
         <td class="lat-table__actions">

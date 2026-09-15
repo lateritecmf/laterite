@@ -27,6 +27,7 @@ bytes = "1"
 # axum-extra re-exports Cookie but not the `time` types its max_age takes, so
 # the crate behind it is a direct dependency.
 cookie = "0.18"
+ipnet = "2"
 chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
 futures = "0.3"
 chrono-tz = "0.10"

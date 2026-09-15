@@ -137,6 +137,17 @@ pub struct BackendConfig {
     /// `/backend`). A leading slash is added if missing and a trailing slash is
     /// stripped; an empty value falls back to `/admin`.
     pub path: String,
+    /// Networks whose `X-Forwarded-For` header may be believed, as CIDR ranges
+    /// (`"10.0.0.0/8"`). The header is caller-controlled, so it is read only when
+    /// the connecting peer falls inside one of these; the client is then the
+    /// rightmost address in the chain that is not itself a trusted proxy.
+    ///
+    /// Empty (the default) trusts nothing and records the peer address, which is
+    /// right for a directly bound server. Set it to the load balancer's network
+    /// when there is one: leaving it empty behind a proxy records the proxy on
+    /// every row, and filling it in for a network that is not a proxy lets anyone
+    /// on it forge the address in the audit log.
+    pub trusted_proxies: Vec<String>,
 }
 
 impl Default for BackendConfig {
@@ -146,6 +157,7 @@ impl Default for BackendConfig {
             timezone: "UTC".to_string(),
             paths: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
+            trusted_proxies: Vec::new(),
         }
     }
 }

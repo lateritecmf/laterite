@@ -62,6 +62,10 @@ pub(crate) enum BackendSessions {
     /// Opaque per-session blob (a serialised string the surface owns, e.g. the
     /// admin's CSRF token + flash). Auth never interprets it.
     Data,
+    /// Where the session signed in from, subject to the trusted-proxy rule.
+    IpAddress,
+    /// The signing-in browser's user agent, capped by the surface.
+    UserAgent,
 }
 
 #[derive(Iden)]

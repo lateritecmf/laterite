@@ -35,6 +35,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **Sign-ins record where they came from.** `backend_access_log` has carried
+  `ip_address` and `user_agent` columns since it was added and wrote null to both:
+  `RequestContext` was built with `::default()` at every call site outside tests, so
+  the trail recorded who and when but never from where. One layer now resolves both
+  per request, and sessions carry them too, so the sessions list names a device
+  ("Chrome on macOS") and the address beside it. `X-Forwarded-For` is believed only
+  from peers inside the new `backend.trusted_proxies` CIDR ranges, taking the
+  rightmost address that is not itself a trusted proxy; empty (the default) trusts
+  nothing and records the peer. User agents are stored capped at 512 bytes, since
+  the header is caller-controlled and unbounded. Deployments behind a load balancer
+  should set `trusted_proxies`, or every row records the balancer.
+
 - **An account can see and end its own sessions.** Preferences now lists every
   browser signed in to the account, newest activity first, marking the one asking
   and showing when each signed in, was last active, and expires. Any other session

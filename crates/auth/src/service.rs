@@ -190,6 +190,10 @@ pub struct ActiveSession {
     pub created_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+    /// Where it signed in from, when the deployment could determine one.
+    pub ip_address: Option<String>,
+    /// The raw user agent as captured, for the caller to label as it likes.
+    pub user_agent: Option<String>,
     /// Whether this is the session doing the asking.
     pub current: bool,
 }
@@ -330,7 +334,15 @@ impl AuthService {
 
         let token = generate_token();
         let expires_at = self.config.deadline(now, now);
-        store::insert_session(&self.db, &hash_token(&token), user.id, expires_at).await?;
+        store::insert_session(
+            &self.db,
+            &hash_token(&token),
+            user.id,
+            expires_at,
+            ctx.ip_address.as_deref(),
+            ctx.user_agent.as_deref(),
+        )
+        .await?;
         self.log(Some(user.id), username, AccessEvent::LoginSuccess, ctx)
             .await?;
 
@@ -472,7 +484,15 @@ impl AuthService {
 
         let token = generate_token();
         let expires_at = self.config.deadline(now, now);
-        store::insert_session(&self.db, &hash_token(&token), user.id, expires_at).await?;
+        store::insert_session(
+            &self.db,
+            &hash_token(&token),
+            user.id,
+            expires_at,
+            ctx.ip_address.as_deref(),
+            ctx.user_agent.as_deref(),
+        )
+        .await?;
         self.log(
             Some(user.id),
             &user.username,
@@ -516,6 +536,8 @@ impl AuthService {
                 created_at: s.created_at,
                 last_seen_at: s.last_seen_at,
                 expires_at: s.expires_at,
+                ip_address: s.ip_address,
+                user_agent: s.user_agent,
                 current: s.token_hash == current_hash,
             })
             .collect())

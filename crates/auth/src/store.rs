@@ -222,6 +222,8 @@ pub(crate) async fn insert_session(
     token_hash: &str,
     user_id: i64,
     expires_at: DateTime<Utc>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
 ) -> Result<(), AuthError> {
     let now = now_ts();
     let (sql, values) = build(
@@ -234,6 +236,8 @@ pub(crate) async fn insert_session(
                 BackendSessions::CreatedAt,
                 BackendSessions::LastSeenAt,
                 BackendSessions::ExpiresAt,
+                BackendSessions::IpAddress,
+                BackendSessions::UserAgent,
             ])
             .values_panic([
                 token_hash.into(),
@@ -241,6 +245,8 @@ pub(crate) async fn insert_session(
                 now.clone().into(),
                 now.into(),
                 ts(expires_at).into(),
+                ip_address.into(),
+                user_agent.into(),
             ])
             .to_owned(),
     );
@@ -472,6 +478,8 @@ pub(crate) struct SessionSummary {
     pub created_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
 }
 
 pub(crate) async fn list_user_sessions(
@@ -487,6 +495,8 @@ pub(crate) async fn list_user_sessions(
                 BackendSessions::CreatedAt,
                 BackendSessions::LastSeenAt,
                 BackendSessions::ExpiresAt,
+                BackendSessions::IpAddress,
+                BackendSessions::UserAgent,
             ])
             .from(BackendSessions::Table)
             .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
@@ -504,6 +514,8 @@ pub(crate) async fn list_user_sessions(
                 created_at: parse_ts(&r.get_text("created_at")?)?,
                 last_seen_at: parse_ts(&r.get_text("last_seen_at")?)?,
                 expires_at: parse_ts(&r.get_text("expires_at")?)?,
+                ip_address: r.get_text_opt("ip_address")?,
+                user_agent: r.get_text_opt("user_agent")?,
             })
         })
         .collect()
