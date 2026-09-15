@@ -22,8 +22,10 @@ gen() {
   echo "generated crates/$crate/README.md"
 }
 
+gen macros src/lib.rs
 gen core src/lib.rs
 gen auth src/lib.rs
 gen admin src/lib.rs
+gen media src/lib.rs
 gen web src/lib.rs
 gen cli src/main.rs
