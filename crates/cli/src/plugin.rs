@@ -565,6 +565,16 @@ fn remove(root: &Path, name: &str, delete: bool) -> Result<()> {
     Ok(())
 }
 
+/// The module id a crate declares in its plugin marker, if it has one.
+pub fn declared_module(crate_dir: &Path) -> Option<String> {
+    read_manifest(&crate_dir.join("Cargo.toml"))
+        .ok()?
+        .package
+        .metadata?
+        .laterite
+        .map(|m| m.plugin)
+}
+
 /// Reports where a plugin departs from the expected layout.
 ///
 /// Every plugin has the same shape so that opening an unfamiliar one tells you

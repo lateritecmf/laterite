@@ -552,6 +552,11 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
         })
         .collect::<Result<_>>()?;
 
+    // The permission is namespaced by the module this crate registers, so two
+    // plugins with an `article` resource do not fight over `article.manage`.
+    // Read from the plugin marker, which is what it is for.
+    let module_id = crate::plugin::declared_module(&args.path).unwrap_or_default();
+
     let table = plural(&entity);
     // The table's identifier enum is named for the table, the row struct for the
     // entity, so `Articles::Title` is a column and `Article` is one row. Naming
@@ -601,7 +606,7 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     if admin.exists() {
         bail!("{} already exists", admin.display());
     }
-    fs::write(&admin, resource_admin(&entity, &table, &fields))?;
+    fs::write(&admin, resource_admin(&module_id, &entity, &table, &fields))?;
     declare_module(&admin_dir.join("mod.rs"), &entity)?;
 
     println!("Created the {entity} resource:");
@@ -663,6 +668,21 @@ fn declare_module(path: &Path, name: &str) -> Result<()> {
         contents.push_str(&format!("\n{decl}\n"));
     }
     fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
+}
+
+/// `canonical_name` -> `Canonical name`: a label a person reads, not an
+/// identifier. Only the first word is capitalised, as a column heading is.
+fn label(snake: &str) -> String {
+    let mut words = snake.split('_').filter(|w| !w.is_empty());
+    let Some(first) = words.next() else {
+        return String::new();
+    };
+    let mut out = pascal(first);
+    for word in words {
+        out.push(' ');
+        out.push_str(word);
+    }
+    out
 }
 
 /// `article` -> `Article`.
@@ -830,7 +850,13 @@ pub async fn find_{entity}(db: &Db, id: i64) -> CoreResult<Option<{name}>> {{
     )
 }
 
-fn resource_admin(entity: &str, table: &str, fields: &[Field]) -> String {
+fn resource_admin(module_id: &str, entity: &str, table: &str, fields: &[Field]) -> String {
+    // An application crate has no module marker; its permissions are its own.
+    let permission = if module_id.is_empty() {
+        format!("{entity}.manage")
+    } else {
+        format!("{module_id}.{entity}.manage")
+    };
     let title = pascal(entity);
     let plural_title = pascal(table);
     let list_columns: String = fields
@@ -839,7 +865,7 @@ fn resource_admin(entity: &str, table: &str, fields: &[Field]) -> String {
             format!(
                 "            ListColumn::new(\"{}\", \"{}\"){},\n",
                 f.name,
-                pascal(&f.name),
+                label(&f.name),
                 f.kind.column_type()
             )
         })
@@ -851,7 +877,7 @@ fn resource_admin(entity: &str, table: &str, fields: &[Field]) -> String {
                 "            FormField::{}(\"{}\", \"{}\"),\n",
                 f.kind.form_field(),
                 f.name,
-                pascal(&f.name)
+                label(&f.name)
             )
         })
         .collect();
@@ -864,7 +890,7 @@ use laterite_admin::{{Permission, Resource}};
 
 /// The permission gating this resource. A resource with a form must declare one,
 /// or boot aborts.
-pub const MANAGE: &str = "{entity}.manage";
+pub const MANAGE: &str = "{permission}";
 
 pub fn permission() -> Permission {{
     Permission {{
@@ -890,7 +916,8 @@ fn list() -> ListConfig {{
     )
     .edit_base("/{table}")
     .creatable()
-    .deletable()
+    // No `.deletable()`: removing a record is a decision, not a default. Add it
+    // once you know nothing depends on these rows.
 }}
 
 fn form() -> FormConfig {{
