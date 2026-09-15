@@ -3107,6 +3107,7 @@ mod tests {
             label: code.into(),
             description: String::new().into(),
             category: "General".into(),
+            hint: None,
             order: 1,
             icon: None,
             permission: permission.map(str::to_string),

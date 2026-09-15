@@ -222,6 +222,10 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-facts{display:flex;flex-wrap:wrap;gap:8px 32px;margin:0 0 18px}
 .lat-facts dt{font-size:var(--fs-11);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted);margin-bottom:2px}
 .lat-facts dd{margin:0;font-size:var(--fs-13);color:var(--text-body)}
+/* A screen's opening explanation: sits above the card, reads as prose rather
+   than as a field's help. Wider than the sidebar, so it has room to say why
+   the screen exists. */
+.lat-note{max-width:var(--form-max);font-size:var(--fs-13);color:var(--text-muted);margin:0 0 16px;line-height:1.55}
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
 .lat-badge{display:inline-block;font-size:var(--fs-12);color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:999px;padding:1px 8px;margin-left:6px}
 .lat-field__error{font-size:var(--fs-12);color:var(--danger);margin:4px 0 0}

@@ -69,6 +69,10 @@ pub struct SettingsItem {
     pub description: Text,
     /// Group heading in the index.
     pub category: Text,
+    /// A fuller explanation, shown as a note at the top of this screen and
+    /// nowhere else. Where [`SettingsItem::description`] must stay short enough
+    /// to read in a sidebar, this has room to say why the screen exists.
+    pub hint: Option<Text>,
     /// Weight within the category (lower sorts first).
     pub order: i32,
     /// Icon name shown beside the item in the context sidebar (a Lucide name
@@ -87,6 +91,12 @@ pub struct SettingsItem {
     pub(crate) route: Option<String>,
 }
 
+/// The longest a settings description may be: two lines of the context sidebar,
+/// which renders at 211 pixels and 12px type, so roughly 38 characters a line.
+/// The reference system's own descriptions run 27 to 90 characters with a median
+/// of 53, so this sits inside the range a mature panel actually uses.
+pub(crate) const MAX_DESCRIPTION: usize = 72;
+
 impl SettingsItem {
     /// A settings screen for `code` (the model's `SettingsModel::CODE`), titled
     /// `label`, editing `fields`.
@@ -99,6 +109,7 @@ impl SettingsItem {
             label: label.into(),
             description: Text::from(""),
             category: Text::from(""),
+            hint: None,
             order: 0,
             icon: None,
             permission: None,
@@ -109,8 +120,28 @@ impl SettingsItem {
     }
 
     /// The sentence under the item's name in the index and sidebar.
+    ///
+    /// Keep it to two lines in the sidebar, which is 72 characters at the
+    /// panel's width. A description longer than that stops being a label and
+    /// starts being a lecture in a column 211 pixels wide; put the explanation
+    /// in [`SettingsItem::hint`], where the reader has already chosen to look.
     pub fn description(mut self, text: impl Into<Text>) -> Self {
-        self.description = text.into();
+        let text = text.into();
+        debug_assert!(
+            text.source().chars().count() <= MAX_DESCRIPTION,
+            "settings description is {} characters, over the {MAX_DESCRIPTION} that \
+             fit two sidebar lines; shorten it or move the detail to `hint`: {:?}",
+            text.source().chars().count(),
+            text.source(),
+        );
+        self.description = text;
+        self
+    }
+
+    /// A fuller explanation for the top of this screen. Unlike the description,
+    /// it has no length limit: the reader has opened the screen.
+    pub fn hint(mut self, text: impl Into<Text>) -> Self {
+        self.hint = Some(text.into());
         self
     }
 
@@ -460,6 +491,7 @@ fn build(
     SettingsFormTemplate {
         title: shell.tt(&item.label),
         description: shell.tt(&item.description),
+        hint: item.hint.as_ref().map(|h| shell.tt(h)),
         action: item.path(&shell.base),
         error: error.map(|e| shell.tt(&e)),
         fields,
@@ -506,6 +538,9 @@ struct SettingsFormTemplate {
     shell: crate::Shell,
     title: String,
     description: String,
+    /// The item's fuller explanation, localized. Supersedes `description` on
+    /// this screen, which is written for a sidebar.
+    hint: Option<String>,
     action: String,
     error: Option<String>,
     fields: Vec<FieldView>,
@@ -515,12 +550,37 @@ struct SettingsFormTemplate {
 mod field_system_tests {
     use super::*;
 
+    #[test]
+    #[should_panic(expected = "over the 72")]
+    fn a_lecture_of_a_description_is_refused() {
+        // The shape the discovery plugin shipped with: 108 characters, four
+        // lines in a 211-pixel sidebar.
+        SettingsItem::new("acme.test", "Test", Vec::new()).description(
+            "What search engines and other crawlers may visit. The admin panel \
+             is always excluded, whatever you put here.",
+        );
+    }
+
+    #[test]
+    fn a_label_sized_description_passes_and_a_hint_carries_the_rest() {
+        let item = SettingsItem::new("acme.test", "Test", Vec::new())
+            .description("Which crawlers may visit, and what they may not.")
+            .hint(
+                "The admin panel is always excluded, whatever you put here, and a \
+                   crawler obeys only the block that names it.",
+            );
+        assert!(item.description.source().chars().count() <= MAX_DESCRIPTION);
+        // The hint has no ceiling: the reader has opened the screen.
+        assert!(item.hint.is_some());
+    }
+
     fn item(fields: Vec<FormField>) -> SettingsItem {
         SettingsItem {
             code: "acme.test".to_string(),
             label: Text::new(""),
             description: Text::new(""),
             category: Text::new(""),
+            hint: None,
             order: 0,
             icon: None,
             permission: None,
@@ -663,6 +723,7 @@ mod tests {
             label: "Log Settings".into(),
             description: "What the log records.".into(),
             category: "Logs".into(),
+            hint: None,
             order: 10,
             icon: None,
             permission: None,
@@ -704,6 +765,7 @@ mod tests {
                 label: "Beta".into(),
                 description: String::new().into(),
                 category: "System".into(),
+                hint: None,
                 order: 20,
                 icon: None,
                 permission: None,
@@ -716,6 +778,7 @@ mod tests {
                 label: "Alpha".into(),
                 description: String::new().into(),
                 category: "System".into(),
+                hint: None,
                 order: 10,
                 icon: None,
                 permission: None,
@@ -728,6 +791,7 @@ mod tests {
                 label: "Logs".into(),
                 description: String::new().into(),
                 category: "Logs".into(),
+                hint: None,
                 order: 5,
                 icon: None,
                 permission: None,

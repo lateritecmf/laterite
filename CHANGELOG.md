@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- **A settings description is a label, not a lecture.** It renders in a sidebar
+  211 pixels wide, so it is capped at 72 characters (two lines) by a debug
+  assertion on the builder. The reference system's own run 27 to 90 characters,
+  median 53; the discovery plugin's ran 80 to 130, every one longer than that
+  maximum and three to four lines deep in a narrow column. `SettingsItem::hint`
+  is the new home for anything longer: a note at the top of the screen itself,
+  uncapped, since the reader has chosen to open it. It supersedes the
+  description there, so the two never print together.
+
 ## [0.6.0] - 2026-09-16
 
 ### Changed
