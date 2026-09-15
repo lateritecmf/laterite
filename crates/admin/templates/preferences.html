@@ -2,7 +2,7 @@
 {% block title %}{{ shell.t("Preferences") }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <div class="lat-toolbar"><h1>{{ shell.t("Preferences") }}</h1></div>
-<div class="lat-card" style="max-width:620px">
+<div class="lat-card lat-card--form">
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ shell.base }}/preferences">
     {% include "_csrf.html" %}

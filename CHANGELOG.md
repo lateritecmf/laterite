@@ -15,6 +15,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   unused. Ticking the box now gives the cookie that same lifetime, and leaving it
   unticked keeps the browser-session cookie that suits a shared machine.
 
+- Admin forms were pinned to a hardcoded width in five templates, and to two
+  different widths between them. They share one token now, and a form holding a
+  repeater uses the page's full width rather than cramming a row of columns into
+  a column's worth of space. Repeater labels align at the top of a row, so a
+  short input and a tall textarea read as one row instead of two.
+
 ### Added
 
 - A module can contribute a **field type**. The registry held the framework's own

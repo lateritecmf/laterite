@@ -2,7 +2,7 @@
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <div class="lat-toolbar"><h1>{{ title }}</h1></div>
-<div class="lat-card" style="max-width:620px">
+<div class="lat-card lat-card--form">
   {% if !description.is_empty() %}<p style="color:var(--text-muted);font-size:var(--fs-13);margin:0 0 18px">{{ description }}</p>{% endif %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ action }}">
