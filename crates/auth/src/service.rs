@@ -25,16 +25,27 @@ use crate::store;
 ///
 /// ```toml
 /// [auth]
-/// session_ttl_secs = 43200
+/// session_idle_timeout_secs = 7200
+/// session_absolute_timeout_secs = 43200
 /// max_failures = 5
 /// failure_window_secs = 900
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AuthConfig {
-    /// How long an issued session remains valid.
-    #[serde(rename = "session_ttl_secs", deserialize_with = "de_secs")]
-    pub session_ttl: Duration,
+    /// How long a session survives without a request. Activity past the halfway
+    /// mark of this window pushes the deadline out again.
+    #[serde(rename = "session_idle_timeout_secs", deserialize_with = "de_secs")]
+    pub session_idle_timeout: Duration,
+    /// The ceiling a session cannot be renewed past, counted from login. Bounds
+    /// how long a stolen token stays useful however busy the thief keeps it.
+    /// `session_ttl_secs` is the former name of this key and still reads.
+    #[serde(
+        rename = "session_absolute_timeout_secs",
+        alias = "session_ttl_secs",
+        deserialize_with = "de_secs"
+    )]
+    pub session_absolute_timeout: Duration,
     /// Failed attempts within `failure_window` before a username is locked out.
     pub max_failures: i64,
     /// The window over which failed attempts are counted.
@@ -45,10 +56,22 @@ pub struct AuthConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
-            session_ttl: Duration::from_secs(60 * 60 * 12),
+            session_idle_timeout: Duration::from_secs(60 * 60 * 2),
+            session_absolute_timeout: Duration::from_secs(60 * 60 * 12),
             max_failures: 5,
             failure_window: Duration::from_secs(60 * 15),
         }
+    }
+}
+
+impl AuthConfig {
+    /// When a session created at `created_at` and last seen at `last_seen`
+    /// expires: the idle window measured from the last request, the ceiling
+    /// measured from login, whichever falls first.
+    fn deadline(&self, created_at: DateTime<Utc>, last_seen: DateTime<Utc>) -> DateTime<Utc> {
+        let idle = last_seen + chrono_from_std(self.session_idle_timeout);
+        let ceiling = created_at + chrono_from_std(self.session_absolute_timeout);
+        idle.min(ceiling)
     }
 }
 
@@ -60,25 +83,61 @@ fn de_secs<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Duration, D::Error
 #[cfg(test)]
 mod auth_config_tests {
     use super::AuthConfig;
+    use chrono::Utc;
     use std::time::Duration;
 
     #[test]
     fn unset_keys_keep_defaults() {
         let cfg: AuthConfig = serde_json::from_str(r#"{"max_failures": 3}"#).unwrap();
         assert_eq!(cfg.max_failures, 3);
-        assert_eq!(cfg.session_ttl, Duration::from_secs(60 * 60 * 12));
+        assert_eq!(cfg.session_idle_timeout, Duration::from_secs(60 * 60 * 2));
+        assert_eq!(
+            cfg.session_absolute_timeout,
+            Duration::from_secs(60 * 60 * 12)
+        );
         assert_eq!(cfg.failure_window, Duration::from_secs(60 * 15));
     }
 
     #[test]
     fn seconds_map_to_durations() {
         let cfg: AuthConfig = serde_json::from_str(
-            r#"{"session_ttl_secs": 3600, "max_failures": 7, "failure_window_secs": 120}"#,
+            r#"{"session_idle_timeout_secs": 1800, "session_absolute_timeout_secs": 3600,
+                 "max_failures": 7, "failure_window_secs": 120}"#,
         )
         .unwrap();
-        assert_eq!(cfg.session_ttl, Duration::from_secs(3600));
+        assert_eq!(cfg.session_idle_timeout, Duration::from_secs(1800));
+        assert_eq!(cfg.session_absolute_timeout, Duration::from_secs(3600));
         assert_eq!(cfg.max_failures, 7);
         assert_eq!(cfg.failure_window, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn the_idle_window_ends_a_quiet_session_first() {
+        let cfg = AuthConfig::default();
+        let login = Utc::now();
+        // Seen just now, eleven hours into a twelve-hour ceiling: two hours idle
+        // still falls first.
+        let seen = login + chrono::Duration::hours(1);
+        assert_eq!(cfg.deadline(login, seen), seen + chrono::Duration::hours(2));
+    }
+
+    #[test]
+    fn the_ceiling_caps_a_session_kept_busy() {
+        let cfg = AuthConfig::default();
+        let login = Utc::now();
+        // Active at the eleventh hour: the idle window would reach thirteen
+        // hours, so the twelve-hour ceiling has to win.
+        let seen = login + chrono::Duration::hours(11);
+        assert_eq!(
+            cfg.deadline(login, seen),
+            login + chrono::Duration::hours(12)
+        );
+    }
+
+    #[test]
+    fn the_former_ttl_key_still_sets_the_ceiling() {
+        let cfg: AuthConfig = serde_json::from_str(r#"{"session_ttl_secs": 3600}"#).unwrap();
+        assert_eq!(cfg.session_absolute_timeout, Duration::from_secs(3600));
     }
 }
 
@@ -119,6 +178,9 @@ impl From<&AuthenticatedUser> for laterite_core::Actor {
 pub struct ResolvedSession {
     pub identity: AuthenticatedUser,
     pub data: Option<String>,
+    /// When the session now expires, whichever clock runs out first. The login
+    /// cookie is bounded by the ceiling, so this never outruns it.
+    pub expires_at: DateTime<Utc>,
 }
 
 impl AuthenticatedUser {
@@ -182,8 +244,8 @@ impl AuthService {
 
     /// How long a session stays valid. A caller that persists the session in a
     /// cookie matches its lifetime to this, so the two cannot disagree.
-    pub fn session_ttl(&self) -> Duration {
-        self.config.session_ttl
+    pub fn session_absolute_timeout(&self) -> Duration {
+        self.config.session_absolute_timeout
     }
 
     /// Verifies a username and password, and on success issues a session.
@@ -229,7 +291,7 @@ impl AuthService {
         }
 
         let token = generate_token();
-        let expires_at = now + chrono_from_std(self.config.session_ttl);
+        let expires_at = self.config.deadline(now, now);
         store::insert_session(&self.db, &hash_token(&token), user.id, expires_at).await?;
         self.log(Some(user.id), username, AccessEvent::LoginSuccess, ctx)
             .await?;
@@ -251,7 +313,14 @@ impl AuthService {
         let user = store::find_active_user_by_id(&self.db, session.user_id)
             .await?
             .ok_or(AuthError::SessionInvalid)?;
-        store::touch_session(&self.db, &token_hash, now).await?;
+        // Renewing on every request would cost a write per request for a
+        // deadline that moves by seconds. Past the halfway mark of the idle
+        // window the write buys real time, so that is where it happens.
+        let idle = chrono_from_std(self.config.session_idle_timeout);
+        let expires_at = self.config.deadline(session.created_at, now);
+        if now - session.last_seen_at > idle / 2 {
+            store::renew_session(&self.db, &token_hash, now, expires_at).await?;
+        }
 
         let grants = store::load_role_permissions(&self.db, user.id)
             .await?
@@ -273,6 +342,7 @@ impl AuthService {
         Ok(ResolvedSession {
             identity: AuthenticatedUser { user, permissions },
             data: session.data,
+            expires_at,
         })
     }
 
@@ -455,6 +525,98 @@ mod tests {
     /// `laterite_core::testing`). Hold the returned guard for the test's lifetime.
     async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
         laterite_core::testing::connect_test(&[crate::migrations()]).await
+    }
+
+    /// Backdates a session's idle clock, standing in for time passing.
+    async fn set_last_seen(db: &Db, token: &str, seen: DateTime<Utc>) {
+        store::renew_session(
+            db,
+            &hash_token(token),
+            seen,
+            seen + chrono::Duration::hours(2),
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn last_seen(db: &Db, token: &str) -> DateTime<Utc> {
+        store::find_valid_session(db, &hash_token(token), Utc::now())
+            .await
+            .unwrap()
+            .expect("session still valid")
+            .last_seen_at
+    }
+
+    #[tokio::test]
+    async fn a_request_past_the_halfway_mark_renews_the_session() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool.clone());
+
+        let issued = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        // Ninety minutes of quiet, past the one-hour halfway mark of the
+        // two-hour idle window.
+        let stale = Utc::now() - chrono::Duration::minutes(90);
+        set_last_seen(&pool, &issued.token, stale).await;
+
+        let resolved = svc.resolve_session(&issued.token).await.unwrap();
+
+        assert!(
+            last_seen(&pool, &issued.token).await > stale,
+            "a request past the halfway mark should push the idle clock"
+        );
+        assert!(
+            resolved.expires_at > Utc::now() + chrono::Duration::minutes(115),
+            "renewal should restore very nearly the full idle window"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_before_the_halfway_mark_writes_nothing() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool.clone());
+
+        let issued = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        // Ten minutes of quiet: nowhere near the halfway mark, so the write
+        // would buy minutes and cost a round-trip on every request.
+        let recent = Utc::now() - chrono::Duration::minutes(10);
+        set_last_seen(&pool, &issued.token, recent).await;
+
+        svc.resolve_session(&issued.token).await.unwrap();
+
+        assert_eq!(
+            last_seen(&pool, &issued.token).await.timestamp(),
+            recent.timestamp(),
+            "a request inside the halfway mark should leave the row alone"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_past_its_idle_window_no_longer_resolves() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool.clone());
+
+        let issued = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        // renew_session writes last-seen and the deadline together, so a
+        // backdated pair is exactly what an abandoned session looks like.
+        let long_ago = Utc::now() - chrono::Duration::hours(3);
+        set_last_seen(&pool, &issued.token, long_ago).await;
+
+        assert!(matches!(
+            svc.resolve_session(&issued.token).await,
+            Err(AuthError::SessionInvalid)
+        ));
     }
 
     #[tokio::test]

@@ -1804,7 +1804,10 @@ async fn login_submit(
         .await
     {
         Ok(session) => {
-            let remember = form.remember.is_some().then(|| state.auth.session_ttl());
+            let remember = form
+                .remember
+                .is_some()
+                .then(|| state.auth.session_absolute_timeout());
             let cookie = session_cookie(
                 session.token,
                 &state.admin_path,

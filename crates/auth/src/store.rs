@@ -247,6 +247,10 @@ pub async fn insert_session(
 pub struct ValidSession {
     pub user_id: i64,
     pub data: Option<String>,
+    /// When the session was issued. Fixes the absolute ceiling.
+    pub created_at: DateTime<Utc>,
+    /// Last request on this session. Fixes the idle deadline.
+    pub last_seen_at: DateTime<Utc>,
 }
 
 /// Returns a non-expired session (owner id plus its data blob), if any. The
@@ -260,7 +264,12 @@ pub async fn find_valid_session(
     let (sql, values) = build(
         db.backend,
         Query::select()
-            .columns([BackendSessions::BackendUserId, BackendSessions::Data])
+            .columns([
+                BackendSessions::BackendUserId,
+                BackendSessions::Data,
+                BackendSessions::CreatedAt,
+                BackendSessions::LastSeenAt,
+            ])
             .from(BackendSessions::Table)
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
             .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
@@ -273,6 +282,8 @@ pub async fn find_valid_session(
         Some(r) => Ok(Some(ValidSession {
             user_id: r.try_get::<i64, _>("backend_user_id")?,
             data: r.get_text_opt("data")?,
+            created_at: parse_ts(&r.get_text("created_at")?)?,
+            last_seen_at: parse_ts(&r.get_text("last_seen_at")?)?,
         })),
         None => Ok(None),
     }
@@ -295,12 +306,21 @@ pub async fn set_session_data(db: &Db, token_hash: &str, data: &str) -> Result<(
     Ok(())
 }
 
-pub async fn touch_session(db: &Db, token_hash: &str, now: DateTime<Utc>) -> Result<(), AuthError> {
+/// Pushes a session's idle clock and its effective deadline out together. The
+/// two are written in one statement so a reader can never see a refreshed
+/// last-seen against a stale deadline.
+pub async fn renew_session(
+    db: &Db,
+    token_hash: &str,
+    now: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,
         Query::update()
             .table(BackendSessions::Table)
             .value(BackendSessions::LastSeenAt, ts(now))
+            .value(BackendSessions::ExpiresAt, ts(expires_at))
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
             .to_owned(),
     );

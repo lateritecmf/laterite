@@ -23,6 +23,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **Sessions slide.** A session ran on one clock, fixed at login, so an operator
+  mid-task was signed out on the same schedule as an abandoned tab. There are two
+  clocks now: `session_idle_timeout_secs` (2h) runs from the last request and
+  moves forward as work happens, and `session_absolute_timeout_secs` (12h, the
+  former `session_ttl_secs`, still read) runs from login and does not move, so a
+  stolen token cannot be kept alive indefinitely. Whichever falls first ends the
+  session. Renewal happens once past the halfway mark of the idle window rather
+  than on every request, which turns a write per request into roughly one an hour.
+  Deployments that set no idle timeout gain one: a session left quiet for two
+  hours now ends where it previously ran the full twelve.
+
 - A module can contribute a **field type**. The registry held the framework's own
   types only, so a custom form input meant changing `laterite-admin` itself,
   while the sibling column-type registry had been open to modules since lists

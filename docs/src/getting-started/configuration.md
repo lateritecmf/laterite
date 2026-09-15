@@ -48,12 +48,20 @@ path = "/admin"                  # URL path the admin panel mounts under; move o
 "rainmill.location/nodes" = "/places"    # one screen; the more specific key wins
 
 [auth]
-session_ttl_secs = 43200         # session lifetime, 12h default
+session_idle_timeout_secs = 7200      # quiet time before a session ends, 2h default
+session_absolute_timeout_secs = 43200 # ceiling counted from login, 12h default
 max_failures = 5                 # failed logins before a username is locked out
 failure_window_secs = 900        # window the failures are counted over
 ```
 
 Every `[auth]` and `[backend]` key is optional and falls back to a built-in default when omitted.
+
+A session runs on two clocks. `session_idle_timeout_secs` is measured from the
+last request and moves forward as the operator works, so an active session does
+not end mid-task. `session_absolute_timeout_secs` is measured from login and
+never moves, capping how long a session can be kept alive. Whichever falls first
+ends the session. `session_ttl_secs` was the earlier name for the ceiling and is
+still read.
 
 ## Where a module's screens mount
 
