@@ -112,8 +112,8 @@ Declare the framework by version, never by path:
 
 ```toml
 [dependencies]
-laterite-core = "0.5"
-laterite-admin = "0.5"
+laterite-core = "0.6"
+laterite-admin = "0.6"
 ```
 
 That requirement is also the compatibility statement. `lat plugin add` reads it

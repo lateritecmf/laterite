@@ -184,6 +184,10 @@ msgstr ""
 msgid "Deny"
 msgstr ""
 
+#: templates/preferences.html
+msgid "Device"
+msgstr ""
+
 #: templates/plugins.html
 msgid "Disabled"
 msgstr ""
@@ -223,6 +227,18 @@ msgstr ""
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: templates/preferences.html
+msgid "Every browser currently signed in to this account. Signing one out ends it immediately."
+msgstr ""
+
+#: src/lib.rs
+msgid "Every other session was signed out."
+msgstr ""
+
+#: templates/preferences.html
+msgid "Expires"
+msgstr ""
+
 #: templates/list.html
 msgid "Export"
 msgstr ""
@@ -254,6 +270,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Language"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Last active"
 msgstr ""
 
 #: templates/setup.html
@@ -478,11 +498,24 @@ msgid "Sign in to continue."
 msgstr ""
 
 #: templates/base.html
+#: templates/preferences.html
 msgid "Sign out"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Sign out every other device"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Signed in"
 msgstr ""
 
 #: templates/dashboard.html
 msgid "Signed in as {name}."
+msgstr ""
+
+#: templates/preferences.html
+msgid "Signed-in devices"
 msgstr ""
 
 #: src/bulk.rs
@@ -533,6 +566,18 @@ msgstr ""
 msgid "That is too many records to export at once. Narrow the list and try again."
 msgstr ""
 
+#: src/lib.rs
+msgid "That session could not be signed out."
+msgstr ""
+
+#: src/lib.rs
+msgid "That session had already ended."
+msgstr ""
+
+#: src/lib.rs
+msgid "That session was signed out."
+msgstr ""
+
 #: templates/preferences.html
 msgid "The admin renders in this language. It only changes the interface, not your content."
 msgstr ""
@@ -557,6 +602,10 @@ msgstr ""
 msgid "The server hit an unexpected error. It has been logged."
 msgstr ""
 
+#: templates/preferences.html
+msgid "This device"
+msgstr ""
+
 #: src/error.rs
 msgid "This form expired or its origin was not recognised. Go back, reload the page, and try again."
 msgstr ""
@@ -575,6 +624,10 @@ msgstr ""
 
 #: templates/users_form.html
 msgid "This user is a superuser and holds every permission, so there is nothing to override."
+msgstr ""
+
+#: src/lib.rs
+msgid "Those sessions could not be signed out."
 msgstr ""
 
 #: templates/preferences.html
