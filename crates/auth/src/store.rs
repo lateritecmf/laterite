@@ -466,6 +466,90 @@ pub(crate) async fn delete_user_remember_tokens(db: &Db, user_id: i64) -> Result
     Ok(())
 }
 
+/// One live session of a user, for the account's own sessions list.
+pub(crate) struct SessionSummary {
+    pub token_hash: String,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub(crate) async fn list_user_sessions(
+    db: &Db,
+    user_id: i64,
+    now: DateTime<Utc>,
+) -> Result<Vec<SessionSummary>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendSessions::TokenHash,
+                BackendSessions::CreatedAt,
+                BackendSessions::LastSeenAt,
+                BackendSessions::ExpiresAt,
+            ])
+            .from(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+            .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
+            .order_by(BackendSessions::LastSeenAt, Order::Desc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter()
+        .map(|r| {
+            Ok(SessionSummary {
+                token_hash: r.get_text("token_hash")?,
+                created_at: parse_ts(&r.get_text("created_at")?)?,
+                last_seen_at: parse_ts(&r.get_text("last_seen_at")?)?,
+                expires_at: parse_ts(&r.get_text("expires_at")?)?,
+            })
+        })
+        .collect()
+}
+
+/// Deletes one of a user's sessions. Scoped by owner, so a forged id can only
+/// ever end one of the caller's own sessions.
+pub(crate) async fn delete_user_session(
+    db: &Db,
+    user_id: i64,
+    token_hash: &str,
+) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// Ends every session a user holds except the one they are asking from.
+pub(crate) async fn delete_user_sessions_except(
+    db: &Db,
+    user_id: i64,
+    keep: &str,
+) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+            .and_where(Expr::col(BackendSessions::TokenHash).ne(keep))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
 pub(crate) async fn delete_session(db: &Db, token_hash: &str) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,

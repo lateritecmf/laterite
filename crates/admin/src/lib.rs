@@ -1101,6 +1101,14 @@ pub fn router(
             &format!("{admin_path}/preferences"),
             get(preferences_form).post(preferences_update),
         )
+        .route(
+            &format!("{admin_path}/preferences/sessions/revoke"),
+            post(session_revoke),
+        )
+        .route(
+            &format!("{admin_path}/preferences/sessions/revoke-others"),
+            post(session_revoke_others),
+        )
         // Picker endpoints, served with the QUERY method (a read; the guard in the
         // handler answers 405 for any other method).
         .route(
@@ -2172,15 +2180,77 @@ async fn preferences_form(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
+    jar: CookieJar,
 ) -> Response {
+    let sessions = session_rows(&state, &user, &shell, &jar).await;
     render(preferences_view(
         &shell,
         &user,
         state.timezone,
         &state.default_locale,
         &offered_locales(&state.catalogs),
+        sessions,
         None,
     ))
+}
+
+#[derive(Deserialize)]
+struct RevokeSessionForm {
+    id: String,
+}
+
+/// Ends one of the account's other sessions.
+async fn session_revoke(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    Form(form): Form<RevokeSessionForm>,
+) -> Response {
+    match state.auth.revoke_session(user.user.id, &form.id).await {
+        Ok(true) => session.push_flash(FlashLevel::Success, t!("That session was signed out.")),
+        Ok(false) => session.push_flash(FlashLevel::Info, t!("That session had already ended.")),
+        Err(e) => {
+            tracing::error!(error = %e, "revoking a session failed");
+            session.push_flash(
+                FlashLevel::Error,
+                t!("That session could not be signed out."),
+            );
+        }
+    }
+    Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
+}
+
+/// Ends every session but this one, and drops every stay-signed-in credential.
+async fn session_revoke_others(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    jar: CookieJar,
+) -> Response {
+    let token = jar
+        .get(SESSION_COOKIE)
+        .map(|c| c.value().to_string())
+        .unwrap_or_default();
+    match state.auth.sign_out_everywhere(user.user.id, &token).await {
+        Ok(_) => session.push_flash(
+            FlashLevel::Success,
+            t!("Every other session was signed out."),
+        ),
+        Err(e) => {
+            tracing::error!(error = %e, "signing out other sessions failed");
+            session.push_flash(
+                FlashLevel::Error,
+                t!("Those sessions could not be signed out."),
+            );
+        }
+    }
+    // The credential this browser holds went with the rest, so clear its cookie
+    // rather than leave one that will fail on the next request.
+    (
+        jar.remove(remember_removal(&state.admin_path)),
+        Redirect::to(&format!("{}/preferences", state.admin_path)),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -2196,6 +2266,7 @@ async fn preferences_update(
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
     Extension(session): Extension<session::SessionHandle>,
+    jar: CookieJar,
     Form(form): Form<PreferencesForm>,
 ) -> Response {
     let offered = offered_locales(&state.catalogs);
@@ -2212,6 +2283,7 @@ async fn preferences_update(
             state.timezone,
             &state.default_locale,
             &offered,
+            session_rows(&state, &user, &shell, &jar).await,
             Some(t!("That is not a recognised timezone.")),
         ));
     };
@@ -2227,6 +2299,7 @@ async fn preferences_update(
             state.timezone,
             &state.default_locale,
             &offered,
+            session_rows(&state, &user, &shell, &jar).await,
             Some(t!("That is not a supported language.")),
         ));
     };
@@ -2256,6 +2329,7 @@ fn preferences_view(
     default_tz: Tz,
     default_locale: &str,
     offered: &[String],
+    sessions: Vec<SessionRow>,
     error: Option<Text>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
@@ -2285,7 +2359,42 @@ fn preferences_view(
         locales,
         default_locale: locale_name(default_locale),
         inherits_locale: current_locale.is_none(),
+        sessions,
         error: error.map(|e| shell.tt(&e)),
+    }
+}
+
+/// Reads the account's live sessions and formats them in the operator's own
+/// timezone and locale, the same way list columns render a timestamp.
+async fn session_rows(
+    state: &AdminState,
+    user: &AuthenticatedUser,
+    shell: &Shell,
+    jar: &CookieJar,
+) -> Vec<SessionRow> {
+    let token = jar
+        .get(SESSION_COOKIE)
+        .map(|c| c.value().to_string())
+        .unwrap_or_default();
+    let locale = list::date_locale(shell.locale());
+    let stamp = |dt: chrono::DateTime<chrono::Utc>| {
+        list::format_ts(&dt.to_rfc3339(), shell.tz, locale, "%-d %b %Y, %H:%M")
+    };
+    match state.auth.list_sessions(user.user.id, &token).await {
+        Ok(sessions) => sessions
+            .into_iter()
+            .map(|s| SessionRow {
+                id: s.id,
+                started: stamp(s.created_at),
+                last_seen: stamp(s.last_seen_at),
+                expires: stamp(s.expires_at),
+                current: s.current,
+            })
+            .collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "listing sessions failed");
+            Vec::new()
+        }
     }
 }
 
@@ -2502,7 +2611,18 @@ struct PreferencesTemplate {
     default_locale: String,
     /// Whether the operator currently inherits the default locale.
     inherits_locale: bool,
+    /// The account's live sessions, most recently active first.
+    sessions: Vec<SessionRow>,
     error: Option<String>,
+}
+
+/// One of the account's live sessions, formatted for the page.
+struct SessionRow {
+    id: String,
+    started: String,
+    last_seen: String,
+    expires: String,
+    current: bool,
 }
 
 struct TzOption {

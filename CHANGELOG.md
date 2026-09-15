@@ -35,6 +35,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **An account can see and end its own sessions.** Preferences now lists every
+  browser signed in to the account, newest activity first, marking the one asking
+  and showing when each signed in, was last active, and expires. Any other session
+  can be ended individually, or all of them at once, which also drops every
+  stay-signed-in credential so a signed-out device cannot mint itself a new session
+  on its next request. Rows are named by an id derived from the stored key rather
+  than the key itself, so a leaked page grants nothing, and a revoke is scoped to
+  the asking account. No device or location column yet: those values are not
+  captured anywhere yet.
+
 - **"Stay signed in" is a real credential.** Ticking the box previously stretched
   the session cookie's lifetime, which meant the only way to stay signed in for
   a fortnight was a session that lived a fortnight. It now issues a separate

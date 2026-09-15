@@ -181,6 +181,19 @@ pub struct RecalledSession {
     pub remember: RememberCredential,
 }
 
+/// One of an account's live sessions, as the account's own sessions list shows
+/// it. `id` is derived from the stored key and is safe to put in a page: it
+/// names a row without being usable to authenticate as it.
+#[derive(Debug, Clone)]
+pub struct ActiveSession {
+    pub id: String,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    /// Whether this is the session doing the asking.
+    pub current: bool,
+}
+
 /// An authenticated backend user together with the permissions in force.
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
@@ -487,6 +500,57 @@ impl AuthService {
         Ok(())
     }
 
+    /// Lists the account's live sessions, newest activity first, marking the one
+    /// `current_token` belongs to.
+    pub async fn list_sessions(
+        &self,
+        user_id: i64,
+        current_token: &str,
+    ) -> Result<Vec<ActiveSession>, AuthError> {
+        let current_hash = hash_token(current_token);
+        let rows = store::list_user_sessions(&self.db, user_id, Utc::now()).await?;
+        Ok(rows
+            .into_iter()
+            .map(|s| ActiveSession {
+                id: public_session_id(&s.token_hash),
+                created_at: s.created_at,
+                last_seen_at: s.last_seen_at,
+                expires_at: s.expires_at,
+                current: s.token_hash == current_hash,
+            })
+            .collect())
+    }
+
+    /// Ends one of the account's sessions by its public id. Returns whether a
+    /// session matched. Scoped to `user_id`, so the worst a forged id can do is
+    /// end one of the caller's own sessions.
+    pub async fn revoke_session(&self, user_id: i64, id: &str) -> Result<bool, AuthError> {
+        let rows = store::list_user_sessions(&self.db, user_id, Utc::now()).await?;
+        let Some(target) = rows
+            .into_iter()
+            .find(|s| constant_time_eq(&public_session_id(&s.token_hash), id))
+        else {
+            return Ok(false);
+        };
+        let done = store::delete_user_session(&self.db, user_id, &target.token_hash).await?;
+        Ok(done > 0)
+    }
+
+    /// Ends every session but the caller's, and drops every stay-signed-in
+    /// credential the account holds. The credentials have to go too: leaving
+    /// them would let any signed-out device mint itself a new session on its
+    /// next request, which is the opposite of what this asks for.
+    pub async fn sign_out_everywhere(
+        &self,
+        user_id: i64,
+        keep_token: &str,
+    ) -> Result<u64, AuthError> {
+        let ended =
+            store::delete_user_sessions_except(&self.db, user_id, &hash_token(keep_token)).await?;
+        store::delete_user_remember_tokens(&self.db, user_id).await?;
+        Ok(ended)
+    }
+
     /// Invalidates a session. Unknown tokens are a no-op.
     pub async fn logout(&self, token: &str) -> Result<(), AuthError> {
         store::delete_session(&self.db, &hash_token(token)).await
@@ -609,6 +673,16 @@ fn generate_token() -> String {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     to_hex(&bytes)
+}
+
+/// A page-safe name for a session row. Hashing the stored key again means the
+/// id identifies a session without being the key: even if a rendered page leaks,
+/// nothing in it can be presented as a session or looked up as one.
+fn public_session_id(token_hash: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"laterite:session-id:");
+    hasher.update(token_hash.as_bytes());
+    to_hex(&hasher.finalize())
 }
 
 /// Compares two equal-length hex digests without an early return.
@@ -842,6 +916,98 @@ mod tests {
                 Err(AuthError::SessionInvalid)
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn the_sessions_list_marks_the_one_asking() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let first = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let second = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+
+        let listed = svc
+            .list_sessions(first.user_id, &second.token)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed.iter().filter(|s| s.current).count(), 1);
+        // The public id names a row without being the row's key.
+        assert!(listed.iter().all(|s| !s.id.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn one_account_cannot_revoke_anothers_session() {
+        let (pool, _guard) = test_db().await;
+        seed_user(&pool, "root", "hunter2", true).await;
+        seed_user(&pool, "mallory", "hunter2", false).await;
+        let svc = service(pool);
+
+        let victim = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let attacker = svc
+            .authenticate("mallory", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+
+        // The attacker has somehow learned the victim's public session id.
+        let victims_id = svc
+            .list_sessions(victim.user_id, &victim.token)
+            .await
+            .unwrap()
+            .remove(0)
+            .id;
+
+        assert!(
+            !svc.revoke_session(attacker.user_id, &victims_id)
+                .await
+                .unwrap(),
+            "a revoke is scoped to its own account"
+        );
+        // And the victim is still signed in.
+        svc.verify_session(&victim.token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn signing_out_everywhere_keeps_this_one_and_drops_credentials() {
+        let (pool, _guard) = test_db().await;
+        let uid = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let keep = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let other = svc
+            .authenticate("root", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let credential = svc.issue_remember(uid).await.unwrap();
+
+        let ended = svc.sign_out_everywhere(uid, &keep.token).await.unwrap();
+
+        assert_eq!(ended, 1);
+        svc.verify_session(&keep.token).await.unwrap();
+        assert!(matches!(
+            svc.verify_session(&other.token).await,
+            Err(AuthError::SessionInvalid)
+        ));
+        // Leaving the credential would let the signed-out device mint a new
+        // session on its very next request.
+        assert!(matches!(
+            svc.consume_remember(&credential.cookie, &RequestContext::default())
+                .await,
+            Err(AuthError::SessionInvalid)
+        ));
     }
 
     #[tokio::test]

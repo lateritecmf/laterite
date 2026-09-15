@@ -219,7 +219,7 @@ fn render_text(vm: &CellVm) -> Markup {
 
 /// Formats a stored UTC RFC3339 timestamp in `tz`, with month/day names in `locale`;
 /// an unparseable value passes through unchanged.
-fn format_ts(raw: &str, tz: Tz, locale: chrono::Locale, pattern: &str) -> String {
+pub(crate) fn format_ts(raw: &str, tz: Tz, locale: chrono::Locale, pattern: &str) -> String {
     match DateTime::parse_from_rfc3339(raw) {
         Ok(dt) => dt
             .with_timezone(&tz)

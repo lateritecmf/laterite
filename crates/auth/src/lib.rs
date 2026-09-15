@@ -28,8 +28,8 @@ pub use migrations::{migrations, MODULE_ID};
 pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
-    AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator,
-    RecalledSession, RememberCredential, RequestContext, ResolvedSession,
+    ActiveSession, AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession,
+    NewOperator, RecalledSession, RememberCredential, RequestContext, ResolvedSession,
 };
 pub use store::AuditRecord;
 
