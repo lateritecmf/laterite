@@ -21,6 +21,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- **A form using a reference field could not boot.** Assembling the field-type
+  registry built it twice: once with the reference field inserted (it needs the
+  picker registry, so it cannot come from the arg-free built-ins) and again from
+  the built-ins alone, and the second discarded the first. Any form declaring a
+  reference field then aborted boot with "uses unregistered type `reference`".
+  Module-contributed types now join the existing registry instead of replacing it.
+
 - **"Stay signed in" did nothing.** The login form offered the box and no code
   read it: the session cookie carried no lifetime at all, so it expired with the
   browser while the session behind it stayed valid for its full twelve hours,

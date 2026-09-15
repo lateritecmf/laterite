@@ -31,39 +31,41 @@
 <div class="lat-toolbar"><h2>{{ shell.t("Signed-in devices") }}</h2></div>
 <div class="lat-card">
   <p class="lat-help">{{ shell.t("Every browser currently signed in to this account. Signing one out ends it immediately.") }}</p>
-  <table class="lat-table">
-    <thead>
-      <tr>
-        <th>{{ shell.t("Device") }}</th>
-        <th>{{ shell.t("Signed in") }}</th>
-        <th>{{ shell.t("Last active") }}</th>
-        <th>{{ shell.t("Expires") }}</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in sessions %}
-      <tr>
-        <td>
-          {{ item.device }}{% if item.current %} <span class="lat-badge">{{ shell.t("This device") }}</span>{% endif %}
-          {% if !item.ip_address.is_empty() %}<p class="lat-help">{{ item.ip_address }}</p>{% endif %}
-        </td>
-        <td>{{ item.started }}</td>
-        <td>{{ item.last_seen }}</td>
-        <td>{{ item.expires }}</td>
-        <td class="lat-table__actions">
-          {% if !item.current %}
-          <form method="post" action="{{ shell.base }}/preferences/sessions/revoke">
-            {% include "_csrf.html" %}
-            <input type="hidden" name="id" value="{{ item.id }}">
-            <button class="lat-btn lat-btn--danger" type="submit">{{ shell.t("Sign out") }}</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="lat-tablewrap">
+    <table class="lat-table">
+      <thead>
+        <tr>
+          <th>{{ shell.t("Device") }}</th>
+          <th>{{ shell.t("Signed in") }}</th>
+          <th>{{ shell.t("Last active") }}</th>
+          <th>{{ shell.t("Expires") }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in sessions %}
+        <tr>
+          <td>
+            {{ item.device }}{% if item.current %} <span class="lat-badge">{{ shell.t("This device") }}</span>{% endif %}
+            {% if !item.ip_address.is_empty() %}<p class="lat-help">{{ item.ip_address }}</p>{% endif %}
+          </td>
+          <td>{{ item.started }}</td>
+          <td>{{ item.last_seen }}</td>
+          <td>{{ item.expires }}</td>
+          <td class="lat-table__actions">
+            {% if !item.current %}
+            <form method="post" action="{{ shell.base }}/preferences/sessions/revoke">
+              {% include "_csrf.html" %}
+              <input type="hidden" name="id" value="{{ item.id }}">
+              <button class="lat-btn lat-btn--danger" type="submit">{{ shell.t("Sign out") }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% if sessions.len() > 1 %}
   <form method="post" action="{{ shell.base }}/preferences/sessions/revoke-others">
     {% include "_csrf.html" %}

@@ -989,10 +989,11 @@ pub fn router(
         }
     }
 
-    // The field-type registry: the built-ins, plus whatever the modules
-    // contributed. A module can therefore offer an input the framework has none
-    // of, which is what keeps a custom input from meaning a framework change.
-    let mut field_types = field::builtin_registry();
+    // Module-contributed field types join the registry built above, rather than a
+    // fresh one: rebuilding here would drop the reference field that was just
+    // inserted, since that one needs the picker registry and cannot come from the
+    // arg-free built-ins. A module can offer an input the framework has none of,
+    // which is what keeps a custom input from meaning a framework change.
     for reg in app_field_types {
         let name = reg.name().to_string();
         if !field::is_name(&name, true) {
