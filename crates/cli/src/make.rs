@@ -293,18 +293,16 @@ pub fn run_plugin(args: MakePluginArgs) -> Result<()> {
         bail!("{} already exists", root.display());
     }
 
-    fs::create_dir_all(root.join("src/migrations"))?;
+    // Only what every plugin has. A plugin with no tables (one that ships
+    // settings, or routes) must not begin by deleting a schema and a store it
+    // never wanted; `make:resource` creates those the moment there is something
+    // to put in them.
+    fs::create_dir_all(root.join("src"))?;
     write(
         &root.join("Cargo.toml"),
         &plugin_cargo(&crate_name, &args.id),
     )?;
     write(&root.join("src/lib.rs"), &plugin_lib(&args.id, args.admin))?;
-    write(
-        &root.join("src/migrations/mod.rs"),
-        &plugin_migrations(&args.id),
-    )?;
-    write(&root.join("src/schema.rs"), PLUGIN_SCHEMA)?;
-    write(&root.join("src/store.rs"), PLUGIN_STORE)?;
     write(&root.join(".gitignore"), "/target\n")?;
     if args.admin {
         fs::create_dir_all(root.join("src/admin"))?;
@@ -367,23 +365,20 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
 }
 
 fn plugin_lib(id: &str, admin: bool) -> String {
-    let admin_mod = if admin { "mod admin;\n" } else { "" };
+    let admin_mod = if admin { "mod admin;\n\n" } else { "" };
     let register = if admin {
         "\n    fn register(&self, registry: &mut Registry) {\n        \
          use laterite_admin::AdminRegistry;\n        let _ = registry;\n        \
-         // registry.add_permission(admin::permission());\n        \
-         // registry.add_resource(admin::resource());\n    }\n"
+         // registry.add_permission(admin::thing::permission());\n        \
+         // registry.add_resource(admin::thing::resource());\n    }\n"
     } else {
         ""
     };
+    let registry_import = if admin { ", Registry" } else { "" };
     format!(
         r#"//! A Laterite plugin.
 
-{admin_mod}pub mod migrations;
-mod schema;
-pub mod store;
-
-use laterite_core::{{MigrationSet, Module, ModuleId, Registry}};
+{admin_mod}use laterite_core::{{MigrationSet, Module, ModuleId{registry_import}}};
 
 /// Every plugin exposes `module()` at its crate root, which is what the
 /// generated plugin manifest calls. One behind a feature, or in a submodule,
@@ -399,8 +394,10 @@ impl Module for Plugin {{
         ModuleId::new("{id}")
     }}
 
+    /// None yet. `lat make:resource` creates `src/migrations/` with the first
+    /// one; point this at `migrations::migrations()` when it does.
     fn migrations(&self) -> MigrationSet {{
-        migrations::migrations()
+        MigrationSet::new("{id}", Vec::new())
     }}
 {register}}}
 "#
@@ -421,23 +418,6 @@ laterite_core::migration_set! {{
 "#
     )
 }
-
-const PLUGIN_SCHEMA: &str = r#"//! Table and column identifiers for this plugin's schema.
-//!
-//! One `Iden` enum per table, so a query names a column rather than spelling it.
-
-#[allow(unused_imports)]
-use laterite_core::strata::*;
-"#;
-
-const PLUGIN_STORE: &str = r#"//! Queries over this plugin's tables.
-//!
-//! Built with sea-query through the portable helpers, so they run on every
-//! supported database. Nothing here builds SQL from a string.
-
-#[allow(unused_imports)]
-use laterite_core::{strata::*, Db};
-"#;
 
 const PLUGIN_ADMIN: &str = r#"//! This plugin's admin surface: descriptors, screens and settings.
 //!
@@ -566,6 +546,13 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     // The migration, through the same path `make:migration` takes, so both
     // commands agree on numbering and on listing it in the manifest.
     let migrations_dir = src.join("migrations");
+    if !migrations_dir.join("mod.rs").is_file() && !module_id.is_empty() {
+        fs::create_dir_all(&migrations_dir)?;
+        write(
+            &migrations_dir.join("mod.rs"),
+            &plugin_migrations(&module_id),
+        )?;
+    }
     let migration = if migrations_dir.join("mod.rs").is_file() {
         let next = next_sequence(&migrations_dir)?;
         let name = format!("{next:04}_create_{table}");
@@ -609,6 +596,10 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     fs::write(&admin, resource_admin(&module_id, &entity, &table, &fields))?;
     declare_module(&admin_dir.join("mod.rs"), &entity)?;
 
+    // The crate root has to declare what was just created, or the command leaves
+    // a crate that does not compile.
+    wire_lib(&src.join("lib.rs"), &module_id)?;
+
     println!("Created the {entity} resource:");
     if let Some(file) = migration {
         println!("  {}", file.display());
@@ -619,6 +610,35 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     println!("  registry.add_resource(admin::{entity}::resource());");
     println!("  registry.add_permission(admin::{entity}::permission());");
     Ok(())
+}
+
+/// Declares the modules a resource needs from the crate root, and points the
+/// module's `migrations()` at the real set once there is one.
+fn wire_lib(lib: &Path, module_id: &str) -> Result<()> {
+    let Ok(mut src) = fs::read_to_string(lib) else {
+        return Ok(());
+    };
+    let mut added = Vec::new();
+    for decl in ["pub mod migrations;", "mod schema;", "pub mod store;"] {
+        // `mod schema;` is a substring of nothing else here, but `pub mod store;`
+        // would match a line already present, which is the point.
+        if !src.contains(decl) {
+            added.push(decl);
+        }
+    }
+    if !added.is_empty() {
+        let at = src.find("\nuse ").map(|i| i + 1).unwrap_or(src.len());
+        src.insert_str(at, &format!("{}\n\n", added.join("\n")));
+    }
+    let empty = format!("MigrationSet::new(\"{module_id}\", Vec::new())");
+    if src.contains(&empty) {
+        src = src.replace(&empty, "migrations::migrations()");
+        src = src.replace(
+            "    /// None yet. `lat make:resource` creates `src/migrations/` with the first\n    /// one; point this at `migrations::migrations()` when it does.\n",
+            "",
+        );
+    }
+    fs::write(lib, src).with_context(|| format!("writing {}", lib.display()))
 }
 
 /// Appends to a file, creating it with `header` when absent and making sure
