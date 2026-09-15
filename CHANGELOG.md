@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite-media`, the storage layer: a `StorageDriver` trait, a local-filesystem
+  disk, and a streaming ingest that hashes a file with BLAKE3 as it arrives. A
+  file is never held in memory, the size limit stops the read rather than judging
+  it afterwards, and identical bytes on one disk are stored once. The content type
+  is sniffed from the leading bytes and never taken from the sender. A blob is
+  written to a temporary file and renamed into place, so a crashed upload leaves a
+  stray temp file rather than a truncated blob at a name that claims to be its own
+  hash. Opt-in: an application that stores no files does not compile it.
+
 ### Fixed
 
 - A file upload to an admin route could never succeed. The authenticated guard

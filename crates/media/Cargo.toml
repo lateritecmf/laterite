@@ -1,0 +1,29 @@
+[package]
+name = "laterite-media"
+version = "0.5.1"
+description = "Laterite media: content-addressed blob storage with streaming ingest"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+laterite-core = { workspace = true }
+async-trait = { workspace = true }
+blake3 = "1"
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+# Content types are sniffed from the bytes, never taken from the client.
+infer = "0.16"
+serde = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+# ReaderStream: a file becomes a byte stream without a buffering step.
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+laterite-core = { workspace = true, features = ["sqlite", "testing"] }
+tempfile = { workspace = true }
+tokio = { workspace = true }
