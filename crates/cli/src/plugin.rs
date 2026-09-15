@@ -53,6 +53,8 @@ pub enum PluginCommand {
     Sync,
     /// List the plugins this application compiles in.
     List,
+    /// Check each installed plugin against the expected layout.
+    Check,
 }
 
 pub fn run(command: PluginCommand) -> Result<()> {
@@ -62,6 +64,7 @@ pub fn run(command: PluginCommand) -> Result<()> {
         PluginCommand::Remove { name, delete } => remove(&project.root, &name, delete),
         PluginCommand::Sync => sync(&project.root),
         PluginCommand::List => list(&project.root),
+        PluginCommand::Check => check(&project.root),
     }
 }
 
@@ -558,6 +561,73 @@ fn remove(root: &Path, name: &str, delete: bool) -> Result<()> {
     println!("\nRemoved {crate_name}. Rebuild to drop it from the binary.");
     if !delete {
         println!("Its folder is still at {PLUGINS_DIR}/{path}; `--delete` removes that too.");
+    }
+    Ok(())
+}
+
+/// Reports where a plugin departs from the expected layout.
+///
+/// Every plugin has the same shape so that opening an unfamiliar one tells you
+/// where things are before you read it. These are the departures that bite:
+/// three plugins written by hand ended up with three layouts, and one of them
+/// had its migrations in a single file, which works until a second migration
+/// arrives.
+///
+/// Advisory, not fatal. A plugin is somebody else's code, and a layout opinion
+/// is not grounds for refusing to build.
+fn check(root: &Path) -> Result<()> {
+    let Some(plugins) = read_list(root)? else {
+        println!("This application has no {PLUGINS_DIR}/ directory.");
+        return Ok(());
+    };
+    let dir = root.join(PLUGINS_DIR);
+    let mut total = 0;
+
+    for plugin in &plugins {
+        let at = dir.join(&plugin.entry.path);
+        let src = at.join("src");
+        let mut notes = Vec::new();
+
+        if at.join("src/migrations.rs").is_file() {
+            notes.push(
+                "migrations are a single file; `migration_set!` expects \
+                 src/migrations/ with one file per migration"
+                    .to_string(),
+            );
+        }
+        if src.join("admin.rs").is_file() {
+            notes.push("admin is a single file; src/admin/ is the shape it grows into".to_string());
+        }
+        if !src.join("lib.rs").is_file() {
+            notes.push(
+                "no src/lib.rs, so there is no crate root to expose module() from".to_string(),
+            );
+        }
+        let manifest = at.join("Cargo.toml");
+        if read_manifest(&manifest)
+            .ok()
+            .and_then(|m| m.package.metadata.and_then(|meta| meta.laterite))
+            .is_none()
+        {
+            notes.push(
+                "no [package.metadata.laterite] marker naming the module it registers".to_string(),
+            );
+        }
+
+        if notes.is_empty() {
+            println!("  ok    {}", plugin.crate_name);
+        } else {
+            for note in &notes {
+                println!("  warn  {}: {note}", plugin.crate_name);
+            }
+            total += notes.len();
+        }
+    }
+
+    if total == 0 {
+        println!("\nEvery plugin matches the expected layout.");
+    } else {
+        println!("\n{total} departure(s) from the expected layout.");
     }
     Ok(())
 }

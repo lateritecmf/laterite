@@ -257,3 +257,193 @@ mod tests {
         assert!(err.to_string().contains("no migration manifest"));
     }
 }
+
+/// `lat make:plugin`: scaffold a plugin crate in the expected layout.
+#[derive(Args)]
+pub struct MakePluginArgs {
+    /// The module id the plugin registers, as `vendor.name` (e.g. `acme.blog`).
+    /// The crate is named `vendor-name` and the folder after it.
+    id: String,
+    /// Where to create it. Defaults to the current directory.
+    #[arg(long, default_value = ".")]
+    path: PathBuf,
+    /// Scaffold the admin half (descriptors, screens, settings).
+    #[arg(long)]
+    admin: bool,
+}
+
+pub fn run_plugin(args: MakePluginArgs) -> Result<()> {
+    let (vendor, name) = args
+        .id
+        .split_once('.')
+        .filter(|(v, n)| !v.is_empty() && !n.is_empty())
+        .with_context(|| {
+            format!(
+                "`{}` is not a module id. It is `vendor.name`, lowercase, e.g. acme.blog",
+                args.id
+            )
+        })?;
+    if !ident_ok(vendor) || !ident_ok(name) {
+        bail!("a module id is lowercase letters, digits and underscores, as `vendor.name`");
+    }
+
+    let crate_name = format!("{vendor}-{name}");
+    let root = args.path.join(format!("{name}-plugin"));
+    if root.exists() {
+        bail!("{} already exists", root.display());
+    }
+
+    fs::create_dir_all(root.join("src/migrations"))?;
+    write(
+        &root.join("Cargo.toml"),
+        &plugin_cargo(&crate_name, &args.id),
+    )?;
+    write(&root.join("src/lib.rs"), &plugin_lib(&args.id, args.admin))?;
+    write(
+        &root.join("src/migrations/mod.rs"),
+        &plugin_migrations(&args.id),
+    )?;
+    write(&root.join("src/schema.rs"), PLUGIN_SCHEMA)?;
+    write(&root.join("src/store.rs"), PLUGIN_STORE)?;
+    write(&root.join(".gitignore"), "/target\n")?;
+    if args.admin {
+        fs::create_dir_all(root.join("src/admin"))?;
+        write(&root.join("src/admin/mod.rs"), PLUGIN_ADMIN)?;
+    }
+
+    println!("Created {}", root.display());
+    println!("  {crate_name}, registering `{}`", args.id);
+    println!("\nAdd it to an application with:");
+    println!("  lat plugin add {}", root.display());
+    Ok(())
+}
+
+fn ident_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+fn write(path: &Path, contents: &str) -> Result<()> {
+    fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
+}
+
+fn plugin_cargo(crate_name: &str, id: &str) -> String {
+    format!(
+        r#"[package]
+name = "{crate_name}"
+version = "0.1.0"
+description = "A Laterite plugin"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# Marks this crate as a Laterite plugin and names the module it registers, so a
+# tool can tell what it is without building it. Which Laterite it supports is
+# stated by the dependency requirement below, never repeated here.
+[package.metadata.laterite]
+plugin = "{id}"
+
+[dependencies]
+# Version-only, so this manifest does not depend on where the crate sits. An
+# application building against a local framework checkout resolves these through
+# its own [patch.crates-io].
+laterite-core = "0.5"
+laterite-admin = "0.5"
+# The schema identifier enums use sea-query's `Iden` derive, whose generated code
+# names the crate directly.
+sea-query = {{ version = "0.32", features = ["derive"] }}
+sqlx = {{ version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "any",
+] }}
+chrono = {{ version = "0.4", default-features = false, features = ["clock"] }}
+
+[dev-dependencies]
+laterite-core = {{ version = "0.5", features = ["sqlite", "testing"] }}
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+"#
+    )
+}
+
+fn plugin_lib(id: &str, admin: bool) -> String {
+    let admin_mod = if admin { "mod admin;\n" } else { "" };
+    let register = if admin {
+        "\n    fn register(&self, registry: &mut Registry) {\n        \
+         use laterite_admin::AdminRegistry;\n        let _ = registry;\n        \
+         // registry.add_permission(admin::permission());\n        \
+         // registry.add_resource(admin::resource());\n    }\n"
+    } else {
+        ""
+    };
+    format!(
+        r#"//! A Laterite plugin.
+
+{admin_mod}pub mod migrations;
+mod schema;
+pub mod store;
+
+use laterite_core::{{MigrationSet, Module, ModuleId, Registry}};
+
+/// Every plugin exposes `module()` at its crate root, which is what the
+/// generated plugin manifest calls. One behind a feature, or in a submodule,
+/// compiles cleanly and registers nothing.
+pub fn module() -> Box<dyn Module> {{
+    Box::new(Plugin)
+}}
+
+pub struct Plugin;
+
+impl Module for Plugin {{
+    fn id(&self) -> ModuleId {{
+        ModuleId::new("{id}")
+    }}
+
+    fn migrations(&self) -> MigrationSet {{
+        migrations::migrations()
+    }}
+{register}}}
+"#
+    )
+}
+
+fn plugin_migrations(id: &str) -> String {
+    format!(
+        r#"//! This plugin's schema, as portable one-file migrations.
+//!
+//! Each migration is one file, listed below in apply order. Append new entries
+//! at the end; never reorder or rename a shipped one. Add one with
+//! `lat make:migration <description>`.
+
+laterite_core::migration_set! {{
+    module_id: "{id}",
+}}
+"#
+    )
+}
+
+const PLUGIN_SCHEMA: &str = r#"//! Table and column identifiers for this plugin's schema.
+//!
+//! One `Iden` enum per table, so a query names a column rather than spelling it.
+
+#[allow(unused_imports)]
+use laterite_core::strata::*;
+"#;
+
+const PLUGIN_STORE: &str = r#"//! Queries over this plugin's tables.
+//!
+//! Built with sea-query through the portable helpers, so they run on every
+//! supported database. Nothing here builds SQL from a string.
+
+#[allow(unused_imports)]
+use laterite_core::{strata::*, Db};
+"#;
+
+const PLUGIN_ADMIN: &str = r#"//! This plugin's admin surface: descriptors, screens and settings.
+//!
+//! Screens are data. Reach for a `Resource` first and a `Screen` only for what a
+//! list and a form cannot express.
+
+#[allow(unused_imports)]
+use laterite_admin::{list::ListConfig, Permission, Resource};
+"#;

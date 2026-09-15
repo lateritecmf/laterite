@@ -41,6 +41,9 @@ enum Command {
     /// Scaffold a new migration file in this crate's src/migrations/ directory.
     #[command(name = "make:migration")]
     MakeMigration(make::MakeMigrationArgs),
+    /// Scaffold a new plugin crate in the expected layout.
+    #[command(name = "make:plugin")]
+    MakePlugin(make::MakePluginArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
     /// Set up local wildcard domains (*.test -> 127.0.0.1) for development.
@@ -112,6 +115,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::New(args) => new::run(args).await,
         Command::MakeMigration(args) => make::run(args),
+        Command::MakePlugin(args) => make::run_plugin(args),
         Command::Serve(args) => serve::run(args),
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
