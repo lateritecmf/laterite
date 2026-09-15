@@ -24,6 +24,7 @@
 - [Model Listeners](extend/model-listeners.md)
 - [Audit Log](extend/audit-log.md)
 - [Sessions and CSRF](extend/sessions.md)
+- [Media and File Storage](extend/media.md)
 - [Database Portability](extend/database-portability.md)
 
 # The Public Web
