@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Stay signed in" did nothing.** The login form offered the box and no code
+  read it: the session cookie carried no lifetime at all, so it expired with the
+  browser while the session behind it stayed valid for its full twelve hours,
+  unused. Ticking the box now gives the cookie that same lifetime, and leaving it
+  unticked keeps the browser-session cookie that suits a shared machine.
+
 ### Added
 
 - A module can contribute a **field type**. The registry held the framework's own

@@ -180,6 +180,12 @@ impl AuthService {
         Self { db, config }
     }
 
+    /// How long a session stays valid. A caller that persists the session in a
+    /// cookie matches its lifetime to this, so the two cannot disagree.
+    pub fn session_ttl(&self) -> Duration {
+        self.config.session_ttl
+    }
+
     /// Verifies a username and password, and on success issues a session.
     ///
     /// Failures are throttled per username and every outcome is logged. The

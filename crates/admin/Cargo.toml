@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
+cookie = { workspace = true }
 chrono = { workspace = true }
 csv = { workspace = true }
 chrono-tz = { workspace = true }

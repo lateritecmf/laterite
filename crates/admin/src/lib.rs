@@ -66,6 +66,7 @@ use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
 use laterite_core::{t, CatalogStore, Db, Text, Translator};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Typed contribution channels for the framework's admin surfaces, as an
 /// extension trait over the generic [`laterite_core::Registry`]. A module
@@ -1786,6 +1787,9 @@ async fn login_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
 struct LoginForm {
     username: String,
     password: String,
+    /// The "Stay signed in" box. Present only when ticked, as a checkbox is.
+    #[serde(default)]
+    remember: Option<String>,
 }
 
 async fn login_submit(
@@ -1800,7 +1804,13 @@ async fn login_submit(
         .await
     {
         Ok(session) => {
-            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
+            let remember = form.remember.is_some().then(|| state.auth.session_ttl());
+            let cookie = session_cookie(
+                session.token,
+                &state.admin_path,
+                state.secure_cookie,
+                remember,
+            );
             (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => {
@@ -1817,13 +1827,29 @@ async fn login_submit(
 
 /// Builds the session cookie, scoped to the admin mount and flagged `Secure`
 /// behind HTTPS. Shared by login and first-run setup.
-fn session_cookie(token: String, admin_path: &str, secure: bool) -> Cookie<'static> {
-    Cookie::build((SESSION_COOKIE, token))
+///
+/// `remember` is what the login form's "Stay signed in" box asks for: the cookie
+/// is given the session's own lifetime, so closing the browser does not end it.
+/// Without it the cookie lasts the browser session, which is the right default
+/// for a shared machine. Either way the cookie never outlives the session row it
+/// names, because both take their length from the same place.
+fn session_cookie(
+    token: String,
+    admin_path: &str,
+    secure: bool,
+    remember: Option<Duration>,
+) -> Cookie<'static> {
+    let mut cookie = Cookie::build((SESSION_COOKIE, token))
         .path(admin_path.to_string())
         .http_only(true)
         .secure(secure)
-        .same_site(SameSite::Lax)
-        .build()
+        .same_site(SameSite::Lax);
+    if let Some(ttl) = remember {
+        cookie = cookie.max_age(cookie::time::Duration::seconds(
+            ttl.as_secs().min(i64::MAX as u64) as i64,
+        ));
+    }
+    cookie.build()
 }
 
 #[derive(Deserialize)]
@@ -1920,7 +1946,8 @@ async fn setup_submit(
         .await
     {
         Ok(session) => {
-            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
+            let cookie =
+                session_cookie(session.token, &state.admin_path, state.secure_cookie, None);
             (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
@@ -2801,5 +2828,34 @@ mod tests {
             active_nav_path(&nav, "/admin", true, "/admin/settings").as_deref(),
             Some("/admin/settings")
         );
+    }
+}
+
+#[cfg(test)]
+mod session_cookie_tests {
+    use super::*;
+
+    /// The login form offers "Stay signed in", and before this the box was read
+    /// nowhere: the cookie had no lifetime at all, so it died with the browser
+    /// while the session row behind it stayed valid for hours, unused.
+    #[test]
+    fn staying_signed_in_gives_the_cookie_the_sessions_own_lifetime() {
+        let ttl = Duration::from_secs(60 * 60 * 12);
+        let cookie = session_cookie("tok".into(), "/admin", false, Some(ttl));
+        assert_eq!(
+            cookie.max_age(),
+            Some(cookie::time::Duration::seconds(43_200)),
+            "the cookie must outlive the browser when asked to"
+        );
+    }
+
+    /// Unticked is the right default for a shared machine: the cookie lasts the
+    /// browser session and nothing is left behind on disk.
+    #[test]
+    fn not_staying_signed_in_leaves_a_browser_session_cookie() {
+        let cookie = session_cookie("tok".into(), "/admin", false, None);
+        assert_eq!(cookie.max_age(), None);
+        assert!(cookie.http_only().unwrap_or(false));
+        assert_eq!(cookie.path(), Some("/admin"));
     }
 }

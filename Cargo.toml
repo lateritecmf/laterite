@@ -24,6 +24,9 @@ askama = "0.13"
 axum = { version = "0.8", features = ["multipart"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 bytes = "1"
+# axum-extra re-exports Cookie but not the `time` types its max_age takes, so
+# the crate behind it is a direct dependency.
+cookie = "0.18"
 chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
 futures = "0.3"
 chrono-tz = "0.10"
