@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A file upload to an admin route could never succeed. The authenticated guard
+  buffered every state-changing body to the 1 MiB form limit to read the CSRF
+  token from it, so anything larger was truncated to nothing and rejected as a
+  CSRF failure, naming the wrong problem. A `multipart/form-data` body now passes
+  through unbuffered, and its token comes from the request header or, with
+  scripting off, the form action's query string. The origin check runs first on
+  every state-changing request either way.
+
 ### Changed
 
 - **Breaking:** `Resource`, `ListConfig` and `FormConfig` are `#[non_exhaustive]`

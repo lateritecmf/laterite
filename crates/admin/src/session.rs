@@ -219,12 +219,49 @@ pub(crate) fn origin_ok(headers: &HeaderMap, expected_origin: &str) -> bool {
 /// Extracts a submitted CSRF token: the [`CSRF_HEADER`] header if present, else
 /// the [`CSRF_FIELD`] field of an urlencoded form body.
 pub(crate) fn submitted_token(headers: &HeaderMap, body: &[u8]) -> Option<String> {
-    if let Some(h) = headers.get(CSRF_HEADER).and_then(|v| v.to_str().ok()) {
-        return Some(h.to_string());
+    if let Some(token) = header_token(headers) {
+        return Some(token);
     }
     form_urlencoded::parse(body)
         .find(|(k, _)| k == CSRF_FIELD)
         .map(|(_, v)| v.into_owned())
+}
+
+/// The token from the request header, which is how scripted requests send it.
+pub(crate) fn header_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(CSRF_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+}
+
+/// The token from the URL's query string.
+///
+/// The fallback for a file upload with scripting off. A `multipart/form-data`
+/// body is not buffered (a file would be truncated by the form limit, and
+/// holding it in memory to read one field defeats streaming it), and a plain
+/// HTML form cannot set a header, so the form's action carries the token.
+///
+/// A token in a query string is visible to logs and to a `Referer`, which is why
+/// it is the fallback and not the rule. It is defence in depth rather than the
+/// defence: the origin gate ([`origin_ok`]) runs first on every state-changing
+/// request, and the token is per-session and useless without the session cookie.
+pub(crate) fn query_token(query: Option<&str>) -> Option<String> {
+    form_urlencoded::parse(query.unwrap_or_default().as_bytes())
+        .find(|(k, _)| k == CSRF_FIELD)
+        .map(|(_, v)| v.into_owned())
+}
+
+/// Whether this request carries a body this guard must not buffer.
+pub(crate) fn is_multipart(headers: &HeaderMap) -> bool {
+    headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| {
+            ct.trim_start()
+                .to_ascii_lowercase()
+                .starts_with("multipart/form-data")
+        })
 }
 
 #[cfg(test)]
@@ -280,6 +317,54 @@ mod tests {
         assert!(is_safe_method(&Method::from_bytes(b"QUERY").unwrap()));
         assert!(!is_safe_method(&Method::POST));
         assert!(!is_safe_method(&Method::DELETE));
+    }
+
+    /// A file upload cannot carry its token in a buffered body, so the guard
+    /// takes it from the header (scripted) or the action's query string (not).
+    #[test]
+    fn an_upload_carries_its_token_beside_the_body() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            "content-type",
+            "multipart/form-data; boundary=x".parse().unwrap(),
+        );
+        assert!(
+            is_multipart(&h),
+            "an upload must be recognised before buffering"
+        );
+
+        // Scripted: the header.
+        let mut with_header = h.clone();
+        with_header.insert(CSRF_HEADER, "tok".parse().unwrap());
+        assert_eq!(header_token(&with_header).as_deref(), Some("tok"));
+
+        // Scriptless: the form action's query string.
+        assert_eq!(
+            query_token(Some("_csrf=tok&other=1")).as_deref(),
+            Some("tok")
+        );
+        assert_eq!(query_token(Some("other=1")), None);
+        assert_eq!(query_token(None), None);
+    }
+
+    /// The content type decides, and it arrives with a boundary and any casing.
+    #[test]
+    fn only_a_multipart_body_skips_buffering() {
+        for (value, expected) in [
+            ("multipart/form-data; boundary=abc", true),
+            ("MULTIPART/FORM-DATA; boundary=abc", true),
+            ("application/x-www-form-urlencoded", false),
+            ("application/json", false),
+            ("text/plain", false),
+        ] {
+            let mut h = HeaderMap::new();
+            h.insert("content-type", value.parse().unwrap());
+            assert_eq!(is_multipart(&h), expected, "{value}");
+        }
+        assert!(
+            !is_multipart(&HeaderMap::new()),
+            "no content type is not an upload"
+        );
     }
 
     #[test]

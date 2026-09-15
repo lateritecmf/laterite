@@ -1595,10 +1595,23 @@ async fn require_auth(
     let safe = session::is_safe_method(request.method());
     if !safe {
         let (parts, body) = request.into_parts();
-        let bytes = axum::body::to_bytes(body, MAX_FORM_BYTES)
-            .await
-            .unwrap_or_default();
-        let submitted = session::submitted_token(&parts.headers, &bytes);
+        // A file upload is never buffered: the form limit would truncate it to
+        // nothing (and the token check would then fail for the wrong reason),
+        // and holding a whole file in memory to read one field defeats streaming
+        // it. Such a request carries its token in the header, or in the form
+        // action's query string when there is no scripting to set one. The body
+        // passes through untouched.
+        let (body, submitted) = if session::is_multipart(&parts.headers) {
+            let token = session::header_token(&parts.headers)
+                .or_else(|| session::query_token(parts.uri.query()));
+            (body, token)
+        } else {
+            let bytes = axum::body::to_bytes(body, MAX_FORM_BYTES)
+                .await
+                .unwrap_or_default();
+            let token = session::submitted_token(&parts.headers, &bytes);
+            (Body::from(bytes), token)
+        };
         if !session::token_matches(&handle.csrf_token(), submitted.as_deref()) {
             tracing::warn!(
                 user_id = resolved.identity.user.id,
@@ -1606,7 +1619,7 @@ async fn require_auth(
             );
             return error::csrf_rejected();
         }
-        request = Request::from_parts(parts, Body::from(bytes));
+        request = Request::from_parts(parts, body);
     }
 
     // Deliver and clear any queued flash on a full-page render; a mutating

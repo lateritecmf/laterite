@@ -19,7 +19,8 @@ anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"
 askama = "0.13"
-axum = "0.8"
+# `multipart` for file uploads (the bulk importer); a plain form needs none.
+axum = { version = "0.8", features = ["multipart"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
 chrono-tz = "0.10"
