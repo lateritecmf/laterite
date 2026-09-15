@@ -66,7 +66,6 @@ use chrono_tz::{Tz, TZ_VARIANTS};
 use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
 use laterite_core::{t, CatalogStore, Db, Text, Translator};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Typed contribution channels for the framework's admin surfaces, as an
 /// extension trait over the generic [`laterite_core::Registry`]. A module
@@ -122,6 +121,10 @@ impl AdminRegistry for laterite_core::Registry {
 }
 
 const SESSION_COOKIE: &str = "laterite_session";
+/// The long-lived "stay signed in" credential. Separate from the session cookie
+/// so the session itself stays short and the credential can be rotated and
+/// revoked on its own.
+const REMEMBER_COOKIE: &str = "laterite_remember";
 
 /// Shared state for the admin router. Constructed by [`router`].
 #[derive(Clone)]
@@ -1603,13 +1606,35 @@ async fn require_auth(
     next: Next,
 ) -> Response {
     let login = format!("{}/login", state.admin_path);
-    let token = match jar.get(SESSION_COOKIE) {
-        Some(cookie) => cookie.value().to_string(),
-        None => return Redirect::to(&login).into_response(),
+    // A live session is the ordinary path. A missing or expired one falls back
+    // to the stay-signed-in credential, which mints a fresh session and rotates
+    // itself, so the cookie just presented is never accepted a second time.
+    let live = match jar.get(SESSION_COOKIE) {
+        Some(cookie) => {
+            let token = cookie.value().to_string();
+            state
+                .auth
+                .resolve_session(&token)
+                .await
+                .ok()
+                .map(|resolved| (token, resolved))
+        }
+        None => None,
     };
-    let resolved = match state.auth.resolve_session(&token).await {
-        Ok(resolved) => resolved,
-        Err(_) => return Redirect::to(&login).into_response(),
+    let (token, resolved, recalled) = match live {
+        Some((token, resolved)) => (token, resolved, None),
+        None => match recall(&state, &jar).await {
+            Some((token, resolved, credential)) => (token, resolved, Some(credential)),
+            // Clear the credential on the way out: a cookie that failed once
+            // will fail every time, and retrying it on each request is noise.
+            None => {
+                return (
+                    jar.remove(remember_removal(&state.admin_path)),
+                    Redirect::to(&login),
+                )
+                    .into_response()
+            }
+        },
     };
     let handle = session::SessionHandle::from_blob(resolved.data.as_deref());
 
@@ -1745,7 +1770,45 @@ async fn require_auth(
             tracing::error!(error = %e, "persisting admin session failed");
         }
     }
+    // A recall replaced both halves: the session it minted and the credential
+    // that replaced the one just spent.
+    if let Some(credential) = recalled {
+        let jar = jar
+            .add(session_cookie(
+                token,
+                &state.admin_path,
+                state.secure_cookie,
+            ))
+            .add(remember_cookie(
+                credential,
+                &state.admin_path,
+                state.secure_cookie,
+            ));
+        return (jar, response).into_response();
+    }
     response
+}
+
+/// Trades a presented stay-signed-in cookie for a live session. Returns the new
+/// session token, the resolved identity, and the credential that replaces the
+/// one just spent.
+async fn recall(
+    state: &AdminState,
+    jar: &CookieJar,
+) -> Option<(
+    String,
+    laterite_auth::ResolvedSession,
+    laterite_auth::RememberCredential,
+)> {
+    let presented = jar.get(REMEMBER_COOKIE)?.value().to_string();
+    let recalled = state
+        .auth
+        .consume_remember(&presented, &RequestContext::default())
+        .await
+        .ok()?;
+    let token = recalled.session.token.clone();
+    let resolved = state.auth.resolve_session(&token).await.ok()?;
+    Some((token, resolved, recalled.remember))
 }
 
 /// Ceiling on a buffered admin form body for the CSRF check. Admin forms are
@@ -1804,17 +1867,29 @@ async fn login_submit(
         .await
     {
         Ok(session) => {
-            let remember = form
-                .remember
-                .is_some()
-                .then(|| state.auth.session_absolute_timeout());
-            let cookie = session_cookie(
+            let wants_remember = form.remember.is_some();
+            let user_id = session.user_id;
+            let mut jar = jar.add(session_cookie(
                 session.token,
                 &state.admin_path,
                 state.secure_cookie,
-                remember,
-            );
-            (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
+            ));
+            if wants_remember {
+                match state.auth.issue_remember(user_id).await {
+                    Ok(credential) => {
+                        jar = jar.add(remember_cookie(
+                            credential,
+                            &state.admin_path,
+                            state.secure_cookie,
+                        ));
+                    }
+                    // The session still stands; the box just did not take.
+                    Err(e) => {
+                        tracing::error!(error = %e, "issuing a stay-signed-in credential failed")
+                    }
+                }
+            }
+            (jar, Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => {
             let i18n = pre_auth_translator(&state, &headers);
@@ -1836,23 +1911,39 @@ async fn login_submit(
 /// Without it the cookie lasts the browser session, which is the right default
 /// for a shared machine. Either way the cookie never outlives the session row it
 /// names, because both take their length from the same place.
-fn session_cookie(
-    token: String,
-    admin_path: &str,
-    secure: bool,
-    remember: Option<Duration>,
-) -> Cookie<'static> {
-    let mut cookie = Cookie::build((SESSION_COOKIE, token))
+fn session_cookie(token: String, admin_path: &str, secure: bool) -> Cookie<'static> {
+    Cookie::build((SESSION_COOKIE, token))
         .path(admin_path.to_string())
         .http_only(true)
         .secure(secure)
-        .same_site(SameSite::Lax);
-    if let Some(ttl) = remember {
-        cookie = cookie.max_age(cookie::time::Duration::seconds(
-            ttl.as_secs().min(i64::MAX as u64) as i64,
-        ));
-    }
-    cookie.build()
+        .same_site(SameSite::Lax)
+        .build()
+}
+
+/// The "stay signed in" cookie. Outlives the session deliberately: when the
+/// session ends, this is what mints the next one.
+fn remember_cookie(
+    credential: laterite_auth::RememberCredential,
+    admin_path: &str,
+    secure: bool,
+) -> Cookie<'static> {
+    let seconds = (credential.expires_at - chrono::Utc::now())
+        .num_seconds()
+        .max(0);
+    Cookie::build((REMEMBER_COOKIE, credential.cookie))
+        .path(admin_path.to_string())
+        .http_only(true)
+        .secure(secure)
+        .same_site(SameSite::Lax)
+        .max_age(cookie::time::Duration::seconds(seconds))
+        .build()
+}
+
+/// Clears the remember cookie, for a logout or a credential that failed.
+fn remember_removal(admin_path: &str) -> Cookie<'static> {
+    Cookie::build((REMEMBER_COOKIE, ""))
+        .path(admin_path.to_string())
+        .build()
 }
 
 #[derive(Deserialize)]
@@ -1949,8 +2040,7 @@ async fn setup_submit(
         .await
     {
         Ok(session) => {
-            let cookie =
-                session_cookie(session.token, &state.admin_path, state.secure_cookie, None);
+            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
             (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
@@ -1988,11 +2078,17 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let _ = state.auth.logout(cookie.value()).await;
     }
+    // Without this the next request would present the credential and sign
+    // straight back in, which is not what pressing Sign out means.
+    if let Some(cookie) = jar.get(REMEMBER_COOKIE) {
+        let _ = state.auth.revoke_remember(cookie.value()).await;
+    }
     let removal = Cookie::build((SESSION_COOKIE, ""))
         .path(state.admin_path.to_string())
         .build();
     (
-        jar.remove(removal),
+        jar.remove(removal)
+            .remove(remember_removal(&state.admin_path)),
         Redirect::to(&format!("{}/login", state.admin_path)),
     )
         .into_response()
@@ -2838,27 +2934,38 @@ mod tests {
 mod session_cookie_tests {
     use super::*;
 
-    /// The login form offers "Stay signed in", and before this the box was read
-    /// nowhere: the cookie had no lifetime at all, so it died with the browser
-    /// while the session row behind it stayed valid for hours, unused.
+    /// The session cookie always dies with the browser. Persistence belongs to
+    /// the remember credential, which can be rotated and revoked on its own; a
+    /// long-lived session cookie could be neither.
     #[test]
-    fn staying_signed_in_gives_the_cookie_the_sessions_own_lifetime() {
-        let ttl = Duration::from_secs(60 * 60 * 12);
-        let cookie = session_cookie("tok".into(), "/admin", false, Some(ttl));
-        assert_eq!(
-            cookie.max_age(),
-            Some(cookie::time::Duration::seconds(43_200)),
-            "the cookie must outlive the browser when asked to"
-        );
-    }
-
-    /// Unticked is the right default for a shared machine: the cookie lasts the
-    /// browser session and nothing is left behind on disk.
-    #[test]
-    fn not_staying_signed_in_leaves_a_browser_session_cookie() {
-        let cookie = session_cookie("tok".into(), "/admin", false, None);
+    fn the_session_cookie_never_outlives_the_browser() {
+        let cookie = session_cookie("tok".into(), "/admin", false);
         assert_eq!(cookie.max_age(), None);
         assert!(cookie.http_only().unwrap_or(false));
         assert_eq!(cookie.path(), Some("/admin"));
+    }
+
+    /// "Stay signed in" is what survives a closed browser, and it carries its
+    /// own lifetime rather than borrowing the session's.
+    #[test]
+    fn the_remember_cookie_carries_its_own_lifetime() {
+        let credential = laterite_auth::RememberCredential {
+            cookie: "sel:ver".into(),
+            expires_at: chrono::Utc::now() + chrono::Duration::days(14),
+        };
+        let cookie = remember_cookie(credential, "/admin", true);
+        let age = cookie.max_age().expect("a remember cookie must persist");
+        // Within a second of fourteen days, allowing for the clock read.
+        assert!((age.whole_seconds() - 14 * 24 * 60 * 60).abs() <= 1);
+        assert!(cookie.http_only().unwrap_or(false));
+        assert!(cookie.secure().unwrap_or(false));
+    }
+
+    /// Clearing has to match on path or the browser keeps the original.
+    #[test]
+    fn the_removal_matches_the_cookie_it_clears() {
+        let removal = remember_removal("/admin");
+        assert_eq!(removal.name(), REMEMBER_COOKIE);
+        assert_eq!(removal.path(), Some("/admin"));
     }
 }

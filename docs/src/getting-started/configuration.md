@@ -50,6 +50,7 @@ path = "/admin"                  # URL path the admin panel mounts under; move o
 [auth]
 session_idle_timeout_secs = 7200      # quiet time before a session ends, 2h default
 session_absolute_timeout_secs = 43200 # ceiling counted from login, 12h default
+remember_duration_secs = 1209600      # "stay signed in" credential, 14d default
 max_failures = 5                 # failed logins before a username is locked out
 failure_window_secs = 900        # window the failures are counted over
 ```
@@ -62,6 +63,15 @@ not end mid-task. `session_absolute_timeout_secs` is measured from login and
 never moves, capping how long a session can be kept alive. Whichever falls first
 ends the session. `session_ttl_secs` was the earlier name for the ceiling and is
 still read.
+
+"Stay signed in" is a separate credential, not a longer session. Ticking the box
+at login stores one row per device and sets a cookie that outlives the session;
+when the session ends, that cookie mints a new one. Each use rotates the secret,
+so a copy of the cookie works only until the real browser next uses it. If a
+copy is used afterwards, the mismatch is taken as proof the cookie is in two
+places and every credential for that account is dropped, signing both parties
+out. `remember_duration_secs` sets how long an unused credential lasts, counted
+from its last use.
 
 ## Where a module's screens mount
 

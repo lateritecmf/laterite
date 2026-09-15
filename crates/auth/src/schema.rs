@@ -3,6 +3,19 @@
 
 use sea_query::Iden;
 
+/// A long-lived "stay signed in" credential, one row per device.
+#[derive(Iden)]
+pub(crate) enum BackendRememberTokens {
+    Table,
+    /// Public lookup half of the cookie. Indexed, stored plain.
+    Selector,
+    /// SHA-256 of the secret half. Compared in constant time.
+    VerifierHash,
+    BackendUserId,
+    CreatedAt,
+    ExpiresAt,
+}
+
 #[derive(Iden)]
 pub(crate) enum BackendUsers {
     Table,

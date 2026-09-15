@@ -35,6 +35,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **"Stay signed in" is a real credential.** Ticking the box previously stretched
+  the session cookie's lifetime, which meant the only way to stay signed in for
+  a fortnight was a session that lived a fortnight. It now issues a separate
+  credential, one row per device, that outlives the session and mints a new one
+  when the old expires, so the session itself stays short. The cookie holds a
+  public selector and a secret, only the secret's hash is stored, and each use
+  rotates the secret. A copy of the cookie therefore works only until the real
+  browser next uses it; presented afterwards, the stale secret is taken as proof
+  the cookie is in two places and every credential for that account is dropped.
+  Signing out revokes the credential rather than leaving it to sign the next
+  request straight back in. `remember_duration_secs` sets the window (14 days).
+
 - **Sessions slide.** A session ran on one clock, fixed at login, so an operator
   mid-task was signed out on the same schedule as an abandoned tab. There are two
   clocks now: `session_idle_timeout_secs` (2h) runs from the last request and

@@ -29,8 +29,8 @@ use sqlx::Row;
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
 use crate::schema::{
-    BackendAccessLog, BackendAuditLog, BackendRoles, BackendSessions, BackendUserPreferences,
-    BackendUserRoles, BackendUsers,
+    BackendAccessLog, BackendAuditLog, BackendRememberTokens, BackendRoles, BackendSessions,
+    BackendUserPreferences, BackendUserRoles, BackendUsers,
 };
 
 fn now_ts() -> String {
@@ -333,6 +333,131 @@ pub(crate) async fn renew_session(
             .value(BackendSessions::LastSeenAt, ts(now))
             .value(BackendSessions::ExpiresAt, ts(expires_at))
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// A live "stay signed in" credential. `verifier_hash` is checked by the
+/// caller; the row is found by selector alone so a wrong verifier still costs
+/// one indexed lookup and nothing more.
+pub(crate) struct RememberToken {
+    pub user_id: i64,
+    pub verifier_hash: String,
+}
+
+pub(crate) async fn insert_remember_token(
+    db: &Db,
+    selector: &str,
+    verifier_hash: &str,
+    user_id: i64,
+    expires_at: DateTime<Utc>,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendRememberTokens::Table)
+            .columns([
+                BackendRememberTokens::Selector,
+                BackendRememberTokens::VerifierHash,
+                BackendRememberTokens::BackendUserId,
+                BackendRememberTokens::CreatedAt,
+                BackendRememberTokens::ExpiresAt,
+            ])
+            .values_panic([
+                selector.into(),
+                verifier_hash.into(),
+                user_id.into(),
+                now_ts().into(),
+                ts(expires_at).into(),
+            ])
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn find_remember_token(
+    db: &Db,
+    selector: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<RememberToken>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendRememberTokens::BackendUserId,
+                BackendRememberTokens::VerifierHash,
+            ])
+            .from(BackendRememberTokens::Table)
+            .and_where(Expr::col(BackendRememberTokens::Selector).eq(selector))
+            .and_where(Expr::col(BackendRememberTokens::ExpiresAt).gt(ts(now)))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    match row {
+        Some(r) => Ok(Some(RememberToken {
+            user_id: r.try_get::<i64, _>("backend_user_id")?,
+            verifier_hash: r.get_text("verifier_hash")?,
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Swaps in a new secret for a credential, keeping its selector. The selector
+/// is the series: holding it stable is what lets a stale secret be recognised
+/// as a copy rather than mistaken for an unknown credential.
+pub(crate) async fn rotate_remember_token(
+    db: &Db,
+    selector: &str,
+    verifier_hash: &str,
+    expires_at: DateTime<Utc>,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendRememberTokens::Table)
+            .value(BackendRememberTokens::VerifierHash, verifier_hash)
+            .value(BackendRememberTokens::ExpiresAt, ts(expires_at))
+            .and_where(Expr::col(BackendRememberTokens::Selector).eq(selector))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn delete_remember_token(db: &Db, selector: &str) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendRememberTokens::Table)
+            .and_where(Expr::col(BackendRememberTokens::Selector).eq(selector))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// Drops every remember credential a user holds. The answer to a verifier
+/// mismatch, which means a copy of a cookie is in circulation, and to a
+/// deliberate "sign out everywhere".
+pub(crate) async fn delete_user_remember_tokens(db: &Db, user_id: i64) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendRememberTokens::Table)
+            .and_where(Expr::col(BackendRememberTokens::BackendUserId).eq(user_id))
             .to_owned(),
     );
     bind_values(sqlx::query(&sql), values)

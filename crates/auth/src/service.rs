@@ -27,6 +27,7 @@ use crate::store;
 /// [auth]
 /// session_idle_timeout_secs = 7200
 /// session_absolute_timeout_secs = 43200
+/// remember_duration_secs = 1209600
 /// max_failures = 5
 /// failure_window_secs = 900
 /// ```
@@ -46,6 +47,10 @@ pub struct AuthConfig {
         deserialize_with = "de_secs"
     )]
     pub session_absolute_timeout: Duration,
+    /// How long a "stay signed in" credential lasts. It survives the session
+    /// ceiling: the point of it is to outlive the session and mint a new one.
+    #[serde(rename = "remember_duration_secs", deserialize_with = "de_secs")]
+    pub remember_duration: Duration,
     /// Failed attempts within `failure_window` before a username is locked out.
     pub max_failures: i64,
     /// The window over which failed attempts are counted.
@@ -58,6 +63,7 @@ impl Default for AuthConfig {
         Self {
             session_idle_timeout: Duration::from_secs(60 * 60 * 2),
             session_absolute_timeout: Duration::from_secs(60 * 60 * 12),
+            remember_duration: Duration::from_secs(60 * 60 * 24 * 14),
             max_failures: 5,
             failure_window: Duration::from_secs(60 * 15),
         }
@@ -154,6 +160,25 @@ pub struct RequestContext {
 pub struct IssuedSession {
     pub token: String,
     pub expires_at: DateTime<Utc>,
+    /// Whose session it is, so the caller can issue a remember credential
+    /// without looking the user up again.
+    pub user_id: i64,
+}
+
+/// A freshly minted "stay signed in" credential. `cookie` is the raw
+/// `selector:verifier` value for the client; only the verifier's hash is kept.
+#[derive(Debug, Clone)]
+pub struct RememberCredential {
+    pub cookie: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// What a presented remember cookie produced: a new session, and the
+/// replacement credential that must overwrite the cookie just used.
+#[derive(Debug, Clone)]
+pub struct RecalledSession {
+    pub session: IssuedSession,
+    pub remember: RememberCredential,
 }
 
 /// An authenticated backend user together with the permissions in force.
@@ -296,7 +321,11 @@ impl AuthService {
         self.log(Some(user.id), username, AccessEvent::LoginSuccess, ctx)
             .await?;
 
-        Ok(IssuedSession { token, expires_at })
+        Ok(IssuedSession {
+            token,
+            expires_at,
+            user_id: user.id,
+        })
     }
 
     /// Resolves a raw session token to an identity and its stored data blob,
@@ -357,6 +386,105 @@ impl AuthService {
     /// changed, so an unchanged request adds no write.
     pub async fn set_session_data(&self, token: &str, data: &str) -> Result<(), AuthError> {
         store::set_session_data(&self.db, &hash_token(token), data).await
+    }
+
+    /// Issues a "stay signed in" credential for `user_id`, one row per device.
+    pub async fn issue_remember(&self, user_id: i64) -> Result<RememberCredential, AuthError> {
+        let (selector, verifier) = (generate_token(), generate_token());
+        let expires_at = Utc::now() + chrono_from_std(self.config.remember_duration);
+        store::insert_remember_token(
+            &self.db,
+            &selector,
+            &hash_token(&verifier),
+            user_id,
+            expires_at,
+        )
+        .await?;
+        Ok(RememberCredential {
+            cookie: format!("{selector}:{verifier}"),
+            expires_at,
+        })
+    }
+
+    /// Trades a presented remember cookie for a fresh session and a replacement
+    /// credential, rotating the stored row so a cookie is single-use.
+    ///
+    /// A selector that resolves with the wrong verifier means a copy of the
+    /// cookie is in circulation: one of the two holders used it first and
+    /// rotated it, and this is the other. Every credential the user holds is
+    /// dropped, which signs out the thief at the cost of signing out the owner.
+    pub async fn consume_remember(
+        &self,
+        cookie: &str,
+        ctx: &RequestContext,
+    ) -> Result<RecalledSession, AuthError> {
+        let (selector, verifier) = cookie.split_once(':').ok_or(AuthError::SessionInvalid)?;
+        let now = Utc::now();
+        let found = store::find_remember_token(&self.db, selector, now)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+
+        if !constant_time_eq(&hash_token(verifier), &found.verifier_hash) {
+            tracing::warn!(
+                user_id = found.user_id,
+                "a stay-signed-in cookie was presented with a stale secret;                  dropping every credential for this account"
+            );
+            store::delete_user_remember_tokens(&self.db, found.user_id).await?;
+            self.log(Some(found.user_id), "", AccessEvent::LoginFailure, ctx)
+                .await?;
+            return Err(AuthError::SessionInvalid);
+        }
+
+        // A disabled or removed account must not be recalled back in.
+        let user = store::find_active_user_by_id(&self.db, found.user_id)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+
+        // Rotate in place. The selector stays, so a copy of the spent cookie
+        // comes back as a mismatch on a known series rather than as a stranger,
+        // which is the only thing that makes theft visible at all.
+        let replacement = generate_token();
+        let remember_expires = now + chrono_from_std(self.config.remember_duration);
+        store::rotate_remember_token(
+            &self.db,
+            selector,
+            &hash_token(&replacement),
+            remember_expires,
+        )
+        .await?;
+        let remember = RememberCredential {
+            cookie: format!("{selector}:{replacement}"),
+            expires_at: remember_expires,
+        };
+
+        let token = generate_token();
+        let expires_at = self.config.deadline(now, now);
+        store::insert_session(&self.db, &hash_token(&token), user.id, expires_at).await?;
+        self.log(
+            Some(user.id),
+            &user.username,
+            AccessEvent::LoginSuccess,
+            ctx,
+        )
+        .await?;
+
+        Ok(RecalledSession {
+            session: IssuedSession {
+                token,
+                expires_at,
+                user_id: user.id,
+            },
+            remember,
+        })
+    }
+
+    /// Drops the credential a cookie names. Unknown or malformed values are a
+    /// no-op, so a stale cookie on logout is not an error.
+    pub async fn revoke_remember(&self, cookie: &str) -> Result<(), AuthError> {
+        if let Some((selector, _)) = cookie.split_once(':') {
+            store::delete_remember_token(&self.db, selector).await?;
+        }
+        Ok(())
     }
 
     /// Invalidates a session. Unknown tokens are a no-op.
@@ -481,6 +609,15 @@ fn generate_token() -> String {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     to_hex(&bytes)
+}
+
+/// Compares two equal-length hex digests without an early return.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn hash_token(token: &str) -> String {
@@ -636,6 +773,89 @@ mod tests {
 
         assert!(matches!(
             svc.resolve_session(&issued.token).await,
+            Err(AuthError::SessionInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_remember_cookie_is_single_use_and_rotates() {
+        let (pool, _guard) = test_db().await;
+        let uid = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let first = svc.issue_remember(uid).await.unwrap();
+        let recalled = svc
+            .consume_remember(&first.cookie, &RequestContext::default())
+            .await
+            .unwrap();
+
+        assert_ne!(
+            recalled.remember.cookie, first.cookie,
+            "using a credential must replace its secret"
+        );
+        assert_eq!(
+            recalled.remember.cookie.split_once(':').unwrap().0,
+            first.cookie.split_once(':').unwrap().0,
+            "the selector is the series and must survive rotation"
+        );
+        // The session it minted is real.
+        svc.verify_session(&recalled.session.token).await.unwrap();
+        // And the spent cookie is dead, so a copy taken from a stolen laptop
+        // buys nothing once the owner's browser has used it.
+        assert!(matches!(
+            svc.consume_remember(&first.cookie, &RequestContext::default())
+                .await,
+            Err(AuthError::SessionInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_stale_secret_drops_every_credential_the_user_holds() {
+        let (pool, _guard) = test_db().await;
+        let uid = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let stolen = svc.issue_remember(uid).await.unwrap();
+        let other_device = svc.issue_remember(uid).await.unwrap();
+        // The owner's browser uses it first, rotating the row.
+        let owner = svc
+            .consume_remember(&stolen.cookie, &RequestContext::default())
+            .await
+            .unwrap();
+
+        // The thief presents the copy they took. Same selector, stale secret:
+        // proof a cookie is in two places.
+        let selector = stolen.cookie.split_once(':').unwrap().0;
+        let forged = format!("{selector}:{}", generate_token());
+        assert!(matches!(
+            svc.consume_remember(&forged, &RequestContext::default())
+                .await,
+            Err(AuthError::SessionInvalid)
+        ));
+
+        // Everything is revoked, the owner's fresh credential included. Signing
+        // the owner out is the price of signing the thief out.
+        for credential in [owner.remember.cookie, other_device.cookie] {
+            assert!(matches!(
+                svc.consume_remember(&credential, &RequestContext::default())
+                    .await,
+                Err(AuthError::SessionInvalid)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn revoking_a_credential_ends_it() {
+        let (pool, _guard) = test_db().await;
+        let uid = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        let credential = svc.issue_remember(uid).await.unwrap();
+        svc.revoke_remember(&credential.cookie).await.unwrap();
+
+        assert!(matches!(
+            svc.consume_remember(&credential.cookie, &RequestContext::default())
+                .await,
             Err(AuthError::SessionInvalid)
         ));
     }

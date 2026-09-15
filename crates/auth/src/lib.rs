@@ -29,7 +29,7 @@ pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
     AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession, NewOperator,
-    RequestContext, ResolvedSession,
+    RecalledSession, RememberCredential, RequestContext, ResolvedSession,
 };
 pub use store::AuditRecord;
 
