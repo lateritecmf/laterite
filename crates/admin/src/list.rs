@@ -585,7 +585,12 @@ pub(crate) fn visible_columns<'a>(
 
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
+///
+/// Built with [`ListConfig::new`] plus its builder methods. Non-exhaustive, so a
+/// struct literal outside this crate cannot freeze the field set at 1.0; that
+/// rules out `..Default::default()` too, which is why the builders exist.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct ListConfig {
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.
@@ -608,6 +613,74 @@ pub struct ListConfig {
     pub deletable: bool,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
+}
+
+impl ListConfig {
+    /// A list over `entity` titled `title`, showing `columns`.
+    ///
+    /// Everything else takes the defaults below and is opted into through a
+    /// builder method, so a field added later costs existing descriptors nothing.
+    pub fn new(
+        entity: impl Into<String>,
+        title: impl Into<Text>,
+        columns: Vec<ListColumn>,
+    ) -> Self {
+        Self {
+            entity: entity.into(),
+            title: title.into(),
+            columns,
+            ..Self::default()
+        }
+    }
+
+    /// Orders by `column` in `dir` rather than newest id first.
+    pub fn order(mut self, column: impl Into<String>, dir: SortDir) -> Self {
+        self.order_by = column.into();
+        self.order_dir = dir;
+        self
+    }
+
+    pub fn per_page(mut self, rows: i64) -> Self {
+        self.per_page = rows;
+        self
+    }
+
+    /// The primary-key column, when it is not `id`.
+    pub fn id_field(mut self, column: impl Into<String>) -> Self {
+        self.id_field = column.into();
+        self
+    }
+
+    /// Links rows to `{base}/{id}/edit`.
+    pub fn edit_base(mut self, base: impl Into<String>) -> Self {
+        self.edit_base = Some(base.into());
+        self
+    }
+
+    /// Offers a New link to `{edit_base}/new`. Opt in, matching the read-only
+    /// default: a list over a log, or over records another screen owns, should
+    /// not invite an operator to create one.
+    pub fn creatable(mut self) -> Self {
+        self.creatable = true;
+        self
+    }
+
+    pub fn filters(mut self, filters: Vec<ListFilter>) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    /// Lets rows be selected and deleted. Off by default: a list showing a log,
+    /// or records another screen owns, has no business offering it.
+    pub fn deletable(mut self) -> Self {
+        self.deletable = true;
+        self
+    }
+
+    pub fn toolbar(mut self, buttons: Vec<ToolbarButton>) -> Self {
+        self.toolbar = buttons;
+        self
+    }
 }
 
 impl Default for ListConfig {

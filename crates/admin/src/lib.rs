@@ -657,7 +657,13 @@ fn pre_auth_translator(state: &AdminState, headers: &HeaderMap) -> Translator {
 
 /// An admin resource: a list screen, optionally with a create/edit form, mounted
 /// under `base_path` and shown in the menu as `nav_label`.
+///
+/// Built with [`Resource::new`] plus its builder methods. Non-exhaustive because
+/// this is the descriptor a plugin author writes and the one most likely to grow:
+/// a struct literal outside this crate would freeze its field set at 1.0, so the
+/// framework could never learn anything new about a resource.
 #[derive(Serialize)]
+#[non_exhaustive]
 pub struct Resource {
     /// The path the resource mounts at, relative to the admin root and starting
     /// with a slash (e.g. `/products`). The framework prepends the configured
@@ -688,6 +694,39 @@ pub struct Permission {
     /// The permission's display label and group heading, localized at render.
     pub label: Text,
     pub group: Text,
+}
+
+impl Resource {
+    /// A read-only resource: a list at `base_path`, in the menu as `nav_label`.
+    ///
+    /// A create/edit form is added with [`Resource::form`], which also requires
+    /// [`Resource::permission`]: an unguarded write resource aborts boot.
+    pub fn new(
+        base_path: impl Into<String>,
+        nav_label: impl Into<Text>,
+        list: list::ListConfig,
+    ) -> Self {
+        Self {
+            base_path: base_path.into(),
+            nav_label: nav_label.into(),
+            list,
+            form: None,
+            permission: None,
+        }
+    }
+
+    /// Adds the create/edit form. A resource with one must also declare a
+    /// permission, or boot aborts.
+    pub fn form(mut self, form: form::FormConfig) -> Self {
+        self.form = Some(form);
+        self
+    }
+
+    /// The permission gating every route this resource mounts.
+    pub fn permission(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
 }
 
 /// The framework's own permissions, offered in the role editor under a

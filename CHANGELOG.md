@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `Resource`, `ListConfig` and `FormConfig` are `#[non_exhaustive]`
+  and are built with `::new` plus builder methods. A struct literal outside the
+  crate no longer compiles, `..Default::default()` included, because a
+  non-exhaustive struct admits no struct expression at all. Without this their
+  field sets would freeze at 1.0 and no descriptor could ever gain a field; the
+  next one is the bulk-import descriptor. `ListConfig::creatable()` is opt-in,
+  matching the documented read-only default.
+
 ### Fixed
 
 - A repeater's sub-field labels rendered untranslated. They are declared inside

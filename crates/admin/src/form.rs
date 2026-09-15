@@ -194,7 +194,11 @@ impl FormField {
 
 /// A form descriptor: which table, its editable fields, the id column, and the
 /// base path the form lives under (`{base_path}/new`, `{base_path}/{id}/edit`).
+///
+/// Built with [`FormConfig::new`] plus its builder methods. Non-exhaustive so the
+/// framework can learn something new about a form after 1.0 without a major bump.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct FormConfig {
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.
@@ -212,6 +216,42 @@ pub struct FormConfig {
 }
 
 impl FormConfig {
+    /// A form over `entity`, mounted under `base_path`, keyed by `id_field`.
+    ///
+    /// The four arguments are the ones with no sensible default; everything else
+    /// is opt-in through a builder method, so a later field costs nothing.
+    pub fn new(
+        entity: impl Into<String>,
+        title: impl Into<Text>,
+        base_path: impl Into<String>,
+        id_field: impl Into<String>,
+        fields: Vec<FormField>,
+    ) -> Self {
+        Self {
+            entity: entity.into(),
+            title: title.into(),
+            base_path: base_path.into(),
+            id_field: id_field.into(),
+            fields,
+            persist: None,
+            timestamps: false,
+        }
+    }
+
+    /// Writes this form through a registered persister instead of the built-in
+    /// descriptor insert/update.
+    pub fn persist(mut self, name: impl Into<String>) -> Self {
+        self.persist = Some(name.into());
+        self
+    }
+
+    /// Stamps `created_at` and `updated_at` on write. Opt in, because the
+    /// columns have to exist on this entity's table.
+    pub fn timestamps(mut self) -> Self {
+        self.timestamps = true;
+        self
+    }
+
     fn idents_valid(&self) -> bool {
         valid_ident(&self.entity)
             && valid_ident(&self.id_field)
