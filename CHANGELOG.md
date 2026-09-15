@@ -17,6 +17,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   written to a temporary file and renamed into place, so a crashed upload leaves a
   stray temp file rather than a truncated blob at a name that claims to be its own
   hash. Opt-in: an application that stores no files does not compile it.
+- The media record: a file's stable identity pointing at a blob, so replacing a
+  file writes new bytes under a new hash while the record's id and every
+  reference to it stay put. One blob can back several records (the same bytes
+  uploaded twice are one blob and two files), and only the last record holding a
+  hash releases the blob for collection. Dedup is scoped to a disk, since
+  identical bytes on a local disk and in a bucket are separate copies.
+- `laterite_media::module()`: media registers on `Bootstrap` the way a plugin
+  does, contributing its migrations through the registry, so `laterite-admin`
+  never depends on it and gains no feature flag for it.
 
 ### Fixed
 

@@ -15,6 +15,10 @@ chrono = { workspace = true }
 futures = { workspace = true }
 # Content types are sniffed from the bytes, never taken from the client.
 infer = "0.16"
+# The schema identifier enum uses sea-query's `Iden` derive, whose generated code
+# names the `sea_query` crate directly. The framework re-exports the types through
+# `strata`, but the derive still needs the crate as a direct dependency.
+sea-query = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }

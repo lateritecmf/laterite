@@ -1370,6 +1370,7 @@ dependencies = [
  "futures",
  "infer",
  "laterite-core",
+ "sea-query",
  "serde",
  "sqlx",
  "tempfile",
