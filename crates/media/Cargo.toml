@@ -1,6 +1,6 @@
 [package]
 name = "laterite-media"
-version = "0.6.1"
+version = "0.6.2"
 description = "Laterite media: content-addressed blob storage with streaming ingest"
 edition.workspace = true
 license.workspace = true

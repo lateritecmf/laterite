@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-16
+
 ### Fixed
 
 - **Auto colour mode did not follow the system.** It resolved the system
