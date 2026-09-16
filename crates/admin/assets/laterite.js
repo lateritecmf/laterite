@@ -7,11 +7,11 @@ function latCycleMode() {
   var o = localStorage.getItem('lat-mode') || 'auto';
   var n = o === 'light' ? 'dark' : o === 'dark' ? 'auto' : 'light';
   localStorage.setItem('lat-mode', n);
-  var dark = n === 'dark' || (n === 'auto' && matchMedia('(prefers-color-scheme:dark)').matches);
-  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  latApplyMode(n);
   var e = document.getElementById('lat-mode-ico');
   if (e) e.textContent = latModeGlyph(n);
 }
+
 function latToggleMenu() {
   var m = document.getElementById('lat-menu');
   if (m) m.classList.toggle('is-open');

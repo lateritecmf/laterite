@@ -6,7 +6,7 @@
   <title>{{ self.t("Set up") }} {{ brand }}</title>
   <link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">
   <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
-  <script>(function(){try{var m=localStorage.getItem('lat-mode')||'auto';var d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();</script>
+  {% include "_theme_boot.html" %}
 </head>
 <body>
   <div class="lat-login">

@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- **Auto colour mode did not follow the system.** It resolved the system
+  preference once, at page load, and then froze: an admin left open through dusk
+  stayed light until someone reloaded it, which is exactly when an operator
+  expects it to have followed along. Auto now listens for the preference
+  changing and re-applies. An explicit light or dark is the operator overriding
+  the system and still stays put. The boot script also moved into one shared
+  partial, so the pre-auth screens get the same behaviour instead of their own
+  copy of the old one.
+
 ### Added
 
 - **A way out to the site from the admin.** The top bar carries a link to the

@@ -1,0 +1,35 @@
+{# Theme boot, inline and blocking on purpose.
+
+   It runs before first paint so a dark-mode operator never sees a white flash,
+   which rules out the deferred script: by the time that runs the page is
+   already on screen.
+
+   It also owns the "auto" mode's promise. Auto means follow the system, and the
+   system moves: an admin left open through dusk would otherwise stay light
+   until someone reloaded it. An explicit light or dark is the operator
+   overriding the system and stays put.
+
+   `latApplyMode` is defined here rather than in laterite.js so every screen has
+   it, including the pre-auth ones that load no script. #}
+<script>
+  (function () {
+    var mq = matchMedia('(prefers-color-scheme:dark)');
+    window.latApplyMode = function (m) {
+      var dark = m === 'dark' || (m === 'auto' && mq.matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    };
+    var current = function () {
+      try { return localStorage.getItem('lat-mode') || 'auto'; } catch (e) { return 'auto'; }
+    };
+    try { window.latApplyMode(current()); } catch (e) {}
+    var onChange = function () {
+      if (current() === 'auto') window.latApplyMode('auto');
+    };
+    if (mq.addEventListener) {
+      mq.addEventListener('change', onChange);
+    } else if (mq.addListener) {
+      // Safari before 14 has only the deprecated form.
+      mq.addListener(onChange);
+    }
+  })();
+</script>
