@@ -10,6 +10,7 @@ msgstr ""
 msgid "Action"
 msgstr ""
 
+#: templates/users_form.html
 #: (descriptors)
 msgid "Active"
 msgstr ""
@@ -160,6 +161,18 @@ msgstr ""
 
 #: templates/setup.html
 msgid "Dates render in this zone. Storage is always UTC, and you can change it later in Preferences."
+msgstr ""
+
+#: templates/users_form.html
+msgid "Deactivate"
+msgstr ""
+
+#: templates/users_form.html
+msgid "Deactivate this account? They will be signed out everywhere and cannot sign in until reactivated."
+msgstr ""
+
+#: templates/users_form.html
+msgid "Deactivated"
 msgstr ""
 
 #: templates/list.html
@@ -421,6 +434,10 @@ msgstr ""
 msgid "Quarantined"
 msgstr ""
 
+#: templates/users_form.html
+msgid "Reactivate"
+msgstr ""
+
 #: src/error.rs
 msgid "Request blocked"
 msgstr ""
@@ -531,6 +548,7 @@ msgid "Something went wrong. Please try again."
 msgstr ""
 
 #: templates/plugins.html
+#: templates/users_form.html
 msgid "Status"
 msgstr ""
 
@@ -552,6 +570,18 @@ msgstr ""
 
 #: (descriptors)
 msgid "Target ID"
+msgstr ""
+
+#: src/users.rs
+msgid "That account can sign in again."
+msgstr ""
+
+#: src/users.rs
+msgid "That account could not be changed."
+msgstr ""
+
+#: src/users.rs
+msgid "That account is deactivated and its sessions have ended."
 msgstr ""
 
 #: src/lib.rs

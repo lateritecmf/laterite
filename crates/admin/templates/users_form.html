@@ -12,7 +12,26 @@
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Username") }}</dt><dd>{{ username }}</dd></div>
     <div><dt>{{ shell.t("Email") }}</dt><dd>{{ email }}</dd></div>
+    <div><dt>{{ shell.t("Status") }}</dt><dd>{% if is_active %}{{ shell.t("Active") }}{% else %}{{ shell.t("Deactivated") }}{% endif %}</dd></div>
   </dl>
+
+  {# Deactivating is the reversible counterpart to deleting an operator, which
+     the panel does not offer. Hidden for your own account and without the
+     permission; the server refuses either way. #}
+  {% if can_change_state %}
+  <form method="post" action="{{ state_action }}">
+    {% include "_csrf.html" %}
+    <input type="hidden" name="active" value="{% if is_active %}0{% else %}1{% endif %}">
+    <div class="lat-actions">
+      {% if is_active %}
+      <button class="lat-btn lat-btn--danger" type="submit"
+              data-lat-confirm="{{ shell.t("Deactivate this account? They will be signed out everywhere and cannot sign in until reactivated.") }}">{{ shell.t("Deactivate") }}</button>
+      {% else %}
+      <button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Reactivate") }}</button>
+      {% endif %}
+    </div>
+  </form>
+  {% endif %}
 
   {% if is_superuser %}
   <div class="lat-alert lat-alert--ok">{{ shell.t("This user is a superuser and holds every permission, so there is nothing to override.") }}</div>

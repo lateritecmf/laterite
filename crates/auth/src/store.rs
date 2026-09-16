@@ -122,6 +122,24 @@ pub async fn find_user_by_username(
 }
 
 /// Looks up an active user by id, used when resolving a session to an identity.
+/// A user by id whatever their state. Distinct from
+/// [`find_active_user_by_id`], which is the authentication path: this one is for
+/// administering an account, where a deactivated one still has to be readable.
+pub(crate) async fn find_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(USER_COLS)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    row.map(|r| user_from_row(&r)).transpose()
+}
+
 pub async fn find_active_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
     let (sql, values) = build(
         db.backend,
@@ -859,6 +877,60 @@ pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), Auth
         .execute(&db.pool)
         .await?;
     Ok(())
+}
+
+/// Sets whether a user may sign in. Returns rows affected, so a caller can tell
+/// a no-op from a missing user.
+pub(crate) async fn set_user_active(db: &Db, user_id: i64, active: bool) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::IsActive, active)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// How many active superusers there are besides `excluding`.
+///
+/// Deactivating the last one would leave a panel nobody can fully administer,
+/// recoverable only from the command line, so the caller refuses it.
+pub(crate) async fn other_active_superusers(db: &Db, excluding: i64) -> Result<i64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(BackendUsers::Id).count())
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::IsSuperuser).eq(true))
+            .and_where(Expr::col(BackendUsers::IsActive).eq(true))
+            .and_where(Expr::col(BackendUsers::Id).ne(excluding))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_one(&db.pool)
+        .await?;
+    Ok(row.try_get::<i64, _>(0).unwrap_or(0))
+}
+
+/// Ends every session a user holds. Used when an account is deactivated: an
+/// account that may not sign in must not stay signed in either.
+pub(crate) async fn delete_all_user_sessions(db: &Db, user_id: i64) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
 }
 
 /// Lists backend users for admin tooling, ordered by creation time.

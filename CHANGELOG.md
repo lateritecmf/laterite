@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- **An operator account can be deactivated and reactivated.** The users list has
+  always shown and filtered on an Active column, and the framework refused a
+  sign-in from an inactive account, but nothing could set the flag: the stated
+  reason operators are not deletable ("deactivating is the reversible
+  equivalent") had no implementation behind it. Deactivating now ends the
+  account's sessions and drops its stay-signed-in credentials in the same call,
+  because an account that may not sign in must not stay signed in somewhere.
+  Two deactivations are refused with a reason the operator reads: your own
+  account, and the last active superuser, both of which leave a panel that has
+  to be repaired from the command line. The change is audited.
+
 ## [0.6.1] - 2026-09-16
 
 ### Changed

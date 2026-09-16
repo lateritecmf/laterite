@@ -26,6 +26,80 @@ use sea_query::{Alias, Expr, Query};
 
 use crate::{render, AdminError, AdminState, Permission, Shell};
 
+/// The permission that gates changing an account's state, the same one that
+/// gates reaching this screen at all.
+pub(crate) const MANAGE_USERS: &str = "backend.manage_users";
+
+/// Activates or deactivates an account.
+///
+/// The service owns the rules (not yourself, not the last superuser) and drops
+/// the account's sessions and credentials when it deactivates; this handler
+/// carries the operator's decision to it and their refusal back.
+pub(crate) async fn set_active(
+    State(state): State<AdminState>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Path(id): Path<String>,
+    Form(form): Form<ActiveForm>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    let target: i64 = id.parse().map_err(|_| AdminError::NotFound)?;
+    let active = form.active == "1";
+
+    match state
+        .auth
+        .set_user_active(editor.user.id, target, active)
+        .await
+    {
+        Ok(()) => {
+            crate::audit::record(
+                &state,
+                &editor,
+                if active {
+                    "backend.user.activate"
+                } else {
+                    "backend.user.deactivate"
+                },
+                Some("backend_user"),
+                Some(&id),
+                None,
+            )
+            .await;
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                if active {
+                    t!("That account can sign in again.")
+                } else {
+                    t!("That account is deactivated and its sessions have ended.")
+                },
+            );
+        }
+        // A refusal is the operator's to read: it names which rule stopped them.
+        Err(laterite_auth::AuthError::Refused(reason)) => {
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                laterite_core::Text::dynamic(&reason),
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "changing an account's state failed");
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                t!("That account could not be changed."),
+            );
+        }
+    }
+    Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct ActiveForm {
+    /// "1" to activate, anything else to deactivate.
+    active: String,
+}
+
 /// Renders the edit form for a user, populated with their current overrides.
 pub(crate) async fn edit_form(
     State(state): State<AdminState>,
@@ -42,6 +116,7 @@ pub(crate) async fn edit_form(
                 Alias::new("last_name"),
                 Alias::new("email"),
                 Alias::new("is_superuser"),
+                Alias::new("is_active"),
                 Alias::new("permissions"),
             ])
             .from(Alias::new("backend_users"))
@@ -62,6 +137,11 @@ pub(crate) async fn edit_form(
     let last_name = row.get_text_opt("last_name").unwrap_or_default();
     let email = row.get_text("email").unwrap_or_default();
     let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
+    let is_active = row.get_bool("is_active").unwrap_or(true);
+    // Refused server-side either way; hiding the control keeps the screen from
+    // offering an action it will not carry out.
+    let can_change_state =
+        editor.user.id.to_string() != id && editor.permissions.allows(crate::users::MANAGE_USERS);
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     Ok(render(build(
@@ -73,6 +153,9 @@ pub(crate) async fn edit_form(
         username,
         email,
         is_superuser,
+        is_active,
+        can_change_state,
+        format!("{}/users/{id}/active", state.admin_path),
         &overrides,
     )))
 }
@@ -220,6 +303,9 @@ fn build(
     username: String,
     email: String,
     is_superuser: bool,
+    is_active: bool,
+    can_change_state: bool,
+    state_action: String,
     overrides: &HashMap<String, i64>,
 ) -> UsersFormTemplate {
     let groups = if is_superuser {
@@ -235,6 +321,9 @@ fn build(
         username,
         email,
         is_superuser,
+        is_active,
+        can_change_state,
+        state_action,
         groups,
     }
 }
@@ -261,6 +350,13 @@ struct UsersFormTemplate {
     username: String,
     email: String,
     is_superuser: bool,
+    /// Whether this account may sign in.
+    is_active: bool,
+    /// Whether the viewing operator may change that: not their own account, and
+    /// they must hold the permission. The server refuses either way; hiding the
+    /// control keeps the screen from offering what it will not do.
+    can_change_state: bool,
+    state_action: String,
     groups: Vec<PermGroupView>,
 }
 

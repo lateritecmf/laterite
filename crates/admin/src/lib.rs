@@ -1118,10 +1118,15 @@ pub fn router(
     // The backend users screen edits a user's per-permission overrides, gated by
     // the same permission as its list.
     protected = protected.merge(guard_with_permission(
-        Router::new().route(
-            &format!("{admin_path}/users/{{id}}/edit"),
-            get(users::edit_form).post(users::update),
-        ),
+        Router::new()
+            .route(
+                &format!("{admin_path}/users/{{id}}/edit"),
+                get(users::edit_form).post(users::update),
+            )
+            .route(
+                &format!("{admin_path}/users/{{id}}/active"),
+                post(users::set_active),
+            ),
         "backend.manage_users",
     ));
     // The plugins screen lists the installed plugins and toggles each on or off

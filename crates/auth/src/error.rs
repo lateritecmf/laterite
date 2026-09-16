@@ -26,6 +26,12 @@ pub enum AuthError {
     #[error("permission denied: {0}")]
     PermissionDenied(String),
 
+    /// A deactivation that would leave the panel without a way in, or that an
+    /// operator aimed at their own account. Carries the reason, which is shown
+    /// to the operator rather than logged and swallowed.
+    #[error("{0}")]
+    Refused(String),
+
     /// Password hashing or verification failed at the cryptographic layer.
     #[error("password hashing failure")]
     PasswordHash(String),
@@ -47,6 +53,9 @@ impl From<AuthError> for CoreError {
             | AuthError::SessionInvalid => CoreError::Unauthorized,
             AuthError::InactiveAccount => CoreError::Forbidden("account is inactive".to_string()),
             AuthError::PermissionDenied(perm) => CoreError::Forbidden(perm),
+            // The operator asked for something the rules refuse; the reason is
+            // theirs to read, so it travels rather than becoming a bare 403.
+            AuthError::Refused(reason) => CoreError::Forbidden(reason),
             AuthError::PasswordHash(msg) => CoreError::Internal(msg),
             AuthError::Store(e) => CoreError::Database(e),
             AuthError::Data(msg) => CoreError::Internal(msg),

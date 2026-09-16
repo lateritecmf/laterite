@@ -573,6 +573,53 @@ impl AuthService {
         Ok(ended)
     }
 
+    /// Activates or deactivates a backend user.
+    ///
+    /// Deactivating is the reversible counterpart to deleting an operator, which
+    /// the panel does not offer: the account keeps its history, its audit trail
+    /// and its permission overrides, and simply cannot sign in.
+    ///
+    /// Two deactivations are refused, because both end with a panel somebody has
+    /// to repair from the command line: your own account, and the last active
+    /// superuser. Both return [`AuthError::Refused`] with the reason.
+    ///
+    /// A deactivated account's sessions and stay-signed-in credentials are
+    /// dropped in the same call. An account that may not sign in must not remain
+    /// signed in on a machine somewhere, which is the whole point of revoking it.
+    pub async fn set_user_active(
+        &self,
+        actor_id: i64,
+        user_id: i64,
+        active: bool,
+    ) -> Result<(), AuthError> {
+        if !active {
+            if actor_id == user_id {
+                return Err(AuthError::Refused(
+                    "You cannot deactivate your own account.".to_string(),
+                ));
+            }
+            let user = store::find_user_by_id(&self.db, user_id)
+                .await?
+                .ok_or(AuthError::SessionInvalid)?;
+            if user.is_superuser && store::other_active_superusers(&self.db, user_id).await? == 0 {
+                return Err(AuthError::Refused(
+                    "This is the last active superuser; the panel would have no \
+                     administrator left."
+                        .to_string(),
+                ));
+            }
+        }
+
+        if store::set_user_active(&self.db, user_id, active).await? == 0 {
+            return Err(AuthError::SessionInvalid);
+        }
+        if !active {
+            store::delete_all_user_sessions(&self.db, user_id).await?;
+            store::delete_user_remember_tokens(&self.db, user_id).await?;
+        }
+        Ok(())
+    }
+
     /// Invalidates a session. Unknown tokens are a no-op.
     pub async fn logout(&self, token: &str) -> Result<(), AuthError> {
         store::delete_session(&self.db, &hash_token(token)).await
@@ -1046,6 +1093,89 @@ mod tests {
                 .await,
             Err(AuthError::SessionInvalid)
         ));
+    }
+
+    #[tokio::test]
+    async fn deactivating_blocks_sign_in_and_ends_the_sessions() {
+        let (pool, _guard) = test_db().await;
+        let admin = seed_user(&pool, "root", "hunter2", true).await;
+        let target = seed_user(&pool, "editor", "hunter2", false).await;
+        let svc = service(pool.clone());
+
+        let issued = svc
+            .authenticate("editor", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+        let credential = svc.issue_remember(target).await.unwrap();
+
+        svc.set_user_active(admin, target, false).await.unwrap();
+
+        // Cannot sign in again.
+        assert!(matches!(
+            svc.authenticate("editor", "hunter2", &RequestContext::default())
+                .await,
+            Err(AuthError::InactiveAccount)
+        ));
+        // And is not left signed in where they already were: an account that may
+        // not sign in must not stay signed in.
+        assert!(matches!(
+            svc.verify_session(&issued.token).await,
+            Err(AuthError::SessionInvalid)
+        ));
+        assert!(matches!(
+            svc.consume_remember(&credential.cookie, &RequestContext::default())
+                .await,
+            Err(AuthError::SessionInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn reactivating_lets_them_back_in() {
+        let (pool, _guard) = test_db().await;
+        let admin = seed_user(&pool, "root", "hunter2", true).await;
+        let target = seed_user(&pool, "editor", "hunter2", false).await;
+        let svc = service(pool);
+
+        svc.set_user_active(admin, target, false).await.unwrap();
+        svc.set_user_active(admin, target, true).await.unwrap();
+
+        // Reversible is the whole reason this exists instead of deletion.
+        svc.authenticate("editor", "hunter2", &RequestContext::default())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_operator_cannot_deactivate_themselves() {
+        let (pool, _guard) = test_db().await;
+        let admin = seed_user(&pool, "root", "hunter2", true).await;
+        let svc = service(pool);
+
+        // Locking yourself out of the panel you are administering is never the
+        // intent, and the repair is a command line.
+        assert!(matches!(
+            svc.set_user_active(admin, admin, false).await,
+            Err(AuthError::Refused(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn the_last_superuser_cannot_be_deactivated() {
+        let (pool, _guard) = test_db().await;
+        let only = seed_user(&pool, "root", "hunter2", true).await;
+        let editor = seed_user(&pool, "editor", "hunter2", false).await;
+        let svc = service(pool.clone());
+
+        // An ordinary operator acting on the only superuser still cannot leave
+        // the panel without one.
+        assert!(matches!(
+            svc.set_user_active(editor, only, false).await,
+            Err(AuthError::Refused(_))
+        ));
+
+        // With a second superuser, the first may be deactivated.
+        let second = seed_user(&pool, "root2", "hunter2", true).await;
+        svc.set_user_active(second, only, false).await.unwrap();
     }
 
     #[tokio::test]
