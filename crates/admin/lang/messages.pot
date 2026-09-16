@@ -687,6 +687,10 @@ msgstr ""
 msgid "View the audit log"
 msgstr ""
 
+#: templates/base.html
+msgid "View the site"
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Welcome"
 msgstr ""

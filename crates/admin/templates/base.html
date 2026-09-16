@@ -38,6 +38,10 @@
     </nav>
     <div class="lat-topnav__spacer"></div>
     <div class="lat-topnav__right">
+      {# A way out to the front of the site being administered. Opens in a new
+         tab, so the operator does not lose the screen they were working on. #}
+      <a class="lat-topnav__out" href="{{ shell.site_url() }}" target="_blank" rel="noopener noreferrer"
+         title='{{ shell.t("View the site") }}' aria-label='{{ shell.t("View the site") }}'>{{ shell.icon("external-link")|safe }}</a>
       <button class="lat-modebtn" type="button" onclick="latCycleMode()" title='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}'><span id="lat-mode-ico">◐</span></button>
       <details class="lat-usermenu">
         <summary class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</summary>

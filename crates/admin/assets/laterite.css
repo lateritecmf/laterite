@@ -145,6 +145,11 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-usermenu__poweredby img{width:14px;height:14px;opacity:.7}
 .lat-usermenu__poweredby:hover{color:var(--text-muted)}
 .lat-modebtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;font-size:16px;border-radius:var(--radius-control);border:1px solid rgba(244,237,228,.22);background:transparent;color:var(--bone-200);cursor:pointer;transition:var(--transition-control)}
+/* The link out to the site: same footprint as the mode button beside it, so
+   the two read as one group of controls. */
+.lat-topnav__out{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:var(--radius-control);border:1px solid rgba(244,237,228,.22);color:var(--bone-200);text-decoration:none;transition:var(--transition-control)}
+.lat-topnav__out:hover{background:var(--alpha-bone-08)}
+.lat-topnav__out svg{width:17px;height:17px}
 .lat-modebtn:hover{background:var(--alpha-bone-08)}
 
 /* Context sidebar: a full-height rail flush beside the main content, warm to

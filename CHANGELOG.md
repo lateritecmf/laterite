@@ -9,6 +9,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **A way out to the site from the admin.** The top bar carries a link to the
+  site's own root, beside the colour-mode button, opening in a new tab so an
+  operator does not lose the screen they were working on. The target is the
+  configured `app.url` where set, else the bind address, so it follows a
+  deployment rather than assuming localhost.
+
 - **An operator account can be deactivated and reactivated.** The users list has
   always shown and filtered on an Active column, and the framework refused a
   sign-in from an inactive account, but nothing could set the flag: the stated

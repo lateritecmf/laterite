@@ -324,6 +324,10 @@ pub(crate) struct Shell {
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
+    /// The site's own root, so the chrome can offer a way out to the front of
+    /// the site an operator is administering. The configured `app.url` when set,
+    /// else derived from the bind address.
+    site_url: String,
     /// Each asset's content-named path, so chrome in `base.html` links assets
     /// through [`Shell::asset`] rather than by a stable path the browser would
     /// be entitled to keep.
@@ -371,6 +375,7 @@ impl Shell {
         flash: Vec<session::Flash>,
         i18n: Translator,
         asset_urls: Arc<AssetUrls>,
+        site_url: String,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -398,6 +403,7 @@ impl Shell {
             .collect();
         Shell {
             asset_urls,
+            site_url,
             base: base.to_string(),
             brand,
             nav,
@@ -410,6 +416,16 @@ impl Shell {
             flash,
             assets: Vec::new(),
         }
+    }
+
+    /// The site's own root, for the chrome's link out to the front of the site.
+    pub(crate) fn site_url(&self) -> &str {
+        &self.site_url
+    }
+
+    /// Inline SVG for a named icon, for chrome that is not a nav item.
+    pub(crate) fn icon(&self, name: &str) -> &'static str {
+        icons::svg(Some(name))
     }
 
     /// The URL for a built-in asset, named by a digest of its bytes. Templates
@@ -474,6 +490,7 @@ impl Shell {
     pub(crate) fn test() -> Self {
         Shell {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
+            site_url: "http://localhost".to_string(),
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
             nav: Vec::new(),
@@ -1869,6 +1886,7 @@ async fn require_auth(
         flash,
         i18n,
         state.asset_urls.clone(),
+        state.origin.to_string(),
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
