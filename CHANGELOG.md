@@ -9,6 +9,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- **Saving returns to the screen that was saved.** A settings save redirected to
+  the settings index and a permissions save to the user list, so an operator
+  adjusting one thing was thrown back to a menu and lost their place. A settings
+  screen is a singleton with no list to return to, and the reference system makes
+  the same distinction: its plain Save stays put and only its Save-and-Close
+  leaves. Role create and update still go to the list, a record in a list being a
+  different flow.
+
 - **An unknown icon name no longer renders the wrong picture.** The admin
   carried eight hardcoded glyphs and fell back to a generic one for anything
   else, so a first-party plugin naming `bot`, `map` and `sparkles` rendered all

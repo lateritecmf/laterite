@@ -187,7 +187,7 @@ pub(crate) async fn update(
         .ok_or(AdminError::NotFound)?;
     // A superuser has no editable overrides; nothing to save.
     if row.get_bool("is_superuser").unwrap_or(false) {
-        return Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response());
+        return Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response());
     }
     let target_id = id.parse::<i64>().map_err(|_| AdminError::NotFound)?;
 
@@ -234,7 +234,8 @@ pub(crate) async fn update(
         crate::session::FlashLevel::Success,
         t!("Permissions updated."),
     );
-    Ok(Redirect::to(&format!("{}/users", state.admin_path)).into_response())
+    // Back to the operator being edited, not the list. Saving is not leaving.
+    Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
 }
 
 /// Pulls the submitted permission states out of the form. Each control posts one

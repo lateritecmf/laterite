@@ -295,7 +295,10 @@ pub(crate) async fn update(
             )
             .await;
             session.push_flash(crate::session::FlashLevel::Success, t!("Settings saved."));
-            Redirect::to(&format!("{}/settings", state.admin_path)).into_response()
+            // Back to the screen that was saved, not the index. Saving is not
+            // leaving: an operator adjusting one setting usually adjusts the
+            // next, and being thrown back to the menu loses their place.
+            Redirect::to(&item.path(&state.admin_path)).into_response()
         }
         Err(_) => render(build(
             item,
