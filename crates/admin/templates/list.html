@@ -3,82 +3,101 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
+  {% if exportable %}
+  {# Moving a whole resource in or out is the page's business, not the table's:
+     it belongs beside the title, while the row below acts on rows. #}
   <div class="lat-toolbar__actions">
-    {# The export carries the current query, so the file matches this screen. #}
     <details class="lat-menu">
       <summary class="lat-btn lat-btn--secondary lat-btn--sm">{{ shell.t("Export") }}</summary>
       <div class="lat-menu__panel">
+        {# The export carries the current query, so the file matches this screen. #}
         <a href="{{ path }}/export?format=csv{{ export_query }}">{{ shell.t("CSV") }}</a>
         <a href="{{ path }}/export?format=json{{ export_query }}">{{ shell.t("JSON") }}</a>
       </div>
     </details>
+  </div>
+  {% endif %}
+</div>
+{# The query form carries the search term, every filter and the current sort,
+   but holds none of the controls: the search box sits in the action row and the
+   filters in their own band, each bound back by `form=`. One form is what makes
+   narrowing by one control keep what another set, and it submits on Enter with
+   scripting off. It stays outside #lat-list, so a swap never steals the caret. #}
+<form id="lat-list-query" method="get" action="{{ path }}" hidden
+      hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
+      hx-trigger="input changed delay:300ms from:#lat-list-search, search from:#lat-list-search, change from:#lat-list-filters select, submit">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
+</form>
+<div class="lat-listbar">
+  <div class="lat-listbar__actions">
     {% for b in toolbar %}
     <a class="lat-btn lat-btn--sm {% if b.primary %}lat-btn--primary{% else %}lat-btn--secondary{% endif %}" href="{{ b.href }}">{% if !b.icon.is_empty() %}<span class="lat-btn__icon">{{ b.icon|safe }}</span>{% endif %}{{ b.label }}</a>
     {% endfor %}
+    {% if deletable %}
+    <span class="lat-listbar__divider" aria-hidden="true"></span>
+    {# Acts on rows inside the swapped region, so it starts disabled and follows
+       the checkboxes rather than being enabled by markup. #}
+    <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
+            form="lat-list-actions" data-lat-widget="bulk-delete" disabled
+            data-lat-confirm='{{ shell.t("Delete the selected records? This cannot be undone.") }}'>
+      {{ shell.t("Delete") }}
+    </button>
+    {% endif %}
   </div>
-</div>
-{% if searchable || !filters.is_empty() || !pickers.is_empty() %}
-<div class="lat-listbar">
-  {% if searchable || !filters.is_empty() %}
-  {# One GET form carries the search term, every filter, and the current sort, so
-     Enter works with scripting off. With htmx it asks on typing or on a change.
-     It sits outside #lat-list, so a swap never steals the caret or the focus.
-     The column picker is a sibling, never nested: a form inside a form is
-     dropped by the parser, taking its submit button's action with it. #}
-  <form class="lat-listbar__form" method="get" action="{{ path }}"
-        hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
-        hx-trigger="input changed delay:300ms from:find input[name='q'], search from:find input[name='q'], change from:find select, submit">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="dir" value="{{ dir }}">
+  <div class="lat-listbar__tools">
     {% if searchable %}
-    <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}"
+    <input class="lat-input lat-listbar__search" id="lat-list-search" form="lat-list-query"
+           type="search" name="q" value="{{ q }}"
            placeholder='{{ shell.t("Search") }}' aria-label='{{ shell.t("Search") }}'>
     {% endif %}
-    {% for f in filters %}
-    <label class="lat-listbar__filter">
-      <span class="lat-listbar__label">{{ f.label }}</span>
-      <select class="lat-input lat-select" name="{{ f.param }}">
-        <option value="">{{ shell.t("Any") }}</option>
-        {% for o in f.options %}
-        <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% endfor %}
-    {# This bar sits outside the swapped region, so it cannot re-render per swap.
-       The region declares whether anything narrows the list and CSS reads it. #}
-    <a class="lat-listbar__clear" href="{{ path }}">{{ shell.t("Clear") }}</a>
-    <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button></noscript>
-  </form>
-  {% endif %}
-  {# A native disclosure, so choosing columns needs no script at all. #}
-  <details class="lat-listbar__columns">
-    <summary class="lat-btn lat-btn--secondary lat-btn--sm">{{ shell.t("Columns") }}</summary>
-    <div class="lat-colpicker">
-      <form method="post" action="{{ path }}/columns">
-        {% include "_csrf.html" %}
-        {% for c in pickers %}
-        <label class="lat-check">
-          <input type="checkbox" name="column" value="{{ c.field }}"{% if c.shown %} checked{% endif %}>
-          <span>{{ c.label }}</span>
-        </label>
-        {% endfor %}
-        <button class="lat-btn lat-btn--primary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button>
-      </form>
-    </div>
-  </details>
+    {% if !pickers.is_empty() %}
+    {# A native disclosure, so choosing columns needs no script at all. #}
+    <details class="lat-menu">
+      <summary class="lat-btn lat-btn--secondary lat-btn--sm lat-btn--icon"
+               title='{{ shell.t("Columns") }}' aria-label='{{ shell.t("Columns") }}'>{{ shell.icon("columns-3")|safe }}</summary>
+      <div class="lat-colpicker">
+        <form method="post" action="{{ path }}/columns">
+          {% include "_csrf.html" %}
+          {% for c in pickers %}
+          <label class="lat-check">
+            <input type="checkbox" name="column" value="{{ c.field }}"{% if c.shown %} checked{% endif %}>
+            <span>{{ c.label }}</span>
+          </label>
+          {% endfor %}
+          <button class="lat-btn lat-btn--primary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button>
+        </form>
+      </div>
+    </details>
+    {% endif %}
+    <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-list-query">{{ shell.t("Apply") }}</button></noscript>
+  </div>
+</div>
+{% if !filters.is_empty() %}
+{# Its own band: a resource with four filters must not push the actions around.
+   The bar sits outside the swapped region and cannot re-render per swap, so the
+   region declares whether anything narrows the list and CSS reads it. #}
+<div class="lat-filterbar" id="lat-list-filters">
+  {% for f in filters %}
+  <label class="lat-filterbar__filter">
+    <span class="lat-filterbar__label">{{ f.label }}</span>
+    <select class="lat-input lat-select" name="{{ f.param }}" form="lat-list-query">
+      <option value="">{{ shell.t("Any") }}</option>
+      {% for o in f.options %}
+      <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <a class="lat-filterbar__clear" href="{{ path }}">{{ shell.t("Clear") }}</a>
 </div>
 {% endif %}
 {% if deletable %}
-{# The form lives outside the table: rows are inside the swapped region and
-   carry `form="lat-list-actions"`, so a swap replaces the checkboxes without
-   destroying the form they belong to. #}
-<form id="lat-list-actions" class="lat-bulkbar" method="post" action="{{ path }}/delete">
+{# Holds only the token: the rows carry `form="lat-list-actions"` from inside the
+   swapped region, so a swap replaces the checkboxes without destroying the form
+   they belong to, and the button above posts it from the action row. #}
+<form id="lat-list-actions" method="post" action="{{ path }}/delete" hidden>
   {% include "_csrf.html" %}
-  <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
-          data-lat-confirm='{{ shell.t("Delete the selected records? This cannot be undone.") }}'>
-    {{ shell.t("Delete") }}
-  </button>
 </form>
 {% endif %}
 {% include "_list_table.html" %}

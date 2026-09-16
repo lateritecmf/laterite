@@ -73,11 +73,17 @@ Picking every column clears the preference rather than storing them all, so the
 operator keeps following the descriptor as it gains columns; a stored choice that
 no longer matches any declared column falls back to showing everything.
 
-Every list offers an Export menu, writing CSV or JSON. The file is the query the
-screen just ran: the operator's columns, the active search, the filters and the
-sort, without the paging. An export larger than 20,000 rows is refused rather
-than truncated, with a message asking for a narrower list, because a short file
-that does not say it is short is worse than no file.
+A list that calls `.exportable()` offers an Export menu beside its title, writing
+CSV or JSON. The file is the query the screen just ran: the operator's columns,
+the active search, the filters and the sort, without the paging. An export larger
+than 20,000 rows is refused rather than truncated, with a message asking for a
+narrower list, because a short file that does not say it is short is worse than
+no file.
+
+Exporting is opt-in, and a resource that has not asked for it has no export route
+at all, so the capability cannot be reached by guessing the URL. Decide it per
+resource: a log is evidence an auditor may need outside the panel, while a table
+of people is a roster you may not want leaving it as a file.
 
 A resource adds its own toolbar buttons by declaring them:
 

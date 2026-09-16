@@ -23,9 +23,6 @@
           {{ shell.t("No records match.") }}
           {% else %}
           {{ shell.t("No records yet.") }}
-          {% if creatable %}{% if let Some(base) = edit_base %}
-          <a class="lat-btn lat-btn--primary lat-btn--sm lat-table__emptyaction" href="{{ base }}/new">+ {{ shell.t("New") }}</a>
-          {% endif %}{% endif %}
           {% endif %}
         </td></tr>
         {% else %}

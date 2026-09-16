@@ -291,6 +291,22 @@ window.lat.widget('pick-all', function (box) {
   });
 });
 
+// Bulk Delete: it sits in the action row, outside the table it acts on, so no
+// markup can tell it whether anything is selected. It starts disabled and
+// follows the row checkboxes, which come back fresh with every swap.
+window.lat.widget('bulk-delete', function (btn) {
+  function sync() {
+    btn.disabled = !document.querySelector('input[type="checkbox"][name="id"]:checked');
+  }
+  // The select-all box ticks rows without firing their change events, so listen
+  // for it too rather than for the rows alone.
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('input[name="id"], [data-lat-widget="pick-all"]')) sync();
+  });
+  document.addEventListener('htmx:load', sync);
+  sync();
+});
+
 // Copy button: copies its input group's value, with brief confirmation. Binds by
 // structure (closest group), so it survives repeater path-ids.
 window.lat.widget('copy', function (btn) {

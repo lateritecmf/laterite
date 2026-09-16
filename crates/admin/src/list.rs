@@ -611,6 +611,9 @@ pub struct ListConfig {
     /// a list that shows a log, or records another screen owns, has no business
     /// offering it.
     pub deletable: bool,
+    /// Whether this resource offers an export. Off by default: exporting is a
+    /// capability a resource opts into, not something every list should carry.
+    pub exportable: bool,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
 }
@@ -665,6 +668,14 @@ impl ListConfig {
         self
     }
 
+    /// Offers CSV and JSON exports of the current query. Opt in: a resource
+    /// whose rows should not leave the panel simply never calls this, and the
+    /// route is not registered for it.
+    pub fn exportable(mut self) -> Self {
+        self.exportable = true;
+        self
+    }
+
     pub fn filters(mut self, filters: Vec<ListFilter>) -> Self {
         self.filters = filters;
         self
@@ -703,6 +714,7 @@ impl Default for ListConfig {
             creatable: false,
             filters: Vec::new(),
             deletable: false,
+            exportable: false,
             toolbar: Vec::new(),
         }
     }
@@ -1082,7 +1094,6 @@ pub(crate) async fn handle(
                 total: result.total,
                 total_pages,
                 edit_base: config.edit_base.clone(),
-                creatable: config.creatable,
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
@@ -1093,6 +1104,7 @@ pub(crate) async fn handle(
                 path: path.to_string(),
                 filters: filter_views,
                 deletable: config.deletable,
+                exportable: config.exportable,
                 filtered: !active.is_empty() || !q.trim().is_empty(),
                 carry: carry.clone(),
             };
@@ -1113,7 +1125,6 @@ pub(crate) async fn handle(
                     dir: page_view.dir,
                     carry: page_view.carry,
                     filtered: page_view.filtered,
-                    creatable: page_view.creatable,
                     deletable: page_view.deletable,
                 })
             } else {
@@ -1199,7 +1210,6 @@ struct ListTemplate {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
-    creatable: bool,
     /// The active ordering, carried on the pager links so paging keeps the sort.
     sort: String,
     dir: String,
@@ -1209,6 +1219,9 @@ struct ListTemplate {
     searchable: bool,
     /// Whether rows carry a checkbox and the Delete button is offered.
     deletable: bool,
+    /// Whether this resource offers an export, which puts the menu beside the
+    /// title. Off leaves the title row bare.
+    exportable: bool,
     /// Every declared column, with the shown ones ticked, for the picker.
     pickers: Vec<ColumnChoice>,
     /// The toolbar buttons this operator may see.
@@ -1326,7 +1339,6 @@ struct ListFragment {
     /// react without the bar itself having to swap. Also picks the empty state:
     /// a filtered list with no rows has not run out of records, it has no match.
     filtered: bool,
-    creatable: bool,
     deletable: bool,
 }
 

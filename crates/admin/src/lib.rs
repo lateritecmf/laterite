@@ -1658,9 +1658,11 @@ fn mount_resource(
         ),
     );
 
+    // Not registered at all when the resource has not opted in, so the capability
+    // cannot be reached by guessing the URL.
     let (export_cfg, export_path) = (resource.list.clone(), resource.base_path.clone());
-    router =
-        router.route(
+    if resource.list.exportable {
+        router = router.route(
             &format!("{base}/export"),
             get(
                 move |state: State<AdminState>,
@@ -1676,6 +1678,7 @@ fn mount_resource(
                 },
             ),
         );
+    }
 
     let (columns_cfg, columns_path) = (resource.list.clone(), resource.base_path.clone());
     router = router.route(
@@ -2787,7 +2790,9 @@ fn audit_log_list_config() -> list::ListConfig {
         ],
         order_by: "created_at".to_string(),
         per_page: 50,
-        // Append-only: the log is evidence, so nothing removes from it here.
+        // The log is evidence: it can leave the panel for an auditor, but nothing
+        // removes from it here.
+        exportable: true,
         ..Default::default()
     }
 }

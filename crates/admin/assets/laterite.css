@@ -189,6 +189,8 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-btn--danger{background:var(--danger);color:#FFF7F2}
 .lat-btn--lg{height:var(--control-h-lg);padding:0 22px;font-size:var(--fs-15)}
 .lat-btn--sm{height:var(--control-h-sm);padding:0 12px;font-size:var(--fs-12)}
+.lat-btn--icon{padding:0;width:var(--control-h-sm);flex:0 0 auto}
+.lat-btn--icon svg{width:16px;height:16px}
 .lat-btn--block{display:flex;width:100%}
 .lat-btn:disabled{background:var(--bone-200);color:var(--slate-300);cursor:not-allowed;border-color:transparent}
 
@@ -298,7 +300,6 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-table tbody tr:hover{background:var(--surface-row-hover)}
 .lat-table__actions{text-align:right;white-space:nowrap}
 .lat-table__empty{padding:28px 16px;text-align:center;color:var(--text-muted)}
-.lat-table__emptyaction{margin-left:10px}
 
 /* List footer + pager */
 .lat-listfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;font-size:var(--fs-12);color:var(--text-muted)}
@@ -354,16 +355,19 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 
 /* List search box, in the toolbar beside the title. */
 /* List bar: search box plus filter controls, above the table. */
-.lat-listbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px;background:var(--surface-filterbar);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
-.lat-listbar__form{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;flex:1}
-.lat-listbar__search{width:min(260px,42vw)}
-.lat-listbar__filter{display:flex;flex-direction:column;gap:4px}
-.lat-listbar__label{font-size:var(--fs-11);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted)}
-.lat-listbar__clear{align-self:center;font-size:var(--fs-12);color:var(--text-muted);display:none}
+.lat-listbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.lat-listbar__actions{display:flex;gap:8px;align-items:center}
+.lat-listbar__divider{width:1px;height:18px;background:var(--border-strong);margin:0 4px}
+.lat-listbar__search{width:min(240px,40vw);height:var(--control-h-sm);font-size:var(--fs-12)}
+.lat-listbar__tools{display:flex;gap:8px;align-items:center;margin-left:auto}
+.lat-filterbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px;background:var(--surface-filterbar);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
+.lat-filterbar__filter{display:flex;flex-direction:column;gap:4px}
+.lat-filterbar__label{font-size:var(--fs-11);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted)}
+.lat-filterbar__clear{align-self:center;font-size:var(--fs-12);color:var(--text-muted);display:none}
 /* The bar never swaps, so the swapped region carries the state and this reads
    it. Same browser generation the stylesheet already assumes for @layer. */
-.lat-page:has(#lat-list[data-filtered="true"]) .lat-listbar__clear{display:inline}
-.lat-listbar__clear:hover{color:var(--accent)}
+.lat-page:has(#lat-list[data-filtered="true"]) .lat-filterbar__clear{display:inline}
+.lat-filterbar__clear:hover{color:var(--accent)}
 
 /* Repeater: a list of rows in a form. */
 .lat-repeater{display:flex;flex-direction:column;gap:10px}
@@ -414,15 +418,11 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-btn__icon svg{width:100%;height:100%}
 
 /* Column picker: a native disclosure holding the choices. */
-.lat-listbar__columns{position:relative}
-.lat-listbar__columns>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center}
-.lat-listbar__columns>summary::-webkit-details-marker{display:none}
 .lat-colpicker{position:absolute;z-index:50;top:calc(100% + 6px);right:0;min-width:200px;padding:12px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-md)}
 .lat-colpicker .lat-check{display:flex;gap:8px;align-items:center;padding:3px 0}
 .lat-colpicker button{margin-top:10px;width:100%}
 
 /* Bulk selection and the confirm dialog. */
-.lat-bulkbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
 .lat-table__pick{width:36px;text-align:center}
 .lat-modal{position:fixed;inset:0;z-index:400;display:none}
 .lat-modal.is-open{display:block}
