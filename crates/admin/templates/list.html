@@ -13,7 +13,7 @@
       </div>
     </details>
     {% for b in toolbar %}
-    <a class="lat-btn {% if b.primary %}lat-btn--primary{% else %}lat-btn--secondary{% endif %}" href="{{ b.href }}">{% if !b.icon.is_empty() %}<span class="lat-btn__icon">{{ b.icon|safe }}</span>{% endif %}{{ b.label }}</a>
+    <a class="lat-btn lat-btn--sm {% if b.primary %}lat-btn--primary{% else %}lat-btn--secondary{% endif %}" href="{{ b.href }}">{% if !b.icon.is_empty() %}<span class="lat-btn__icon">{{ b.icon|safe }}</span>{% endif %}{{ b.label }}</a>
     {% endfor %}
   </div>
 </div>
