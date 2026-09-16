@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-16
+
 ### Changed
 
 - **A settings description is a label, not a lecture.** It renders in a sidebar
