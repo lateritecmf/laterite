@@ -3,11 +3,13 @@
 function latModeGlyph(m) {
   return m === 'light' ? '☀' : m === 'dark' ? '☾' : '◐';
 }
+// The admin's own control over the shared mechanism: `laterite_core::theme`
+// owns storing and applying a mode, this only decides what the button does next
+// and which glyph it shows. A site builds its own control the same way.
 function latCycleMode() {
-  var o = localStorage.getItem('lat-mode') || 'auto';
+  var o = latMode();
   var n = o === 'light' ? 'dark' : o === 'dark' ? 'auto' : 'light';
-  localStorage.setItem('lat-mode', n);
-  latApplyMode(n);
+  latSetMode(n);
   var e = document.getElementById('lat-mode-ico');
   if (e) e.textContent = latModeGlyph(n);
 }
@@ -75,7 +77,7 @@ document.addEventListener('htmx:beforeSwap', function (e) {
   document.addEventListener('DOMContentLoaded', function () {
     scan(document);
     var e = document.getElementById('lat-mode-ico');
-    if (e) e.textContent = latModeGlyph(localStorage.getItem('lat-mode') || 'auto');
+    if (e) e.textContent = latModeGlyph(latMode());
   });
   document.addEventListener('htmx:load', function (ev) { scan(ev.target); });
 })();

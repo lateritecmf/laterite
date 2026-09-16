@@ -21,6 +21,7 @@ pub mod search;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod theme;
 pub mod validation;
 
 pub use capabilities::CapabilitySet;

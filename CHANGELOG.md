@@ -20,6 +20,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- **Colour mode is a framework mechanism, not admin chrome.** Light, dark or
+  follow-the-system now lives in `laterite_core::theme`, so a public site can use
+  the same machinery the panel does: `boot_markup()` inlines a blocking script
+  that resolves the mode before first paint and keeps `auto` in step with the
+  system, and the contract it establishes (`<html data-theme>`, the `lat-mode`
+  storage key, `latMode` / `latSetMode` / `latApplyMode`) is public API pinned by
+  a test. What is offered is the mechanism, never an appearance: no icons, no
+  toggle markup, no colour tokens, since a site brings its own. The admin is now
+  one consumer of it and keeps only its own button and glyph.
+
 - **A way out to the site from the admin.** The top bar carries a link to the
   site's own root, beside the colour-mode button, opening in a new tab so an
   operator does not lose the screen they were working on. The target is the
