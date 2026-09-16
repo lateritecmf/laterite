@@ -12,7 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - **Breaking:** an unknown icon name now stops the application at boot, naming
   the item and suggesting near matches, instead of rendering a generic glyph.
 - **Breaking:** list screens put New, Delete and search in one row above the
-  table. Custom CSS on `.lat-bulkbar` or `.lat-listbar__form` needs updating.
+  table, and filters sit on the table as its top strip. Custom CSS on
+  `.lat-bulkbar`, `.lat-listbar__form` or `--surface-filterbar` needs updating.
 - **Breaking:** a list exports only when it calls `.exportable()`, and the route
   is not registered otherwise. Of the built-ins only the audit log keeps it.
 

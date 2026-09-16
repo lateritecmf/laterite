@@ -75,7 +75,7 @@
 /* Semantic aliases (light) */
 --surface-page:var(--bone-200);--surface-card:#FFFCF8;--surface-raised:var(--bone-50);--surface-sunken:var(--bone-300);
 --surface-nav:var(--ferro-800);--surface-sidebar:var(--ferro-700);--surface-sidebar-active:rgba(244,237,228,.09);
---surface-toolbar:var(--bone-100);--surface-filterbar:var(--bone-100);--surface-row-hover:var(--red-50);
+--surface-toolbar:var(--bone-100);--surface-row-hover:var(--red-50);
 --surface-input:#FFFFFF;--surface-input-disabled:var(--bone-200);--surface-overlay:rgba(42,33,28,.48);
 --text-heading:var(--ferro-800);--text-body:var(--ferro-700);--text-muted:var(--slate-500);--text-subtle:var(--slate-400);
 --text-inverse:var(--bone-200);--text-inverse-muted:var(--slate-300);--text-link:var(--red-500);--text-link-hover:var(--red-600);--text-on-accent:#FFF7F2;
@@ -88,7 +88,7 @@
 [data-theme="dark"]{
 --surface-page:var(--ferro-900);--surface-card:var(--ferro-800);--surface-raised:var(--ferro-700);--surface-sunken:var(--ferro-950);
 --surface-nav:var(--ferro-950);--surface-sidebar:var(--ferro-800);--surface-sidebar-active:rgba(244,237,228,.07);
---surface-toolbar:var(--ferro-800);--surface-filterbar:var(--ferro-800);--surface-row-hover:rgba(196,78,47,.10);
+--surface-toolbar:var(--ferro-800);--surface-row-hover:rgba(196,78,47,.10);
 --surface-input:var(--ferro-900);--surface-input-disabled:var(--ferro-700);--surface-overlay:rgba(10,7,5,.62);
 --text-heading:var(--bone-100);--text-body:var(--bone-200);--text-muted:var(--slate-300);--text-subtle:var(--slate-400);
 --text-inverse:var(--ferro-800);--text-inverse-muted:var(--ferro-600);--text-link:var(--red-300);--text-link-hover:var(--red-200);
@@ -360,10 +360,16 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-listbar__divider{width:1px;height:18px;background:var(--border-strong);margin:0 4px}
 .lat-listbar__search{width:min(240px,40vw);height:var(--control-h-sm);font-size:var(--fs-12)}
 .lat-listbar__tools{display:flex;gap:8px;align-items:center;margin-left:auto}
-.lat-filterbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px;background:var(--surface-filterbar);border:1px solid var(--border-subtle);border-radius:var(--radius-card)}
-.lat-filterbar__filter{display:flex;flex-direction:column;gap:4px}
-.lat-filterbar__label{font-size:var(--fs-11);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted)}
-.lat-filterbar__clear{align-self:center;font-size:var(--fs-12);color:var(--text-muted);display:none}
+/* Sits on the table card as its top strip, not as a card of its own: floating it
+   above put a second tinted bar directly over the tinted column header, reading
+   as a detached copy of it. Radii and the shared border join the two. */
+.lat-filterbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:var(--surface-card);border:1px solid var(--border-subtle);border-bottom:0;border-radius:var(--radius-card) var(--radius-card) 0 0}
+.lat-filterbar ~ #lat-list>.lat-tablewrap{border-top-left-radius:0;border-top-right-radius:0}
+.lat-filterbar__filter{display:flex;gap:8px;align-items:center}
+.lat-filterbar__label{font-size:var(--fs-12);color:var(--text-muted);white-space:nowrap}
+.lat-filterbar__label::after{content:":"}
+.lat-filterbar .lat-input{height:var(--control-h-sm);font-size:var(--fs-12)}
+.lat-filterbar__clear{margin-left:auto;font-size:var(--fs-12);color:var(--text-muted);display:none}
 /* The bar never swaps, so the swapped region carries the state and this reads
    it. Same browser generation the stylesheet already assumes for @layer. */
 .lat-page:has(#lat-list[data-filtered="true"]) .lat-filterbar__clear{display:inline}
