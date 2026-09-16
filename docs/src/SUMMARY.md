@@ -35,4 +35,5 @@
 
 # Reference
 
+- [Icons](reference/icons.md)
 - [API Reference](reference/api.md)

@@ -231,6 +231,13 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
    than as a field's help. Wider than the sidebar, so it has room to say why
    the screen exists. */
 .lat-note{max-width:var(--form-max);font-size:var(--fs-13);color:var(--text-muted);margin:0 0 16px;line-height:1.55}
+/* Icons reference a shared sprite, so the outer element owns every presentation
+   attribute: a symbol carrying its own could not be restyled from here. */
+.lat-icon{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* Direction carries meaning for some glyphs and not others; the set says which. */
+[dir="rtl"] .lat-icon[data-mirror]{transform:scaleX(-1)}
+/* A name that did not resolve. Deliberately unlike any real icon. */
+.lat-icon--missing{opacity:.6}
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
 .lat-badge{display:inline-block;font-size:var(--fs-12);color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:999px;padding:1px 8px;margin-left:6px}
 .lat-field__error{font-size:var(--fs-12);color:var(--danger);margin:4px 0 0}

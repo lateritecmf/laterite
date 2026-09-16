@@ -364,6 +364,7 @@ pub(crate) fn sidebar_groups(
     admin_path: &str,
     active_code: Option<&str>,
     tr: &Translator,
+    icons: crate::icons::Icons<'_>,
 ) -> Vec<CategoryView> {
     // Group by the localized category heading (a shared source localizes identically).
     let mut by_category: HashMap<String, Vec<&SettingsItem>> = HashMap::new();
@@ -391,7 +392,7 @@ pub(crate) fn sidebar_groups(
                         label: tr.t(&i.label),
                         description: tr.t(&i.description),
                         path: i.path(admin_path),
-                        icon: crate::icons::svg(i.icon.as_deref()),
+                        icon: icons.render(i.icon.as_deref()),
                         active: active_code == Some(i.code.as_str()),
                     })
                     .collect(),
@@ -514,7 +515,7 @@ pub(crate) struct ItemView {
     pub(crate) description: String,
     pub(crate) path: String,
     /// Inline SVG markup for the item's icon, rendered raw in the template.
-    pub(crate) icon: &'static str,
+    pub(crate) icon: String,
     /// Whether this is the item currently open, so the sidebar highlights it.
     pub(crate) active: bool,
 }
@@ -800,7 +801,13 @@ mod tests {
                 route: None,
             },
         ];
-        let groups = sidebar_groups(&items, "/admin", None, &Translator::new("en"));
+        let groups = sidebar_groups(
+            &items,
+            "/admin",
+            None,
+            &Translator::new("en"),
+            crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+        );
         // "Logs" (min order 5) comes before "System" (min order 10).
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
@@ -814,7 +821,13 @@ mod tests {
     #[test]
     fn group_marks_only_the_active_item() {
         let items = vec![item()];
-        let groups = sidebar_groups(&items, "/admin", Some("test.log"), &Translator::new("en"));
+        let groups = sidebar_groups(
+            &items,
+            "/admin",
+            Some("test.log"),
+            &Translator::new("en"),
+            crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+        );
         let active: Vec<&str> = groups
             .iter()
             .flat_map(|g| &g.items)

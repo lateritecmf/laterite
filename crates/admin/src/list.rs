@@ -506,7 +506,7 @@ fn toolbar_views(
         out.push(ToolbarView {
             label: shell.tt(&button.label),
             href,
-            icon: crate::icons::svg(button.icon.as_deref()).to_string(),
+            icon: crate::icons::svg(&shell.icon_set, &shell.sprite_url, button.icon.as_deref()),
             primary: button.primary,
         });
     }

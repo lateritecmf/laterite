@@ -7,6 +7,39 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unknown icon name no longer renders the wrong picture.** The admin
+  carried eight hardcoded glyphs and fell back to a generic one for anything
+  else, so a first-party plugin naming `bot`, `map` and `sparkles` rendered all
+  three as the same sliders icon, silently, and it was found by eye. Descriptor
+  names are now checked when the application boots: an unknown one stops it,
+  naming the item and suggesting the nearest matches. A name arriving at runtime
+  cannot stop a boot, so it renders a visible missing mark and warns once.
+  Previously documented behaviour ("falls back to a generic glyph") is gone,
+  which is why this is a fix rather than an addition.
+
+### Added
+
+- **An icon set, curated and extensible.** `laterite_core::icons` ships 197
+  glyphs chosen against evidence rather than taste: upstream offers over two
+  thousand, and the reference CMS's own modules use 47 of the ~2,200 it bundles,
+  so the long tail costs every consumer and serves almost nobody. The rule is one
+  icon per concept, and each group in `icons.toml` records why those. A module
+  registers what the set lacks, namespaced to it automatically, with contributed
+  markup validated at boot: no script, no style, no id, no literal colour, since
+  each of those breaks a page, a sprite or dark mode. Names carry no variant and
+  no prefix; filling a shape is a render option, and a plain name cannot collide
+  when it resolves through a registry rather than a global class namespace. The
+  set, its documentation and its licence are generated from one manifest, and CI
+  fails when they drift. Being in core, a public site can use it too.
+
+  Glyphs are served as one sprite at a content-named URL, cached forever, and a
+  page references them rather than carrying their drawing instructions. On an
+  admin page that cut the markup icons contribute by two thirds and halved the
+  DOM nodes they add, which matters most where it is least visible: the panel
+  swaps fragments over htmx, and inlined glyphs are re-sent on every swap.
+
 ### Added
 
 - **Third-party notices are accounted for.** A Laterite binary carries work that

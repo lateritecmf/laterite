@@ -10,6 +10,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod i18n;
+pub mod icons;
 pub mod listeners;
 pub mod migration;
 pub mod module;

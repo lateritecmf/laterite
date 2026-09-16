@@ -1,31 +1,88 @@
-//! Inline SVG icons (a subset of Lucide) shared by the admin chrome: the top-nav
-//! sections and the settings context sidebar. A name maps to trusted static
-//! markup, rendered raw with `|safe`. The glyphs inherit `currentColor`, so they
-//! take the colour of the text beside them.
+//! The admin's view of the framework's icon set.
+//!
+//! The set, the registry and the markup live in [`laterite_core::icons`], since
+//! a public site wants them too. This module is the admin's consumer of it and
+//! holds only what is the admin's own business: resolving a descriptor's name at
+//! boot, and refusing one that does not exist.
+//!
+//! Before this, an unknown name fell through to a generic glyph. That is how a
+//! first-party plugin came to render `bot`, `map` and `sparkles` as the same
+//! sliders icon: three wrong pictures, no warning, discovered by eye.
 
-/// Inline SVG for an icon name. Unknown or absent names fall back to a generic
-/// glyph, so a caller can pass an operator-supplied name without guarding it.
-pub(crate) fn svg(name: Option<&str>) -> &'static str {
-    const USERS: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>"##;
-    const SHIELD: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>"##;
-    const SLIDERS: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>"##;
-    const DASHBOARD: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>"##;
-    const SETTINGS: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>"##;
-    const PLUG: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>"##;
-    const HISTORY: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>"##;
-    // Lucide `external-link`: an arrow leaving a frame, which reads as "opens
-    // away from here" rather than "go to a page", and the site opens in a new tab.
-    const EXTERNAL: &str = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>"##;
-    match name {
-        Some("external-link") => EXTERNAL,
-        Some("users") => USERS,
-        Some("shield") => SHIELD,
-        Some("layout-dashboard") => DASHBOARD,
-        Some("settings") => SETTINGS,
-        Some("plug") => PLUG,
-        Some("history") => HISTORY,
-        _ => SLIDERS,
+use laterite_core::icons::IconSet;
+
+/// The icon set together with where its sprite is served.
+///
+/// The two are useless apart: a name resolves against the set, and the markup
+/// references the sprite, so every caller wanting one wants the other.
+#[derive(Clone, Copy)]
+pub(crate) struct Icons<'a> {
+    pub set: &'a IconSet,
+    pub sprite: &'a str,
+}
+
+impl<'a> Icons<'a> {
+    pub fn new(set: &'a IconSet, sprite: &'a str) -> Self {
+        Self { set, sprite }
     }
+
+    /// Markup for a name, or the missing mark.
+    pub fn render(&self, name: Option<&str>) -> String {
+        svg(self.set, self.sprite, name)
+    }
+}
+
+/// Markup for an icon name: a reference into the sprite, decorative unless the
+/// caller labels it.
+///
+/// A reference is a fraction of the inlined glyph and the sprite is fetched
+/// once, which matters because the admin swaps fragments: inlining re-sends the
+/// same drawing instructions on every swap.
+///
+/// An unknown name yields a visible "missing" mark rather than a plausible
+/// glyph. Descriptor names never reach this: they are checked at boot by
+/// [`require`], so the only way here is a name that arrived at runtime.
+pub(crate) fn svg(set: &IconSet, sprite_url: &str, name: Option<&str>) -> String {
+    match name {
+        Some(name) => set.use_ref(name, sprite_url, None).unwrap_or_else(|| {
+            tracing::warn!(icon = name, "unknown icon name; rendering the missing mark");
+            MISSING.to_string()
+        }),
+        None => String::new(),
+    }
+}
+
+/// Shown when a name does not resolve: a dashed square with a question mark.
+///
+/// Deliberately not a plausible icon. The whole failure this replaces was a
+/// wrong glyph that looked like a choice somebody had made.
+const MISSING: &str = concat!(
+    r#"<svg class="lat-icon lat-icon--missing" viewBox="0 0 24 24" fill="none" "#,
+    r#"stroke="currentColor" stroke-width="2" stroke-linecap="round" "#,
+    r#"stroke-linejoin="round" aria-hidden="true" focusable="false">"#,
+    r#"<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/>"#,
+    r#"<path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>"#
+);
+
+/// Checks a descriptor's icon name at boot, aborting with what was meant.
+///
+/// Descriptor names are finite and known before a request is served, so a typo
+/// is a startup failure rather than a wrong picture in production. `what`
+/// names the thing that declared it, so the message points at the fix.
+pub(crate) fn require(set: &IconSet, what: &str, name: Option<&str>) {
+    let Some(name) = name else { return };
+    if set.has(name) {
+        return;
+    }
+    let hint = match set.nearest(name, 3) {
+        hits if hits.is_empty() => String::new(),
+        hits => format!("; did you mean {}?", hits.join(", ")),
+    };
+    panic!(
+        "{what} names the icon `{name}`, which is not in the set{hint} \
+         See docs/src/reference/icons.md for the full list, or register your \
+         own with `add_icon`."
+    );
 }
 
 #[cfg(test)]
@@ -33,13 +90,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_names_and_falls_back() {
-        assert!(svg(Some("users")).contains("<circle"));
-        assert!(svg(Some("shield")).starts_with("<svg"));
-        assert!(svg(Some("layout-dashboard")).contains("<rect"));
-        assert!(svg(Some("settings")).contains("<circle"));
-        assert!(svg(Some("history")).starts_with("<svg"));
-        // An unknown or absent name falls back to the generic glyph.
-        assert_eq!(svg(Some("no-such-icon")), svg(None));
+    fn a_known_name_renders_its_glyph() {
+        let set = IconSet::new();
+        let markup = svg(&set, "/s.svg", Some("users"));
+        assert!(markup.contains("<svg"));
+        assert!(markup.contains("#lat-users"));
+        assert!(!markup.contains("lat-icon--missing"));
+    }
+
+    #[test]
+    fn an_unknown_runtime_name_is_visibly_missing() {
+        // Not a plausible glyph: the bug was a wrong icon that looked chosen.
+        let set = IconSet::new();
+        assert!(svg(&set, "/s.svg", Some("no-such-icon")).contains("lat-icon--missing"));
+    }
+
+    #[test]
+    fn no_icon_renders_nothing() {
+        assert_eq!(svg(&IconSet::new(), "/s.svg", None), "");
+    }
+
+    #[test]
+    #[should_panic(expected = "did you mean")]
+    fn a_descriptor_typo_stops_the_boot_with_a_suggestion() {
+        require(&IconSet::new(), "settings item `acme.blog`", Some("userss"));
+    }
+
+    #[test]
+    fn a_known_descriptor_name_passes() {
+        require(&IconSet::new(), "settings item `acme.blog`", Some("users"));
+        require(&IconSet::new(), "settings item `acme.blog`", None);
     }
 }

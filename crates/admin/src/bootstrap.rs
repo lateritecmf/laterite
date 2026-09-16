@@ -429,6 +429,8 @@ impl Bootstrap {
         let listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
+        // Owned, so each icon is namespaced to the module that contributed it.
+        let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
@@ -471,6 +473,7 @@ impl Bootstrap {
                 listeners,
                 field_types,
                 column_types,
+                icons,
                 screens,
                 public_routes: public,
                 // Whatever is left is plugin-defined: types the framework knows

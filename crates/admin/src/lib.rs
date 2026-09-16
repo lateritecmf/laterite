@@ -128,6 +128,10 @@ const SESSION_COOKIE: &str = "laterite_session";
 /// revoked on its own.
 const REMEMBER_COOKIE: &str = "laterite_remember";
 
+/// The icon sprite's registry key. One request, cached forever, in place of a
+/// few hundred bytes of repeated markup per icon per render.
+pub(crate) const ICON_SPRITE: &str = "icons.svg";
+
 /// Shared state for the admin router. Constructed by [`router`].
 #[derive(Clone)]
 pub(crate) struct AdminState {
@@ -143,6 +147,10 @@ pub(crate) struct AdminState {
     secure_cookie: bool,
     /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
+    /// The framework's icon set plus whatever modules contributed.
+    icons: Arc<laterite_core::icons::IconSet>,
+    /// Where the sprite is served, content-named. Resolved once at boot.
+    sprite_url: Arc<str>,
     /// The public origin for the CSRF origin check (see [`AdminConfig::origin`]).
     origin: Arc<str>,
     timezone: Tz,
@@ -192,6 +200,8 @@ impl AdminState {
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
+            icons: Arc::new(laterite_core::icons::IconSet::new()),
+            sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),
@@ -324,6 +334,11 @@ pub(crate) struct Shell {
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
+    /// The icon set, for chrome that renders one outside a nav entry.
+    pub(crate) icon_set: Arc<laterite_core::icons::IconSet>,
+    /// Where the sprite lives, so chrome can reference a glyph rather than
+    /// carry its drawing instructions.
+    pub(crate) sprite_url: Arc<str>,
     /// The site's own root, so the chrome can offer a way out to the front of
     /// the site an operator is administering. The configured `app.url` when set,
     /// else derived from the bind address.
@@ -376,6 +391,8 @@ impl Shell {
         i18n: Translator,
         asset_urls: Arc<AssetUrls>,
         site_url: String,
+        icon_set: Arc<laterite_core::icons::IconSet>,
+        sprite_url: Arc<str>,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -398,11 +415,16 @@ impl Shell {
                 label: i18n.t(&n.label),
                 path: n.path.clone(),
                 active: active_nav == Some(n.path.as_str()),
-                icon: n.icon.map(|name| icons::svg(Some(name))).unwrap_or(""),
+                icon: n
+                    .icon
+                    .map(|name| icons::svg(&icon_set, &sprite_url, Some(name)))
+                    .unwrap_or_default(),
             })
             .collect();
         Shell {
             asset_urls,
+            icon_set,
+            sprite_url,
             site_url,
             base: base.to_string(),
             brand,
@@ -424,8 +446,8 @@ impl Shell {
     }
 
     /// Inline SVG for a named icon, for chrome that is not a nav item.
-    pub(crate) fn icon(&self, name: &str) -> &'static str {
-        icons::svg(Some(name))
+    pub(crate) fn icon(&self, name: &str) -> String {
+        icons::svg(&self.icon_set, &self.sprite_url, Some(name))
     }
 
     /// The URL for a built-in asset, named by a digest of its bytes. Templates
@@ -490,6 +512,8 @@ impl Shell {
     pub(crate) fn test() -> Self {
         Shell {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
+            icon_set: Arc::new(laterite_core::icons::IconSet::new()),
+            sprite_url: Arc::from("/admin/assets/icons.svg"),
             site_url: "http://localhost".to_string(),
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
@@ -581,11 +605,12 @@ fn resolve_nav_context(
     perms: &PermissionSet,
     path: &str,
     tr: &Translator,
+    icons: icons::Icons<'_>,
 ) -> (Vec<settings::CategoryView>, Option<String>) {
     let visible = visible_settings(items, perms);
     let (in_context, active) = settings_context(&visible, admin_path, path);
     let sidebar = if in_context {
-        settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr)
+        settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr, icons)
     } else {
         Vec::new()
     };
@@ -915,6 +940,9 @@ pub struct Contributions {
     /// screen beside the built-ins.
     pub field_types: Vec<field::FieldTypeReg>,
     pub column_types: Vec<list::ColumnTypeReg>,
+    /// Icons a module contributes, for glyphs the framework's curated set does
+    /// not carry. Each is namespaced to the contributing module.
+    pub icons: Vec<(laterite_core::ModuleId, laterite_core::icons::IconReg)>,
     /// Screens a module mounts itself, for anything that is not a list or form.
     pub screens: Vec<routes::ScreenReg>,
     /// Routes mounted outside the admin, at literal paths.
@@ -942,6 +970,7 @@ pub fn router(
         listeners: app_listeners,
         field_types: app_field_types,
         column_types: app_column_types,
+        icons: app_icons,
         screens: app_screens,
         public_routes: app_public,
         plugin_defined,
@@ -1052,6 +1081,41 @@ pub fn router(
         }
     }
 
+    // The icon set: the framework's curated names, plus whatever modules
+    // contributed. A bad name or unusable SVG aborts the boot rather than
+    // rendering something wrong later.
+    let mut icon_set = laterite_core::icons::IconSet::new();
+    for (owner, reg) in app_icons {
+        if let Err(e) = icon_set.add(owner.as_str(), &reg) {
+            panic!("module `{owner}` contributed an invalid icon: {e}");
+        }
+    }
+
+    // The sprite joins the asset registry, so it gets a content-named URL and
+    // may be cached forever: a changed set is a changed URL.
+    let mut assets = builtin_assets();
+    assets.insert(
+        ICON_SPRITE,
+        AdminAsset {
+            mime: "image/svg+xml",
+            bytes: std::borrow::Cow::Owned(icon_set.sprite().into_bytes()),
+        },
+    );
+
+    // Every descriptor icon is checked now, while the names are all in hand and
+    // nobody is waiting on a response. A typo here used to reach production as a
+    // wrong picture that looked like somebody's choice.
+    for item in &settings {
+        icons::require(
+            &icon_set,
+            &format!("settings item `{}`", item.code),
+            item.icon.as_deref(),
+        );
+    }
+    for link in &nav {
+        icons::require(&icon_set, &format!("menu entry `{}`", link.path), link.icon);
+    }
+
     // The column-type registry: the built-ins, plus whatever the modules
     // contributed. A bad or duplicate key is a wiring bug, so it aborts boot the
     // way a duplicate persister or picker source does.
@@ -1067,6 +1131,16 @@ pub fn router(
     }
 
     let settings = Arc::new(settings);
+    // One render of the asset URLs, shared by the state and the sprite lookup.
+    let asset_urls_arc = Arc::new(asset_urls(&assets));
+    let sprite_url: Arc<str> = Arc::from(
+        asset_urls_arc
+            .get(ICON_SPRITE)
+            .map(|p| format!("{admin_path}/assets/{p}"))
+            .unwrap_or_default()
+            .as_str(),
+    );
+    let icons_arc = Arc::new(icon_set);
     let state = AdminState {
         auth,
         db,
@@ -1076,6 +1150,8 @@ pub fn router(
         admin_path: Arc::from(admin_path.as_str()),
         secure_cookie: config.secure_cookie,
         trusted_proxies: Arc::new(clientip::parse_trusted(&config.trusted_proxies)),
+        icons: icons_arc.clone(),
+        sprite_url: sprite_url.clone(),
         origin: Arc::from(config.origin.trim_end_matches('/')),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         default_locale: Arc::from(default_locale(&config.locale, &catalogs.locales())),
@@ -1085,8 +1161,8 @@ pub fn router(
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
         plugin_defined,
-        assets: Arc::new(builtin_assets()),
-        asset_urls: Arc::new(asset_urls(&builtin_assets())),
+        assets: Arc::new(assets),
+        asset_urls: asset_urls_arc.clone(),
         pickers,
         overrides: Arc::new(field::NoOverrides),
     };
@@ -1366,7 +1442,10 @@ fn prefix_resource(admin_path: &str, resource: &mut Resource) {
 /// One embedded admin asset served by [`serve_asset`].
 pub(crate) struct AdminAsset {
     pub mime: &'static str,
-    pub bytes: &'static [u8],
+    /// Borrowed for assets compiled in, owned for the icon sprite, which is
+    /// assembled at boot from the framework's set plus whatever modules
+    /// contributed and so cannot come from a file.
+    pub bytes: std::borrow::Cow<'static, [u8]>,
 }
 
 /// Admin assets served under `{admin}/assets/`, keyed by path. An open registry:
@@ -1385,7 +1464,7 @@ pub(crate) fn asset_urls(registry: &AssetRegistry) -> AssetUrls {
         .map(|(&key, asset)| {
             (
                 key,
-                http_cache::fingerprint(key, &http_cache::digest(asset.bytes)),
+                http_cache::fingerprint(key, &http_cache::digest(&asset.bytes)),
             )
         })
         .collect()
@@ -1431,56 +1510,58 @@ pub(crate) fn page_assets(
 pub(crate) fn builtin_assets() -> AssetRegistry {
     let font = |bytes: &'static [u8]| AdminAsset {
         mime: "font/woff2",
-        bytes,
+        bytes: std::borrow::Cow::Borrowed(bytes),
     };
     HashMap::from([
         (
             "laterite.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                bytes: include_bytes!("../assets/laterite.css"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/laterite.css")),
             },
         ),
         (
             "laterite.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                bytes: include_bytes!("../assets/laterite.js"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/laterite.js")),
             },
         ),
         (
             "vendor/htmx.min.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                bytes: include_bytes!("../assets/vendor/htmx.min.js"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/htmx.min.js")),
             },
         ),
         (
             "fields/ref-picker.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                bytes: include_bytes!("../assets/fields/ref-picker.js"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/ref-picker.js")),
             },
         ),
         (
             "fields/ref-picker.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                bytes: include_bytes!("../assets/fields/ref-picker.css"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fields/ref-picker.css"
+                )),
             },
         ),
         (
             "mark.svg",
             AdminAsset {
                 mime: "image/svg+xml",
-                bytes: include_bytes!("../assets/mark.svg"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/mark.svg")),
             },
         ),
         (
             "mark.png",
             AdminAsset {
                 mime: "image/png",
-                bytes: include_bytes!("../assets/mark.png"),
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/mark.png")),
             },
         ),
         (
@@ -1872,6 +1953,7 @@ async fn require_auth(
         &user.permissions,
         &path,
         &i18n,
+        icons::Icons::new(&state.icons, &state.sprite_url),
     );
     let brand = state.brand().await;
     let shell = Shell::new(
@@ -1887,6 +1969,8 @@ async fn require_auth(
         i18n,
         state.asset_urls.clone(),
         state.origin.to_string(),
+        state.icons.clone(),
+        state.sprite_url.clone(),
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
@@ -2834,7 +2918,7 @@ struct NavView {
     active: bool,
     /// Inline SVG for the tab's icon, or empty for a text-only tab. Rendered raw
     /// with `|safe`.
-    icon: &'static str,
+    icon: String,
 }
 
 /// Renders a template to an HTML response, mapping a render failure to a 500.
@@ -3011,14 +3095,14 @@ mod tests {
             "a.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                bytes: b"//",
+                bytes: std::borrow::Cow::Borrowed(b"//"),
             },
         );
         reg.insert(
             "b.css",
             AdminAsset {
                 mime: "text/css; charset=utf-8",
-                bytes: b"body{}",
+                bytes: std::borrow::Cow::Borrowed(b"body{}"),
             },
         );
         // A repeated key collapses to one, keeping first-seen order; the URL is
@@ -3078,6 +3162,8 @@ mod tests {
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
+            icons: Arc::new(laterite_core::icons::IconSet::new()),
+            sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),
@@ -3169,8 +3255,18 @@ mod tests {
         let items = builtin_settings();
         let superuser = PermissionSet::new(true, Vec::<String>::new());
         let tr = Translator::new("en");
-        let sidebar =
-            |path: &str| resolve_nav_context(&[], &items, "/admin", &superuser, path, &tr).0;
+        let sidebar = |path: &str| {
+            resolve_nav_context(
+                &[],
+                &items,
+                "/admin",
+                &superuser,
+                path,
+                &tr,
+                icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+            )
+            .0
+        };
         let active_path = |path: &str| -> Option<String> {
             sidebar(path)
                 .into_iter()

@@ -1,0 +1,271 @@
+# The icon set.
+#
+# Curated, not exhaustive. Upstream ships over two thousand glyphs; the
+# reference CMS bundles about that many and its own modules use 47 of them.
+# Shipping the long tail costs every consumer and serves almost nobody, so a
+# name earns its place here or a plugin registers its own.
+#
+# Admission rules:
+#   * One icon per concept. No `mail` AND `envelope`; no `pencil` AND `pen`.
+#     This single rule does more against bloat than any quota.
+#   * Every group carries its evidence: why these, not someone's taste.
+#   * Out by category: brands, weather, faces, sports, food, animals.
+#   * A group past roughly twenty entries is a signal to prune, not to add.
+#
+# `fillable` marks closed shapes that read correctly filled, which is how a
+# state is shown (a filled star is favourited). There is no `-solid` name and
+# no variant field: filling is a render option, never something an author types.
+#
+# `mirror` marks icons whose direction carries meaning and which flip under
+# a right-to-left layout.
+#
+# Generated artefacts come from this file; edit it, then run
+# scripts/gen-icons.py.
+
+upstream = "lucide"
+upstream_version = "1.46.0"
+
+[chrome]
+# The panel's own furniture: every one is rendered by Laterite itself or by a screen it ships.
+# 48 icons.
+icons = [
+  "arrow-up-down",  # mirror
+  "check",
+  "chevron-down",
+  "chevron-left",  # mirror
+  "chevron-right",  # mirror
+  "chevron-up",
+  "chevrons-left",  # mirror
+  "chevrons-right",  # mirror
+  "circle-alert",
+  "circle-check",  # fillable
+  "circle-help",
+  "circle-x",
+  "columns-3",
+  "copy",
+  "download",
+  "ellipsis",
+  "ellipsis-vertical",
+  "external-link",  # mirror
+  "eye",
+  "eye-off",
+  "funnel",
+  "grip-vertical",
+  "history",
+  "info",
+  "layout-dashboard",
+  "layout-grid",
+  "list",  # mirror
+  "loader-circle",
+  "log-in",  # mirror
+  "log-out",  # mirror
+  "menu",
+  "monitor",
+  "moon",
+  "panel-left",  # mirror
+  "pencil",
+  "plus",
+  "redo-2",  # mirror
+  "refresh-cw",
+  "save",
+  "search",
+  "settings",
+  "sliders-horizontal",
+  "sun",
+  "trash-2",
+  "triangle-alert",
+  "undo-2",  # mirror
+  "upload",
+  "x",
+]
+
+[people]
+# Accounts, roles and access. Drawn from the panel's own screens and the reference CMS's user module.
+# 12 icons.
+icons = [
+  "contact",
+  "fingerprint",
+  "id-card",
+  "key",
+  "lock",
+  "lock-open",
+  "shield",
+  "shield-check",
+  "user",
+  "user-plus",
+  "user-round",
+  "users",
+]
+
+[content]
+# What a CMS edits. The largest group by design: this is the subject matter.
+# 34 icons.
+icons = [
+  "bold",
+  "book-open",
+  "bookmark",  # fillable
+  "braces",
+  "code",
+  "file",
+  "file-text",
+  "files",
+  "film",
+  "flag",  # fillable
+  "folder",
+  "folder-open",
+  "folder-plus",
+  "heading",
+  "heart",  # fillable
+  "image",
+  "images",
+  "italic",
+  "link",
+  "list-ordered",  # mirror
+  "music",
+  "newspaper",
+  "notebook-pen",
+  "notepad-text",
+  "paperclip",
+  "pin",  # fillable
+  "quote",  # mirror
+  "square-pen",
+  "star",  # fillable
+  "tag",
+  "tags",
+  "type",
+  "underline",
+  "unlink",
+]
+
+[communication]
+# Messaging and notification, common to every admin that contacts anybody.
+# 11 icons.
+icons = [
+  "at-sign",
+  "bell",  # fillable
+  "bell-off",
+  "bell-ring",
+  "mail",
+  "megaphone",
+  "message-circle",
+  "message-square",
+  "phone",
+  "rss",
+  "send",  # mirror
+]
+
+[commerce]
+# Business nouns. Thin on purpose: a commerce plugin registers what it actually needs.
+# 25 icons.
+icons = [
+  "badge-percent",
+  "banknote",
+  "briefcase",
+  "building",
+  "building-2",
+  "calculator",
+  "chart-bar",
+  "chart-line",
+  "chart-pie",
+  "coins",
+  "credit-card",
+  "gift",
+  "landmark",
+  "package",
+  "percent",
+  "receipt",
+  "scale",
+  "shopping-bag",
+  "shopping-cart",
+  "store",
+  "ticket",
+  "trending-down",  # mirror
+  "trending-up",  # mirror
+  "truck",
+  "wallet",
+]
+
+[time-place]
+# Dates and location, which almost every content type carries.
+# 12 icons.
+icons = [
+  "alarm-clock",
+  "calendar",
+  "calendar-days",
+  "clock",
+  "compass",
+  "globe",
+  "home",
+  "map",
+  "map-pin",
+  "map-pinned",
+  "navigation",
+  "timer",
+]
+
+[technical]
+# Infrastructure and integration, for the screens a developer builds.
+# 27 icons.
+icons = [
+  "bluetooth",
+  "bot",
+  "bug",
+  "camera",
+  "cloud",
+  "cloud-download",
+  "cloud-upload",
+  "cpu",
+  "database",
+  "git-branch",
+  "hard-drive",
+  "laptop",
+  "mic",
+  "plug",
+  "printer",
+  "qr-code",
+  "server",
+  "smartphone",
+  "sparkles",
+  "tablet",
+  "terminal",
+  "video",
+  "wand-sparkles",
+  "webhook",
+  "wifi",
+  "workflow",
+  "zap",
+]
+
+[objects]
+# Concrete things and status marks, for naming a section when nothing more literal fits.
+# 28 icons.
+icons = [
+  "activity",
+  "award",
+  "blocks",
+  "box",
+  "boxes",
+  "brush",
+  "check-check",  # fillable
+  "circle",  # fillable
+  "component",
+  "crown",
+  "droplet",
+  "flame",
+  "gauge",
+  "hammer",
+  "layers",
+  "layout-template",
+  "leaf",
+  "lightbulb",
+  "paintbrush",
+  "palette",
+  "puzzle",
+  "rocket",
+  "square",  # fillable
+  "square-check",  # fillable
+  "target",
+  "triangle",  # fillable
+  "trophy",
+  "wrench",
+]

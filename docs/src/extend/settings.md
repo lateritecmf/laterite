@@ -121,9 +121,10 @@ checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
 Set an item's `permission` to a dotted string to hide it from operators who lack
 it; a `None` permission is always visible, and superusers see everything.
 Registered items render in a categorised context sidebar on the settings
-screens, with the open item highlighted. Give each item an `icon` (a Lucide name
-such as `users` or `shield`) for the sidebar; an unknown or `None` name falls
-back to a generic glyph.
+screens, with the open item highlighted. Give each item an `icon` (see the [icon reference](../reference/icons.md)).
+A name that is not in the set stops the application at boot, naming the item
+and suggesting the nearest matches, so a typo is caught before anyone sees
+the wrong picture.
 
 ## The settings menu vs the main menu
 

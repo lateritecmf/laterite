@@ -36,6 +36,23 @@ jobs:
       # own check; both halves of the obligation live in this one job.
       - name: Every bundled asset must be ours or attributed
         run: sh scripts/check-bundled-assets.sh
+      # The icon set, its documentation and its licence all come from icons.toml.
+      # Regenerating needs the upstream package, so this fetches the pinned
+      # version rather than trusting whatever is on the runner.
+      - name: The icon set must be regenerated and committed
+        run: |
+          version="$(grep -oE 'upstream_version = "[^"]+"' icons.toml | cut -d'"' -f2)"
+          cd /tmp && npm pack "lucide-static@${version}" >/dev/null 2>&1
+          tar xzf "lucide-static-${version}.tgz"
+          cd - >/dev/null
+          python3 scripts/gen-icons.py /tmp/package
+          drift="$(git status --porcelain -- crates/core/src/icons/generated.rs docs/src/reference/icons.md crates/core/NOTICE)"
+          if [ -n "$drift" ]; then
+            echo "The icon set is stale:" >&2
+            echo "$drift" >&2
+            echo "Run scripts/gen-icons.py and commit the result." >&2
+            exit 1
+          fi
       - run: python3 scripts/gen-notice.py
       - name: The third-party notice must be regenerated and committed
         run: |
