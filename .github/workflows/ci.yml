@@ -20,6 +20,28 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --features sqlite -- -D warnings
 
+  # The third-party notice is generated from `cargo metadata` plus the bundled
+  # asset list; fail if a dependency was added without regenerating it. An
+  # unlisted crate is an unmet attribution obligation, not a formatting nit.
+  notice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # The generator quotes each crate's own LICENSE file, so the sources have
+      # to be on disk rather than just the index.
+      - run: cargo fetch
+      - run: python3 scripts/gen-notice.py
+      - name: The third-party notice must be regenerated and committed
+        run: |
+          drift="$(git status --porcelain -- NOTICE)"
+          if [ -n "$drift" ]; then
+            echo "The third-party notice is stale:" >&2
+            echo "$drift" >&2
+            echo "Run python3 scripts/gen-notice.py and commit the result." >&2
+            exit 1
+          fi
+
   # Each crate's README is generated from its doc comment; fail if a committed
   # README is stale (the doc changed but scripts/gen-readmes.sh was not re-run).
   readmes:

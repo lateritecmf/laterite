@@ -7,6 +7,23 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- **Third-party notices are accounted for.** A Laterite binary carries work that
+  is not ours: bundled fonts and scripts, and every Rust crate it links. The
+  fonts are under the SIL Open Font License, which asks that a copy of the
+  licence travel with them, and nothing in the repository carried one. The
+  licences for what a crate bundles now live in that crate's own `NOTICE`
+  (`crates/admin/NOTICE` for the fonts, icons and scripts), which ships in its
+  published package and which licence-gathering tools find by name, so an
+  application building on Laterite folds them into its own notice without
+  having to know they exist. The repository's `NOTICE` is generated from
+  `cargo metadata` plus those files, quoting each crate's real licence rather
+  than a template, and CI fails when a dependency has been added without
+  regenerating it. Nothing is embedded in the binary: measured at 1.9 MB and
+  12% of a release build, and the obligation is met by the distribution, as it
+  is elsewhere in the ecosystem.
+
 ## [0.6.2] - 2026-09-16
 
 ### Fixed
