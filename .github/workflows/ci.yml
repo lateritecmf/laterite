@@ -31,6 +31,11 @@ jobs:
       # The generator quotes each crate's own LICENSE file, so the sources have
       # to be on disk rather than just the index.
       - run: cargo fetch
+      # A new crate cannot go unlisted: the notice is regenerated below and
+      # drift fails the job. A new *asset* changes no manifest, so it needs its
+      # own check; both halves of the obligation live in this one job.
+      - name: Every bundled asset must be ours or attributed
+        run: sh scripts/check-bundled-assets.sh
       - run: python3 scripts/gen-notice.py
       - name: The third-party notice must be regenerated and committed
         run: |
