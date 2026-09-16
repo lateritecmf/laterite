@@ -7,62 +7,24 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** an unknown icon name now stops the application at boot, naming
+  the item and suggesting near matches, instead of rendering a generic glyph.
+
+### Added
+
+- An icon set of 197 glyphs in `laterite_core::icons`, served as one cached
+  sprite. Modules register their own, namespaced. See the icon reference.
+- Colour mode (light, dark, follow-the-system) moved to `laterite_core::theme`,
+  so a public site can use the same mechanism the admin does.
+- Bundled fonts, icons and scripts are recorded in each crate's `NOTICE`, which
+  `cargo about` finds when you generate your own.
+
 ### Fixed
 
-- **Saving returns to the screen that was saved.** A settings save redirected to
-  the settings index and a permissions save to the user list, so an operator
-  adjusting one thing was thrown back to a menu and lost their place. A settings
-  screen is a singleton with no list to return to, and the reference system makes
-  the same distinction: its plain Save stays put and only its Save-and-Close
-  leaves. Role create and update still go to the list, a record in a list being a
-  different flow.
-
-- **An unknown icon name no longer renders the wrong picture.** The admin
-  carried eight hardcoded glyphs and fell back to a generic one for anything
-  else, so a first-party plugin naming `bot`, `map` and `sparkles` rendered all
-  three as the same sliders icon, silently, and it was found by eye. Descriptor
-  names are now checked when the application boots: an unknown one stops it,
-  naming the item and suggesting the nearest matches. A name arriving at runtime
-  cannot stop a boot, so it renders a visible missing mark and warns once.
-  Previously documented behaviour ("falls back to a generic glyph") is gone,
-  which is why this is a fix rather than an addition.
-
-### Added
-
-- **An icon set, curated and extensible.** `laterite_core::icons` ships 197
-  glyphs chosen against evidence rather than taste: upstream offers over two
-  thousand, and the reference CMS's own modules use 47 of the ~2,200 it bundles,
-  so the long tail costs every consumer and serves almost nobody. The rule is one
-  icon per concept, and each group in `icons.toml` records why those. A module
-  registers what the set lacks, namespaced to it automatically, with contributed
-  markup validated at boot: no script, no style, no id, no literal colour, since
-  each of those breaks a page, a sprite or dark mode. Names carry no variant and
-  no prefix; filling a shape is a render option, and a plain name cannot collide
-  when it resolves through a registry rather than a global class namespace. The
-  set, its documentation and its licence are generated from one manifest, and CI
-  fails when they drift. Being in core, a public site can use it too.
-
-  Glyphs are served as one sprite at a content-named URL, cached forever, and a
-  page references them rather than carrying their drawing instructions. On an
-  admin page that cut the markup icons contribute by two thirds and halved the
-  DOM nodes they add, which matters most where it is least visible: the panel
-  swaps fragments over htmx, and inlined glyphs are re-sent on every swap.
-
-### Added
-
-- **Third-party notices are accounted for.** A Laterite binary carries work that
-  is not ours: bundled fonts and scripts, and every Rust crate it links. The
-  fonts are under the SIL Open Font License, which asks that a copy of the
-  licence travel with them, and nothing in the repository carried one. The
-  licences for what a crate bundles now live in that crate's own `NOTICE`
-  (`crates/admin/NOTICE` for the fonts, icons and scripts), which ships in its
-  published package and which licence-gathering tools find by name, so an
-  application building on Laterite folds them into its own notice without
-  having to know they exist. The repository's `NOTICE` is generated from
-  `cargo metadata` plus those files, quoting each crate's real licence rather
-  than a template, and CI fails when a dependency has been added without
-  regenerating it. Nothing is embedded in the binary: the obligation is met by
-  the distribution, as it is elsewhere in the ecosystem.
+- Saving a settings screen or a user's permissions returns to that screen
+  rather than the index or the user list.
 
 ## [0.6.2] - 2026-09-16
 
