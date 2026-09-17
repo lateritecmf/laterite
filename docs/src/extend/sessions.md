@@ -1,33 +1,20 @@
 # Sessions and CSRF
 
-The admin signs an operator in with a session cookie. Alongside the identity,
-each session carries a small typed blob for surface state: a CSRF token and flash
-messages. It is read in the same query that resolves the session, so using it
-costs no extra round-trip, and written back only when a request changed it.
+A session cookie signs an operator in. Alongside the identity it carries a
+CSRF token and flash messages.
 
-## CSRF protection
+## CSRF
 
-Every state-changing admin request (`POST`, `PUT`, `PATCH`, `DELETE`) is checked
-by a default-deny layer on the admin mount. Two gates must pass:
+Every `POST`, `PUT`, `PATCH` and `DELETE` on the admin mount passes two gates.
+`GET`, `HEAD`, `OPTIONS` and `QUERY` are exempt.
 
-1. **Origin.** The request must come from our own origin, confirmed by
-   `Sec-Fetch-Site: same-origin` or a matching `Origin` header. Set `app.url` in
-   production so the expected origin is exact; in development it falls back to the
-   request `Host`.
-2. **Token.** A per-session token must arrive in the `_csrf` form field or the
-   `X-CSRF-Token` header, and match the session's.
+Gate | Passes when
+--- | ---
+Origin | `Sec-Fetch-Site: same-origin`, or `Origin` matches `app.url`. In development the request `Host` stands in.
+Token | The session's token arrives in the `_csrf` field or the `X-CSRF-Token` header.
 
-Safe methods (`GET`, `HEAD`, `OPTIONS`, and the `QUERY` method) are exempt.
-
-You get this for free:
-
-- **Descriptor forms** rendered by the framework already include the hidden token
-  field.
-- **HTMX requests** carry the token as a header, injected once on the page body.
-- The login and first-run setup screens are the only token-less mutations (no
-  session exists yet), so the origin gate is their sole defense.
-
-A **hand-written form** in a template includes the token with one line:
+Descriptor forms and htmx requests carry the token already. A hand-written
+form includes it:
 
 ```html
 <form method="post" action="{{ action }}">
@@ -36,13 +23,10 @@ A **hand-written form** in a template includes the token with one line:
 </form>
 ```
 
-A missing or wrong token, or a foreign origin, renders a `403` "Request blocked"
-page telling the operator to reload and try again.
+A failed gate renders a `403` "Request blocked" page. Login and first-run
+setup have no session and pass on origin alone.
 
-## Flash messages
-
-A handler queues a message for the next full-page render (the redirect-after-POST
-target) through the session handle:
+## Flash a message
 
 ```rust
 use laterite_admin::{FlashLevel, SessionHandle};
@@ -54,15 +38,8 @@ async fn save(Extension(session): Extension<SessionHandle>, /* ... */) -> Respon
 }
 ```
 
-The shell renders and clears queued messages on the next full page, so a redirect
-carries its confirmation across. Levels are `Success`, `Error`, and `Info`.
+The next full page renders and clears it, across a redirect. Levels:
+`Success`, `Error`, `Info`.
 
-## Notes
-
-- A fresh login always mints a new session and a new token; the framework never
-  adopts a token presented by the client.
-- The blob is versioned and size-capped; a corrupt blob degrades to an empty
-  session, never an authentication failure.
-- The token layer has a pluggable source: the admin uses a session-bound
-  synchronizer token; a stateless signed token for public forms attaches later
-  without changing handlers.
+A fresh login mints a new session and token. A corrupt session blob degrades
+to an empty session, never a sign-out.

@@ -1,9 +1,7 @@
 # Media and File Storage
 
-`laterite-media` stores files: it hashes them as they arrive, keeps one copy of
-identical bytes, and records each one as a row your own tables can point at.
-
-It is optional. An application that stores no files never compiles it.
+`laterite-media` stores files: hashed on arrival, one copy per identical bytes,
+each recorded as a row your tables point at. Optional.
 
 ```toml
 [dependencies]
@@ -16,21 +14,16 @@ Bootstrap::new("config")
     .serve()
 ```
 
-Registering the module brings its migrations with it. The admin does not depend
-on this crate and has no feature flag for it: optional subsystems reach the admin
-the way a plugin does, through the registry.
+Term | Meaning
+--- | ---
+Blob | Bytes, named by their BLAKE3 hash.
+Record | A file with a stable id, pointing at a blob.
+Link | Attaches a record to its owner.
 
-## Three things, kept apart
+Replacing a file makes a new blob; the record's id and every reference to it
+stay.
 
-- A **blob** is bytes, named by their own BLAKE3 hash.
-- A **record** is a file with a stable identity, pointing at a blob.
-- A **link** attaches a record to whatever owns it.
-
-Keeping them separate is what makes replacing a file cheap. New bytes mean a new
-blob and a new hash, while the record's id, and every reference to it, stay
-exactly where they were.
-
-## Taking a file in
+## Take a file in
 
 ```rust
 use laterite_media::{ingest, LocalDisk};
@@ -49,25 +42,11 @@ let id = laterite_media::record::create(&db, NewMedia {
 }).await?;
 ```
 
-`ingest` takes a byte stream, not a request, and that is deliberate: a browser
-upload, a server-side fetch of a file a user picked from their own cloud storage,
-and a URL import are all just different ways to produce one. None of them needs a
-pipeline of its own.
+`ingest(disk, stream, limit)` takes any byte stream: a browser upload, a
+server-side fetch, a URL import. It hashes as the bytes pass, aborts and
+discards past the limit, and sniffs the content type from the bytes.
 
-Three things it guarantees:
-
-- **Nothing is buffered whole.** The hash is computed as the bytes pass, so a
-  file never has to fit in memory and needs no second read to be named.
-- **The limit stops the read.** Passing it aborts mid-stream and discards what
-  was written, rather than accepting the bytes and judging them afterwards.
-- **The content type is sniffed from the bytes.** A sender's declared type is a
-  claim about a file it chose; believing it is how an HTML page gets served as an
-  image.
-
-## Uploads
-
-A form that sends a file is read with `VerifiedUpload`, which checks the request
-token while parsing:
+## Receive an upload
 
 ```rust
 async fn receive(mut upload: VerifiedUpload) -> impl IntoResponse {
@@ -77,9 +56,6 @@ async fn receive(mut upload: VerifiedUpload) -> impl IntoResponse {
 }
 ```
 
-Put `_csrf` first in the form. It has to be first, because finding it anywhere
-else would mean buffering everything ahead of it:
-
 ```html
 <form method="post" enctype="multipart/form-data">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -87,33 +63,25 @@ else would mean buffering everything ahead of it:
 </form>
 ```
 
-A scripted upload can send the token as the `X-CSRF-Token` header instead, and
-then nothing is consumed to find it.
+`_csrf` comes first in the form, or arrives as the `X-CSRF-Token` header. A
+route that parses the upload without `VerifiedUpload` has its response
+refused.
 
-Taking the upload with a bare parser instead does not skip the check: the guard
-notices the check never happened and **refuses the response**. Forgetting gives
-you a broken route, not an unguarded one.
-
-## Disks
-
-A disk is a named place files live. A **public** disk serves its files directly;
-a **private** disk has no public URL and is streamed through the application.
+## Declare disks
 
 ```rust
 let public = LocalDisk::new("storage/media").public_at("/storage/media");
 let private = LocalDisk::new("storage/private");
 ```
 
-Each record stores the disk it lives on, so a file's location is knowable without
-consulting configuration that may have moved on since it was written.
+Disk | Serving
+--- | ---
+Public | Files served directly at the path.
+Private | No public URL; streamed through the application.
 
-**Deduplication is scoped to a disk.** Identical bytes on a local disk and in a
-bucket are separate physical copies, so deleting one does not free the other.
+Each record stores its disk. Deduplication is per disk.
 
-## Deleting
-
-Removing a file is not removing its bytes, because a hash may back several
-records. `delete` says whether the blob is now unreferenced:
+## Delete
 
 ```rust
 if laterite_media::record::delete(&db, id).await? {
@@ -121,14 +89,10 @@ if laterite_media::record::delete(&db, id).await? {
 }
 ```
 
-Deleting a blob that is already gone succeeds, so collection may safely run twice
-over the same one.
+`delete` returns whether the blob is now unreferenced. Deleting a blob already
+gone succeeds.
 
-## Writing a driver
-
-A driver stores and fetches bytes. Note what is **not** on the trait: there is no
-`list()`. Folders are database rows rather than directories, so browsing never
-touches storage, which removes listing costs and consistency surprises.
+## Write a driver
 
 ```rust
 #[async_trait]
@@ -141,6 +105,5 @@ impl StorageDriver for MyDisk {
 }
 ```
 
-Write to a temporary location and move it into place. The blob's path is its own
-hash, so a partially written file at that path would be a permanent lie about its
-contents.
+No `list()`: folders are database rows. Write to a temporary path and move
+into place.

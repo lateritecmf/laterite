@@ -1,18 +1,8 @@
 # Settings Models
 
-A settings model holds a group of configuration values that an operator edits
-from the admin panel: a site title, a tagline, feature toggles. In Laterite a
-settings model is a plain Rust struct. It is stored as a single JSON value keyed
-by a stable code, so adding or removing a field never needs a database
-migration, and access to it is checked by the compiler.
+A settings model is a struct an operator edits from the admin panel.
 
-This is provided by the `laterite-admin` crate, in its `settings` module.
-
-## Define a settings model
-
-Derive `Serialize`, `Deserialize`, and `Default`, then implement
-`SettingsModel` with a stable `CODE`. Give every field `#[serde(default)]` so a
-stored value that predates a new field still deserializes:
+## Define one
 
 ```rust
 use laterite_admin::settings::SettingsModel;
@@ -33,174 +23,87 @@ impl SettingsModel for SiteSettings {
 }
 ```
 
-The `CODE` is the storage key. Choose it once and never change it, the way you
-would treat a table name. Namespacing it to your application (`acme.site`)
-keeps it from colliding with settings declared by other modules.
+Derive `Serialize`, `Deserialize` and `Default`, and give every field
+`#[serde(default)]`. `CODE` is the storage key: namespace it to your
+application and never change it.
 
-## The settings table
-
-The settings store lives in a single `settings` table.
-`laterite_admin::builtin_migrations()` already includes its migration, so once
-you have [run migrations](../getting-started/installation.md#run-migrations) the
-table is there.
-
-## Read and write, typed
-
-Load a model with `load`. When nothing has been saved yet, it returns the
-model's `Default` rather than an error, so callers never handle an "unset"
-case:
+## Read and write
 
 ```rust
 let settings: SiteSettings = laterite_admin::settings::load(&db).await?;
-println!("{}", settings.title);
-```
 
-Save with `save`, which upserts the whole struct as one JSON value:
-
-```rust
-let settings = SiteSettings {
-    title: "Acme".into(),
-    tagline: "We build things".into(),
-    maintenance_mode: false,
-};
+let settings = SiteSettings { title: "Acme".into(), ..Default::default() };
 laterite_admin::settings::save(&db, &settings).await?;
 ```
 
-## Read and write, untyped
-
-The admin settings screen renders and stores any registered model without
-knowing its concrete type. For that path, `get` and `set` work over a raw
-`serde_json::Value` keyed by code:
+`load` returns `Default` when nothing is saved. `save` upserts the whole
+struct. By code, untyped:
 
 ```rust
 let value = laterite_admin::settings::get(&db, SiteSettings::CODE).await?;
 laterite_admin::settings::set(&db, "acme.site", &value.unwrap_or_default()).await?;
 ```
 
-## Editing settings in the admin
+## Edit it in the admin
 
-To let an operator edit a model from the admin panel, register a
-`SettingsItem` describing where it appears and which fields to show, and pass it
-to the admin router. One generic screen lists every registered item grouped by
-category, and one generic form edits each, reading and writing the JSON value
-through `get`/`set`. No per-model controller is needed.
+Register a `SettingsItem` from your module's `register`:
 
 ```rust
-use laterite_admin::settings::{SettingsField, SettingsItem};
+use laterite_admin::form::FormField;
+use laterite_admin::settings::SettingsItem;
 
-let site = SettingsItem {
-    code: SiteSettings::CODE.to_string(),
-    label: "Site".to_string(),
-    description: "Public site title, tagline, and a maintenance switch.".to_string(),
-    category: "General".to_string(),
-    order: 10,
-    icon: Some("sliders-horizontal".to_string()),
-    permission: None,
-    link: None,
-    fields: vec![
-        SettingsField::text("title", "Site title"),
-        SettingsField::text("tagline", "Tagline"),
-        SettingsField::switch("maintenance_mode", "Maintenance mode"),
-    ],
-};
-
-let app = laterite_admin::router(
-    auth,
-    pool,
-    Vec::new(),
-    vec![site],
-    Vec::new(),
-    laterite_admin::AdminConfig::default(),
+registry.add_settings(
+    SettingsItem::new("acme.site", "Site", vec![
+        FormField::text("title", "Site title"),
+        FormField::text("tagline", "Tagline"),
+        FormField::switch("maintenance_mode", "Maintenance mode"),
+    ])
+    .description("Public site title, tagline, and a maintenance switch.")
+    .category("General")
+    .order(10)
+    .icon("sliders-horizontal")
+    .permission("acme.manage_site"),
 );
 ```
 
-Fields carry a widget: `SettingsField::text`, `::textarea`, or `::switch` (a
-checkbox stored as a JSON boolean). Items sort by `category`, then `order`. The
-`settings` table comes from `builtin_migrations()` (above).
+One screen lists every item by category; one form edits each.
 
-Set an item's `permission` to a dotted string to hide it from operators who lack
-it; a `None` permission is always visible, and superusers see everything.
-Registered items render in a categorised context sidebar on the settings
-screens, with the open item highlighted. Give each item an `icon` (see the [icon reference](../reference/icons.md)).
-A name that is not in the set stops the application at boot, naming the item
-and suggesting the nearest matches, so a typo is caught before anyone sees
-the wrong picture.
+Builder | Description
+--- | ---
+`new(code, label, fields)` | The model's `CODE`, the menu label, and its fields.
+`description(text)` | Under the label in the settings index. At most 72 characters.
+`hint(text)` | Above the form.
+`category(text)` | Groups items in the index.
+`order(n)` | Sort within the category.
+`icon(name)` | An [icon](../reference/icons.md). An unknown name stops the boot.
+`permission(code)` | Hides the item from operators without the grant.
+`link(path)` | Places an existing screen in the settings menu, with no form.
 
-## The settings menu vs the main menu
+Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
+`textarea`, `switch`, `select`, `date`, `repeater`, and any registered type
+through `FormField::of(name, label, "vendor.type")`. A type that refuses its
+input refuses the save.
 
-The admin has two menus. The **main menu** (top nav) holds Dashboard, the
-application's own sections, and Settings. The **settings menu** is the grouped
-index at `/admin/settings`. Administrative screens (backend users, roles, and the
-like) belong in the settings menu, not as top-level tabs.
-
-A `SettingsItem` normally edits a settings model at `/admin/settings/{code}`. Set
-its `link` to place an existing screen (a resource list) in the settings menu
-instead of a form:
+## Link a screen into the settings menu
 
 ```rust
-SettingsItem {
-    code: "acme.pages".to_string(),
-    label: "Pages".to_string(),
-    description: "Manage site pages.".to_string(),
-    category: "Content".to_string(),
-    order: 10,
-    icon: Some("folder".to_string()),
-    permission: None,
-    link: Some("/admin/pages".to_string()),
-    fields: Vec::new(),
-};
+registry.add_settings(
+    SettingsItem::new("acme.pages", "Pages", Vec::new())
+        .description("Manage site pages.")
+        .category("Content")
+        .icon("folder")
+        .link("/pages"),
+);
 ```
 
-The framework registers its own Users and Roles this way, under a Users category.
+The path is under the admin mount. Any request at or under it renders the
+settings sidebar with the item active. The built-in Users and Roles register
+this way.
 
-A linked screen keeps the settings context sidebar. The framework derives the
-context from the `link`: any request whose path is the link or falls under it
-(its list, forms and sub-pages) renders the settings sidebar with that item
-active. Registering the item is the only step, and the sidebar tracks the same
-link it navigates to.
+## Change a model later
 
-## Evolving a model
-
-Because a model is one JSON blob and every field is `#[serde(default)]`:
-
-- **Adding a field** needs no migration. Existing rows lack the key, so it
-  deserializes to the field's default until the operator saves again.
-- **Removing a field** needs no migration. The stale key in stored JSON is
-  ignored on load.
-- **Renaming a field** is a data change, not a schema change. Treat it like any
-  rename: read the old key, write the new one. Never reuse a `CODE` for an
-  incompatible model.
-
-## Fields are form fields
-
-A settings model declares which fields it has, and the framework renders and
-stores them through the field-type registry. They are ordinary
-[`FormField`](https://docs.rs/laterite-admin)s, the same descriptors a list or
-form screen uses, so there is no settings-specific field vocabulary to learn and
-a module's own field type works on both surfaces.
-
-```rust
-# use laterite_admin::form::FormField;
-vec![
-    FormField::text("app_name", "Application name").help("Shown as the brand."),
-    FormField::switch("enabled", "Enabled"),
-    FormField::select("freq", "Frequency", vec![("daily", "Daily"), ("weekly", "Weekly")]),
-    FormField::date("expires", "Expires"),
-    FormField::repeater(
-        "rules",
-        "Rules",
-        vec![
-            FormField::text("path", "Path"),
-            FormField::switch("allow", "Allow"),
-        ],
-    ),
-];
-```
-
-Each value is stored as its field type says: a switch stores a JSON bool, a
-repeater an array of objects, text a string. A type that refuses its input
-refuses the save, and the screen says so rather than storing a value every later
-read would have to defend against.
-
-`FormField::of(name, label, "vendor.type")` reaches any registered key, including
-a type your own module contributes.
+Change | Migration
+--- | ---
+Add a field | None. A missing key deserializes to the field's default.
+Remove a field | None. A stale key is ignored.
+Rename a field | Read the old key, write the new one. Never reuse a `CODE` for an incompatible model.

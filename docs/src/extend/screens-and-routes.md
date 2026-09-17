@@ -1,79 +1,19 @@
 # Screens and Routes
 
-A module contributes its own routes when descriptors cannot express what it needs:
-a screen inside the admin, or a public endpoint outside it.
+A module mounts its own routes: a screen inside the admin, or a public endpoint
+outside it. A screen is for what a list and a form cannot express: an import
+wizard, a report, a diff view.
 
-Reach for a resource first. Lists and forms are data, and the generic handlers
-render them with validation, pagination and a write path already wired. A screen
-is for what a list and a form cannot be: an import wizard, a calendar, a report
-builder, a diff view.
-
-## Never declare axum
-
-A route returns an `axum::Router`, so your module needs the type. Take it from the
-framework:
+## Take axum from the framework
 
 ```rust
 use laterite_admin::axum::{routing::get, Router};
+use laterite_core::strata::async_trait;
 ```
 
-Do **not** add `axum` to your plugin's `Cargo.toml`. If your version and the
-framework's ever differ by a major, both get linked and `Router` stops being the
-same type as `Router`, which produces one of the least helpful errors in Rust.
-Importing it from `laterite_admin` means the framework's manifest is the only place
-the version is chosen.
+Never add `axum` or `async-trait` to a plugin's `Cargo.toml`.
 
-The same applies to anything else the framework hands you: use
-`laterite_core::strata::async_trait` rather than depending on `async-trait`.
-
-## Middleware
-
-There is no middleware registry, because you do not need one: the router is yours.
-Set headers in the handler, and layer anything from tower inside your own router.
-
-```rust
-async fn robots_txt() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        body,
-    )
-}
-
-fn mount(&self, _ctx: &RouteCtx) -> Router {
-    Router::new()
-        .route("/", get(robots_txt))
-        .layer(CompressionLayer::new())
-}
-```
-
-The ordering is fixed and safe: the framework's layers (session, permission, CSRF,
-panic handling) wrap your router from the outside, and yours run inside. A screen
-can never layer something outside the guards.
-
-## Testing a route
-
-Build a context by hand and mount the route as an ordinary tower service. No
-database fixtures beyond a test pool, and no framework boot:
-
-```rust
-let ctx = RouteCtx::builder(db)
-    .admin_path("/backoffice")
-    .base_url("https://acme.example")
-    .build();
-
-let response = Robots.mount(&ctx)
-    .oneshot(Request::get("/").body(Body::empty())?)
-    .await?;
-```
-
-Every builder field has a default, so name only what you assert on. `admin_path`
-defaults to `/admin`, so a route that excludes the panel should be tested against a
-*different* path: that is what proves it reads the value instead of hardcoding it.
-
-## An admin screen
+## Mount an admin screen
 
 ```rust
 use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
@@ -97,29 +37,19 @@ fn register(&self, registry: &mut Registry) {
 }
 ```
 
-`in_menu` puts it in the main menu. Leave it off and the screen still mounts,
-reached from a link elsewhere, which suits a step in a flow rather than a
-destination.
+`ScreenReg` | Description
+--- | ---
+`new(path, permission, screen)` | `path` sits under the module's identity: `rainmill.location` at `/import` serves `/admin/rainmill/location/import`. `permission` is required and enforced before the handler runs.
+`.in_menu(label)` | Adds it to the main menu. Without it the screen still mounts, reached by link.
 
-The framework mounts it inside the admin, so it inherits the session and the
-authenticated operator, the permission you declared, CSRF protection, and the
-styled error pages. The permission is enforced by the framework before your
-handler runs, so a screen cannot forget its own gate. It is required: a screen
-without one aborts the boot.
+The screen inherits the session, the operator, CSRF protection and the error
+pages.
 
-## Where a screen mounts
-
-By default under the module's own identity, so `rainmill.location` contributing
-`/import` serves `/admin/rainmill/location/import`. Two modules therefore cannot
-collide by accident.
-
-A module can take a shorter path instead:
+## Choose where it mounts
 
 ```rust
 fn admin_base(&self) -> Option<&'static str> { Some("/places") }
 ```
-
-and a deployment has the last word, in config:
 
 ```toml
 [backend.paths]
@@ -127,25 +57,20 @@ and a deployment has the last word, in config:
 "rainmill.location/import" = "/geography/bulk-upload"
 ```
 
-Taking a short path is a claim. If two modules end up on one path, or one lands on
-a framework screen, the application refuses to start and names both, rather than
-one silently shadowing the other.
+The deployment has the last word. Two modules on one path, or one on a
+framework screen, abort the boot naming both.
 
-## Linking to yourself
-
-A screen cannot know its own URL: a deployment can move it. Build every self-link
-from the context:
+## Link to yourself
 
 ```rust
-ctx.url("/report")   // "/admin/places/import/report", wherever it ended up
+ctx.url("/report")      // "/admin/places/import/report", wherever it mounted
+ctx.base_url()          // the site origin, from app.url or the bind address
 ```
 
-The same applies inside templates and JavaScript: pass the base in, and read
-endpoints from a data attribute rather than hardcoding a path.
+`base_url` is for a URL a route emits: a sitemap `<loc>`, a canonical, a feed
+entry. Never build one from the `Host` header.
 
-## A public route
-
-For the endpoints that must live at a literal path, outside the admin:
+## Mount a public route
 
 ```rust
 use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx};
@@ -161,98 +86,72 @@ impl PublicRoute for Robots {
 registry.add_public_route(PublicRouteReg::new("/robots.txt", Arc::new(Robots)));
 ```
 
-Public means public: no session, no permission, no admin chrome, though the styled
-error pages still apply. The path is literal and never namespaced, because
-`/robots.txt` has to be exactly that, so collisions are likelier and the same boot
-check applies. A route that reaches inside the admin mount is refused.
+No session, no permission, no admin chrome. The path is literal, never
+namespaced; a route inside the admin mount is refused. A POST decides its own
+CSRF stance.
 
-A public route that accepts a POST decides its own stance on CSRF. The admin's
-blanket protection assumes a session, which a webhook does not have.
-
-## Finding the admin
-
-A module that needs to know where the panel ended up, to build a link into it or
-to exclude it from a sitemap, asks rather than assuming, since an operator may
-have moved it with `backend.path` or `backend.paths`.
-
-One note on robots files specifically: listing the admin path tells anyone reading
-it where your panel is, and authentication already keeps crawlers out. Silence is
-the stronger choice.
-
-## Contributing a column type
-
-A list cell renders through a column type resolved by key, and the registry is
-open: a module contributes its own for something the framework has no built-in
-for.
+## Add middleware
 
 ```rust
-# use std::sync::Arc;
-# use laterite_admin::list::{CellCx, CellVm, ColumnType, ColumnTypeReg};
-# use laterite_admin::html::Markup;
-struct Rating;
-
-impl ColumnType for Rating {
-    fn view_key(&self) -> &'static str {
-        "acme.rating"
-    }
-    fn view_model(&self, cx: &CellCx<'_>) -> CellVm { /* ... */ }
-    fn render_default(&self, vm: &CellVm) -> Markup { /* ... */ }
+fn mount(&self, _ctx: &RouteCtx) -> Router {
+    Router::new()
+        .route("/", get(robots_txt))
+        .layer(CompressionLayer::new())
 }
 ```
 
-Contribute it from the module's `register`, and a descriptor reaches it by key:
+The framework's session, permission, CSRF and panic layers wrap yours from the
+outside.
+
+## Test a route
 
 ```rust
-# use std::sync::Arc;
-# use laterite_admin::list::{ColumnTypeReg, ListColumn};
+let ctx = RouteCtx::builder(db)
+    .admin_path("/backoffice")
+    .base_url("https://acme.example")
+    .build();
+
+let response = Robots.mount(&ctx)
+    .oneshot(Request::get("/").body(Body::empty())?)
+    .await?;
+```
+
+Every builder field has a default; name only what you assert on.
+
+## Contribute a column type
+
+```rust
+use laterite_admin::html::Markup;
+use laterite_admin::list::{CellCx, CellVm, ColumnType, ColumnTypeReg};
+
+struct Rating;
+
+impl ColumnType for Rating {
+    fn view_key(&self) -> &'static str { "acme.rating" }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm { /* ... */ }
+    fn render_default(&self, vm: &CellVm) -> Markup { /* ... */ }
+}
+
 registry.add(ColumnTypeReg::new(Arc::new(Rating)));
 ```
 
-The key is the type's own `view_key`, so a registration cannot disagree with what
-it registers. Use a dotted `vendor.name`: a key already taken, by a built-in or
-another module, aborts the boot naming it rather than quietly winning.
+Use a dotted `vendor.name` key. A taken key aborts the boot.
 
-## Reading another module's contributions
-
-A module can define its own kind of extension point. It declares a type, other
-modules contribute it from their `register`, and the module's route reads them:
+## Read other modules' contributions
 
 ```rust
-# use laterite_admin::routes::{PublicRoute, RouteCtx};
-# use axum::Router;
-/// The type this module invites others to contribute.
 pub struct FeedReg {
     pub name: String,
 }
 
-# struct Feeds;
 impl PublicRoute for Feeds {
     fn mount(&self, ctx: &RouteCtx) -> Router {
         let feeds: Vec<&FeedReg> = ctx.contributions::<FeedReg>();
         // ...
-#       let _ = feeds;
-#       Router::new()
     }
 }
 ```
 
-The framework never learns the type. Registration order does not matter either,
-because every module has registered before any route is mounted, so a module that
-registers later than the one reading is still seen.
-
-Contributions the framework itself consumes (resources, screens, settings,
-permissions, persisters, listeners, column types, public routes) are taken during
-boot and are not visible here. This is for the types the framework knows nothing
-about.
-
-A contribution must be `Send + Sync`, since it stays readable from request
-handlers on any thread.
-
-## Absolute URLs
-
-`ctx.base_url()` gives the site's own origin, from the configured `app.url` and
-falling back to the bind address. Use it for a URL a route has to *emit* rather
-than link: a `<loc>` in a sitemap, a canonical URL, an entry in a feed.
-
-Do not build these from the request's `Host` header. Behind a proxy it is
-whatever the proxy sent, so the URLs you publish would follow whoever asked.
+Any `Send + Sync` type another module registers. Contributions the framework
+consumes itself (resources, screens, settings, permissions, persisters,
+listeners, column types, public routes) are not visible here.
