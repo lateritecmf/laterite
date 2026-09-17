@@ -28,6 +28,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- Dropdown menus close on choosing a link, on a click elsewhere, and on Escape.
+  `data-lat-keep-open` opts a menu out of it.
 - Saving a settings screen or a user's permissions returns to that screen
   rather than the index or the user list.
 

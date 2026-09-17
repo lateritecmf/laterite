@@ -214,6 +214,40 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   }, true);
 })();
 
+// Dropdown dismissal. A <details> stays open until its own summary is clicked
+// again, which is not what a dropdown is expected to do: choosing an item or
+// clicking away should close it. Bound once at the document, so a menu that
+// arrives with a swap is covered without re-binding.
+//
+// A menu that must survive a click declares data-lat-keep-open.
+(function () {
+  function closeAll(except) {
+    document.querySelectorAll('details.lat-menu[open]').forEach(function (m) {
+      if (m !== except && !m.hasAttribute('data-lat-keep-open')) m.open = false;
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest) return;
+    var menu = e.target.closest('details.lat-menu');
+    // Inside a panel only a link ends the interaction. Ticking a box in the
+    // column picker is the operator still choosing, so it must stay open.
+    var chose = menu && e.target.closest('.lat-menu__panel') && e.target.closest('a');
+    closeAll(chose ? null : menu);
+  });
+
+  // Escape closes the open menu and hands focus back to what opened it, which
+  // is where the keyboard was before.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var open = document.querySelector('details.lat-menu[open]');
+    if (!open || open.hasAttribute('data-lat-keep-open')) return;
+    open.open = false;
+    var summary = open.querySelector('summary');
+    if (summary) summary.focus();
+  });
+})();
+
 // Flash toasts: auto-dismiss non-error messages after a few seconds.
 window.lat.widget('flash', function (el) {
   if (el.classList.contains('is-error')) return;
