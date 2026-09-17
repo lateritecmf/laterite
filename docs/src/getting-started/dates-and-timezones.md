@@ -1,14 +1,8 @@
 # Dates and Timezones
 
-Laterite stores every timestamp in UTC and converts it to a display timezone
-only when rendering. Nothing about how a date is shown ever changes what is
-stored, so timezones are purely a presentation concern.
+Timestamps are stored in UTC and converted to a display timezone when rendered.
 
-## How a timestamp is displayed
-
-List columns declare a kind. A column marked as a datetime is parsed from its
-stored UTC value, converted to the viewer's timezone, and formatted
-human-readably (for example `14 Aug 2026, 15:53`) instead of the raw ISO string:
+## Display a timestamp
 
 ```rust
 use laterite_admin::list::ListColumn;
@@ -18,21 +12,22 @@ ListColumn::new("published_on", "Published").date();
 ListColumn::new("is_active", "Active").yes_no();
 ```
 
-The kinds are `text` (the default), `datetime`, `date`, `time`, and a `yes_no`
-boolean. A value that cannot be parsed falls back to the raw string rather than
-erroring.
+Kind | Rendered as
+--- | ---
+`text` | The stored value. Default.
+`datetime` | `14 Aug 2026, 15:53`, in the viewer's timezone.
+`date` | The date, in the viewer's timezone.
+`time` | The time, in the viewer's timezone.
+`yes_no` | Yes or No.
 
-## Which timezone is used
+A value that does not parse is shown as stored.
 
-The display timezone is resolved for each request in two tiers:
+## Choose the timezone
 
-1. The signed-in operator's own preference, if they have set one.
-2. Otherwise the deployment default from
-   [`backend.timezone`](configuration.md) (an IANA name such as
-   `Asia/Kolkata`), which itself falls back to `UTC`.
+Resolved per request:
 
-An operator sets their own timezone from **Preferences** (the user menu, top
-right). Choosing a zone makes every date in the admin render in it for that
-operator only; choosing "Use the deployment default" clears the preference so
-they follow `backend.timezone` again. Because storage is always UTC, switching
-timezones never migrates or rewrites any data.
+1. The operator's own preference, set under **Preferences**.
+2. Otherwise [`backend.timezone`](configuration.md), an IANA name such as
+   `Asia/Kolkata`. Defaults to `UTC`.
+
+"Use the deployment default" in Preferences clears the operator's choice.

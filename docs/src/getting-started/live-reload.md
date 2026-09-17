@@ -1,28 +1,19 @@
 # Live Reload in Development
 
-A Laterite application is a compiled binary, so a source change takes effect
-once the binary is rebuilt and rerun. A small tool loop makes that automatic and
-keeps the listening port bound across rebuilds, so the browser reconnects on its
-own instead of hitting a refused connection.
+`systemfd` holds the port and `watchexec` rebuilds on change, so the browser
+reconnects after every edit.
 
-Two tools cover it:
-
-- [`systemfd`](https://github.com/mitsuhiko/systemfd) binds the listening socket
-  once and passes it to each new build of your server.
-- [`watchexec`](https://github.com/watchexec/watchexec) reruns the server when a
-  source file changes.
+## Install
 
 ```sh
 cargo install systemfd
 brew install watchexec   # or cargo install watchexec-cli
 ```
 
-## Reuse a passed socket
+## Reuse the passed socket
 
-For `systemfd` to hand its socket to your server, the server reuses a socket
-inherited from the environment when one is present, and binds its configured
-address otherwise. Add [`listenfd`](https://crates.io/crates/listenfd) and take
-the socket in `main`:
+Add [`listenfd`](https://crates.io/crates/listenfd) and take the socket in
+`main`:
 
 ```rust
 use listenfd::ListenFd;
@@ -38,13 +29,9 @@ let listener = match ListenFd::from_env().take_tcp_listener(0)? {
 axum::serve(listener, app).await?;
 ```
 
-The `None` arm is the normal path: a plain `cargo run`, and production, bind the
-address directly. Only the development loop passes a socket.
+`None` is the normal path: `cargo run` and production bind directly.
 
 ## Run the loop
-
-Wrap the run command with both tools. `systemfd` stays as the long-lived parent
-that owns the socket; `watchexec` restarts the build under it:
 
 ```sh
 systemfd --no-pid -s http::8080 -- \
@@ -52,10 +39,8 @@ systemfd --no-pid -s http::8080 -- \
     cargo run -p acme-api
 ```
 
-The admin templates are compiled into the binary, so watching `.html` and `.css`
-alongside `.rs` means an edit to a screen's markup or the stylesheet triggers a
-rebuild and shows up on the next reconnect. A `justfile` recipe keeps the command
-to hand:
+Templates and the stylesheet are compiled in, so `.html` and `.css` are watched
+too. As a `justfile` recipe:
 
 ```just
 dev:
@@ -64,11 +49,7 @@ dev:
         cargo run -p acme-api
 ```
 
-## See compiler errors as you type
-
-The reload loop shows build output in the server's terminal. For a dedicated,
-navigable view of compiler and clippy errors while you edit, run
-[`bacon`](https://github.com/Canop/bacon) in a second terminal:
+## See errors as you type
 
 ```sh
 cargo install bacon   # or brew install bacon
