@@ -475,6 +475,10 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
 .lat-topnav__wordmark{display:none}
 .lat-tablewrap{overflow-x:auto}
 .lat-toolbar h1{font-size:var(--fs-20)}
+/* The action row wraps here, and a right-pushed search stub on its own line
+   reads as a mistake: give the tools the whole line and let the box fill it. */
+.lat-listbar__tools{margin-left:0;width:100%}
+.lat-listbar__search{flex:1;width:auto}
 .lat-body{flex-direction:column}
 .lat-sidebar{width:auto;align-self:stretch}
 }
