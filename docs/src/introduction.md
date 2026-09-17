@@ -1,25 +1,26 @@
 # Laterite
 
-Laterite is a content management framework for Rust. It gives an application a
-descriptor-driven admin panel, authentication and permissions, a namespaced
-migration system, and typed settings, all built on Axum, sqlx, and Postgres.
+Laterite is a content management framework for Rust: a descriptor-driven admin
+panel, authentication and permissions, namespaced migrations and typed
+settings, on Axum and sqlx, for Postgres, MySQL or SQLite.
 
-The framework is assembled from small crates, each owning one concern:
+```bash
+cargo install laterite-cli
+lat new
+```
 
-| Crate | Concern |
-| --- | --- |
-| `laterite-core` | Module registration and the migration runner |
-| `laterite-auth` | Backend users, roles, sessions, and permissions |
-| `laterite-admin` | Descriptor-driven list and form screens, and typed settings |
-| `laterite-cli` | Administrative commands (create user, reset password) |
+Crate | Provides
+--- | ---
+`laterite-core` | Config, errors, the database layer, migrations, modules.
+`laterite-auth` | Backend users, sessions, roles and permissions.
+`laterite-admin` | The admin router, list and form screens, settings.
+`laterite-media` | Content-addressed file storage. Optional.
+`laterite-web` | Static-site generation and page metadata. Optional.
+`laterite-cli` | The `lat` command.
+`laterite-macros` | The `t!`, `tn!` and `tp!` translation macros.
 
-## How this guide is organized
-
-- **Getting Started** walks through adding Laterite to a project and running
-  the admin panel.
-- **Extending Laterite** documents each capability as it is built: how to
-  declare it, wire it into an application, and the guarantees it provides.
-- **Reference** links to the generated API documentation for every crate.
-
-This guide grows one feature at a time alongside the framework. If a capability
-is not documented here yet, it is not part of a shipped release.
+Section | Covers
+--- | ---
+Getting Started | Installing, configuring and running an application.
+Extending Laterite | Each capability: what to write and what can be set.
+Reference | The icon set and the generated API documentation.
