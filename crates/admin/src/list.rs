@@ -598,6 +598,47 @@ pub(crate) fn check(config: &ListConfig, column_types: &ColumnRegistry) -> Resul
     Ok(())
 }
 
+/// The list's search box. On by default, over the columns marked searchable.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchConfig {
+    /// `false` removes the box.
+    pub enabled: bool,
+    /// The placeholder, localized at render. `None` shows "Search".
+    pub prompt: Option<Text>,
+    /// Ask on Enter only, instead of as the operator types.
+    pub on_enter: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prompt: None,
+            on_enter: false,
+        }
+    }
+}
+
+impl SearchConfig {
+    /// No search box at all.
+    pub fn off() -> Self {
+        Self {
+            enabled: false,
+            ..Self::default()
+        }
+    }
+
+    pub fn prompt(mut self, text: impl Into<Text>) -> Self {
+        self.prompt = Some(text.into());
+        self
+    }
+
+    pub fn on_enter(mut self) -> Self {
+        self.on_enter = true;
+        self
+    }
+}
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 ///
@@ -631,6 +672,12 @@ pub struct ListConfig {
     pub exportable: bool,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
+    pub search: SearchConfig,
+    /// Page sizes the operator may choose from. Empty offers no choice, and a
+    /// requested size not listed here falls back to `per_page`.
+    pub per_page_options: Vec<i64>,
+    /// Shown when the list has no records at all. `None` shows "No records yet."
+    pub no_records_message: Option<Text>,
 }
 
 impl ListConfig {
@@ -707,6 +754,21 @@ impl ListConfig {
         self.toolbar = buttons;
         self
     }
+
+    pub fn search(mut self, search: SearchConfig) -> Self {
+        self.search = search;
+        self
+    }
+
+    pub fn per_page_options(mut self, sizes: Vec<i64>) -> Self {
+        self.per_page_options = sizes;
+        self
+    }
+
+    pub fn no_records_message(mut self, text: impl Into<Text>) -> Self {
+        self.no_records_message = Some(text.into());
+        self
+    }
 }
 
 impl Default for ListConfig {
@@ -731,6 +793,9 @@ impl Default for ListConfig {
             deletable: false,
             exportable: false,
             toolbar: Vec::new(),
+            search: SearchConfig::default(),
+            per_page_options: Vec::new(),
+            no_records_message: None,
         }
     }
 }
@@ -739,9 +804,19 @@ impl Default for ListConfig {
 #[derive(Deserialize)]
 pub struct ListParams {
     page: Option<i64>,
+    per_page: Option<i64>,
     sort: Option<String>,
     dir: Option<String>,
     q: Option<String>,
+}
+
+/// The page size a request resolves to: the submitted size when the descriptor
+/// offers it, the descriptor's own otherwise. Like a sort or a filter, only a
+/// declared value reaches the query.
+pub(crate) fn resolve_per_page(config: &ListConfig, requested: Option<i64>) -> i64 {
+    requested
+        .filter(|n| config.per_page_options.contains(n))
+        .unwrap_or(config.per_page)
 }
 
 /// The ordering a request resolves to: the submitted `sort` when it names a
@@ -990,7 +1065,8 @@ pub(crate) async fn handle(
     let config = &narrowed;
 
     let page = params.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * config.per_page;
+    let per_page = resolve_per_page(config, params.per_page);
+    let offset = (page - 1) * per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
     let active = resolve_filters(config, raw);
@@ -1000,7 +1076,7 @@ pub(crate) async fn handle(
         order_dir,
         q: q.trim(),
         filters: &active,
-        per_page: None,
+        per_page: Some(per_page),
     };
     // Everything a sort or pager link must preserve, as raw `&k=v` pairs. Askama
     // escapes it into the href, so the ampersands are correct in the markup.
@@ -1011,9 +1087,14 @@ pub(crate) async fn handle(
     for f in &active {
         carry.push_str(&format!("&{}={}", f.filter.param(), urlencode(&f.raw)));
     }
+    // The size links set their own, so they carry everything but it.
+    let size_carry = carry.clone();
+    if per_page != config.per_page {
+        carry.push_str(&format!("&per_page={per_page}"));
+    }
     match query(&state.db, config, &req).await {
         Ok(result) => {
-            let total_pages = ((result.total + config.per_page - 1) / config.per_page).max(1);
+            let total_pages = ((result.total + per_page - 1) / per_page).max(1);
             let date_loc = date_locale(shell.locale());
             let rows: Vec<RowView> = result
                 .rows
@@ -1100,6 +1181,9 @@ pub(crate) async fn handle(
             // Built before the literal moves `order_by` into `sort`.
             let export_query = format!("&sort={order_by}&dir={active_dir}{carry}");
             let toolbar = toolbar_views(declared, &state.admin_path, user, &shell_for_toolbar);
+            // Localized before the literal moves `shell` in.
+            let search_prompt = config.search.prompt.as_ref().map(|p| shell.tt(p));
+            let no_records_message = config.no_records_message.as_ref().map(|m| shell.tt(m));
             let page_view = ListTemplate {
                 shell,
                 title,
@@ -1113,7 +1197,14 @@ pub(crate) async fn handle(
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
-                searchable: config.columns.iter().any(|c| c.is_searchable()),
+                searchable: config.search.enabled
+                    && config.columns.iter().any(|c| c.is_searchable()),
+                search_prompt,
+                search_on_enter: config.search.on_enter,
+                no_records_message,
+                per_page,
+                per_page_options: config.per_page_options.clone(),
+                size_carry: size_carry.clone(),
                 pickers,
                 toolbar,
                 export_query,
@@ -1142,6 +1233,10 @@ pub(crate) async fn handle(
                     carry: page_view.carry,
                     filtered: page_view.filtered,
                     deletable: page_view.deletable,
+                    no_records_message: page_view.no_records_message,
+                    per_page: page_view.per_page,
+                    per_page_options: page_view.per_page_options,
+                    size_carry: page_view.size_carry,
                 })
             } else {
                 render(page_view)
@@ -1231,8 +1326,18 @@ struct ListTemplate {
     dir: String,
     /// The active search term, shown in the box and carried on every link.
     q: String,
-    /// Whether any column is searchable, so the box appears at all.
+    /// Whether the box appears: search is on and some column is searchable.
     searchable: bool,
+    /// The placeholder when the descriptor set one, localized.
+    search_prompt: Option<String>,
+    search_on_enter: bool,
+    /// The empty-state message when the descriptor set one, localized.
+    no_records_message: Option<String>,
+    per_page: i64,
+    /// The sizes offered in the footer; empty renders no chooser.
+    per_page_options: Vec<i64>,
+    /// `carry` without the chosen size, for the size links.
+    size_carry: String,
     /// Whether rows carry a checkbox and the Delete button is offered.
     deletable: bool,
     /// Whether this resource offers an export, which puts the menu beside the
@@ -1356,6 +1461,10 @@ struct ListFragment {
     /// a filtered list with no rows has not run out of records, it has no match.
     filtered: bool,
     deletable: bool,
+    no_records_message: Option<String>,
+    per_page: i64,
+    per_page_options: Vec<i64>,
+    size_carry: String,
 }
 
 #[cfg(test)]
@@ -1605,8 +1714,19 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
+    #[test]
+    fn a_page_size_reaches_the_query_only_when_offered() {
+        let mut cfg = config();
+        assert_eq!(resolve_per_page(&cfg, Some(50)), 25, "nothing offered");
+        cfg.per_page_options = vec![25, 50, 100];
+        assert_eq!(resolve_per_page(&cfg, Some(50)), 50);
+        assert_eq!(resolve_per_page(&cfg, Some(999)), 25, "not offered");
+        assert_eq!(resolve_per_page(&cfg, None), 25);
+    }
+
     fn params(sort: Option<&str>) -> ListParams {
         ListParams {
+            per_page: None,
             page: None,
             sort: sort.map(|s| s.to_string()),
             dir: Some("asc".to_string()),
@@ -1840,6 +1960,7 @@ mod tests {
             let state = state.clone();
             async move {
                 let p = ListParams {
+                    per_page: None,
                     page: None,
                     sort: None,
                     dir: None,

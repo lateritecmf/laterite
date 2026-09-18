@@ -2796,6 +2796,7 @@ fn audit_log_list_config() -> list::ListConfig {
         ],
         order_by: "created_at".to_string(),
         per_page: 50,
+        per_page_options: vec![25, 50, 100],
         // The log is evidence: it can leave the panel for an auditor, but nothing
         // removes from it here.
         exportable: true,

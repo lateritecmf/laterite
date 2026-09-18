@@ -22,7 +22,7 @@
           {% if filtered %}
           {{ shell.t("No records match.") }}
           {% else %}
-          {{ shell.t("No records yet.") }}
+          {% if let Some(m) = no_records_message %}{{ m }}{% else %}{{ shell.t("No records yet.") }}{% endif %}
           {% endif %}
         </td></tr>
         {% else %}
@@ -39,6 +39,13 @@
   </div>
   <div class="lat-listfoot">
     <span>{{ shell.tf("Displayed records: {shown} of {total}", [("shown", shown), ("total", total)]) }}</span>
+    {% if !per_page_options.is_empty() %}
+    <span class="lat-pagesize">
+      {{ shell.t("Per page") }}:
+      {% for n in per_page_options %}
+      {% if *n == per_page %}<b>{{ n }}</b>{% else %}<a href="?per_page={{ n }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ size_carry }}" hx-get="?per_page={{ n }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ size_carry }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">{{ n }}</a>{% endif %}
+      {% endfor %}
+    </span>{% endif %}
     <span class="lat-pager">
       {% if page > 1 %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-get="?page={{ page - 1 }}&amp;sort={{ sort }}&amp;dir={{ dir }}{{ carry }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true">&larr; {{ shell.t("Prev") }}</a>{% endif %}
       <span style="align-self:center">{{ shell.tf("Page {page} of {pages}", [("page", page), ("pages", total_pages)]) }}</span>

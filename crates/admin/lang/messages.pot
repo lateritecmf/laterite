@@ -381,6 +381,10 @@ msgstr ""
 msgid "Password"
 msgstr ""
 
+#: templates/_list_table.html
+msgid "Per page"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Permission overrides"
 msgstr ""

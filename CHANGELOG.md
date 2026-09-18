@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A list sets its empty-state message with `no_records_message`, and its search
+  box with `SearchConfig`: a prompt, ask on Enter only, or off.
+- `per_page_options` offers the operator a choice of page size; a size not
+  offered is ignored.
+
 ### Fixed
 
 - A list column naming an unregistered type stops the application at boot,

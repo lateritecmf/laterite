@@ -303,6 +303,8 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 
 /* List footer + pager */
 .lat-listfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;font-size:var(--fs-12);color:var(--text-muted)}
+.lat-pagesize{display:inline-flex;gap:8px;align-items:center}
+.lat-pagesize b{color:var(--text-body)}
 .lat-pager{display:flex;gap:6px}
 
 /* Form action bar */

@@ -25,7 +25,7 @@
    scripting off. It stays outside #lat-list, so a swap never steals the caret. #}
 <form id="lat-list-query" method="get" action="{{ path }}" hidden
       hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
-      hx-trigger="input changed delay:300ms from:#lat-list-search, search from:#lat-list-search, change from:#lat-list-filters select, submit">
+      hx-trigger="{% if searchable %}{% if !search_on_enter %}input changed delay:300ms from:#lat-list-search, {% endif %}search from:#lat-list-search, {% endif %}change from:#lat-list-filters select, submit">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
 </form>
@@ -49,7 +49,7 @@
     {% if searchable %}
     <input class="lat-input lat-listbar__search" id="lat-list-search" form="lat-list-query"
            type="search" name="q" value="{{ q }}"
-           placeholder='{{ shell.t("Search") }}' aria-label='{{ shell.t("Search") }}'>
+           placeholder='{% if let Some(p) = search_prompt %}{{ p }}{% else %}{{ shell.t("Search") }}{% endif %}' aria-label='{% if let Some(p) = search_prompt %}{{ p }}{% else %}{{ shell.t("Search") }}{% endif %}'>
     {% endif %}
     {% if !pickers.is_empty() %}
     {# A native disclosure, so choosing columns needs no script at all. #}
