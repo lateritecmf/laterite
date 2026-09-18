@@ -5,7 +5,7 @@ each recorded as a row your tables point at. Optional.
 
 ```toml
 [dependencies]
-laterite-media = "0.6"
+laterite-media = "0.7"
 ```
 
 ```rust

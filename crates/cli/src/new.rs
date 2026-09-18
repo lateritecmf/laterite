@@ -546,7 +546,7 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
         ),
         None => format!(
             "laterite-core = \"0.6\"\n\
-             laterite-admin = {{ version = \"0.6\", features = [\"{feature}\"] }}"
+             laterite-admin = {{ version = \"0.7\", features = [\"{feature}\"] }}"
         ),
     };
     // Plugins are separate crates linked at build time, so the application is a
@@ -757,7 +757,7 @@ mod tests {
     fn cargo_toml_uses_published_versions_by_default() {
         let toml = cargo_toml("acme", "sqlite", None);
         assert!(toml.contains("laterite-core = \"0.6\""));
-        assert!(toml.contains("laterite-admin = { version = \"0.6\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("laterite-admin = { version = \"0.7\", features = [\"sqlite\"] }"));
         // No local checkout leaks into a published-mode scaffold. The one path
         // here is the generated manifest, which is part of the app.
         assert!(!toml.contains("laterite-core = { path"));

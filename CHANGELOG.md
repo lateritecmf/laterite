@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-18
+
+The admin's list screens rebuilt into one action row, a curated icon set that
+fails loudly on a wrong name, export made opt-in, colour mode moved to core for
+the public site, third-party notices accounted for, and the guide rewritten as
+a reference: every page code first, options in tables, no rationale.
+
 ### Changed
 
 - **Breaking:** an unknown icon name now stops the application at boot, naming

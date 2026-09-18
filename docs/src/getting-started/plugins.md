@@ -55,8 +55,8 @@ Mark the crate, name its module, and declare the framework by version:
 plugin = "acme.blog"
 
 [dependencies]
-laterite-core = "0.6"
-laterite-admin = "0.6"
+laterite-core = "0.7"
+laterite-admin = "0.7"
 ```
 
 Expose the entry point at the crate root:
