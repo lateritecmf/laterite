@@ -332,7 +332,6 @@ msgid "Name"
 msgstr ""
 
 #: src/list.rs
-#: templates/_list_table.html
 msgid "New"
 msgstr ""
 
