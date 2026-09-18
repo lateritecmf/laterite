@@ -135,7 +135,8 @@ impl ColumnType for Rating {
 registry.add(ColumnTypeReg::new(Arc::new(Rating)));
 ```
 
-Use a dotted `vendor.name` key. A taken key aborts the boot.
+Use a dotted `vendor.name` key. A taken key aborts the boot; so does a column
+naming a key nobody registered.
 
 ## Read other modules' contributions
 

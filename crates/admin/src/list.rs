@@ -583,6 +583,21 @@ pub(crate) fn visible_columns<'a>(
     kept
 }
 
+/// Checks a list against the column-type registry at router build, so a
+/// descriptor naming a type nobody registered aborts boot naming the column,
+/// the way a form does for a field type. Without this the cell rendered empty.
+pub(crate) fn check(config: &ListConfig, column_types: &ColumnRegistry) -> Result<(), String> {
+    for col in &config.columns {
+        if column_types.get(&col.column_type).is_none() {
+            return Err(format!(
+                "column `{}` uses unregistered type `{}`",
+                col.field, col.column_type
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 ///
@@ -1026,6 +1041,7 @@ pub(crate) async fn handle(
                                     render_cell(ct.as_ref(), state.overrides.as_ref(), &scope, &cx)
                                         .into_string()
                                 }
+                                // Unreachable: `check` refused the type at boot.
                                 None => String::new(),
                             }
                         })

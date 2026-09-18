@@ -1172,6 +1172,7 @@ pub fn router(
         protected = protected.merge(mount_resource(
             resource,
             &state.field_types,
+            &state.column_types,
             &persisters,
             &app_listeners,
         ));
@@ -1623,9 +1624,14 @@ async fn serve_asset(
 fn mount_resource(
     resource: &Resource,
     field_types: &field::FieldRegistry,
+    column_types: &list::ColumnRegistry,
     persisters: &persist::PersisterRegistry,
     listeners: &[laterite_core::ModelListenerReg],
 ) -> Router<AdminState> {
+    // A column naming a type nobody registered used to render an empty cell;
+    // it aborts boot instead, like a form field with an unregistered type.
+    list::check(&resource.list, column_types)
+        .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
     // A write resource must be permission-gated. A create/edit form with no
     // permission would expose its mutations to every signed-in operator, so an
     // unguarded form is a wiring bug that aborts boot (a read-only list may omit a
@@ -2982,6 +2988,26 @@ mod tests {
         let _ = mount_resource(
             &resource,
             &field::builtin_registry(),
+            &list::builtin_column_registry(),
+            &persist::PersisterRegistry::new(),
+            &[],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "uses unregistered type `nope`")]
+    fn unregistered_column_type_aborts_boot() {
+        let mut resource = resource_with(None, None);
+        resource.list.columns.push(list::ListColumn {
+            field: "score".into(),
+            label: "Score".into(),
+            column_type: "nope".into(),
+            searchable: None,
+        });
+        let _ = mount_resource(
+            &resource,
+            &field::builtin_registry(),
+            &list::builtin_column_registry(),
             &persist::PersisterRegistry::new(),
             &[],
         );
@@ -2994,6 +3020,7 @@ mod tests {
         let _ = mount_resource(
             &resource,
             &field::builtin_registry(),
+            &list::builtin_column_registry(),
             &persist::PersisterRegistry::new(),
             &[],
         );

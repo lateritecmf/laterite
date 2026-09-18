@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A list column naming an unregistered type stops the application at boot,
+  naming the column, instead of rendering an empty cell.
+
 ## [0.7.0] - 2026-09-18
 
 The admin's list screens rebuilt into one action row, a curated icon set that
