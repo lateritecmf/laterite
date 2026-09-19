@@ -18,6 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- The New button on a resource list pointed under the admin mount twice and
+  answered 404.
 - A list column naming an unregistered type stops the application at boot,
   naming the column, instead of rendering an empty cell.
 

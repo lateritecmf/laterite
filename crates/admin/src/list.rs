@@ -552,7 +552,9 @@ fn toolbar_views(
         if let Some(base) = &config.edit_base {
             out.push(ToolbarView {
                 label: shell.tt(&laterite_core::t!("New")),
-                href: format!("{admin_path}{base}/new"),
+                // `edit_base` is already under the admin mount (see
+                // `prefix_resource`), like the row links that use it.
+                href: format!("{base}/new"),
                 icon: String::new(),
                 primary: true,
             });
@@ -2307,7 +2309,8 @@ mod tests {
         let shell = crate::Shell::test();
         let cfg = ListConfig {
             creatable: true,
-            edit_base: Some("/roles".to_string()),
+            // Already under the mount, as `prefix_resource` leaves it at boot.
+            edit_base: Some("/backoffice/roles".to_string()),
             toolbar: vec![
                 ToolbarButton::new("Reports", "/reports"),
                 ToolbarButton::new("Docs", "https://example.test/docs"),

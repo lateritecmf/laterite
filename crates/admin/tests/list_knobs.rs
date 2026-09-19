@@ -207,3 +207,13 @@ async fn no_offered_sizes_means_no_chooser() {
     let (_, html) = page(app(db, things()), &token).await;
     assert!(!html.contains("Rows per page"));
 }
+
+#[tokio::test]
+async fn the_new_button_links_under_the_admin_mount_once() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let list = things().edit_base("/things").creatable();
+    let (_, html) = page(app(db.clone(), list.clone()), &token).await;
+    assert!(html.contains("href=\"/admin/things/new\""), "{html}");
+    assert!(!html.contains("/admin/admin/"));
+}
