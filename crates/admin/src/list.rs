@@ -36,13 +36,43 @@ pub enum SortDir {
 
 /// One column of a list view: the source field, its display label, and its
 /// column-type key (resolved through the column-type registry).
+/// How a column's cells and header align.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Align {
+    Left,
+    Center,
+    Right,
+}
+
+impl Align {
+    fn class(self) -> &'static str {
+        match self {
+            Align::Left => "lat-col--left",
+            Align::Center => "lat-col--center",
+            Align::Right => "lat-col--right",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ListColumn {
     pub field: String,
     /// The column header, localized at render. Serde stays a plain string.
     pub label: Text,
     /// The column-type registry key (`text`, `date`, `boolean`, `status_pill`, ...).
+    #[serde(rename = "type")]
     pub column_type: String,
+    /// Whether the header sorts. Off for a column whose order means nothing.
+    pub sortable: bool,
+    /// Hidden until the operator picks it from the column chooser.
+    pub invisible: bool,
+    /// A CSS width, `10%` or `120px`. `None` shares the remaining space.
+    pub width: Option<String>,
+    pub align: Option<Align>,
+    /// A permission the operator must hold to see the column at all: it is
+    /// then not queried, sorted, searched, picked or exported for them.
+    pub permission: Option<String>,
     /// Whether the list's search box looks in this column. `None` follows the
     /// column type: text columns are searched, the rest are not, because a
     /// substring match on a boolean or a stored timestamp answers nonsense.
@@ -55,6 +85,11 @@ impl ListColumn {
             field: field.to_string(),
             label: label.into(),
             column_type: "text".to_string(),
+            sortable: true,
+            invisible: false,
+            width: None,
+            align: None,
+            permission: None,
             searchable: None,
         }
     }
@@ -89,6 +124,37 @@ impl ListColumn {
     pub fn searchable(mut self, searchable: bool) -> Self {
         self.searchable = Some(searchable);
         self
+    }
+
+    pub fn sortable(mut self, sortable: bool) -> Self {
+        self.sortable = sortable;
+        self
+    }
+
+    /// Hidden by default; the column chooser still offers it.
+    pub fn invisible(mut self) -> Self {
+        self.invisible = true;
+        self
+    }
+
+    pub fn width(mut self, width: impl Into<String>) -> Self {
+        self.width = Some(width.into());
+        self
+    }
+
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = Some(align);
+        self
+    }
+
+    /// Shown only to an operator holding `permission`.
+    pub fn require(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    pub(crate) fn align_class(&self) -> &'static str {
+        self.align.map(Align::class).unwrap_or("")
     }
 
     /// Whether search looks here: the explicit choice, else text columns only.
@@ -543,10 +609,32 @@ pub(crate) async fn stored_columns(
     }
 }
 
-/// The descriptor with only the columns this operator sees.
-pub(crate) fn narrowed(config: &ListConfig, stored: Option<&str>) -> ListConfig {
+/// The columns this operator may see at all: every one without a permission,
+/// plus those whose permission they hold.
+pub(crate) fn allowed_columns<'a>(
+    config: &'a ListConfig,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Vec<&'a ListColumn> {
+    config
+        .columns
+        .iter()
+        .filter(|c| {
+            c.permission
+                .as_deref()
+                .is_none_or(|p| user.permissions.allows(p))
+        })
+        .collect()
+}
+
+/// The descriptor with only the columns this operator sees. One place, so the
+/// query, the headers, sorting, searching and the export all work from it.
+pub(crate) fn narrowed(
+    config: &ListConfig,
+    stored: Option<&str>,
+    user: &laterite_auth::AuthenticatedUser,
+) -> ListConfig {
     ListConfig {
-        columns: visible_columns(config, stored)
+        columns: visible_columns(config, stored, user)
             .into_iter()
             .cloned()
             .collect(),
@@ -555,30 +643,34 @@ pub(crate) fn narrowed(config: &ListConfig, stored: Option<&str>) -> ListConfig 
 }
 
 /// The columns to show: the operator's stored choice, narrowed to what the
-/// descriptor still declares.
+/// descriptor still declares and they may see; without a choice, every column
+/// they may see that is not `invisible`.
 ///
-/// A stored choice that no longer names any declared column falls back to all of
-/// them, so a descriptor that drops or renames a column leaves an operator with a
-/// working list rather than an empty one.
+/// A stored choice that no longer names any such column falls back to that
+/// default, so a descriptor that drops or renames a column leaves an operator
+/// with a working list rather than an empty one.
 pub(crate) fn visible_columns<'a>(
     config: &'a ListConfig,
     stored: Option<&str>,
+    user: &laterite_auth::AuthenticatedUser,
 ) -> Vec<&'a ListColumn> {
+    let allowed = allowed_columns(config, user);
+    let by_default = || allowed.iter().copied().filter(|c| !c.invisible).collect();
     let Some(stored) = stored else {
-        return config.columns.iter().collect();
+        return by_default();
     };
     let chosen: Vec<&str> = stored
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    let kept: Vec<&ListColumn> = config
-        .columns
+    let kept: Vec<&ListColumn> = allowed
         .iter()
+        .copied()
         .filter(|c| chosen.iter().any(|n| *n == c.field))
         .collect();
     if kept.is_empty() {
-        return config.columns.iter().collect();
+        return by_default();
     }
     kept
 }
@@ -586,13 +678,27 @@ pub(crate) fn visible_columns<'a>(
 /// Checks a list against the column-type registry at router build, so a
 /// descriptor naming a type nobody registered aborts boot naming the column,
 /// the way a form does for a field type. Without this the cell rendered empty.
-pub(crate) fn check(config: &ListConfig, column_types: &ColumnRegistry) -> Result<(), String> {
+pub(crate) fn check(
+    config: &ListConfig,
+    column_types: &ColumnRegistry,
+    permission_codes: &std::collections::HashSet<String>,
+) -> Result<(), String> {
     for col in &config.columns {
         if column_types.get(&col.column_type).is_none() {
             return Err(format!(
                 "column `{}` uses unregistered type `{}`",
                 col.field, col.column_type
             ));
+        }
+        // An unregistered permission can never be granted, so the column would
+        // be hidden from everyone but a superuser: a wiring bug, not a choice.
+        if let Some(p) = &col.permission {
+            if !permission_codes.contains(p) {
+                return Err(format!(
+                    "column `{}` requires unregistered permission `{p}`",
+                    col.field
+                ));
+            }
         }
     }
     Ok(())
@@ -828,7 +934,7 @@ pub(crate) fn resolve_sort(
     sort: Option<&str>,
     dir: Option<&str>,
 ) -> (String, SortDir) {
-    let by = match sort.filter(|s| config.columns.iter().any(|c| c.field == *s)) {
+    let by = match sort.filter(|s| config.columns.iter().any(|c| c.field == *s && c.sortable)) {
         Some(field) => field.to_string(),
         None => config.order_by.clone(),
     };
@@ -847,6 +953,18 @@ pub(crate) fn resolve_sort(
 pub struct RowView {
     pub id: String,
     pub cells: Vec<String>,
+}
+
+/// One rendered cell and the class its column's alignment gives it.
+pub struct CellView {
+    pub html: String,
+    pub class: String,
+}
+
+/// A row as the template receives it: each cell already rendered.
+pub struct RenderedRow {
+    pub id: String,
+    pub cells: Vec<CellView>,
 }
 
 /// Display-ready rows plus the total row count for the pager.
@@ -1061,7 +1179,7 @@ pub(crate) async fn handle(
     // from one list: what is shown is what is queried.
     let stored = stored_columns(state, path, user).await;
     let declared = config;
-    let narrowed = narrowed(config, stored.as_deref());
+    let narrowed = narrowed(config, stored.as_deref(), user);
     let config = &narrowed;
 
     let page = params.page.unwrap_or(1).max(1);
@@ -1096,10 +1214,10 @@ pub(crate) async fn handle(
         Ok(result) => {
             let total_pages = ((result.total + per_page - 1) / per_page).max(1);
             let date_loc = date_locale(shell.locale());
-            let rows: Vec<RowView> = result
+            let rows: Vec<RenderedRow> = result
                 .rows
                 .into_iter()
-                .map(|row| RowView {
+                .map(|row| RenderedRow {
                     id: row.id,
                     cells: row
                         .cells
@@ -1117,13 +1235,17 @@ pub(crate) async fn handle(
                                 resource: Some(&config.entity),
                                 field: Some(&col.field),
                             };
-                            match state.column_types.get(&col.column_type) {
+                            let html = match state.column_types.get(&col.column_type) {
                                 Some(ct) => {
                                     render_cell(ct.as_ref(), state.overrides.as_ref(), &scope, &cx)
                                         .into_string()
                                 }
                                 // Unreachable: `check` refused the type at boot.
                                 None => String::new(),
+                            };
+                            CellView {
+                                html,
+                                class: col.align_class().to_string(),
                             }
                         })
                         .collect(),
@@ -1164,14 +1286,16 @@ pub(crate) async fn handle(
                         } else {
                             String::new()
                         },
+                        sortable: c.sortable,
+                        width: c.width.clone(),
+                        align_class: c.align_class().to_string(),
                     }
                 })
                 .collect();
             let shell_for_toolbar = shell.clone();
             let filter_views = filter_views(config, &active, &shell);
-            let pickers: Vec<ColumnChoice> = declared
-                .columns
-                .iter()
+            let pickers: Vec<ColumnChoice> = allowed_columns(declared, user)
+                .into_iter()
                 .map(|c| ColumnChoice {
                     field: c.field.clone(),
                     label: shell.tt(&c.label),
@@ -1261,15 +1385,28 @@ pub(crate) async fn set_columns(
     headers: &axum::http::HeaderMap,
     pairs: &[(String, String)],
 ) -> Response {
+    let allowed = allowed_columns(config, user);
     let chosen: Vec<&str> = pairs
         .iter()
         .filter(|(k, _)| k == "column")
         .map(|(_, v)| v.trim())
-        .filter(|v| config.columns.iter().any(|c| c.field == *v))
+        .filter(|v| allowed.iter().any(|c| c.field == *v))
         .collect();
+    // "Every column" means the default set: what shows with no preference. An
+    // `invisible` column chosen on purpose must not clear the choice that
+    // revealed it.
+    let mut by_default: Vec<&str> = allowed
+        .iter()
+        .filter(|c| !c.invisible)
+        .map(|c| c.field.as_str())
+        .collect();
+    let mut as_chosen = chosen.clone();
+    by_default.sort_unstable();
+    as_chosen.sort_unstable();
+    as_chosen.dedup();
 
     let key = columns_preference_key(path);
-    let result = if chosen.is_empty() || chosen.len() == config.columns.len() {
+    let result = if chosen.is_empty() || as_chosen == by_default {
         laterite_auth::store::clear_user_preference(&state.db, user.user.id, &key).await
     } else {
         laterite_auth::store::set_user_preference(&state.db, user.user.id, &key, &chosen.join(","))
@@ -1306,6 +1443,9 @@ pub struct ColumnHead {
     pub field: String,
     pub next_dir: String,
     pub active: String,
+    pub sortable: bool,
+    pub width: Option<String>,
+    pub align_class: String,
 }
 
 #[derive(Template)]
@@ -1314,7 +1454,7 @@ struct ListTemplate {
     shell: crate::Shell,
     title: String,
     columns: Vec<ColumnHead>,
-    rows: Vec<RowView>,
+    rows: Vec<RenderedRow>,
     /// The count on this page (`rows.len()`), precomputed as `i64` for the footer.
     shown: i64,
     page: i64,
@@ -1447,7 +1587,7 @@ fn urlencode(value: &str) -> String {
 struct ListFragment {
     shell: crate::Shell,
     columns: Vec<ColumnHead>,
-    rows: Vec<RowView>,
+    rows: Vec<RenderedRow>,
     shown: i64,
     page: i64,
     total: i64,
@@ -1998,12 +2138,54 @@ mod tests {
         assert!(searched.contains("No records match."));
     }
 
+    /// A superuser, who sees every column, for the narrowing tests.
+    fn root() -> laterite_auth::AuthenticatedUser {
+        laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(true, [], [], []),
+            ..crate::audit::test_actor()
+        }
+    }
+
+    #[test]
+    fn an_invisible_column_is_left_out_of_the_default_but_may_be_chosen() {
+        let mut c = config();
+        c.columns[1].invisible = true;
+        assert_eq!(visible_columns(&c, None, &root()).len(), 1);
+        assert_eq!(visible_columns(&c, Some("is_superuser"), &root()).len(), 1);
+        assert_eq!(
+            visible_columns(&c, Some("is_superuser"), &root())[0].field,
+            "is_superuser"
+        );
+    }
+
+    #[test]
+    fn a_gated_column_is_narrowed_away_for_an_operator_without_the_grant() {
+        let mut c = config();
+        c.columns[1].permission = Some("acme.secret".into());
+        let plain = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(false, [], [], []),
+            ..crate::audit::test_actor()
+        };
+        assert_eq!(visible_columns(&c, None, &plain).len(), 1);
+        // Choosing it by name does not reveal it either.
+        assert_eq!(visible_columns(&c, Some("is_superuser"), &plain).len(), 1);
+        assert_eq!(visible_columns(&c, None, &root()).len(), 2);
+    }
+
+    #[test]
+    fn an_unsortable_column_is_not_sorted_by() {
+        let mut c = config();
+        c.columns[0].sortable = false;
+        let (by, _) = resolve_sort(&c, Some("username"), Some("asc"));
+        assert_eq!(by, c.order_by, "falls back to the descriptor's order");
+    }
+
     #[test]
     fn a_stored_choice_narrows_the_columns_in_descriptor_order() {
         let c = config();
         // Stored out of order; the descriptor's order still wins, because the
         // choice is about which columns, not where they sit.
-        let kept = visible_columns(&c, Some("is_superuser,username"));
+        let kept = visible_columns(&c, Some("is_superuser,username"), &root());
         assert_eq!(
             kept.iter().map(|c| c.field.as_str()).collect::<Vec<_>>(),
             ["username", "is_superuser"]
@@ -2013,7 +2195,7 @@ mod tests {
     #[test]
     fn no_stored_choice_shows_every_column() {
         let c = config();
-        assert_eq!(visible_columns(&c, None).len(), c.columns.len());
+        assert_eq!(visible_columns(&c, None, &root()).len(), c.columns.len());
     }
 
     /// A descriptor that drops or renames a column must not leave an operator
@@ -2022,13 +2204,19 @@ mod tests {
     fn a_stale_choice_falls_back_to_every_column() {
         let c = config();
         assert_eq!(
-            visible_columns(&c, Some("gone,removed")).len(),
+            visible_columns(&c, Some("gone,removed"), &root()).len(),
             c.columns.len()
         );
-        assert_eq!(visible_columns(&c, Some("")).len(), c.columns.len());
-        assert_eq!(visible_columns(&c, Some("  , ")).len(), c.columns.len());
+        assert_eq!(
+            visible_columns(&c, Some(""), &root()).len(),
+            c.columns.len()
+        );
+        assert_eq!(
+            visible_columns(&c, Some("  , "), &root()).len(),
+            c.columns.len()
+        );
         // A partly stale choice keeps what still exists.
-        assert_eq!(visible_columns(&c, Some("gone,username")).len(), 1);
+        assert_eq!(visible_columns(&c, Some("gone,username"), &root()).len(), 1);
     }
 
     /// A button the operator cannot use is not shown, rather than shown and

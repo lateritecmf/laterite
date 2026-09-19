@@ -298,6 +298,9 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-table td{padding:12px 16px;border-bottom:1px solid var(--border-subtle);color:var(--text-body)}
 .lat-table tbody tr:last-child td{border-bottom:0}
 .lat-table tbody tr:hover{background:var(--surface-row-hover)}
+.lat-col--left{text-align:left}
+.lat-col--center{text-align:center}
+.lat-col--right{text-align:right}
 .lat-table__actions{text-align:right;white-space:nowrap}
 .lat-table__empty{padding:28px 16px;text-align:center;color:var(--text-muted)}
 

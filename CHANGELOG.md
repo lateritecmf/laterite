@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   box with `SearchConfig`: a prompt, ask on Enter only, or off.
 - `per_page_options` offers the operator a choice of page size; a size not
   offered is ignored.
+- Column knobs: `sortable`, `invisible`, `width`, `align` and `require`. A column
+  the operator may not see is not queried, sorted, searched or exported.
 
 ### Fixed
 

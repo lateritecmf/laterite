@@ -81,7 +81,7 @@ pub(crate) async fn handle(
     // The same narrowing the screen applies, so the file has the columns the
     // operator can see and nothing else.
     let stored = list::stored_columns(&state, path, user).await;
-    let config = list::narrowed(config, stored.as_deref());
+    let config = list::narrowed(config, stored.as_deref(), user);
 
     let (order_by, order_dir) = list::resolve_sort(
         &config,

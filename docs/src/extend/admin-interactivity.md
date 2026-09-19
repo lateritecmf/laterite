@@ -19,7 +19,8 @@ window.lat.flash('Import finished.', 'success');   // or 'error', which stays un
 
 Control | Behaviour
 --- | ---
-Column header | Sorts; a second click flips it. Only a declared column sorts.
+Column header | Sorts; a second click flips it. Only a declared, `sortable` column sorts.
+Column | `ListColumn` builders: `sortable(false)`, `invisible()`, `width("10%")`, `align(Align::Right)`, `require(permission)`. A column the operator may not see is not queried, sorted, searched or exported.
 Search | Asks as you type, in the columns marked searchable; text columns by default. `ListColumn::searchable` overrides. `ListConfig::search(SearchConfig)` sets a `prompt`, asks `on_enter` only, or turns it `off()`.
 Empty state | "No records yet.", or `ListConfig::no_records_message(text)`.
 Filters | `ListFilter::boolean` or `ListFilter::select`. Only a declared filter and option reach the query.

@@ -990,6 +990,9 @@ pub fn router(
     settings.extend(app_settings);
     let mut permissions = builtin_permissions();
     permissions.extend(app_permissions);
+    // The codes a column may require; `list::check` refuses one nobody registered.
+    let permission_codes: std::collections::HashSet<String> =
+        permissions.iter().map(|p| p.code.clone()).collect();
 
     // Main menu (top nav): Dashboard, the application's own sections, then
     // Settings. Built-in Users and Roles are settings items (see the settings
@@ -1173,6 +1176,7 @@ pub fn router(
             resource,
             &state.field_types,
             &state.column_types,
+            &permission_codes,
             &persisters,
             &app_listeners,
         ));
@@ -1625,12 +1629,14 @@ fn mount_resource(
     resource: &Resource,
     field_types: &field::FieldRegistry,
     column_types: &list::ColumnRegistry,
+    permission_codes: &std::collections::HashSet<String>,
     persisters: &persist::PersisterRegistry,
     listeners: &[laterite_core::ModelListenerReg],
 ) -> Router<AdminState> {
     // A column naming a type nobody registered used to render an empty cell;
-    // it aborts boot instead, like a form field with an unregistered type.
-    list::check(&resource.list, column_types)
+    // it aborts boot instead, like a form field with an unregistered type. So
+    // does a column requiring a permission nobody registered.
+    list::check(&resource.list, column_types, permission_codes)
         .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
     // A write resource must be permission-gated. A create/edit form with no
     // permission would expose its mutations to every signed-in operator, so an
@@ -2990,6 +2996,7 @@ mod tests {
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),
+            &std::collections::HashSet::new(),
             &persist::PersisterRegistry::new(),
             &[],
         );
@@ -2999,16 +3006,14 @@ mod tests {
     #[should_panic(expected = "uses unregistered type `nope`")]
     fn unregistered_column_type_aborts_boot() {
         let mut resource = resource_with(None, None);
-        resource.list.columns.push(list::ListColumn {
-            field: "score".into(),
-            label: "Score".into(),
-            column_type: "nope".into(),
-            searchable: None,
-        });
+        let mut score = list::ListColumn::new("score", "Score");
+        score.column_type = "nope".into();
+        resource.list.columns.push(score);
         let _ = mount_resource(
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),
+            &std::collections::HashSet::new(),
             &persist::PersisterRegistry::new(),
             &[],
         );
@@ -3022,6 +3027,7 @@ mod tests {
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),
+            &std::collections::HashSet::new(),
             &persist::PersisterRegistry::new(),
             &[],
         );
