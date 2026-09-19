@@ -76,7 +76,7 @@
 --surface-page:var(--bone-200);--surface-card:#FFFCF8;--surface-raised:var(--bone-50);--surface-sunken:var(--bone-300);
 --surface-nav:var(--ferro-800);--surface-sidebar:var(--ferro-700);--surface-sidebar-active:rgba(244,237,228,.09);
 --surface-toolbar:var(--bone-100);--surface-row-hover:var(--red-50);
---surface-input:#FFFFFF;--surface-input-disabled:var(--bone-200);--surface-overlay:rgba(42,33,28,.48);
+--surface-input:#FFFFFF;--select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235A6166' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");--surface-input-disabled:var(--bone-200);--surface-overlay:rgba(42,33,28,.48);
 --text-heading:var(--ferro-800);--text-body:var(--ferro-700);--text-muted:var(--slate-500);--text-subtle:var(--slate-400);
 --text-inverse:var(--bone-200);--text-inverse-muted:var(--slate-300);--text-link:var(--red-500);--text-link-hover:var(--red-600);--text-on-accent:#FFF7F2;
 --border-subtle:var(--bone-300);--border-default:var(--bone-400);--border-strong:var(--slate-300);--border-input:var(--slate-200);
@@ -89,7 +89,7 @@
 --surface-page:var(--ferro-900);--surface-card:var(--ferro-800);--surface-raised:var(--ferro-700);--surface-sunken:var(--ferro-950);
 --surface-nav:var(--ferro-950);--surface-sidebar:var(--ferro-800);--surface-sidebar-active:rgba(244,237,228,.07);
 --surface-toolbar:var(--ferro-800);--surface-row-hover:rgba(196,78,47,.10);
---surface-input:var(--ferro-900);--surface-input-disabled:var(--ferro-700);--surface-overlay:rgba(10,7,5,.62);
+--surface-input:var(--ferro-900);--surface-input-disabled:var(--ferro-700);--select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239AA2A7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");--surface-overlay:rgba(10,7,5,.62);
 --text-heading:var(--bone-100);--text-body:var(--bone-200);--text-muted:var(--slate-300);--text-subtle:var(--slate-400);
 --text-inverse:var(--ferro-800);--text-inverse-muted:var(--ferro-600);--text-link:var(--red-300);--text-link-hover:var(--red-200);
 --border-subtle:rgba(244,237,228,.09);--border-default:rgba(244,237,228,.14);--border-strong:rgba(244,237,228,.22);--border-input:rgba(244,237,228,.16);
@@ -202,6 +202,25 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-input{width:100%;height:var(--control-h);padding:0 12px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);outline:none;transition:var(--transition-control)}
 .lat-input:focus{border-color:var(--accent);box-shadow:var(--ring-focus)}
 .lat-input:disabled{background:var(--surface-input-disabled);cursor:not-allowed}
+/* A select is a .lat-input with the browser's own chrome removed and our
+   chevron drawn in; the open list stays the platform's. */
+.lat-select{appearance:none;-webkit-appearance:none;padding-right:34px;background-image:var(--select-chevron);background-repeat:no-repeat;background-position:right 10px center;background-size:16px 16px;cursor:pointer}
+.lat-select:disabled{cursor:not-allowed}
+.lat-select[multiple]{padding-right:12px;background-image:none;height:auto}
+.lat-select::-ms-expand{display:none}
+/* Where the browser can render the open list in-page (customizable select),
+   it takes the menu panel's look; elsewhere the platform's popup stands. */
+@supports (appearance:base-select){
+.lat-select,.lat-select::picker(select){appearance:base-select}
+.lat-select{background-image:none;padding-right:10px;gap:8px;align-items:center}
+.lat-select::picker-icon{content:"";width:16px;height:16px;flex:0 0 auto;background:var(--select-chevron) no-repeat center/16px 16px;transition:transform var(--dur-fast) var(--ease-standard)}
+.lat-select:open::picker-icon{transform:rotate(180deg)}
+.lat-select::picker(select){margin:6px 0 0;min-width:anchor-size(width);padding:6px;background:var(--surface-card);color:var(--text-body);font-family:var(--font-body);font-size:var(--fs-13);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-md)}
+.lat-select option{padding:7px 10px;border-radius:var(--radius-sm);cursor:pointer}
+.lat-select option:hover,.lat-select option:focus-visible{background:var(--surface-row-hover);outline:none}
+.lat-select option:checked{color:var(--accent);font-weight:var(--fw-semibold)}
+.lat-select option::checkmark{display:none}
+}
 textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;resize:vertical}
 .lat-input--lg{height:var(--control-h-lg)}
 .lat-input-group{display:flex;align-items:stretch}

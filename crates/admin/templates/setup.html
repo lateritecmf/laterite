@@ -42,7 +42,7 @@
           </div>
           <div class="lat-field">
             <label class="lat-field__label" for="timezone">{{ self.t("Display timezone") }}</label>
-            <select class="lat-input" id="timezone" name="timezone">
+            <select class="lat-input lat-select" id="timezone" name="timezone">
               {% for zone in zones %}<option value="{{ zone.name }}"{% if zone.selected %} selected{% endif %}>{{ zone.name }}</option>{% endfor %}
             </select>
             <p class="lat-help">{{ self.t("Dates render in this zone. Storage is always UTC, and you can change it later in Preferences.") }}</p>
