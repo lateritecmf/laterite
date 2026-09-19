@@ -609,6 +609,42 @@ pub(crate) async fn stored_columns(
     }
 }
 
+/// The preference key holding one operator's page size for a list.
+pub(crate) fn per_page_preference_key(base_path: &str) -> String {
+    format!("list.per_page:{base_path}")
+}
+
+/// This operator's page size for the list: their stored choice when the
+/// descriptor still offers it, the descriptor's own otherwise. A failed read
+/// is a warning, the way the column preference is.
+pub(crate) async fn stored_per_page(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    user: &laterite_auth::AuthenticatedUser,
+) -> i64 {
+    let stored = match laterite_auth::store::user_preference(
+        &state.db,
+        user.user.id,
+        &per_page_preference_key(path),
+    )
+    .await
+    {
+        Ok(stored) => stored,
+        Err(e) => {
+            tracing::warn!(error = %e, "reading the page-size preference failed");
+            None
+        }
+    };
+    offered_per_page(config, stored.as_deref().and_then(|s| s.parse().ok()))
+}
+
+/// A size the descriptor offers, else its own.
+pub(crate) fn offered_per_page(config: &ListConfig, size: Option<i64>) -> i64 {
+    size.filter(|n| config.per_page_options.contains(n))
+        .unwrap_or(config.per_page)
+}
+
 /// The columns this operator may see at all: every one without a permission,
 /// plus those whose permission they hold.
 pub(crate) fn allowed_columns<'a>(
@@ -779,8 +815,8 @@ pub struct ListConfig {
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
-    /// Page sizes the operator may choose from. Empty offers no choice, and a
-    /// requested size not listed here falls back to `per_page`.
+    /// Page sizes the operator may choose from in the list setup, remembered
+    /// with their column choice. Empty offers no choice.
     pub per_page_options: Vec<i64>,
     /// Shown when the list has no records at all. `None` shows "No records yet."
     pub no_records_message: Option<Text>,
@@ -910,19 +946,9 @@ impl Default for ListConfig {
 #[derive(Deserialize)]
 pub struct ListParams {
     page: Option<i64>,
-    per_page: Option<i64>,
     sort: Option<String>,
     dir: Option<String>,
     q: Option<String>,
-}
-
-/// The page size a request resolves to: the submitted size when the descriptor
-/// offers it, the descriptor's own otherwise. Like a sort or a filter, only a
-/// declared value reaches the query.
-pub(crate) fn resolve_per_page(config: &ListConfig, requested: Option<i64>) -> i64 {
-    requested
-        .filter(|n| config.per_page_options.contains(n))
-        .unwrap_or(config.per_page)
 }
 
 /// The ordering a request resolves to: the submitted `sort` when it names a
@@ -1183,7 +1209,7 @@ pub(crate) async fn handle(
     let config = &narrowed;
 
     let page = params.page.unwrap_or(1).max(1);
-    let per_page = resolve_per_page(config, params.per_page);
+    let per_page = stored_per_page(state, config, path, user).await;
     let offset = (page - 1) * per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
@@ -1204,11 +1230,6 @@ pub(crate) async fn handle(
     }
     for f in &active {
         carry.push_str(&format!("&{}={}", f.filter.param(), urlencode(&f.raw)));
-    }
-    // The size links set their own, so they carry everything but it.
-    let size_carry = carry.clone();
-    if per_page != config.per_page {
-        carry.push_str(&format!("&per_page={per_page}"));
     }
     match query(&state.db, config, &req).await {
         Ok(result) => {
@@ -1328,7 +1349,6 @@ pub(crate) async fn handle(
                 no_records_message,
                 per_page,
                 per_page_options: config.per_page_options.clone(),
-                size_carry: size_carry.clone(),
                 pickers,
                 toolbar,
                 export_query,
@@ -1358,9 +1378,6 @@ pub(crate) async fn handle(
                     filtered: page_view.filtered,
                     deletable: page_view.deletable,
                     no_records_message: page_view.no_records_message,
-                    per_page: page_view.per_page,
-                    per_page_options: page_view.per_page_options,
-                    size_carry: page_view.size_carry,
                 })
             } else {
                 render(page_view)
@@ -1405,6 +1422,27 @@ pub(crate) async fn set_columns(
     as_chosen.sort_unstable();
     as_chosen.dedup();
 
+    // The page size travels on the same form. Only an offered size is kept, and
+    // the descriptor's own clears the preference, like choosing every column.
+    let size_key = per_page_preference_key(path);
+    let size = pairs
+        .iter()
+        .find(|(k, _)| k == "per_page")
+        .and_then(|(_, v)| v.trim().parse::<i64>().ok())
+        .filter(|n| config.per_page_options.contains(n));
+    let size_result = match size {
+        Some(n) if n != config.per_page => {
+            laterite_auth::store::set_user_preference(
+                &state.db,
+                user.user.id,
+                &size_key,
+                &n.to_string(),
+            )
+            .await
+        }
+        _ => laterite_auth::store::clear_user_preference(&state.db, user.user.id, &size_key).await,
+    };
+
     let key = columns_preference_key(path);
     let result = if chosen.is_empty() || as_chosen == by_default {
         laterite_auth::store::clear_user_preference(&state.db, user.user.id, &key).await
@@ -1412,16 +1450,16 @@ pub(crate) async fn set_columns(
         laterite_auth::store::set_user_preference(&state.db, user.user.id, &key, &chosen.join(","))
             .await
     };
-    match result {
+    match result.and(size_result) {
         Ok(()) => session.push_flash(
             crate::session::FlashLevel::Success,
-            laterite_core::t!("Columns updated."),
+            laterite_core::t!("List setup saved."),
         ),
         Err(e) => {
-            tracing::error!(error = %e, "storing the column choice failed");
+            tracing::error!(error = %e, "storing the list setup failed");
             session.push_flash(
                 crate::session::FlashLevel::Error,
-                laterite_core::t!("Could not save your column choice."),
+                laterite_core::t!("Could not save your list setup."),
             );
         }
     }
@@ -1473,11 +1511,10 @@ struct ListTemplate {
     search_on_enter: bool,
     /// The empty-state message when the descriptor set one, localized.
     no_records_message: Option<String>,
+    /// This operator's page size, and the sizes the list setup offers; empty
+    /// renders no chooser.
     per_page: i64,
-    /// The sizes offered in the footer; empty renders no chooser.
     per_page_options: Vec<i64>,
-    /// `carry` without the chosen size, for the size links.
-    size_carry: String,
     /// Whether rows carry a checkbox and the Delete button is offered.
     deletable: bool,
     /// Whether this resource offers an export, which puts the menu beside the
@@ -1602,9 +1639,6 @@ struct ListFragment {
     filtered: bool,
     deletable: bool,
     no_records_message: Option<String>,
-    per_page: i64,
-    per_page_options: Vec<i64>,
-    size_carry: String,
 }
 
 #[cfg(test)]
@@ -1855,18 +1889,17 @@ mod tests {
     }
 
     #[test]
-    fn a_page_size_reaches_the_query_only_when_offered() {
+    fn a_stored_page_size_counts_only_while_it_is_offered() {
         let mut cfg = config();
-        assert_eq!(resolve_per_page(&cfg, Some(50)), 25, "nothing offered");
+        assert_eq!(offered_per_page(&cfg, Some(50)), 25, "nothing offered");
         cfg.per_page_options = vec![25, 50, 100];
-        assert_eq!(resolve_per_page(&cfg, Some(50)), 50);
-        assert_eq!(resolve_per_page(&cfg, Some(999)), 25, "not offered");
-        assert_eq!(resolve_per_page(&cfg, None), 25);
+        assert_eq!(offered_per_page(&cfg, Some(50)), 50);
+        assert_eq!(offered_per_page(&cfg, Some(999)), 25, "no longer offered");
+        assert_eq!(offered_per_page(&cfg, None), 25);
     }
 
     fn params(sort: Option<&str>) -> ListParams {
         ListParams {
-            per_page: None,
             page: None,
             sort: sort.map(|s| s.to_string()),
             dir: Some("asc".to_string()),
@@ -2100,7 +2133,6 @@ mod tests {
             let state = state.clone();
             async move {
                 let p = ListParams {
-                    per_page: None,
                     page: None,
                     sort: None,
                     dir: None,

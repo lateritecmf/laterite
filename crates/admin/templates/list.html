@@ -52,10 +52,11 @@
            placeholder='{% if let Some(p) = search_prompt %}{{ p }}{% else %}{{ shell.t("Search") }}{% endif %}' aria-label='{% if let Some(p) = search_prompt %}{{ p }}{% else %}{{ shell.t("Search") }}{% endif %}'>
     {% endif %}
     {% if !pickers.is_empty() %}
-    {# A native disclosure, so choosing columns needs no script at all. #}
+    {# The list setup: which columns, and how many rows. A native disclosure, so
+       it needs no script; both choices are remembered per operator. #}
     <details class="lat-menu">
       <summary class="lat-btn lat-btn--secondary lat-btn--sm lat-btn--icon"
-               title='{{ shell.t("Columns") }}' aria-label='{{ shell.t("Columns") }}'>{{ shell.icon("columns-3")|safe }}</summary>
+               title='{{ shell.t("List setup") }}' aria-label='{{ shell.t("List setup") }}'>{{ shell.icon("sliders-horizontal")|safe }}</summary>
       <div class="lat-colpicker">
         <form method="post" action="{{ path }}/columns">
           {% include "_csrf.html" %}
@@ -65,6 +66,14 @@
             <span>{{ c.label }}</span>
           </label>
           {% endfor %}
+          {% if !per_page_options.is_empty() %}
+          <label class="lat-colpicker__size">
+            <span>{{ shell.t("Rows per page") }}</span>
+            <select class="lat-input lat-select" name="per_page">
+              {% for n in per_page_options %}<option value="{{ n }}"{% if *n == per_page %} selected{% endif %}>{{ n }}</option>{% endfor %}
+            </select>
+          </label>
+          {% endif %}
           <button class="lat-btn lat-btn--primary lat-btn--sm" type="submit">{{ shell.t("Apply") }}</button>
         </form>
       </div>

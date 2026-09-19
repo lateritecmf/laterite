@@ -11,8 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A list sets its empty-state message with `no_records_message`, and its search
   box with `SearchConfig`: a prompt, ask on Enter only, or off.
-- `per_page_options` offers the operator a choice of page size; a size not
-  offered is ignored.
+- `per_page_options` offers the operator a choice of page size in the list
+  setup, remembered with their column choice.
 - Column knobs: `sortable`, `invisible`, `width`, `align` and `require`. A column
   the operator may not see is not queried, sorted, searched or exported.
 

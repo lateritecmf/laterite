@@ -306,8 +306,6 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 
 /* List footer + pager */
 .lat-listfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;font-size:var(--fs-12);color:var(--text-muted)}
-.lat-pagesize{display:inline-flex;gap:8px;align-items:center}
-.lat-pagesize b{color:var(--text-body)}
 .lat-pager{display:flex;gap:6px}
 
 /* Form action bar */
@@ -432,6 +430,8 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-colpicker{position:absolute;z-index:50;top:calc(100% + 6px);right:0;min-width:200px;padding:12px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-md)}
 .lat-colpicker .lat-check{display:flex;gap:8px;align-items:center;padding:3px 0}
 .lat-colpicker button{margin-top:10px;width:100%}
+.lat-colpicker__size{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);font-size:var(--fs-12);color:var(--text-muted)}
+.lat-colpicker__size .lat-input{height:var(--control-h-sm);font-size:var(--fs-12)}
 
 /* Bulk selection and the confirm dialog. */
 .lat-table__pick{width:36px;text-align:center}

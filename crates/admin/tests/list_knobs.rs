@@ -136,44 +136,74 @@ async fn search_is_on_by_default() {
     assert!(html.contains("input changed delay"));
 }
 
-#[tokio::test]
-async fn offered_page_sizes_are_links_and_the_chosen_one_travels() {
-    let (db, _guard) = test_db().await;
-    let token = superuser(&db).await;
-    let list = things().per_page_options(vec![25, 50]);
-    let (_, html) = page_at(app(db, list), "/admin/things?per_page=50", &token).await;
-    assert!(html.contains("Per page"));
-    assert!(html.contains("<b>50</b>"), "the chosen size is marked");
-    assert!(
-        html.contains("?per_page=25&amp;sort="),
-        "the other size is a link"
-    );
-    assert!(
-        // The escaper writes the carry's `&` as `&#38;`, the template's own as `&amp;`.
-        html.replace("&#38;", "&amp;")
-            .contains("&amp;per_page=50\""),
-        "sort and pager links carry the choice"
-    );
+async fn post_setup(router: Router, token: &str, body: &str) -> StatusCode {
+    router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/things/columns")
+                .header("cookie", format!("{SESSION_COOKIE}={token}"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("sec-fetch-site", "same-origin")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+async fn csrf_token(router: Router, token: &str) -> String {
+    let (_, html) = page(router, token).await;
+    let start = html.find("name=\"_csrf\" value=\"").unwrap() + 20;
+    html[start..start + html[start..].find('"').unwrap()].to_string()
 }
 
 #[tokio::test]
-async fn a_size_not_offered_falls_back_to_the_default() {
+async fn the_chosen_page_size_is_remembered_in_the_list_setup() {
     let (db, _guard) = test_db().await;
     let token = superuser(&db).await;
     let list = things().per_page_options(vec![25, 50]);
-    let (_, html) = page_at(app(db, list), "/admin/things?per_page=999", &token).await;
-    assert!(html.contains("<b>25</b>"));
-    assert!(!html.contains("per_page=999"));
+    let csrf = csrf_token(app(db.clone(), list.clone()), &token).await;
+    let status = post_setup(
+        app(db.clone(), list.clone()),
+        &token,
+        &format!("_csrf={csrf}&column=name&per_page=50"),
+    )
+    .await;
+    assert!(status.is_redirection() || status.is_success(), "{status}");
+    let (_, html) = page(app(db, list), &token).await;
+    assert!(html.contains("Rows per page"));
+    assert!(
+        html.contains("<option value=\"50\" selected>"),
+        "the choice is shown selected"
+    );
+    assert!(!html.contains("per_page=50"), "and travels on no link");
+}
+
+#[tokio::test]
+async fn a_size_not_offered_is_not_stored() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let list = things().per_page_options(vec![25, 50]);
+    let csrf = csrf_token(app(db.clone(), list.clone()), &token).await;
+    post_setup(
+        app(db.clone(), list.clone()),
+        &token,
+        &format!("_csrf={csrf}&column=name&per_page=999"),
+    )
+    .await;
+    let (_, html) = page(app(db, list), &token).await;
+    assert!(
+        html.contains("<option value=\"25\" selected>"),
+        "the default stands"
+    );
 }
 
 #[tokio::test]
 async fn no_offered_sizes_means_no_chooser() {
     let (db, _guard) = test_db().await;
     let token = superuser(&db).await;
-    let (_, html) = page_at(app(db, things()), "/admin/things?per_page=50", &token).await;
-    assert!(!html.contains("Per page"));
-    assert!(
-        !html.contains("per_page=50"),
-        "an unoffered size is ignored, not carried"
-    );
+    let (_, html) = page(app(db, things()), &token).await;
+    assert!(!html.contains("Rows per page"));
 }

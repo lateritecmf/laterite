@@ -24,10 +24,10 @@ Column | `ListColumn` builders: `sortable(false)`, `invisible()`, `width("10%")`
 Search | Asks as you type, in the columns marked searchable; text columns by default. `ListColumn::searchable` overrides. `ListConfig::search(SearchConfig)` sets a `prompt`, asks `on_enter` only, or turns it `off()`.
 Empty state | "No records yet.", or `ListConfig::no_records_message(text)`.
 Filters | `ListFilter::boolean` or `ListFilter::select`. Only a declared filter and option reach the query.
-Columns | Each operator chooses which show. Picking every column clears the choice.
+List setup | Each operator chooses which columns show, and the page size. Picking every column clears the choice.
 Export | On a list that calls `.exportable()`: CSV or JSON of the current query without paging. Over 20,000 rows is refused.
 Pager | Keeps the sort, search and filters.
-Page size | `per_page`. `per_page_options` offers a choice in the footer; a size not offered is ignored.
+Page size | `per_page`. `per_page_options` offers a choice in the list setup, remembered per operator.
 
 Every control is a link or a GET form, so it works with scripting off.
 

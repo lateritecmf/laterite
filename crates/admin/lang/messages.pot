@@ -115,20 +115,12 @@ msgstr ""
 msgid "Colour mode"
 msgstr ""
 
-#: templates/list.html
-msgid "Columns"
-msgstr ""
-
-#: src/list.rs
-msgid "Columns updated."
-msgstr ""
-
 #: src/lib.rs
 msgid "Could not create the account. The username or email may already be taken."
 msgstr ""
 
 #: src/list.rs
-msgid "Could not save your column choice."
+msgid "Could not save your list setup."
 msgstr ""
 
 #: src/form.rs
@@ -294,6 +286,14 @@ msgstr ""
 msgid "Last name"
 msgstr ""
 
+#: templates/list.html
+msgid "List setup"
+msgstr ""
+
+#: src/list.rs
+msgid "List setup saved."
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Manage"
 msgstr ""
@@ -381,10 +381,6 @@ msgstr ""
 msgid "Password"
 msgstr ""
 
-#: templates/_list_table.html
-msgid "Per page"
-msgstr ""
-
 #: templates/users_form.html
 msgid "Permission overrides"
 msgstr ""
@@ -463,6 +459,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Roles"
+msgstr ""
+
+#: templates/list.html
+msgid "Rows per page"
 msgstr ""
 
 #: templates/_form_fields.html
