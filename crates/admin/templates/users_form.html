@@ -38,6 +38,21 @@
   {% else %}
   <form method="post" action="{{ action }}">
     {% include "_csrf.html" %}
+    {% if !roles.is_empty() %}
+    <div class="lat-field">
+      <span class="lat-field__label">{{ shell.t("Roles") }}</span>
+      <p class="lat-help">{% if roles_locked %}{{ shell.t("You cannot change your own roles, and a role granting more than you hold yourself is shown locked.") }}{% else %}{{ shell.t("A role grants every permission it holds. A role granting more than you hold yourself is shown locked.") }}{% endif %}</p>
+      <fieldset class="lat-permgroup">
+        {% for role in roles %}
+        <label class="lat-check{% if !role.changeable %} is-locked{% endif %}">
+          <input type="checkbox" name="role" value="{{ role.id }}"{% if role.held %} checked{% endif %}{% if !role.changeable %} disabled{% endif %}>
+          <span>{{ role.name }}</span>
+          <code class="lat-code">{{ role.code }}</code>
+        </label>
+        {% endfor %}
+      </fieldset>
+    </div>
+    {% endif %}
     <div class="lat-field">
       <span class="lat-field__label">{{ shell.t("Permission overrides") }}</span>
       <p class="lat-help">{{ shell.t("Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked.") }}</p>

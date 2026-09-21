@@ -1004,6 +1004,107 @@ fn read_is_system(row: Option<AnyRow>) -> Result<bool, AuthError> {
     })
 }
 
+/// A role as the assignment screen lists it.
+pub struct RoleSummary {
+    pub id: i64,
+    pub code: String,
+    pub name: String,
+    pub is_system: bool,
+    /// What holding it grants, so a screen can refuse to offer a role that
+    /// would grant more than the operator assigning it holds.
+    pub permissions: Vec<String>,
+}
+
+/// Every role, by name.
+pub async fn list_roles(db: &Db) -> Result<Vec<RoleSummary>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendRoles::Id,
+                BackendRoles::Code,
+                BackendRoles::Name,
+                BackendRoles::IsSystem,
+                BackendRoles::Permissions,
+            ])
+            .from(BackendRoles::Table)
+            .order_by(BackendRoles::Name, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(RoleSummary {
+                id: row.try_get::<i64, _>("id")?,
+                code: row.get_text("code")?,
+                name: row.get_text("name")?,
+                is_system: row.get_bool("is_system")?,
+                permissions: serde_json::from_str(&row.get_text("permissions")?)
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The roles this operator holds.
+pub async fn user_role_ids(db: &Db, user_id: i64) -> Result<Vec<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUserRoles::BackendRoleId)
+            .from(BackendUserRoles::Table)
+            .and_where(Expr::col(BackendUserRoles::BackendUserId).eq(user_id))
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok(row.try_get::<i64, _>("backend_role_id")?))
+        .collect()
+}
+
+/// Replaces this operator's roles with exactly `role_ids`.
+///
+/// One transaction, so an operator is never briefly left holding none of them.
+pub async fn set_user_roles(db: &Db, user_id: i64, role_ids: &[i64]) -> Result<(), AuthError> {
+    let mut tx = db.pool.begin().await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendUserRoles::Table)
+            .and_where(Expr::col(BackendUserRoles::BackendUserId).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    for role_id in role_ids {
+        let (sql, values) = build(
+            db.backend,
+            Query::insert()
+                .into_table(BackendUserRoles::Table)
+                .columns([
+                    BackendUserRoles::BackendUserId,
+                    BackendUserRoles::BackendRoleId,
+                ])
+                .values_panic([user_id.into(), (*role_id).into()])
+                .on_conflict(on_conflict_ignore([
+                    BackendUserRoles::BackendUserId,
+                    BackendUserRoles::BackendRoleId,
+                ]))
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,

@@ -68,8 +68,10 @@ A superuser passes every check.
 2. The operator's own override for that permission: **Deny** refuses, **Allow** grants.
 3. Otherwise the roles decide.
 
-Overrides are set per user on the **Backend Users** screen; **Inherit** is the
-default. An operator can change only permissions they hold themselves.
+Roles and overrides are both set per user on the **Backend Users** screen;
+**Inherit** is the default. An operator can change only permissions they hold
+themselves, only roles granting no more than they hold, and never their own
+roles.
 
 ## Built-in permissions
 

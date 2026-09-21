@@ -6,6 +6,10 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "(optional)"
 msgstr ""
 
+#: templates/users_form.html
+msgid "A role grants every permission it holds. A role granting more than you hold yourself is shown locked."
+msgstr ""
+
 #: (descriptors)
 msgid "Action"
 msgstr ""
@@ -466,6 +470,7 @@ msgstr ""
 msgid "Role updated."
 msgstr ""
 
+#: templates/users_form.html
 #: (descriptors)
 msgid "Roles"
 msgstr ""
@@ -721,6 +726,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "When"
+msgstr ""
+
+#: templates/users_form.html
+msgid "You cannot change your own roles, and a role granting more than you hold yourself is shown locked."
 msgstr ""
 
 #: src/error.rs

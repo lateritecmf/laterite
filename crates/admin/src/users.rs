@@ -144,6 +144,18 @@ pub(crate) async fn edit_form(
         editor.user.id.to_string() != id && editor.permissions.allows(crate::users::MANAGE_USERS);
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
+    // A superuser holds everything already, so roles would change nothing.
+    let roles = if is_superuser {
+        Vec::new()
+    } else {
+        let target_id = id.parse::<i64>().unwrap_or_default();
+        role_rows(
+            laterite_auth::store::list_roles(&state.db).await?,
+            &laterite_auth::store::user_role_ids(&state.db, target_id).await?,
+            &editor.permissions,
+            editor.user.id.to_string() == id,
+        )
+    };
     Ok(render(build(
         &state,
         shell,
@@ -157,6 +169,7 @@ pub(crate) async fn edit_form(
         can_change_state,
         format!("{}/users/{id}/active", state.admin_path),
         &overrides,
+        roles,
     )))
 }
 
@@ -194,6 +207,36 @@ pub(crate) async fn update(
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let mut overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
     let submitted = parse_states(&pairs);
+
+    // Roles: keep every one the editor may not change exactly as it was, and
+    // take the submitted set for the rest. A crafted id the screen would have
+    // locked therefore cannot be added or removed.
+    let held = laterite_auth::store::user_role_ids(&state.db, target_id).await?;
+    let ticked: Vec<i64> = pairs
+        .iter()
+        .filter(|(k, _)| k == "role")
+        .filter_map(|(_, v)| v.trim().parse::<i64>().ok())
+        .collect();
+    let rows = role_rows(
+        laterite_auth::store::list_roles(&state.db).await?,
+        &held,
+        &editor.permissions,
+        editor.user.id == target_id,
+    );
+    let next: Vec<i64> = rows
+        .iter()
+        .filter(|r| {
+            if r.changeable {
+                ticked.contains(&r.id)
+            } else {
+                r.held
+            }
+        })
+        .map(|r| r.id)
+        .collect();
+    if next != held {
+        laterite_auth::store::set_user_roles(&state.db, target_id, &next).await?;
+    }
 
     // Only touch registered permissions the editor holds. A permission the editor
     // cannot grant is left exactly as it was, so the screen cannot escalate
@@ -308,6 +351,7 @@ fn build(
     can_change_state: bool,
     state_action: String,
     overrides: &HashMap<String, i64>,
+    roles: Vec<RoleRowView>,
 ) -> UsersFormTemplate {
     let groups = if is_superuser {
         Vec::new()
@@ -326,7 +370,43 @@ fn build(
         can_change_state,
         state_action,
         groups,
+        roles_locked: !roles.is_empty() && roles.iter().all(|r| !r.changeable),
+        roles,
     }
+}
+
+/// The roles to show, and whether this operator may change each.
+///
+/// A role grants every permission it names, so offering one the editor does not
+/// hold themselves would let them escalate through it: the same rule the
+/// override rows follow. Their own roles are locked too, so nobody signs
+/// themselves out of the panel.
+fn role_rows(
+    all: Vec<laterite_auth::store::RoleSummary>,
+    held: &[i64],
+    editor: &PermissionSet,
+    own_account: bool,
+) -> Vec<RoleRowView> {
+    all.into_iter()
+        .map(|role| RoleRowView {
+            held: held.contains(&role.id),
+            changeable: !own_account && role.permissions.iter().all(|p| editor.allows(p)),
+            id: role.id,
+            name: role.name,
+            code: role.code,
+        })
+        .collect()
+}
+
+/// One role on the assignment list.
+struct RoleRowView {
+    id: i64,
+    name: String,
+    code: String,
+    held: bool,
+    /// Whether this operator may change it: they hold everything the role
+    /// grants, and it is not their own account.
+    changeable: bool,
 }
 
 struct PermRowView {
@@ -359,6 +439,10 @@ struct UsersFormTemplate {
     can_change_state: bool,
     state_action: String,
     groups: Vec<PermGroupView>,
+    /// Every role, with the ones this operator holds ticked.
+    roles: Vec<RoleRowView>,
+    /// Whether any role is changeable, so the screen can say why not.
+    roles_locked: bool,
 }
 
 #[cfg(test)]

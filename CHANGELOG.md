@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - Two built-in roles, Administrator and Editor, written from the permission
   registry at every boot. The first operator holds Administrator.
+- Roles are assigned from the Users screen. A role granting more than the
+  editor holds, and their own roles, are locked.
 - A built-in role is read-only in the editor, with Duplicate to make your own.
 - A built-in role cannot be deleted: its rows return at boot, but the operator
   assignments that cascade with it would not.
