@@ -418,8 +418,8 @@ fn status_slug(value: &str) -> String {
         .collect()
 }
 
-/// One value a [`FilterKind::Select`] offers.
-#[derive(Debug, Clone, Serialize)]
+/// One value a `select` filter offers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterOption {
     pub value: String,
     /// The option's label, localized at render.
@@ -435,23 +435,18 @@ impl FilterOption {
     }
 }
 
-/// What a filter offers and how its value becomes a condition.
-#[derive(Debug, Clone, Serialize)]
-pub enum FilterKind {
-    /// A yes/no column. Booleans are integer columns on every backend, so the
-    /// value binds as an integer and compares portably.
-    Boolean,
-    /// One of a declared set of values. Only a declared value reaches the query.
-    Select { options: Vec<FilterOption> },
-}
-
 /// One filter offered above a list: a column, its label, and what it offers.
 #[derive(Debug, Clone, Serialize)]
 pub struct ListFilter {
     pub field: String,
     /// The control's label, localized at render.
     pub label: Text,
-    pub kind: FilterKind,
+    /// What the filter offers: `boolean`, `select`, `text`, `number` or `date`.
+    #[serde(rename = "type")]
+    pub filter_type: String,
+    /// Per-type options. A `select` carries its choices here; the rest none.
+    #[serde(default)]
+    pub options: serde_json::Value,
     /// Applied when the request names no value for this filter at all, so a
     /// screen can open already narrowed. Clearing it is still "no filter".
     pub default_value: Option<String>,
@@ -461,30 +456,55 @@ pub struct ListFilter {
 }
 
 impl ListFilter {
+    /// A filter of any declared type, with no options.
+    pub fn of(field: &str, label: impl Into<Text>, filter_type: &str) -> Self {
+        Self {
+            field: field.to_string(),
+            label: label.into(),
+            filter_type: filter_type.to_string(),
+            options: serde_json::Value::Null,
+            default_value: None,
+            permission: None,
+        }
+    }
+
     /// A yes/no filter over a boolean column.
     pub fn boolean(field: &str, label: impl Into<Text>) -> Self {
-        Self {
-            field: field.to_string(),
-            label: label.into(),
-            kind: FilterKind::Boolean,
-            default_value: None,
-            permission: None,
-        }
+        Self::of(field, label, "boolean")
     }
 
-    /// A filter offering a fixed set of values.
+    /// A filter offering a fixed set of values. Only a declared one reaches the
+    /// query.
     pub fn select(field: &str, label: impl Into<Text>, options: Vec<FilterOption>) -> Self {
-        Self {
-            field: field.to_string(),
-            label: label.into(),
-            kind: FilterKind::Select { options },
-            default_value: None,
-            permission: None,
-        }
+        let mut filter = Self::of(field, label, "select");
+        filter.options = serde_json::json!({ "options": options });
+        filter
     }
 
-    /// The query-string key carrying this filter's value. Prefixed so a filter
-    /// on a column named `q` or `sort` cannot collide with the list's own params.
+    /// A substring match, folded the way the search box folds.
+    pub fn text(field: &str, label: impl Into<Text>) -> Self {
+        Self::of(field, label, "text")
+    }
+
+    /// An exact match on a whole number.
+    pub fn number(field: &str, label: impl Into<Text>) -> Self {
+        Self::of(field, label, "number")
+    }
+
+    /// Rows on one calendar day, whether the column stores a date or a
+    /// timestamp.
+    pub fn date(field: &str, label: impl Into<Text>) -> Self {
+        Self::of(field, label, "date")
+    }
+
+    /// The choices a `select` offers, or none for any other type.
+    pub(crate) fn choices(&self) -> Vec<FilterOption> {
+        self.options
+            .get("options")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
     /// The value to apply when the request names none.
     pub fn default_value(mut self, value: impl Into<String>) -> Self {
         self.default_value = Some(value.into());
@@ -1071,7 +1091,63 @@ pub(crate) struct ActiveFilter<'a> {
     filter: &'a ListFilter,
     /// The raw value as submitted, for re-rendering the control and the links.
     raw: String,
-    value: sea_query::Value,
+    /// How the accepted value matches. Owned and `Send`, because a built
+    /// `sea_query` expression is neither and this is held across the query.
+    matcher: FilterMatch,
+}
+
+/// How an accepted filter value matches its column.
+pub(crate) enum FilterMatch {
+    /// Exactly this value.
+    Equals(sea_query::Value),
+    /// A folded substring, the way the search box matches.
+    Contains(String),
+    /// Anything starting with this, for a day against a stored timestamp.
+    StartsWith(String),
+}
+
+/// How one filter matches for a submitted value, or `None` when the value is
+/// not one this type accepts.
+///
+/// Every type validates before returning, so a crafted parameter reaches the
+/// query only in a shape the filter declared.
+fn filter_match(filter: &ListFilter, raw: &str) -> Option<FilterMatch> {
+    match filter.filter_type.as_str() {
+        // Only the two spellings the control emits; anything else is dropped
+        // rather than guessed at.
+        "boolean" => match raw {
+            "1" => Some(FilterMatch::Equals(true.into())),
+            "0" => Some(FilterMatch::Equals(false.into())),
+            _ => None,
+        },
+        "select" => filter
+            .choices()
+            .iter()
+            .any(|o| o.value == raw)
+            .then(|| FilterMatch::Equals(raw.into())),
+        "text" => Some(FilterMatch::Contains(raw.to_string())),
+        "number" => raw
+            .parse::<i64>()
+            .ok()
+            .map(|n| FilterMatch::Equals(n.into())),
+        // A day, matched as a prefix so a date column and a stored timestamp
+        // both answer. The shape is checked here, so the pattern that reaches
+        // the query has nothing in it to escape.
+        "date" => is_iso_date(raw).then(|| FilterMatch::StartsWith(raw.to_string())),
+        _ => None,
+    }
+}
+
+/// `YYYY-MM-DD`, and nothing else.
+fn is_iso_date(raw: &str) -> bool {
+    raw.len() == 10
+        && raw.as_bytes().iter().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                *b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
 }
 
 /// Reads the declared filters out of the request's query parameters, dropping
@@ -1092,25 +1168,13 @@ pub(crate) fn resolve_filters<'a>(
         if raw.is_empty() {
             continue;
         }
-        let value = match &filter.kind {
-            // Only the two spellings the control emits; anything else is dropped
-            // rather than guessed at.
-            FilterKind::Boolean => match raw {
-                "1" => sea_query::Value::Bool(Some(true)),
-                "0" => sea_query::Value::Bool(Some(false)),
-                _ => continue,
-            },
-            FilterKind::Select { options } => {
-                if !options.iter().any(|o| o.value == raw) {
-                    continue;
-                }
-                sea_query::Value::String(Some(Box::new(raw.to_string())))
-            }
+        let Some(matcher) = filter_match(filter, raw) else {
+            continue;
         };
         out.push(ActiveFilter {
             filter,
             raw: raw.to_string(),
-            value,
+            matcher,
         });
     }
     out
@@ -1121,9 +1185,21 @@ fn filter_condition(active: &[ActiveFilter<'_>]) -> Option<sea_query::Condition>
     if active.is_empty() {
         return None;
     }
+    let caps = laterite_core::capabilities::CapabilitySet::default();
     let mut all = sea_query::Condition::all();
     for f in active {
-        all = all.add(Expr::col(Alias::new(&f.filter.field)).eq(f.value.clone()));
+        let col = Expr::col(Alias::new(&f.filter.field));
+        all = match &f.matcher {
+            FilterMatch::Equals(value) => all.add(col.eq(value.clone())),
+            // A term that folds away to nothing narrows nothing.
+            FilterMatch::Contains(term) => {
+                match SearchProfile::new().condition(&caps, &f.filter.field, term) {
+                    Some(cond) => all.add(cond),
+                    None => all,
+                }
+            }
+            FilterMatch::StartsWith(prefix) => all.add(col.like(format!("{prefix}%"))),
+        };
     }
     Some(all)
 }
@@ -1597,7 +1673,8 @@ struct ListTemplate {
 pub struct FilterView {
     pub param: String,
     pub label: String,
-    pub boolean: bool,
+    /// The input kind when there are no options: `text`, `number` or `date`.
+    pub input_type: String,
     pub options: Vec<FilterOptionView>,
     /// The selected value, empty when the filter is off.
     pub value: String,
@@ -1623,35 +1700,38 @@ fn filter_views(
                 .find(|a| a.filter.field == f.field)
                 .map(|a| a.raw.clone())
                 .unwrap_or_default();
-            let (boolean, options) = match &f.kind {
-                FilterKind::Boolean => (
-                    true,
-                    vec![
-                        FilterOptionView {
-                            value: "1".to_string(),
-                            label: shell.tt(&laterite_core::t!("Yes")),
-                        },
-                        FilterOptionView {
-                            value: "0".to_string(),
-                            label: shell.tt(&laterite_core::t!("No")),
-                        },
-                    ],
-                ),
-                FilterKind::Select { options } => (
-                    false,
-                    options
-                        .iter()
-                        .map(|o| FilterOptionView {
-                            value: o.value.clone(),
-                            label: shell.tt(&o.label),
-                        })
-                        .collect(),
-                ),
+            // A list of choices renders as a select; anything else as an
+            // input of the matching kind.
+            let options: Vec<FilterOptionView> = match f.filter_type.as_str() {
+                "boolean" => vec![
+                    FilterOptionView {
+                        value: "1".to_string(),
+                        label: shell.tt(&laterite_core::t!("Yes")),
+                    },
+                    FilterOptionView {
+                        value: "0".to_string(),
+                        label: shell.tt(&laterite_core::t!("No")),
+                    },
+                ],
+                "select" => f
+                    .choices()
+                    .iter()
+                    .map(|o| FilterOptionView {
+                        value: o.value.clone(),
+                        label: shell.tt(&o.label),
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let input_type = match f.filter_type.as_str() {
+                "number" => "number",
+                "date" => "date",
+                _ => "text",
             };
             FilterView {
                 param: f.param(),
                 label: shell.tt(&f.label),
-                boolean,
+                input_type: input_type.to_string(),
                 options,
                 value,
             }
@@ -1942,6 +2022,37 @@ mod tests {
             .await
             .unwrap();
         String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn a_typed_filter_accepts_only_its_own_shape() {
+        let mut c = config();
+        c.filters = vec![
+            ListFilter::number("views", "Views"),
+            ListFilter::date("created_at", "Created"),
+            ListFilter::text("username", "Username"),
+        ];
+        let accepted = |param: &str, value: &str| {
+            !resolve_filters(&c, &filter_params(&[(param, value)])).is_empty()
+        };
+        assert!(accepted("f_views", "42"));
+        assert!(
+            !accepted("f_views", "4.2"),
+            "a number filter takes whole numbers"
+        );
+        assert!(!accepted("f_views", "; drop table"), "and nothing else");
+
+        assert!(accepted("f_created_at", "2026-09-21"));
+        assert!(
+            !accepted("f_created_at", "2026-9-21"),
+            "a date is ISO or nothing"
+        );
+        assert!(
+            !accepted("f_created_at", "2026-09-21%"),
+            "so a pattern cannot slip in"
+        );
+
+        assert!(accepted("f_username", "ada"));
     }
 
     #[test]

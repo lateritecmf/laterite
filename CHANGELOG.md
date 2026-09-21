@@ -19,6 +19,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- **Breaking:** a `ListFilter` carries a `type` string and an options bag, like a
+  `FormField`; `FilterKind` is gone. `boolean` and `select` are unchanged.
 - **Breaking:** `Permission` is built with `Permission::new(code, label, group)`
   and is non-exhaustive; `.roles([..])` names the built-in roles that hold it.
 
@@ -32,6 +34,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   the operator may not see is not queried, sorted, searched or exported.
 - Filter knobs: `default_value` opens a list already narrowed, `require` gates a
   filter. A gated filter is not offered and its default does not apply.
+- Filter types `text`, `number` and `date`, each refusing a value it cannot
+  match.
 
 ### Fixed
 

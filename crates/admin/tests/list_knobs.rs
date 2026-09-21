@@ -124,7 +124,7 @@ async fn search_on_enter_does_not_ask_while_typing() {
     let list = things().search(SearchConfig::default().on_enter());
     let (_, html) = page(app(db, list), &token).await;
     assert!(html.contains("id=\"lat-list-search\""));
-    assert!(!html.contains("input changed delay"));
+    assert!(!html.contains("input changed delay:300ms from:#lat-list-search"));
 }
 
 #[tokio::test]
@@ -133,7 +133,7 @@ async fn search_is_on_by_default() {
     let token = superuser(&db).await;
     let (_, html) = page(app(db, things()), &token).await;
     assert!(html.contains("id=\"lat-list-search\""));
-    assert!(html.contains("input changed delay"));
+    assert!(html.contains("input changed delay:300ms from:#lat-list-search"));
 }
 
 async fn post_setup(router: Router, token: &str, body: &str) -> StatusCode {

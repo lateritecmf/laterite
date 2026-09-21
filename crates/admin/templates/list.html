@@ -25,7 +25,7 @@
    scripting off. It stays outside #lat-list, so a swap never steals the caret. #}
 <form id="lat-list-query" method="get" action="{{ path }}" hidden
       hx-get="{{ path }}" hx-target="#lat-list" hx-swap="outerHTML" hx-push-url="true"
-      hx-trigger="{% if searchable %}{% if !search_on_enter %}input changed delay:300ms from:#lat-list-search, {% endif %}search from:#lat-list-search, {% endif %}change from:#lat-list-filters select, submit">
+      hx-trigger="{% if searchable %}{% if !search_on_enter %}input changed delay:300ms from:#lat-list-search, {% endif %}search from:#lat-list-search, {% endif %}change from:#lat-list-filters select, change from:#lat-list-filters input, input changed delay:300ms from:#lat-list-filters input[type='text'], submit">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
 </form>
@@ -90,12 +90,16 @@
   {% for f in filters %}
   <label class="lat-filterbar__filter">
     <span class="lat-filterbar__label">{{ f.label }}</span>
+    {% if f.options.is_empty() %}
+    <input class="lat-input" type="{{ f.input_type }}" name="{{ f.param }}" value="{{ f.value }}" form="lat-list-query">
+    {% else %}
     <select class="lat-input lat-select" name="{{ f.param }}" form="lat-list-query">
       <option value="">{{ shell.t("Any") }}</option>
       {% for o in f.options %}
       <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
       {% endfor %}
     </select>
+    {% endif %}
   </label>
   {% endfor %}
   <a class="lat-filterbar__clear" href="{{ path }}">{{ shell.t("Clear") }}</a>
