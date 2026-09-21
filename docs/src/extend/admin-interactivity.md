@@ -23,7 +23,7 @@ Column header | Sorts; a second click flips it. Only a declared, `sortable` colu
 Column | `ListColumn` builders: `sortable(false)`, `invisible()`, `width("10%")`, `align(Align::Right)`, `require(permission)`. A column the operator may not see is not queried, sorted, searched or exported.
 Search | Asks as you type, in the columns marked searchable; text columns by default. `ListColumn::searchable` overrides. `ListConfig::search(SearchConfig)` sets a `prompt`, asks `on_enter` only, or turns it `off()`.
 Empty state | "No records yet.", or `ListConfig::no_records_message(text)`.
-Filters | `ListFilter::boolean` or `ListFilter::select`. Only a declared filter and option reach the query.
+Filters | `ListFilter::boolean` or `ListFilter::select`. Only a declared filter and option reach the query. `default_value` narrows the list until the operator decides; `require(permission)` gates it.
 List setup | Each operator chooses which columns show, and the page size. Picking every column clears the choice.
 Export | On a list that calls `.exportable()`: CSV or JSON of the current query without paging. Over 20,000 rows is refused.
 Pager | Keeps the sort, search and filters.

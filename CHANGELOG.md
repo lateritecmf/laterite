@@ -30,6 +30,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   setup, remembered with their column choice.
 - Column knobs: `sortable`, `invisible`, `width`, `align` and `require`. A column
   the operator may not see is not queried, sorted, searched or exported.
+- Filter knobs: `default_value` opens a list already narrowed, `require` gates a
+  filter. A gated filter is not offered and its default does not apply.
 
 ### Fixed
 

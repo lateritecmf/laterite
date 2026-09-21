@@ -452,6 +452,12 @@ pub struct ListFilter {
     /// The control's label, localized at render.
     pub label: Text,
     pub kind: FilterKind,
+    /// Applied when the request names no value for this filter at all, so a
+    /// screen can open already narrowed. Clearing it is still "no filter".
+    pub default_value: Option<String>,
+    /// A permission the operator must hold to see this filter, and to have its
+    /// default applied.
+    pub permission: Option<String>,
 }
 
 impl ListFilter {
@@ -461,6 +467,8 @@ impl ListFilter {
             field: field.to_string(),
             label: label.into(),
             kind: FilterKind::Boolean,
+            default_value: None,
+            permission: None,
         }
     }
 
@@ -470,11 +478,25 @@ impl ListFilter {
             field: field.to_string(),
             label: label.into(),
             kind: FilterKind::Select { options },
+            default_value: None,
+            permission: None,
         }
     }
 
     /// The query-string key carrying this filter's value. Prefixed so a filter
     /// on a column named `q` or `sort` cannot collide with the list's own params.
+    /// The value to apply when the request names none.
+    pub fn default_value(mut self, value: impl Into<String>) -> Self {
+        self.default_value = Some(value.into());
+        self
+    }
+
+    /// Shown only to an operator holding `permission`.
+    pub fn require(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
     pub(crate) fn param(&self) -> String {
         format!("f_{}", self.field)
     }
@@ -664,6 +686,23 @@ pub(crate) fn allowed_columns<'a>(
         .collect()
 }
 
+/// The filters this operator may use: every one without a permission, plus
+/// those whose permission they hold.
+pub(crate) fn allowed_filters<'a>(
+    config: &'a ListConfig,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Vec<&'a ListFilter> {
+    config
+        .filters
+        .iter()
+        .filter(|f| {
+            f.permission
+                .as_deref()
+                .is_none_or(|p| user.permissions.allows(p))
+        })
+        .collect()
+}
+
 /// The descriptor with only the columns this operator sees. One place, so the
 /// query, the headers, sorting, searching and the export all work from it.
 pub(crate) fn narrowed(
@@ -676,6 +715,7 @@ pub(crate) fn narrowed(
             .into_iter()
             .cloned()
             .collect(),
+        filters: allowed_filters(config, user).into_iter().cloned().collect(),
         ..config.clone()
     }
 }
@@ -735,6 +775,16 @@ pub(crate) fn check(
                 return Err(format!(
                     "column `{}` requires unregistered permission `{p}`",
                     col.field
+                ));
+            }
+        }
+    }
+    for filter in &config.filters {
+        if let Some(p) = &filter.permission {
+            if !permission_codes.contains(p) {
+                return Err(format!(
+                    "filter `{}` requires unregistered permission `{p}`",
+                    filter.field
                 ));
             }
         }
@@ -1032,8 +1082,12 @@ pub(crate) fn resolve_filters<'a>(
 ) -> Vec<ActiveFilter<'a>> {
     let mut out = Vec::new();
     for filter in &config.filters {
-        let Some(raw) = params.get(&filter.param()).map(|v| v.trim()) else {
-            continue;
+        let submitted = params.get(&filter.param()).map(|v| v.trim());
+        let raw = match submitted {
+            // Named, so the operator decided: a blank value clears the filter.
+            Some(value) => value,
+            // Not named at all, so nothing has been decided yet.
+            None => filter.default_value.as_deref().unwrap_or_default(),
         };
         if raw.is_empty() {
             continue;
@@ -1888,6 +1942,36 @@ mod tests {
             .await
             .unwrap();
         String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn a_filter_default_applies_only_until_the_operator_decides() {
+        let mut c = config();
+        c.filters = vec![ListFilter::boolean("is_superuser", "Superuser").default_value("1")];
+        // Nothing named: the default narrows the list.
+        assert_eq!(resolve_filters(&c, &filter_params(&[])).len(), 1);
+        // Named blank: the operator cleared it, so no filter.
+        assert!(resolve_filters(&c, &filter_params(&[("f_is_superuser", "")])).is_empty());
+        // Named otherwise: their value, not the default.
+        let active = resolve_filters(&c, &filter_params(&[("f_is_superuser", "0")]));
+        assert_eq!(active.len(), 1);
+    }
+
+    #[test]
+    fn a_gated_filter_is_narrowed_away_with_its_default() {
+        let mut c = config();
+        c.filters = vec![ListFilter::boolean("is_superuser", "Superuser")
+            .default_value("1")
+            .require("acme.secret")];
+        let plain = laterite_auth::AuthenticatedUser {
+            permissions: laterite_auth::PermissionSet::with_overrides(false, [], [], []),
+            ..crate::audit::test_actor()
+        };
+        assert!(allowed_filters(&c, &plain).is_empty());
+        // And the narrowed descriptor carries none, so the default cannot apply.
+        let narrowed = narrowed(&c, None, &plain);
+        assert!(resolve_filters(&narrowed, &filter_params(&[])).is_empty());
+        assert_eq!(allowed_filters(&c, &root()).len(), 1);
     }
 
     #[test]
