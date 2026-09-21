@@ -7,18 +7,31 @@ roles.
 ## Register permissions
 
 ```rust
-use laterite_admin::Permission;
+use laterite_admin::{Permission, ROLE_EDITOR};
 use laterite_core::t;
 
-registry.add_permission(Permission {
-    code: "acme.publish_pages".into(),
-    label: t!("Publish pages"),
-    group: t!("Content"),
-});
+registry.add_permission(
+    Permission::new("acme.publish_pages", t!("Publish pages"), t!("Content"))
+        .roles([ROLE_EDITOR]),
+);
 ```
 
 Registered permissions appear in the role editor under their `group`. Only a
 registered permission can be granted.
+
+## Built-in roles
+
+Every deployment starts with two roles the framework owns and rewrites at each
+boot from the registry.
+
+Role | Holds
+--- | ---
+`ROLE_ADMIN`, Administrator | Every permission that names no role, plus any naming it. The first operator holds it.
+`ROLE_EDITOR`, Editor | Only the permissions that name it. Empty until your application registers some.
+
+`Permission::roles` names the roles that hold a permission by default. Naming
+none means the administrator alone, so a permission you forget to place never
+reaches editors. Neither role is editable: duplicate one to make it yours.
 
 ## Gate a screen
 

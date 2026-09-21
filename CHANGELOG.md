@@ -9,6 +9,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Two built-in roles, Administrator and Editor, written from the permission
+  registry at every boot. The first operator holds Administrator.
+- A built-in role is read-only in the editor, with Duplicate to make your own.
+
+### Changed
+
+- **Breaking:** `Permission` is built with `Permission::new(code, label, group)`
+  and is non-exhaustive; `.roles([..])` names the built-in roles that hold it.
+
+### Added
+
 - A list sets its empty-state message with `no_records_message`, and its search
   box with `SearchConfig`: a prompt, ask on Enter only, or off.
 - `per_page_options` offers the operator a choice of page size in the list

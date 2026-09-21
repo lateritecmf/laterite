@@ -367,16 +367,8 @@ mod tests {
 
     fn registry() -> Vec<Permission> {
         vec![
-            Permission {
-                code: "backend.manage_users".to_string(),
-                label: "Manage backend users".into(),
-                group: "Backend".into(),
-            },
-            Permission {
-                code: "acme.publish".to_string(),
-                label: "Publish".into(),
-                group: "Content".into(),
-            },
+            Permission::new("backend.manage_users", "Manage backend users", "Backend"),
+            Permission::new("acme.publish", "Publish", "Content"),
         ]
     }
 

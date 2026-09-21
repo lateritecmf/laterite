@@ -782,11 +782,82 @@ pub struct Resource {
 /// registers its own (see the built-in grants), and an application registers
 /// its permissions through [`router`] so they appear in the editor alongside.
 #[derive(Clone, Serialize)]
+#[non_exhaustive]
 pub struct Permission {
     pub code: String,
     /// The permission's display label and group heading, localized at render.
     pub label: Text,
     pub group: Text,
+    /// The built-in roles that hold this permission. Empty means
+    /// [`ROLE_ADMIN`] alone.
+    pub default_roles: Vec<String>,
+}
+
+pub use laterite_auth::{ROLE_ADMIN, ROLE_EDITOR};
+
+impl Permission {
+    /// A permission an operator can be granted, held by [`ROLE_ADMIN`] until it
+    /// names other roles with [`Permission::roles`].
+    pub fn new(code: impl Into<String>, label: impl Into<Text>, group: impl Into<Text>) -> Self {
+        Self {
+            code: code.into(),
+            label: label.into(),
+            group: group.into(),
+            default_roles: Vec::new(),
+        }
+    }
+
+    /// The built-in roles that hold this permission by default. Naming
+    /// [`ROLE_EDITOR`] alone keeps it out of [`ROLE_ADMIN`].
+    pub fn roles<I, S>(mut self, roles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.default_roles = roles.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
+/// The framework's roles, with the permissions the registry says they hold.
+///
+/// A permission that names no role belongs to [`ROLE_ADMIN`] alone: an
+/// undeclared permission reaching only the administrator is the safe reading,
+/// and the role editor shows the author it is not reaching editors.
+pub fn system_roles(contributed: &[Permission]) -> Vec<laterite_auth::store::SystemRole<'static>> {
+    // The framework's own permissions belong in its own roles, and `router` adds
+    // them after this runs, so take them from the same source it does.
+    let permissions: Vec<Permission> = builtin_permissions()
+        .into_iter()
+        .chain(contributed.iter().cloned())
+        .collect();
+    let held = |role: &str| -> Vec<String> {
+        permissions
+            .iter()
+            .filter(|p| {
+                if p.default_roles.is_empty() {
+                    role == ROLE_ADMIN
+                } else {
+                    p.default_roles.iter().any(|r| r == role)
+                }
+            })
+            .map(|p| p.code.clone())
+            .collect()
+    };
+    vec![
+        laterite_auth::store::SystemRole {
+            code: ROLE_ADMIN,
+            name: "Administrator",
+            description: "Administers the panel itself: operators, roles and settings.",
+            permissions: held(ROLE_ADMIN),
+        },
+        laterite_auth::store::SystemRole {
+            code: ROLE_EDITOR,
+            name: "Editor",
+            description: "Works with the content the application declares.",
+            permissions: held(ROLE_EDITOR),
+        },
+    ]
 }
 
 impl Resource {
@@ -825,32 +896,14 @@ impl Resource {
 /// The framework's own permissions, offered in the role editor under a
 /// "Backend" group. These gate the built-in Users and Roles screens.
 fn builtin_permissions() -> Vec<Permission> {
+    // Each names no role, so each belongs to the administrator alone: every one
+    // of them administers the panel rather than its content.
     vec![
-        Permission {
-            code: "backend.manage_users".to_string(),
-            label: "Manage backend users".into(),
-            group: "Backend".into(),
-        },
-        Permission {
-            code: "backend.manage_roles".to_string(),
-            label: "Manage roles".into(),
-            group: "Backend".into(),
-        },
-        Permission {
-            code: "backend.manage_branding".to_string(),
-            label: "Manage branding".into(),
-            group: "Backend".into(),
-        },
-        Permission {
-            code: plugins::MANAGE_PERMISSION.to_string(),
-            label: "Manage plugins".into(),
-            group: "Backend".into(),
-        },
-        Permission {
-            code: "backend.view_audit_log".to_string(),
-            label: "View the audit log".into(),
-            group: "Backend".into(),
-        },
+        Permission::new("backend.manage_users", "Manage backend users", "Backend"),
+        Permission::new("backend.manage_roles", "Manage roles", "Backend"),
+        Permission::new("backend.manage_branding", "Manage branding", "Backend"),
+        Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
+        Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
     ]
 }
 

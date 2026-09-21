@@ -47,6 +47,7 @@ msgstr ""
 msgid "Audit Log"
 msgstr ""
 
+#: templates/_roles_form_fields.html
 #: templates/form.html
 #: templates/roles_form.html
 msgid "Back"
@@ -208,6 +209,10 @@ msgstr ""
 
 #: templates/_list_table.html
 msgid "Displayed records: {shown} of {total}"
+msgstr ""
+
+#: templates/_roles_form_fields.html
+msgid "Duplicate"
 msgstr ""
 
 #: templates/_list_table.html
@@ -623,6 +628,10 @@ msgstr ""
 msgid "The export could not be produced."
 msgstr ""
 
+#: templates/_roles_form_fields.html
+msgid "The framework maintains this role and rewrites it as modules change. Duplicate it to make one of your own."
+msgstr ""
+
 #: src/error.rs
 msgid "The page or record you asked for does not exist."
 msgstr ""
@@ -645,6 +654,10 @@ msgstr ""
 
 #: templates/setup.html
 msgid "This install has no accounts yet. Set one up to sign in."
+msgstr ""
+
+#: src/roles.rs
+msgid "This role is maintained by the framework. Duplicate it to make your own."
 msgstr ""
 
 #: src/settings/mod.rs

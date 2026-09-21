@@ -25,11 +25,11 @@ fn app(db: Db, list: ListConfig) -> Router {
         db,
         Contributions {
             resources: vec![Resource::new("/things", "Things", list)],
-            permissions: vec![Permission {
-                code: SECRET.into(),
-                label: t!("See the secret column"),
-                group: t!("Things"),
-            }],
+            permissions: vec![Permission::new(
+                SECRET,
+                t!("See the secret column"),
+                t!("Things"),
+            )],
             ..Default::default()
         },
         AdminConfig::default(),

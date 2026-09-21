@@ -19,6 +19,14 @@ pub mod permission;
 pub mod service;
 pub mod store;
 
+/// The built-in role every administrative permission belongs to. Held by the
+/// first operator, and by anyone who should administer the panel itself.
+pub const ROLE_ADMIN: &str = "admin";
+
+/// The built-in role for working with content rather than the panel. Empty on a
+/// bare framework: a permission joins it by naming it.
+pub const ROLE_EDITOR: &str = "editor";
+
 mod models;
 mod schema;
 

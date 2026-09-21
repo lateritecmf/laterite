@@ -461,6 +461,11 @@ impl Bootstrap {
             }
         }
 
+        // The framework's own roles, rewritten from the registry now that every
+        // module has contributed: a new permission lands in its role at the boot
+        // that introduces it.
+        laterite_auth::store::sync_system_roles(&db, &crate::system_roles(&permissions)).await?;
+
         let mut app = router(
             auth,
             db.clone(),

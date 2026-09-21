@@ -25,7 +25,7 @@ pub(crate) async fn new_form(
     Extension(shell): Extension<Shell>,
 ) -> Response {
     let action = format!("{}/roles/new", state.admin_path);
-    render(build(&state, &action, None, "", "", &[], shell))
+    render(build(&state, &action, None, "", "", &[], false, shell))
 }
 
 /// Persists a new role, then redirects to the list.
@@ -51,6 +51,7 @@ pub(crate) async fn create(
                 &code,
                 &name,
                 &perms,
+                false,
                 shell,
             ),
         );
@@ -80,6 +81,7 @@ pub(crate) async fn create(
                 &code,
                 &name,
                 &perms,
+                false,
                 shell,
             ),
         ),
@@ -100,6 +102,7 @@ pub(crate) async fn edit_form(
                 Alias::new("code"),
                 Alias::new("name"),
                 Alias::new("permissions"),
+                Alias::new("is_system"),
             ])
             .from(Alias::new("backend_roles"))
             .and_where(
@@ -124,7 +127,10 @@ pub(crate) async fn edit_form(
     let name = row.get_text("name").unwrap_or_default();
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let perms: Vec<String> = serde_json::from_str(&perms_json).unwrap_or_default();
-    render(build(&state, &action, None, &code, &name, &perms, shell))
+    let system = row.get_bool("is_system").unwrap_or(false);
+    render(build(
+        &state, &action, None, &code, &name, &perms, system, shell,
+    ))
 }
 
 /// Persists an edited role, then redirects to the list.
@@ -141,6 +147,30 @@ pub(crate) async fn update(
     let (code, name, perms) = parse(&pairs);
     let perms = registered_only(perms, &state.permissions);
     let action = format!("{}/roles/{id}/edit", state.admin_path);
+    // The framework rewrites its own roles at every boot, so a save here would
+    // be undone without telling anyone. Refused, form or crafted POST alike.
+    if let Ok(row_id) = id.parse::<i64>() {
+        if laterite_auth::store::role_is_system(&state.db, row_id)
+            .await
+            .unwrap_or(false)
+        {
+            return invalid_response(
+                htmx,
+                build(
+                    &state,
+                    &action,
+                    Some(t!(
+                        "This role is maintained by the framework. Duplicate it to make your own."
+                    )),
+                    &code,
+                    &name,
+                    &perms,
+                    true,
+                    shell,
+                ),
+            );
+        }
+    }
     if code.is_empty() || name.is_empty() {
         return invalid_response(
             htmx,
@@ -151,6 +181,7 @@ pub(crate) async fn update(
                 &code,
                 &name,
                 &perms,
+                false,
                 shell,
             ),
         );
@@ -198,6 +229,7 @@ pub(crate) async fn update(
                 &code,
                 &name,
                 &perms,
+                false,
                 shell,
             ),
         ),
@@ -265,6 +297,7 @@ fn build(
     code: &str,
     name: &str,
     selected: &[String],
+    system: bool,
     shell: Shell,
 ) -> RolesFormTemplate {
     let groups = group_permissions(&state.permissions, selected, &shell);
@@ -279,6 +312,8 @@ fn build(
         code: code.to_string(),
         name: name.to_string(),
         groups,
+        system,
+        duplicate_path: format!("{}/roles/new", state.admin_path),
     }
 }
 
@@ -304,6 +339,9 @@ struct RolesFormTemplate {
     code: String,
     name: String,
     groups: Vec<PermGroupView>,
+    /// A role the framework owns: shown, never saved.
+    system: bool,
+    duplicate_path: String,
 }
 
 /// The form alone, for an HTMX submit that swaps it in place.
@@ -317,6 +355,8 @@ struct RolesFormFragment {
     code: String,
     name: String,
     groups: Vec<PermGroupView>,
+    system: bool,
+    duplicate_path: String,
 }
 
 /// The 422 response for a rejected save: the form alone under HTMX, the whole
@@ -331,6 +371,8 @@ fn invalid_response(htmx: bool, page: RolesFormTemplate) -> Response {
             code: page.code,
             name: page.name,
             groups: page.groups,
+            system: page.system,
+            duplicate_path: page.duplicate_path,
         })
     } else {
         render(page)
@@ -344,16 +386,8 @@ mod tests {
 
     fn registry() -> Vec<Permission> {
         vec![
-            Permission {
-                code: "backend.manage_users".to_string(),
-                label: "Manage backend users".into(),
-                group: "Backend".into(),
-            },
-            Permission {
-                code: "acme.publish".to_string(),
-                label: "Publish".into(),
-                group: "Content".into(),
-            },
+            Permission::new("backend.manage_users", "Manage backend users", "Backend"),
+            Permission::new("acme.publish", "Publish", "Content"),
         ]
     }
 

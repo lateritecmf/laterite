@@ -3,11 +3,11 @@
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <div class="lat-field">
     <label class="lat-field__label" for="code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
-    <input class="lat-input" type="text" id="code" name="code" value="{{ code }}" required>
+    <input class="lat-input" type="text" id="code" name="code" value="{{ code }}" required{% if system %} readonly{% endif %}>
   </div>
   <div class="lat-field">
     <label class="lat-field__label" for="name">{{ shell.t("Name") }}<span class="lat-field__req">*</span></label>
-    <input class="lat-input" type="text" id="name" name="name" value="{{ name }}" required>
+    <input class="lat-input" type="text" id="name" name="name" value="{{ name }}" required{% if system %} readonly{% endif %}>
   </div>
   <div class="lat-field">
     <span class="lat-field__label">{{ shell.t("Permissions") }}</span>
@@ -16,7 +16,7 @@
       <legend class="lat-permgroup__legend">{{ group.name }}</legend>
       {% for perm in group.perms %}
       <label class="lat-check">
-        <input type="checkbox" name="perm" value="{{ perm.code }}"{% if perm.checked %} checked{% endif %}>
+        <input type="checkbox" name="perm" value="{{ perm.code }}"{% if perm.checked %} checked{% endif %}{% if system %} disabled{% endif %}>
         <span>{{ perm.label }}</span>
       </label>
       {% endfor %}
@@ -24,7 +24,13 @@
     {% endfor %}
   </div>
   <div class="lat-actions">
+    {% if system %}
+    <p class="lat-field__help">{{ shell.t("The framework maintains this role and rewrites it as modules change. Duplicate it to make one of your own.") }}</p>
+    <a class="lat-btn lat-btn--primary" href="{{ duplicate_path }}">{{ shell.t("Duplicate") }}</a>
+    <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Back") }}</a>
+    {% else %}
     <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
     <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
+    {% endif %}
   </div>
 </form>

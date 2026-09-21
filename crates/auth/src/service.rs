@@ -710,6 +710,12 @@ impl AuthService {
         if new.timezone.is_some() {
             store::set_user_timezone(&self.db, id, new.timezone).await?;
         }
+        // The administrator role, when the panel has written it. A superuser
+        // passes every check anyway; this is so the roles screen reads true and
+        // the account keeps working if its superuser flag is ever cleared.
+        if let Some(role_id) = store::role_id_by_code(&self.db, crate::ROLE_ADMIN).await? {
+            store::assign_role(&self.db, id, role_id).await?;
+        }
         Ok(id)
     }
 

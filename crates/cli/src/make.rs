@@ -913,11 +913,8 @@ use laterite_admin::{{Permission, Resource}};
 pub const MANAGE: &str = "{permission}";
 
 pub fn permission() -> Permission {{
-    Permission {{
-        code: MANAGE.to_string(),
-        label: "Manage {table}".into(),
-        group: "{plural_title}".into(),
-    }}
+    Permission::new(MANAGE, "Manage {table}", "{plural_title}")
+        .roles([laterite_admin::ROLE_ADMIN, laterite_admin::ROLE_EDITOR])
 }}
 
 pub fn resource() -> Resource {{

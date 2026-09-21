@@ -857,6 +857,126 @@ pub async fn create_role(
     Ok(insert_returning_id(db, stmt, BackendRoles::Id).await?)
 }
 
+/// A role the framework owns: its permissions come from the registry, not from
+/// the database, so they cannot drift as modules add permissions.
+pub struct SystemRole<'a> {
+    pub code: &'a str,
+    pub name: &'a str,
+    pub description: &'a str,
+    pub permissions: Vec<String>,
+}
+
+/// Writes the system roles, creating what is missing and rewriting what exists.
+///
+/// Runs at every boot: a module that registers a new permission has it in the
+/// right role the moment it loads, and an operator cannot leave a system role
+/// holding a permission the registry no longer declares. Only the framework's
+/// own rows are touched; a role an operator made is never rewritten.
+pub async fn sync_system_roles(db: &Db, roles: &[SystemRole<'_>]) -> Result<(), AuthError> {
+    for role in roles {
+        let perms = serde_json::to_string(&role.permissions).unwrap_or_else(|_| "[]".to_string());
+        let existing = role_id_by_code(db, role.code).await?;
+        let stmt = match existing {
+            Some(_) => build(
+                db.backend,
+                Query::update()
+                    .table(BackendRoles::Table)
+                    .values([
+                        (BackendRoles::Name, role.name.into()),
+                        (BackendRoles::Description, role.description.into()),
+                        (BackendRoles::Permissions, perms.into()),
+                        (BackendRoles::IsSystem, true.into()),
+                    ])
+                    .and_where(Expr::col(BackendRoles::Code).eq(role.code))
+                    .to_owned(),
+            ),
+            None => build(
+                db.backend,
+                Query::insert()
+                    .into_table(BackendRoles::Table)
+                    .columns([
+                        BackendRoles::Code,
+                        BackendRoles::Name,
+                        BackendRoles::Description,
+                        BackendRoles::Permissions,
+                        BackendRoles::IsSystem,
+                        BackendRoles::CreatedAt,
+                    ])
+                    .values_panic([
+                        role.code.into(),
+                        role.name.into(),
+                        role.description.into(),
+                        perms.into(),
+                        true.into(),
+                        now_ts().into(),
+                    ])
+                    .to_owned(),
+            ),
+        };
+        bind_values(sqlx::query(&stmt.0), stmt.1)
+            .execute(&db.pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// The id of the role with this code, if there is one.
+pub async fn role_id_by_code(db: &Db, code: &str) -> Result<Option<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendRoles::Id)
+            .from(BackendRoles::Table)
+            .and_where(Expr::col(BackendRoles::Code).eq(code))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(match row {
+        Some(row) => Some(row.try_get::<i64, _>("id")?),
+        None => None,
+    })
+}
+
+/// The permission codes this role grants.
+pub async fn role_permissions(db: &Db, id: i64) -> Result<Vec<String>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendRoles::Permissions)
+            .from(BackendRoles::Table)
+            .and_where(Expr::col(BackendRoles::Id).eq(id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(match row {
+        Some(row) => serde_json::from_str(&row.get_text("permissions")?).unwrap_or_default(),
+        None => Vec::new(),
+    })
+}
+
+/// Whether this role is one the framework owns.
+pub async fn role_is_system(db: &Db, id: i64) -> Result<bool, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendRoles::IsSystem)
+            .from(BackendRoles::Table)
+            .and_where(Expr::col(BackendRoles::Id).eq(id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(match row {
+        Some(row) => row.get_bool("is_system")?,
+        None => false,
+    })
+}
+
 pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,
