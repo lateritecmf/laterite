@@ -208,3 +208,92 @@ async fn a_system_role_cannot_be_edited_through_the_panel() {
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(held(&db, ROLE_ADMIN).await, before, "permissions untouched");
 }
+
+/// Deleting a built-in role would cascade away every assignment to it, and the
+/// row returning at the next boot would not bring those back.
+#[tokio::test]
+async fn a_system_role_cannot_be_deleted_from_the_list() {
+    use axum::body::Body;
+    use axum::http::Request;
+    use laterite_admin::{router, AdminConfig, Contributions};
+    use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    let (db, _guard) = test_db().await;
+    let perms = sample();
+    store::sync_system_roles(&db, &system_roles(&perms))
+        .await
+        .unwrap();
+    let admin_id = store::role_id_by_code(&db, ROLE_ADMIN)
+        .await
+        .unwrap()
+        .unwrap();
+    let mine = store::create_role(&db, "acme.mine", "Mine", &[])
+        .await
+        .unwrap();
+
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    let user = svc
+        .create_superuser(NewOperator {
+            username: "root",
+            email: "root@acme.test",
+            first_name: "Root",
+            last_name: None,
+            password: "rootpw12345",
+            timezone: None,
+        })
+        .await
+        .unwrap();
+    let token = svc
+        .authenticate("root", "rootpw12345", &RequestContext::default())
+        .await
+        .unwrap()
+        .token;
+    svc.set_session_data(&token, r#"{"v":1,"csrf":"itest-csrf"}"#)
+        .await
+        .unwrap();
+    store::assign_role(&db, user, admin_id).await.unwrap();
+
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            permissions: perms.clone(),
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(laterite_core::CatalogStore::default()),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/roles/delete")
+                .header("cookie", format!("laterite_session={token}"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("sec-fetch-site", "same-origin")
+                .header("x-csrf-token", "itest-csrf")
+                .body(Body::from(format!("id={admin_id}&id={mine}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_redirection() || resp.status().is_success());
+
+    // The framework's role and the assignment to it both survive.
+    assert!(
+        store::role_id_by_code(&db, ROLE_ADMIN)
+            .await
+            .unwrap()
+            .is_some(),
+        "the built-in role must survive"
+    );
+    assert!(
+        !store::load_role_permissions(&db, user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "and so must the operator's assignment to it"
+    );
+}

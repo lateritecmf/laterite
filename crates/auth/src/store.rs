@@ -875,45 +875,49 @@ pub struct SystemRole<'a> {
 pub async fn sync_system_roles(db: &Db, roles: &[SystemRole<'_>]) -> Result<(), AuthError> {
     for role in roles {
         let perms = serde_json::to_string(&role.permissions).unwrap_or_else(|_| "[]".to_string());
-        let existing = role_id_by_code(db, role.code).await?;
-        let stmt = match existing {
-            Some(_) => build(
-                db.backend,
-                Query::update()
-                    .table(BackendRoles::Table)
-                    .values([
-                        (BackendRoles::Name, role.name.into()),
-                        (BackendRoles::Description, role.description.into()),
-                        (BackendRoles::Permissions, perms.into()),
-                        (BackendRoles::IsSystem, true.into()),
-                    ])
-                    .and_where(Expr::col(BackendRoles::Code).eq(role.code))
-                    .to_owned(),
-            ),
-            None => build(
-                db.backend,
-                Query::insert()
-                    .into_table(BackendRoles::Table)
-                    .columns([
-                        BackendRoles::Code,
-                        BackendRoles::Name,
-                        BackendRoles::Description,
-                        BackendRoles::Permissions,
-                        BackendRoles::IsSystem,
-                        BackendRoles::CreatedAt,
-                    ])
-                    .values_panic([
-                        role.code.into(),
-                        role.name.into(),
-                        role.description.into(),
-                        perms.into(),
-                        true.into(),
-                        now_ts().into(),
-                    ])
-                    .to_owned(),
-            ),
-        };
-        bind_values(sqlx::query(&stmt.0), stmt.1)
+        // Insert-then-update rather than select-then-insert: two instances booting
+        // together both reach the insert, and the loser is ignored instead of
+        // failing the unique key and taking its boot down with it.
+        let (sql, values) = build(
+            db.backend,
+            Query::insert()
+                .into_table(BackendRoles::Table)
+                .columns([
+                    BackendRoles::Code,
+                    BackendRoles::Name,
+                    BackendRoles::Description,
+                    BackendRoles::Permissions,
+                    BackendRoles::IsSystem,
+                    BackendRoles::CreatedAt,
+                ])
+                .values_panic([
+                    role.code.into(),
+                    role.name.into(),
+                    role.description.into(),
+                    perms.clone().into(),
+                    true.into(),
+                    now_ts().into(),
+                ])
+                .on_conflict(on_conflict_ignore([BackendRoles::Code]))
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await?;
+        let (sql, values) = build(
+            db.backend,
+            Query::update()
+                .table(BackendRoles::Table)
+                .values([
+                    (BackendRoles::Name, role.name.into()),
+                    (BackendRoles::Description, role.description.into()),
+                    (BackendRoles::Permissions, perms.into()),
+                    (BackendRoles::IsSystem, true.into()),
+                ])
+                .and_where(Expr::col(BackendRoles::Code).eq(role.code))
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
             .execute(&db.pool)
             .await?;
     }
@@ -960,17 +964,40 @@ pub async fn role_permissions(db: &Db, id: i64) -> Result<Vec<String>, AuthError
 
 /// Whether this role is one the framework owns.
 pub async fn role_is_system(db: &Db, id: i64) -> Result<bool, AuthError> {
-    let (sql, values) = build(
-        db.backend,
+    let (sql, values) = is_system_query(db.backend, id);
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    read_is_system(row)
+}
+
+/// The same question asked on an open transaction, for a listener that must see
+/// the state the write is running against.
+pub async fn role_is_system_on(
+    conn: &mut sqlx::AnyConnection,
+    backend: laterite_core::DbBackend,
+    id: i64,
+) -> Result<bool, AuthError> {
+    let (sql, values) = is_system_query(backend, id);
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&mut *conn)
+        .await?;
+    read_is_system(row)
+}
+
+fn is_system_query(backend: laterite_core::DbBackend, id: i64) -> (String, sea_query::Values) {
+    build(
+        backend,
         Query::select()
             .column(BackendRoles::IsSystem)
             .from(BackendRoles::Table)
             .and_where(Expr::col(BackendRoles::Id).eq(id))
             .to_owned(),
-    );
-    let row = bind_values(sqlx::query(&sql), values)
-        .fetch_optional(&db.pool)
-        .await?;
+    )
+}
+
+/// A missing row is not a system role: it is nothing at all.
+fn read_is_system(row: Option<AnyRow>) -> Result<bool, AuthError> {
     Ok(match row {
         Some(row) => row.get_bool("is_system")?,
         None => false,

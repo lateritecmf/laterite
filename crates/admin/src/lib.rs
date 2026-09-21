@@ -893,6 +893,38 @@ impl Resource {
     }
 }
 
+/// Refuses deletion of a role the framework owns.
+///
+/// The row would return at the next boot, but `backend_user_roles` cascades, so
+/// every operator's assignment to it would be gone for good. The edit screen
+/// already refuses; this closes the list's Delete.
+struct SystemRoleGuard;
+
+#[laterite_core::strata::async_trait]
+impl laterite_core::ModelListener for SystemRoleGuard {
+    async fn before_delete(
+        &self,
+        cx: &mut laterite_core::SaveCx<'_>,
+        rec: &laterite_core::Record,
+    ) -> Result<(), Text> {
+        let Some(id) = rec.id() else {
+            return Ok(());
+        };
+        // Read on the delete's own connection, so it sees the transaction's state.
+        let backend = cx.backend();
+        match laterite_auth::store::role_is_system_on(cx.conn(), backend, id).await {
+            Ok(true) => Err(t!(
+                "The framework maintains this role; it cannot be deleted."
+            )),
+            // A read that failed is not a licence to delete.
+            Err(_) => Err(t!(
+                "Could not check whether this role is maintained by the framework."
+            )),
+            Ok(false) => Ok(()),
+        }
+    }
+}
+
 /// The framework's own permissions, offered in the role editor under a
 /// "Backend" group. These gate the built-in Users and Roles screens.
 fn builtin_permissions() -> Vec<Permission> {
@@ -1041,6 +1073,14 @@ pub fn router(
 
     let mut settings = builtin_settings();
     settings.extend(app_settings);
+    // The framework's own listeners run before the modules', so a contributed
+    // one can see what they decided.
+    let mut app_listeners = app_listeners;
+    app_listeners.insert(
+        0,
+        laterite_core::ModelListenerReg::for_entity("backend_roles", Arc::new(SystemRoleGuard)),
+    );
+
     let mut permissions = builtin_permissions();
     permissions.extend(app_permissions);
     // The codes a column may require; `list::check` refuses one nobody registered.

@@ -117,6 +117,10 @@ msgid "Colour mode"
 msgstr ""
 
 #: src/lib.rs
+msgid "Could not check whether this role is maintained by the framework."
+msgstr ""
+
+#: src/lib.rs
 msgid "Could not create the account. The username or email may already be taken."
 msgstr ""
 
@@ -630,6 +634,10 @@ msgstr ""
 
 #: templates/_roles_form_fields.html
 msgid "The framework maintains this role and rewrites it as modules change. Duplicate it to make one of your own."
+msgstr ""
+
+#: src/lib.rs
+msgid "The framework maintains this role; it cannot be deleted."
 msgstr ""
 
 #: src/error.rs
