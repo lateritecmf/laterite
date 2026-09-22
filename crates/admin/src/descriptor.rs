@@ -130,6 +130,34 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     Ok(resource)
 }
 
+/// Reads a descriptor file at compile time, relative to the crate's manifest.
+///
+/// ```rust,ignore
+/// registry.add_resource(laterite_admin::resource!("admin/posts.yaml"));
+/// ```
+///
+/// The file is embedded, so a built binary carries its screens and a missing or
+/// malformed one fails the build rather than the deployment. The path is
+/// manifest-relative, so it is the same path you would open in an editor, and
+/// it appears in any error.
+///
+/// A descriptor that must be read at run time is a different producer of the
+/// same [`Resource`]: call [`from_yaml`] with whatever you loaded.
+#[macro_export]
+macro_rules! resource {
+    ($path:literal) => {
+        $crate::descriptor::from_yaml(
+            ::std::include_str!(::std::concat!(
+                ::std::env!("CARGO_MANIFEST_DIR"),
+                "/",
+                $path
+            )),
+            $path,
+        )
+        .unwrap_or_else(|e| ::std::panic!("{e}"))
+    };
+}
+
 /// `created_at` reads as "Created at" when a file names no label. Still a
 /// `Text`, so it localizes and `lat i18n extract` finds it like any other.
 fn humanize(name: &str) -> Text {

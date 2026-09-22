@@ -12,6 +12,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A resource can be written as a YAML file and read with
   `laterite_admin::descriptor::from_yaml`. One file per resource, columns and
   fields as named maps, an unknown key refused with its line.
+- `resource!("admin/posts.yaml")` embeds a descriptor file at compile time.
 
 ## [0.8.0] - 2026-09-22
 

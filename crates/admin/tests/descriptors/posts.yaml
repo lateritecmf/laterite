@@ -1,0 +1,23 @@
+entity: backend_roles
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  creatable: true
+  deletable: true
+  order_by: created_at
+  order_dir: desc
+  no_records_message: No posts yet.
+  search: { prompt: Search posts }
+  per_page_options: [25, 50]
+  columns:
+    code:       { searchable: true }
+    name:       { label: Title }
+    created_at: { type: datetime, align: right, width: 12% }
+  filters:
+    code: { type: text }
+form:
+  title: Post
+  fields:
+    code: { rules: [required, { max_length: 60 }] }
+    name: { label: Title, rules: [required] }
