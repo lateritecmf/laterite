@@ -7,25 +7,27 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-22
+
+Roles you can actually use, and lists you can shape: two built-in roles written
+from the permission registry, a screen to assign them, and the knobs a resource
+needs to say how its list behaves.
+
+### Changed
+
+- **Breaking:** `Permission` is built with `Permission::new(code, label, group)`
+  and is non-exhaustive; `.roles([..])` names the built-in roles that hold it.
+- **Breaking:** a `ListFilter` carries a `type` string and an options bag, like a
+  `FormField`; `FilterKind` is gone. `boolean` and `select` are unchanged.
+
 ### Added
 
 - Two built-in roles, Administrator and Editor, written from the permission
   registry at every boot. The first operator holds Administrator.
 - Roles are assigned from the Users screen. A role granting more than the
   editor holds, and their own roles, are locked.
-- A built-in role is read-only in the editor, with Duplicate to make your own.
-- A built-in role cannot be deleted: its rows return at boot, but the operator
-  assignments that cascade with it would not.
-
-### Changed
-
-- **Breaking:** a `ListFilter` carries a `type` string and an options bag, like a
-  `FormField`; `FilterKind` is gone. `boolean` and `select` are unchanged.
-- **Breaking:** `Permission` is built with `Permission::new(code, label, group)`
-  and is non-exhaustive; `.roles([..])` names the built-in roles that hold it.
-
-### Added
-
+- A built-in role is read-only in the editor, with Duplicate to make your own,
+  and cannot be deleted: the assignments that cascade with it would not return.
 - A list sets its empty-state message with `no_records_message`, and its search
   box with `SearchConfig`: a prompt, ask on Enter only, or off.
 - `per_page_options` offers the operator a choice of page size in the list
@@ -33,8 +35,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Column knobs: `sortable`, `invisible`, `width`, `align` and `require`. A column
   the operator may not see is not queried, sorted, searched or exported.
 - Filter knobs: `default_value` opens a list already narrowed, `require` gates a
-  filter. A gated filter is not offered and its default does not apply.
-- Filter types `text`, `number` and `date`, each refusing a value it cannot
+  filter, and the types `text`, `number` and `date` each refuse what they cannot
   match.
 
 ### Fixed
