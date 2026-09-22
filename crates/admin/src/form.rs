@@ -42,6 +42,7 @@ use crate::{not_found, render, render_error, AdminState};
 /// rules it carries, and whether it holds translatable content. A serde
 /// descriptor, so it is authorable as data (later YAML) as well as by builder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct FormField {
     pub name: String,
     /// The field's label, localized at render. Serde stays a plain string.
@@ -64,6 +65,38 @@ pub struct FormField {
     /// Help text shown beneath the control, localized at render.
     #[serde(default)]
     pub help: Option<Text>,
+}
+
+impl Default for FormConfig {
+    /// Everything a descriptor file leaves to the resource level: the entity,
+    /// the path and the id column are filled in when the file is read.
+    fn default() -> Self {
+        Self {
+            entity: String::new(),
+            title: Text::new(""),
+            base_path: String::new(),
+            id_field: "id".to_string(),
+            fields: Vec::new(),
+            persist: None,
+            timestamps: false,
+        }
+    }
+}
+
+impl Default for FormField {
+    /// A text field, named by the key it is written under.
+    fn default() -> Self {
+        Self::of("", Text::new(""), "text")
+    }
+}
+
+impl crate::keyed::Keyed for FormField {
+    fn key(&self) -> &str {
+        &self.name
+    }
+    fn set_key(&mut self, key: String) {
+        self.name = key;
+    }
 }
 
 impl FormField {
@@ -218,7 +251,8 @@ impl FormField {
 ///
 /// Built with [`FormConfig::new`] plus its builder methods. Non-exhaustive so the
 /// framework can learn something new about a form after 1.0 without a major bump.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct FormConfig {
     pub entity: String,
@@ -226,6 +260,10 @@ pub struct FormConfig {
     pub title: Text,
     pub base_path: String,
     pub id_field: String,
+    #[serde(
+        deserialize_with = "crate::keyed::deserialize",
+        serialize_with = "crate::keyed::serialize"
+    )]
     pub fields: Vec<FormField>,
     /// The registered persister that writes this form (a dotted `vendor.name`),
     /// or `None` for the built-in descriptor insert/update. See [`crate::persist`].

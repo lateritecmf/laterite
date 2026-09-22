@@ -28,7 +28,8 @@ use crate::{render, render_error, AdminState};
 
 const ID_ALIAS: &str = "_lat_id";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SortDir {
     Asc,
     Desc,
@@ -37,7 +38,7 @@ pub enum SortDir {
 /// One column of a list view: the source field, its display label, and its
 /// column-type key (resolved through the column-type registry).
 /// How a column's cells and header align.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Align {
     Left,
@@ -55,8 +56,11 @@ impl Align {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct ListColumn {
+    /// Comes from the key this was written under, never from the body.
+    #[serde(skip)]
     pub field: String,
     /// The column header, localized at render. Serde stays a plain string.
     pub label: Text,
@@ -418,6 +422,39 @@ fn status_slug(value: &str) -> String {
         .collect()
 }
 
+impl Default for ListColumn {
+    /// A text column. The name comes from the key it is written under, and the
+    /// label from the name when a file gives none.
+    fn default() -> Self {
+        Self::new("", Text::new(""))
+    }
+}
+
+impl Default for ListFilter {
+    /// A text filter, named and labelled like a column.
+    fn default() -> Self {
+        Self::of("", Text::new(""), "text")
+    }
+}
+
+impl crate::keyed::Keyed for ListColumn {
+    fn key(&self) -> &str {
+        &self.field
+    }
+    fn set_key(&mut self, key: String) {
+        self.field = key;
+    }
+}
+
+impl crate::keyed::Keyed for ListFilter {
+    fn key(&self) -> &str {
+        &self.field
+    }
+    fn set_key(&mut self, key: String) {
+        self.field = key;
+    }
+}
+
 /// One value a `select` filter offers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterOption {
@@ -436,8 +473,11 @@ impl FilterOption {
 }
 
 /// One filter offered above a list: a column, its label, and what it offers.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct ListFilter {
+    /// Comes from the key this was written under, never from the body.
+    #[serde(skip)]
     pub field: String,
     /// The control's label, localized at render.
     pub label: Text,
@@ -527,7 +567,8 @@ impl ListFilter {
 /// A resource declares its own; the framework contributes New and the export
 /// menu the same way, so the toolbar is one list of buttons rather than a
 /// hardcoded bar with special cases.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolbarButton {
     /// The button's text, localized at render.
     pub label: Text,
@@ -813,7 +854,8 @@ pub(crate) fn check(
 }
 
 /// The list's search box. On by default, over the columns marked searchable.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct SearchConfig {
     /// `false` removes the box.
     pub enabled: bool,
@@ -859,12 +901,17 @@ impl SearchConfig {
 /// Built with [`ListConfig::new`] plus its builder methods. Non-exhaustive, so a
 /// struct literal outside this crate cannot freeze the field set at 1.0; that
 /// rules out `..Default::default()` too, which is why the builders exist.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct ListConfig {
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.
     pub title: Text,
+    #[serde(
+        deserialize_with = "crate::keyed::deserialize",
+        serialize_with = "crate::keyed::serialize"
+    )]
     pub columns: Vec<ListColumn>,
     pub order_by: String,
     pub order_dir: SortDir,
@@ -876,6 +923,10 @@ pub struct ListConfig {
     /// edits existing records (no create screen) sets this false.
     pub creatable: bool,
     /// Filters offered above the table. Empty hides the bar.
+    #[serde(
+        deserialize_with = "crate::keyed::deserialize",
+        serialize_with = "crate::keyed::serialize"
+    )]
     pub filters: Vec<ListFilter>,
     /// Whether rows can be selected and deleted from this list. Off by default:
     /// a list that shows a log, or records another screen owns, has no business
