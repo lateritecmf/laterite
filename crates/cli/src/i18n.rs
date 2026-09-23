@@ -314,8 +314,13 @@ fn collect(krate: &Path) -> Result<Catalog> {
     }
     // A resource written as a file carries its labels the same way. Read each
     // with the real structs, so a new `Text` field is extracted with no change
-    // here, and reference the entry by the file an author can open.
-    for path in descriptor_files(krate) {
+    // here, and reference the entry by the file an author can open. The admin
+    // crate is skipped: the walk above already covers its built-ins, whether
+    // they were built in Rust or read from a file.
+    for path in descriptor_files(krate)
+        .into_iter()
+        .filter(|_| krate.file_name().is_none_or(|n| n != "admin"))
+    {
         let yaml = fs::read_to_string(&path)?;
         let at = rel(krate, &path);
         let resource = laterite_admin::descriptor::from_yaml(&yaml, &at)
@@ -334,10 +339,10 @@ fn rel(krate: &Path, path: &Path) -> String {
         .to_string()
 }
 
-/// The descriptor files a crate ships, under `admin/`. Both spellings of the
-/// extension, because an author writes whichever their editor suggests.
+/// The descriptor files a crate ships, under `descriptors/`. Both spellings of
+/// the extension, because an author writes whichever their editor suggests.
 fn descriptor_files(krate: &Path) -> Vec<PathBuf> {
-    let dir = krate.join("admin");
+    let dir = krate.join("descriptors");
     let mut out = files(&dir, "yaml");
     out.extend(files(&dir, "yml"));
     out.sort();

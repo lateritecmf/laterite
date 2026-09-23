@@ -4,7 +4,7 @@ One YAML file describes one resource: the table, where it mounts, who may reach
 it, and its list and form.
 
 ```yaml
-# admin/posts.yaml
+# descriptors/posts.yaml
 entity: posts
 path: /posts
 title: Posts
@@ -32,7 +32,7 @@ form:
 Register it from your module:
 
 ```rust
-registry.add_resource(laterite_admin::resource!("admin/posts.yaml"));
+registry.add_resource(laterite_admin::resource!("descriptors/posts.yaml"));
 ```
 
 The path is relative to your `Cargo.toml`. The file is read at compile time: a
@@ -77,7 +77,7 @@ label, type, sortable, invisible, width, align, permission, searchable
 
 Write only the keys you set; everything else takes its default.
 
-`lat doctor` parses every `admin/**/*.yaml` in the application and its plugins,
+`lat doctor` parses every `descriptors/**/*.yaml` in the application and its plugins,
 so a typo is named without a build.
 
 ## Read a descriptor at run time

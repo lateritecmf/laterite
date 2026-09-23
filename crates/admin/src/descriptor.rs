@@ -133,7 +133,7 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
 /// Reads a descriptor file at compile time, relative to the crate's manifest.
 ///
 /// ```rust,ignore
-/// registry.add_resource(laterite_admin::resource!("admin/posts.yaml"));
+/// registry.add_resource(laterite_admin::resource!("descriptors/posts.yaml"));
 /// ```
 ///
 /// The file is embedded, so a built binary carries its screens and a missing or

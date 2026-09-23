@@ -126,7 +126,7 @@ pub async fn run() -> Result<()> {
     }
 }
 
-/// Every `admin/**/*.yaml` under the application and its plugins.
+/// Every `descriptors/**/*.yaml` under the application and its plugins.
 fn descriptor_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     let mut roots = vec![root.to_path_buf()];
@@ -134,7 +134,7 @@ fn descriptor_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
         roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
     }
     for base in roots {
-        collect_yaml(&base.join("admin"), &mut out);
+        collect_yaml(&base.join("descriptors"), &mut out);
     }
     out.sort();
     out
