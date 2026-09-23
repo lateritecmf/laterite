@@ -2789,14 +2789,7 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_roles".to_string()),
         },
-        Resource {
-            base_path: "/audit-log".to_string(),
-            nav_label: "Audit Log".into(),
-            list: audit_log_list_config(),
-            // Append-only: read-only list, no form, no edit or create links.
-            form: None,
-            permission: Some("backend.view_audit_log".to_string()),
-        },
+        resource!("descriptors/audit-log.yaml"),
     ]
 }
 
@@ -2878,29 +2871,6 @@ fn roles_list_config() -> list::ListConfig {
         edit_base: Some("/roles".to_string()),
         creatable: true,
         deletable: true,
-        ..Default::default()
-    }
-}
-
-/// The read-only audit-log view: the recorded administrative changes, newest
-/// first. Append-only, so no create or edit path (`edit_base`/`creatable` off).
-fn audit_log_list_config() -> list::ListConfig {
-    list::ListConfig {
-        entity: "backend_audit_log".to_string(),
-        title: "Audit Log".into(),
-        columns: vec![
-            list::ListColumn::new("created_at", "When").datetime(),
-            list::ListColumn::new("actor_username", "Operator"),
-            list::ListColumn::new("action", "Action"),
-            list::ListColumn::new("target_type", "Target"),
-            list::ListColumn::new("target_id", "Target ID"),
-        ],
-        order_by: "created_at".to_string(),
-        per_page: 50,
-        per_page_options: vec![25, 50, 100],
-        // The log is evidence: it can leave the panel for an auditor, but nothing
-        // removes from it here.
-        exportable: true,
         ..Default::default()
     }
 }
@@ -3095,6 +3065,40 @@ mod tests {
             &persist::PersisterRegistry::new(),
             &[],
         );
+    }
+
+    /// The audit log is a descriptor file. Its shape is pinned here, so the
+    /// file and the screen cannot drift apart unnoticed.
+    #[test]
+    fn the_audit_log_is_read_from_its_descriptor_file() {
+        let audit = builtin_resources()
+            .into_iter()
+            .find(|r| r.base_path == "/audit-log")
+            .expect("the audit log is registered");
+        assert_eq!(audit.list.entity, "backend_audit_log");
+        assert_eq!(audit.permission.as_deref(), Some("backend.view_audit_log"));
+        assert_eq!(
+            audit
+                .list
+                .columns
+                .iter()
+                .map(|c| c.field.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "created_at",
+                "actor_username",
+                "action",
+                "target_type",
+                "target_id"
+            ],
+            "in the order the file writes them"
+        );
+        assert_eq!(audit.list.columns[0].column_type, "datetime");
+        assert_eq!(audit.list.per_page, 50);
+        assert_eq!(audit.list.per_page_options, [25, 50, 100]);
+        assert!(audit.list.exportable, "evidence may leave the panel");
+        assert!(audit.form.is_none(), "append-only: no form");
+        assert!(!audit.list.deletable, "and nothing removes from it");
     }
 
     #[test]

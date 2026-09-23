@@ -1,0 +1,20 @@
+# The recorded administrative changes, newest first. Append-only: no form, so
+# no create or edit path.
+entity: backend_audit_log
+path: /audit-log
+title: Audit Log
+permission: backend.view_audit_log
+list:
+  order_by: created_at
+  order_dir: desc
+  per_page: 50
+  per_page_options: [25, 50, 100]
+  # The log is evidence: it can leave the panel for an auditor, but nothing
+  # removes from it here.
+  exportable: true
+  columns:
+    created_at:     { label: When, type: datetime }
+    actor_username: { label: Operator }
+    action:         { label: Action }
+    target_type:    { label: Target }
+    target_id:      { label: Target ID }
