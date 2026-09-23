@@ -77,6 +77,9 @@ label, type, sortable, invisible, width, align, permission, searchable
 
 Write only the keys you set; everything else takes its default.
 
+`lat doctor` parses every `admin/**/*.yaml` in the application and its plugins,
+so a typo is named without a build.
+
 ## Read a descriptor at run time
 
 `resource!` embeds a file. For YAML you loaded yourself, call the function

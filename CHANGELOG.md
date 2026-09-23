@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `laterite_admin::descriptor::from_yaml`. One file per resource, columns and
   fields as named maps, an unknown key refused with its line.
 - `resource!("admin/posts.yaml")` embeds a descriptor file at compile time.
+- `lat i18n extract` reads the labels a descriptor file carries, and
+  `lat doctor` parses every `admin/**/*.yaml` without a compile.
 
 ## [0.8.0] - 2026-09-22
 

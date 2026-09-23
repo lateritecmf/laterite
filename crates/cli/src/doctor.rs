@@ -98,12 +98,59 @@ pub async fn run() -> Result<()> {
         }
     }
 
+    // Descriptor files are embedded at build time, so a typo already fails the
+    // build. Reading them here names the file and line without a compile.
+    let mut bad: Vec<String> = Vec::new();
+    for path in descriptor_files(&project.root) {
+        let at = path.display().to_string();
+        match std::fs::read_to_string(&path) {
+            Ok(yaml) => {
+                if let Err(e) = laterite_admin::descriptor::from_yaml(&yaml, &at) {
+                    bad.push(e.to_string());
+                }
+            }
+            Err(e) => bad.push(format!("{at}: {e}")),
+        }
+    }
+    ok &= check("descriptor files parse", bad.is_empty());
+    for message in &bad {
+        println!("    {message}");
+    }
+
     println!();
     if ok {
         println!("All checks passed.");
         Ok(())
     } else {
         bail!("some checks failed; see above");
+    }
+}
+
+/// Every `admin/**/*.yaml` under the application and its plugins.
+fn descriptor_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut roots = vec![root.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(root.join("plugins")) {
+        roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+    }
+    for base in roots {
+        collect_yaml(&base.join("admin"), &mut out);
+    }
+    out.sort();
+    out
+}
+
+fn collect_yaml(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_yaml(&path, out);
+        } else if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+            out.push(path);
+        }
     }
 }
 

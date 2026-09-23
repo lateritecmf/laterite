@@ -312,6 +312,18 @@ fn collect(krate: &Path) -> Result<Catalog> {
             add(&mut cat, None, source, None, "(descriptors)".to_string());
         }
     }
+    // A resource written as a file carries its labels the same way. Read each
+    // with the real structs, so a new `Text` field is extracted with no change
+    // here, and reference the entry by the file an author can open.
+    for path in descriptor_files(krate) {
+        let yaml = fs::read_to_string(&path)?;
+        let at = rel(krate, &path);
+        let resource = laterite_admin::descriptor::from_yaml(&yaml, &at)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        for source in laterite_core::collect_sources(&resource) {
+            add(&mut cat, None, source, None, at.clone());
+        }
+    }
     Ok(cat)
 }
 
@@ -320,6 +332,16 @@ fn rel(krate: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+/// The descriptor files a crate ships, under `admin/`. Both spellings of the
+/// extension, because an author writes whichever their editor suggests.
+fn descriptor_files(krate: &Path) -> Vec<PathBuf> {
+    let dir = krate.join("admin");
+    let mut out = files(&dir, "yaml");
+    out.extend(files(&dir, "yml"));
+    out.sort();
+    out
 }
 
 /// Every file with `ext` under `dir`, recursively, in sorted order.
@@ -572,6 +594,35 @@ mod tests {
         assert!(cat.contains_key(&(Some("verb".to_string()), "Open".to_string())));
         let plural = &cat[&(None, "{n} item".to_string())];
         assert_eq!(plural.plural.as_deref(), Some("{n} items"));
+    }
+
+    /// A label written in a descriptor file must reach the catalog, or a
+    /// file-authored screen is quietly untranslatable.
+    #[test]
+    fn collects_the_labels_a_descriptor_file_carries() {
+        let yaml = r#"
+entity: posts
+path: /posts
+title: Posts
+list:
+  no_records_message: No posts yet.
+  columns:
+    title: { label: Headline }
+    created_at: { type: datetime }
+"#;
+        let resource = laterite_admin::descriptor::from_yaml(yaml, "admin/posts.yaml").unwrap();
+        let sources = laterite_core::collect_sources(&resource);
+        assert!(sources.iter().any(|s| s == "Posts"), "the title");
+        assert!(sources.iter().any(|s| s == "Headline"), "a written label");
+        assert!(
+            sources.iter().any(|s| s == "Created at"),
+            "and one made from the key: {sources:?}"
+        );
+        assert!(sources.iter().any(|s| s == "No posts yet."));
+        assert!(
+            !sources.iter().any(|s| s == "posts" || s == "/posts"),
+            "but not the entity or the path"
+        );
     }
 
     #[test]
