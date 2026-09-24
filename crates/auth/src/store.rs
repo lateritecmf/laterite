@@ -1004,6 +1004,108 @@ fn read_is_system(row: Option<AnyRow>) -> Result<bool, AuthError> {
     })
 }
 
+/// Rewrites renamed permission codes wherever an operator's choices hold them.
+///
+/// A system role is rebuilt from the registry at every boot, so it needs no
+/// repair. A role someone made, and a per-user override, hold whatever code was
+/// current when they were saved: without this they keep granting a string
+/// nothing checks any more. Returns how many rows changed, so a boot can say so
+/// once and stay quiet afterwards.
+///
+/// Idempotent: a second run finds no old code and writes nothing.
+pub async fn rename_permissions(db: &Db, renames: &[(String, String)]) -> Result<usize, AuthError> {
+    if renames.is_empty() {
+        return Ok(0);
+    }
+    let mut changed = 0;
+
+    // Roles hold a JSON array of codes.
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([BackendRoles::Id, BackendRoles::Permissions])
+            .from(BackendRoles::Table)
+            .to_owned(),
+    );
+    for row in bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?
+    {
+        let id = row.try_get::<i64, _>("id")?;
+        let held: Vec<String> =
+            serde_json::from_str(&row.get_text("permissions")?).unwrap_or_default();
+        let mut next: Vec<String> = held
+            .iter()
+            .map(|code| apply_rename(code, renames))
+            .collect();
+        // A rename can land on a code the role already held.
+        next.dedup_by(|a, b| a == b);
+        let mut seen = std::collections::HashSet::new();
+        next.retain(|code| seen.insert(code.clone()));
+        if next != held {
+            let json = serde_json::to_string(&next).unwrap_or_else(|_| "[]".to_string());
+            let (sql, values) = build(
+                db.backend,
+                Query::update()
+                    .table(BackendRoles::Table)
+                    .value(BackendRoles::Permissions, json)
+                    .and_where(Expr::col(BackendRoles::Id).eq(id))
+                    .to_owned(),
+            );
+            bind_values(sqlx::query(&sql), values)
+                .execute(&db.pool)
+                .await?;
+            changed += 1;
+        }
+    }
+
+    // A user's overrides are a JSON object keyed by code.
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([BackendUsers::Id, BackendUsers::Permissions])
+            .from(BackendUsers::Table)
+            .to_owned(),
+    );
+    for row in bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?
+    {
+        let id = row.try_get::<i64, _>("id")?;
+        let held: HashMap<String, i64> =
+            serde_json::from_str(&row.get_text("permissions")?).unwrap_or_default();
+        let next: HashMap<String, i64> = held
+            .iter()
+            .map(|(code, state)| (apply_rename(code, renames), *state))
+            .collect();
+        if next != held {
+            let json = serde_json::to_string(&next).unwrap_or_else(|_| "{}".to_string());
+            let (sql, values) = build(
+                db.backend,
+                Query::update()
+                    .table(BackendUsers::Table)
+                    .value(BackendUsers::Permissions, json)
+                    .and_where(Expr::col(BackendUsers::Id).eq(id))
+                    .to_owned(),
+            );
+            bind_values(sqlx::query(&sql), values)
+                .execute(&db.pool)
+                .await?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
+/// The code this one became, or itself.
+fn apply_rename(code: &str, renames: &[(String, String)]) -> String {
+    renames
+        .iter()
+        .find(|(old, _)| old == code)
+        .map(|(_, new)| new.clone())
+        .unwrap_or_else(|| code.to_string())
+}
+
 /// A role as the assignment screen lists it.
 pub struct RoleSummary {
     pub id: i64,

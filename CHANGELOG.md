@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `lat i18n extract` reads the labels a descriptor file carries, and
   `lat doctor` parses every `admin/**/*.yaml` without a compile.
 - The built-in audit log is itself a descriptor file.
+- `Permission::renamed_from` rewrites a renamed code in every role and
+  per-user override at boot, so an operator's own choices are repaired.
 
 ## [0.8.0] - 2026-09-22
 

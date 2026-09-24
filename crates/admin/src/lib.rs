@@ -793,6 +793,9 @@ pub struct Permission {
     /// The built-in roles that hold this permission. Empty means
     /// [`ROLE_ADMIN`] alone.
     pub default_roles: Vec<String>,
+    /// Codes this permission used to have. At boot every role and override
+    /// still holding one is rewritten to the current code.
+    pub renamed_from: Vec<String>,
 }
 
 pub use laterite_auth::{ROLE_ADMIN, ROLE_EDITOR};
@@ -806,7 +809,22 @@ impl Permission {
             label: label.into(),
             group: group.into(),
             default_roles: Vec::new(),
+            renamed_from: Vec::new(),
         }
+    }
+
+    /// Codes this permission used to have.
+    ///
+    /// A role or override still holding one is rewritten at the next boot, so a
+    /// rename repairs what operators saved rather than leaving them granting a
+    /// string nothing checks.
+    pub fn renamed_from<I, S>(mut self, codes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.renamed_from = codes.into_iter().map(Into::into).collect();
+        self
     }
 
     /// The built-in roles that hold this permission by default. Naming
@@ -819,6 +837,37 @@ impl Permission {
         self.default_roles = roles.into_iter().map(Into::into).collect();
         self
     }
+}
+
+/// Every rename the registry declares, as `(old, new)` pairs.
+///
+/// Two permissions claiming one old code cannot both be right, and silently
+/// picking one would move an operator's grant to the wrong place, so it aborts
+/// the boot naming both.
+pub fn permission_renames(contributed: &[Permission]) -> Vec<(String, String)> {
+    let permissions: Vec<Permission> = builtin_permissions()
+        .into_iter()
+        .chain(contributed.iter().cloned())
+        .collect();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for permission in &permissions {
+        for old in &permission.renamed_from {
+            if let Some((_, taken)) = out.iter().find(|(o, _)| o == old) {
+                panic!(
+                    "permissions `{taken}` and `{}` both claim the old code `{old}`",
+                    permission.code
+                );
+            }
+            if permissions.iter().any(|p| &p.code == old) {
+                panic!(
+                    "permission `{}` claims `{old}` as an old code, but `{old}` is still registered",
+                    permission.code
+                );
+            }
+            out.push((old.clone(), permission.code.clone()));
+        }
+    }
+    out
 }
 
 /// The framework's roles, with the permissions the registry says they hold.

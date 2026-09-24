@@ -461,6 +461,15 @@ impl Bootstrap {
             }
         }
 
+        // A renamed permission is repaired wherever an operator's own choices
+        // still hold the old code, before the roles below are rebuilt.
+        let renamed =
+            laterite_auth::store::rename_permissions(&db, &crate::permission_renames(&permissions))
+                .await?;
+        if renamed > 0 {
+            tracing::info!(rows = renamed, "rewrote renamed permission codes");
+        }
+
         // The framework's own roles, rewritten from the registry now that every
         // module has contributed: a new permission lands in its role at the boot
         // that introduces it.

@@ -19,6 +19,17 @@ registry.add_permission(
 Registered permissions appear in the role editor under their `group`. Only a
 registered permission can be granted.
 
+## Rename a permission
+
+```rust
+Permission::new("acme.posts", t!("Manage posts"), t!("Content"))
+    .renamed_from(["acme.manage.posts"])
+```
+
+At the next boot every role and per-user override holding the old code is
+rewritten to the new one. Two permissions claiming one old code, or an old
+code still registered, abort the boot.
+
 ## Built-in roles
 
 Every deployment starts with two roles the framework owns and rewrites at each
