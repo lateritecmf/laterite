@@ -304,6 +304,7 @@ pub(crate) async fn find_valid_session(
             .from(BackendSessions::Table)
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
             .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
+            .and_where(Expr::col(BackendSessions::RevokedReason).is_null())
             .to_owned(),
     );
     let row = bind_values(sqlx::query(&sql), values)
@@ -519,6 +520,7 @@ pub(crate) async fn list_user_sessions(
             .from(BackendSessions::Table)
             .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
             .and_where(Expr::col(BackendSessions::ExpiresAt).gt(ts(now)))
+            .and_where(Expr::col(BackendSessions::RevokedReason).is_null())
             .order_by(BackendSessions::LastSeenAt, Order::Desc)
             .to_owned(),
     );
@@ -560,18 +562,120 @@ pub(crate) async fn delete_user_session(
     Ok(done.rows_affected())
 }
 
-/// Ends every session a user holds except the one they are asking from.
-pub(crate) async fn delete_user_sessions_except(
+/// Why a session was ended deliberately. The set is closed: it becomes a code
+/// on a redirect and a sentence on the login screen, so nothing a caller wrote
+/// is ever shown back to anyone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevokeReason {
+    /// The account's password changed.
+    PasswordChanged,
+    /// The account was deactivated.
+    Deactivated,
+    /// Someone chose to sign out every other device.
+    SignedOutElsewhere,
+}
+
+impl RevokeReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RevokeReason::PasswordChanged => "password_changed",
+            RevokeReason::Deactivated => "deactivated",
+            RevokeReason::SignedOutElsewhere => "signed_out_elsewhere",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<Self> {
+        match code {
+            "password_changed" => Some(RevokeReason::PasswordChanged),
+            "deactivated" => Some(RevokeReason::Deactivated),
+            "signed_out_elsewhere" => Some(RevokeReason::SignedOutElsewhere),
+            _ => None,
+        }
+    }
+}
+
+/// How a session that no longer works came to an end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionEnd {
+    /// It ran out: idle too long, or past its ceiling.
+    Expired,
+    /// It was ended on purpose.
+    Revoked(RevokeReason),
+}
+
+/// Ends a user's sessions on purpose, recording why, except `keep` when given.
+///
+/// The row stays until it is next presented, so whoever holds it can be told
+/// why they were signed out.
+pub(crate) async fn revoke_user_sessions(
     db: &Db,
     user_id: i64,
-    keep: &str,
+    keep: Option<&str>,
+    reason: RevokeReason,
+) -> Result<u64, AuthError> {
+    // Scoped so the builder drops before the await, keeping the future `Send`.
+    let (sql, values) = {
+        let mut update = Query::update();
+        update
+            .table(BackendSessions::Table)
+            .value(BackendSessions::RevokedReason, reason.as_str())
+            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+            .and_where(Expr::col(BackendSessions::RevokedReason).is_null());
+        if let Some(keep) = keep {
+            update.and_where(Expr::col(BackendSessions::TokenHash).ne(keep));
+        }
+        build(db.backend, update.to_owned())
+    };
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// Why a presented session no longer works, or `None` for one never issued.
+pub(crate) async fn session_end(
+    db: &Db,
+    token_hash: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<SessionEnd>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([BackendSessions::RevokedReason, BackendSessions::ExpiresAt])
+            .from(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .to_owned(),
+    );
+    let Some(row) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if let Some(reason) = row
+        .get_text_opt("revoked_reason")?
+        .as_deref()
+        .and_then(RevokeReason::parse)
+    {
+        return Ok(Some(SessionEnd::Revoked(reason)));
+    }
+    let expires = parse_ts(&row.get_text("expires_at")?)?;
+    Ok((expires <= now).then_some(SessionEnd::Expired))
+}
+
+/// Sets a user's password hash by id.
+pub(crate) async fn update_password(
+    db: &Db,
+    user_id: i64,
+    password_hash: &str,
 ) -> Result<u64, AuthError> {
     let (sql, values) = build(
         db.backend,
-        Query::delete()
-            .from_table(BackendSessions::Table)
-            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
-            .and_where(Expr::col(BackendSessions::TokenHash).ne(keep))
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::PasswordHash, password_hash)
+            .value(BackendUsers::UpdatedAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
             .to_owned(),
     );
     let done = bind_values(sqlx::query(&sql), values)
@@ -1265,22 +1369,6 @@ pub(crate) async fn other_active_superusers(db: &Db, excluding: i64) -> Result<i
         .fetch_one(&db.pool)
         .await?;
     Ok(row.try_get::<i64, _>(0).unwrap_or(0))
-}
-
-/// Ends every session a user holds. Used when an account is deactivated: an
-/// account that may not sign in must not stay signed in either.
-pub(crate) async fn delete_all_user_sessions(db: &Db, user_id: i64) -> Result<u64, AuthError> {
-    let (sql, values) = build(
-        db.backend,
-        Query::delete()
-            .from_table(BackendSessions::Table)
-            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
-            .to_owned(),
-    );
-    let done = bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
-        .await?;
-    Ok(done.rows_affected())
 }
 
 /// Lists backend users for admin tooling, ordered by creation time.

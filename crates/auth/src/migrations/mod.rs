@@ -25,4 +25,5 @@ laterite_core::migration_set! {
     m0012_create_backend_remember_tokens,
     m0013_add_backend_session_client,
     m0014_add_backend_role_system,
+    m0015_add_backend_session_revoked_reason,
 }

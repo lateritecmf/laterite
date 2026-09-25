@@ -7,7 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Security
+
+- `lat admin reset-password` now signs the account out of every session and
+  stay-signed-in device. Before, a reset left whoever else held it signed in.
+
 ### Added
+
+- `AuthService::change_password` revokes every other session with a reason,
+  and refuses a password under `MIN_PASSWORD_LENGTH` (8).
 
 - A resource can be written as a YAML file and read with
   `laterite_admin::descriptor::from_yaml`. One file per resource, columns and

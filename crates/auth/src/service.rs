@@ -272,6 +272,9 @@ pub struct AuditEntry<'a> {
     pub detail: Option<&'a str>,
 }
 
+/// The shortest password [`AuthService::change_password`] accepts.
+pub const MIN_PASSWORD_LENGTH: usize = 8;
+
 /// The auth service. Cheap to clone: it holds a database handle and config.
 #[derive(Clone)]
 pub struct AuthService {
@@ -567,10 +570,80 @@ impl AuthService {
         user_id: i64,
         keep_token: &str,
     ) -> Result<u64, AuthError> {
-        let ended =
-            store::delete_user_sessions_except(&self.db, user_id, &hash_token(keep_token)).await?;
+        let ended = store::revoke_user_sessions(
+            &self.db,
+            user_id,
+            Some(&hash_token(keep_token)),
+            store::RevokeReason::SignedOutElsewhere,
+        )
+        .await?;
         store::delete_user_remember_tokens(&self.db, user_id).await?;
         Ok(ended)
+    }
+
+    /// Sets a new password and signs the account out everywhere else.
+    ///
+    /// A password is changed because it was forgotten, shared or stolen. In the
+    /// last two cases whoever else holds it is already signed in, so every other
+    /// session is ended and every stay-signed-in credential dropped; leaving
+    /// either would make the change decorative. `keep_token` is the session the
+    /// change was made from, which survives so nobody is thrown out mid-edit.
+    /// The sessions ended record why, so their holders are told.
+    ///
+    /// Refuses a password shorter than [`MIN_PASSWORD_LENGTH`].
+    pub async fn change_password(
+        &self,
+        user_id: i64,
+        new_password: &str,
+        keep_token: Option<&str>,
+    ) -> Result<(), AuthError> {
+        if new_password.chars().count() < MIN_PASSWORD_LENGTH {
+            return Err(AuthError::Refused(format!(
+                "A password needs at least {MIN_PASSWORD_LENGTH} characters."
+            )));
+        }
+        let hash = password::hash_password(new_password)?;
+        if store::update_password(&self.db, user_id, &hash).await? == 0 {
+            return Err(AuthError::SessionInvalid);
+        }
+        let keep = keep_token.map(hash_token);
+        store::revoke_user_sessions(
+            &self.db,
+            user_id,
+            keep.as_deref(),
+            store::RevokeReason::PasswordChanged,
+        )
+        .await?;
+        store::delete_user_remember_tokens(&self.db, user_id).await?;
+        Ok(())
+    }
+
+    /// [`AuthService::change_password`] for an account named by username, with no
+    /// session kept: the command-line reset, run from outside every session.
+    /// `Ok(false)` when no such account exists.
+    pub async fn reset_password(
+        &self,
+        username: &str,
+        new_password: &str,
+    ) -> Result<bool, AuthError> {
+        let Some(user) = store::find_user_by_username(&self.db, username).await? else {
+            return Ok(false);
+        };
+        self.change_password(user.id, new_password, None).await?;
+        Ok(true)
+    }
+
+    /// Why a presented session no longer works, if it was ever issued.
+    ///
+    /// A deliberately ended session is told once: reading its reason removes it,
+    /// so a stale tab reloaded later is simply signed out.
+    pub async fn session_end(&self, token: &str) -> Result<Option<store::SessionEnd>, AuthError> {
+        let token_hash = hash_token(token);
+        let end = store::session_end(&self.db, &token_hash, Utc::now()).await?;
+        if matches!(end, Some(store::SessionEnd::Revoked(_))) {
+            store::delete_session(&self.db, &token_hash).await?;
+        }
+        Ok(end)
     }
 
     /// Activates or deactivates a backend user.
@@ -614,7 +687,8 @@ impl AuthService {
             return Err(AuthError::SessionInvalid);
         }
         if !active {
-            store::delete_all_user_sessions(&self.db, user_id).await?;
+            store::revoke_user_sessions(&self.db, user_id, None, store::RevokeReason::Deactivated)
+                .await?;
             store::delete_user_remember_tokens(&self.db, user_id).await?;
         }
         Ok(())

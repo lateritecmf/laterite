@@ -8,7 +8,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
-use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator};
+use laterite_auth::{store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
@@ -150,12 +150,16 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
         }
         AdminCommand::ResetPassword(args) => {
             let plain = resolve_password(args.password, args.generate)?;
-            let hash = password::hash_password(&plain)?;
-            let affected = store::update_password_by_username(&pool, &args.username, &hash).await?;
-            if affected == 0 {
+            // Through the service, so the reset signs the account out everywhere:
+            // a password is usually reset because someone else may hold it.
+            let svc = AuthService::new(pool.clone(), AuthConfig::default());
+            if !svc.reset_password(&args.username, &plain).await? {
                 bail!("no backend user named '{}'", args.username);
             }
-            println!("Password reset for '{}'", args.username);
+            println!(
+                "Password reset for '{}'; every session and stay-signed-in device was signed out",
+                args.username
+            );
         }
         AdminCommand::List => {
             let users = store::list_backend_users(&pool).await?;

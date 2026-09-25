@@ -68,6 +68,8 @@ pub(crate) enum BackendSessions {
     IpAddress,
     /// The signing-in browser's user agent, capped by the surface.
     UserAgent,
+    /// Why the session was ended on purpose; null while it is live.
+    RevokedReason,
 }
 
 #[derive(Iden)]
