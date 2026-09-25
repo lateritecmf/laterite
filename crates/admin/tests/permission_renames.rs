@@ -2,7 +2,7 @@
 //! their per-user overrides, not just the framework's roles.
 
 use laterite_admin::{permission_renames, system_roles, Permission, ROLE_EDITOR};
-use laterite_auth::{password, store, AuthConfig, AuthService};
+use laterite_auth::{password, store};
 use laterite_core::{t, Db};
 
 const OLD: &str = "acme.manage.posts";
@@ -74,7 +74,7 @@ async fn a_per_user_override_is_rewritten() {
         .await
         .unwrap();
     assert_eq!(after.get(NEW), Some(&-1), "the deny followed the rename");
-    assert!(after.get(OLD).is_none(), "and the old key is gone");
+    assert!(!after.contains_key(OLD), "and the old key is gone");
 }
 
 /// Running it again finds nothing: a boot that repairs nothing stays quiet.
