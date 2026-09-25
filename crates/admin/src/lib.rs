@@ -2002,31 +2002,32 @@ async fn require_auth(
     // A live session is the ordinary path. A missing or expired one falls back
     // to the stay-signed-in credential, which mints a fresh session and rotates
     // itself, so the cookie just presented is never accepted a second time.
+    // A presented session that fails is asked why, so the login screen can say.
+    let mut ended: Option<laterite_auth::SessionEnd> = None;
     let live = match jar.get(SESSION_COOKIE) {
         Some(cookie) => {
             let token = cookie.value().to_string();
-            state
-                .auth
-                .resolve_session(&token)
-                .await
-                .ok()
-                .map(|resolved| (token, resolved))
+            match state.auth.resolve_session(&token).await {
+                Ok(resolved) => Some((token, resolved)),
+                Err(_) => {
+                    ended = state.auth.session_end(&token).await.ok().flatten();
+                    None
+                }
+            }
         }
         None => None,
     };
+    let htmx = request.headers().contains_key("hx-request");
     let (token, resolved, recalled) = match live {
         Some((token, resolved)) => (token, resolved, None),
+        // Ended on purpose: the stay-signed-in credential was dropped with it,
+        // and recalling past a deliberate sign-out would undo it anyway.
+        None if matches!(ended, Some(laterite_auth::SessionEnd::Revoked(_))) => {
+            return signed_out(&state, jar, &login, ended, htmx);
+        }
         None => match recall(&state, &jar, &client_ctx).await {
             Some((token, resolved, credential)) => (token, resolved, Some(credential)),
-            // Clear the credential on the way out: a cookie that failed once
-            // will fail every time, and retrying it on each request is noise.
-            None => {
-                return (
-                    jar.remove(remember_removal(&state.admin_path)),
-                    Redirect::to(&login),
-                )
-                    .into_response()
-            }
+            None => return signed_out(&state, jar, &login, ended, htmx),
         },
     };
     let handle = session::SessionHandle::from_blob(resolved.data.as_deref());
@@ -2248,17 +2249,35 @@ async fn enforce_origin(State(state): State<AdminState>, request: Request, next:
     next.run(request).await
 }
 
-async fn login_form(State(state): State<AdminState>, headers: HeaderMap) -> Response {
+#[derive(Deserialize)]
+struct LoginQuery {
+    ended: Option<String>,
+}
+
+async fn login_form(
+    State(state): State<AdminState>,
+    headers: HeaderMap,
+    Query(query): Query<LoginQuery>,
+) -> Response {
     // A fresh install with no operators goes to first-run setup instead.
     match state.auth.has_any_operator().await {
         Ok(false) => Redirect::to(&format!("{}/setup", state.admin_path)).into_response(),
-        Ok(true) => render(LoginTemplate {
-            base: state.admin_path.to_string(),
-            asset_urls: state.asset_urls.clone(),
-            brand: state.brand().await,
-            error: None,
-            i18n: pre_auth_translator(&state, &headers),
-        }),
+        Ok(true) => {
+            let i18n = pre_auth_translator(&state, &headers);
+            let notice = query
+                .ended
+                .as_deref()
+                .and_then(end_notice)
+                .map(|text| i18n.t(&text));
+            render(LoginTemplate {
+                base: state.admin_path.to_string(),
+                asset_urls: state.asset_urls.clone(),
+                brand: state.brand().await,
+                error: None,
+                notice,
+                i18n,
+            })
+        }
         Err(_) => render_error(),
     }
 }
@@ -2316,6 +2335,7 @@ async fn login_submit(
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await,
                 error: Some(i18n.t(&t!("Invalid username or password."))),
+                notice: None,
                 i18n,
             })
         }
@@ -2356,6 +2376,62 @@ fn remember_cookie(
         .same_site(SameSite::Lax)
         .max_age(cookie::time::Duration::seconds(seconds))
         .build()
+}
+
+/// Sends a signed-out request to the login screen, carrying why when known.
+///
+/// Both cookies are cleared: a credential that failed once fails every time,
+/// and retrying it on each request is noise. An htmx request gets `HX-Redirect`
+/// with no body, so the browser navigates to the login page rather than
+/// swapping it into whatever region asked.
+fn signed_out(
+    state: &AdminState,
+    jar: CookieJar,
+    login: &str,
+    ended: Option<laterite_auth::SessionEnd>,
+    htmx: bool,
+) -> Response {
+    let to = match ended.map(end_code) {
+        Some(code) => format!("{login}?ended={code}"),
+        None => login.to_string(),
+    };
+    let jar = jar
+        .remove(
+            Cookie::build((SESSION_COOKIE, ""))
+                .path(state.admin_path.to_string())
+                .build(),
+        )
+        .remove(remember_removal(&state.admin_path));
+    if htmx {
+        let mut response = (jar, axum::http::StatusCode::NO_CONTENT).into_response();
+        if let Ok(value) = axum::http::HeaderValue::from_str(&to) {
+            response.headers_mut().insert("hx-redirect", value);
+        }
+        return response;
+    }
+    (jar, Redirect::to(&to)).into_response()
+}
+
+/// The code a login URL carries for how a session ended.
+fn end_code(end: laterite_auth::SessionEnd) -> &'static str {
+    match end {
+        laterite_auth::SessionEnd::Expired => "expired",
+        laterite_auth::SessionEnd::Revoked(reason) => reason.as_str(),
+    }
+}
+
+/// What the login screen says for an `ended` code. A fixed set: an unknown code
+/// shows nothing, so nothing in the URL is ever rendered back.
+fn end_notice(code: &str) -> Option<Text> {
+    Some(match code {
+        "password_changed" => {
+            t!("Your password was changed, so you were signed out. Sign in with the new one.")
+        }
+        "deactivated" => t!("This account was deactivated."),
+        "signed_out_elsewhere" => t!("You were signed out from another device."),
+        "expired" => t!("Your session ended after a period of inactivity. Sign in again."),
+        _ => return None,
+    })
 }
 
 /// Clears the remember cookie, for a logout or a credential that failed.
@@ -2933,6 +3009,8 @@ struct LoginTemplate {
     asset_urls: Arc<AssetUrls>,
     brand: String,
     error: Option<String>,
+    /// Why the previous session ended, when the redirect said.
+    notice: Option<String>,
     /// The pre-auth translator (config locale, then `Accept-Language`); no operator
     /// preference exists yet. `self.t` and `self.locale` localize this screen.
     i18n: Translator,

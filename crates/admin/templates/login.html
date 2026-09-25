@@ -19,6 +19,7 @@
         <h2 class="lat-login__title">{{ self.t("Admin panel") }}</h2>
         <p class="lat-login__lead">{{ self.t("Sign in to continue.") }}</p>
         {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+        {% if let Some(message) = notice %}<div class="lat-alert lat-alert--info" role="status">{{ message }}</div>{% endif %}
         <form method="post" action="{{ base }}/login">
           <div class="lat-field">
             <label class="lat-field__label" for="username">{{ self.t("Username") }}</label>

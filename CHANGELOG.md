@@ -16,6 +16,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `AuthService::change_password` revokes every other session with a reason,
   and refuses a password under `MIN_PASSWORD_LENGTH` (8).
+- A signed-out session is told why on the login screen: a changed password,
+  deactivation, sign-out from another device, or inactivity.
+
+### Fixed
+
+- An htmx request from a signed-out session navigates to login through
+  `HX-Redirect`, instead of rendering the login page inside the swap target.
 
 - A resource can be written as a YAML file and read with
   `laterite_admin::descriptor::from_yaml`. One file per resource, columns and

@@ -657,6 +657,10 @@ msgstr ""
 msgid "The server hit an unexpected error. It has been logged."
 msgstr ""
 
+#: src/lib.rs
+msgid "This account was deactivated."
+msgstr ""
+
 #: templates/preferences.html
 msgid "This device"
 msgstr ""
@@ -734,4 +738,16 @@ msgstr ""
 
 #: src/error.rs
 msgid "You do not have permission to view this."
+msgstr ""
+
+#: src/lib.rs
+msgid "You were signed out from another device."
+msgstr ""
+
+#: src/lib.rs
+msgid "Your password was changed, so you were signed out. Sign in with the new one."
+msgstr ""
+
+#: src/lib.rs
+msgid "Your session ended after a period of inactivity. Sign in again."
 msgstr ""
