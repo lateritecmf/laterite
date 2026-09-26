@@ -76,9 +76,14 @@ async fn body(resp: axum::response::Response) -> String {
 async fn a_changed_password_sends_the_other_device_to_login_with_the_reason() {
     let (db, _guard) = test_db().await;
     let (svc, id, laptop) = signed_in(&db).await;
-    svc.change_password(id, "battery-staple-2", None)
-        .await
-        .unwrap();
+    svc.change_password(
+        id,
+        "battery-staple-2",
+        None,
+        &laterite_core::Actor::system("test"),
+    )
+    .await
+    .unwrap();
 
     let resp = get(&db, "/admin", &laptop, false).await;
     assert!(resp.status().is_redirection());
@@ -130,9 +135,14 @@ async fn an_unknown_code_shows_no_message() {
 async fn an_htmx_request_is_told_to_navigate_rather_than_swap() {
     let (db, _guard) = test_db().await;
     let (svc, id, laptop) = signed_in(&db).await;
-    svc.change_password(id, "battery-staple-2", None)
-        .await
-        .unwrap();
+    svc.change_password(
+        id,
+        "battery-staple-2",
+        None,
+        &laterite_core::Actor::system("test"),
+    )
+    .await
+    .unwrap();
 
     let resp = get(&db, "/admin", &laptop, true).await;
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
@@ -176,9 +186,14 @@ async fn an_unknown_session_goes_to_plain_login() {
 async fn the_reason_is_told_once() {
     let (db, _guard) = test_db().await;
     let (svc, id, laptop) = signed_in(&db).await;
-    svc.change_password(id, "battery-staple-2", None)
-        .await
-        .unwrap();
+    svc.change_password(
+        id,
+        "battery-staple-2",
+        None,
+        &laterite_core::Actor::system("test"),
+    )
+    .await
+    .unwrap();
     let _ = get(&db, "/admin", &laptop, false).await;
     let again = get(&db, "/admin", &laptop, false).await;
     assert_eq!(location(&again), "/admin/login");
@@ -191,9 +206,14 @@ async fn a_remembered_device_is_told_why() {
     let (db, _guard) = test_db().await;
     let (svc, id, _) = signed_in(&db).await;
     let remembered = svc.issue_remember(id).await.unwrap();
-    svc.change_password(id, "battery-staple-2", None)
-        .await
-        .unwrap();
+    svc.change_password(
+        id,
+        "battery-staple-2",
+        None,
+        &laterite_core::Actor::system("test"),
+    )
+    .await
+    .unwrap();
 
     let resp = app(&db)
         .oneshot(

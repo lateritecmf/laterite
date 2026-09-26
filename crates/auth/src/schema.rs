@@ -32,6 +32,7 @@ pub(crate) enum BackendUsers {
     Timezone,
     Locale,
     Permissions,
+    PasswordChangedAt,
     CreatedAt,
     UpdatedAt,
 }

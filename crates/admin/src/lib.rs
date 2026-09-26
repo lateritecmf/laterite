@@ -2406,7 +2406,7 @@ fn signed_out(
     ended: Option<laterite_auth::SessionEnd>,
     htmx: bool,
 ) -> Response {
-    let to = match ended.map(end_code) {
+    let to = match ended.map(laterite_auth::SessionEnd::code) {
         Some(code) => format!("{login}?ended={code}"),
         None => login.to_string(),
     };
@@ -2425,14 +2425,6 @@ fn signed_out(
         return response;
     }
     (jar, Redirect::to(&to)).into_response()
-}
-
-/// The code a login URL carries for how a session ended.
-fn end_code(end: laterite_auth::SessionEnd) -> &'static str {
-    match end {
-        laterite_auth::SessionEnd::Expired => "expired",
-        laterite_auth::SessionEnd::Revoked(reason) => reason.as_str(),
-    }
 }
 
 /// What the login screen says for an `ended` code. A fixed set: an unknown code
@@ -2690,14 +2682,14 @@ async fn preferences_form(
     Extension(user): Extension<AuthenticatedUser>,
     jar: CookieJar,
 ) -> Response {
-    let sessions = session_rows(&state, &user, &shell, &jar).await;
+    let account = account_security(&state, &user, &shell, &jar).await;
     render(preferences_view(
         &shell,
         &user,
         state.timezone,
         &state.default_locale,
         &offered_locales(&state.catalogs),
-        sessions,
+        account,
         None,
     ))
 }
@@ -2791,7 +2783,7 @@ async fn preferences_update(
             state.timezone,
             &state.default_locale,
             &offered,
-            session_rows(&state, &user, &shell, &jar).await,
+            account_security(&state, &user, &shell, &jar).await,
             Some(t!("That is not a recognised timezone.")),
         ));
     };
@@ -2807,7 +2799,7 @@ async fn preferences_update(
             state.timezone,
             &state.default_locale,
             &offered,
-            session_rows(&state, &user, &shell, &jar).await,
+            account_security(&state, &user, &shell, &jar).await,
             Some(t!("That is not a supported language.")),
         ));
     };
@@ -2837,7 +2829,7 @@ fn preferences_view(
     default_tz: Tz,
     default_locale: &str,
     offered: &[String],
-    sessions: Vec<SessionRow>,
+    account: AccountSecurity,
     error: Option<Text>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
@@ -2867,8 +2859,38 @@ fn preferences_view(
         locales,
         default_locale: locale_name(default_locale),
         inherits_locale: current_locale.is_none(),
-        sessions,
+        sessions: account.sessions,
+        password_changed: account.password_changed,
         error: error.map(|e| shell.tt(&e)),
+    }
+}
+
+/// The Preferences screen's account section: live sessions and when the
+/// password last changed, in the operator's own timezone and locale.
+struct AccountSecurity {
+    sessions: Vec<SessionRow>,
+    password_changed: Option<String>,
+}
+
+async fn account_security(
+    state: &AdminState,
+    user: &AuthenticatedUser,
+    shell: &Shell,
+    jar: &CookieJar,
+) -> AccountSecurity {
+    let locale = list::date_locale(shell.locale());
+    let password_changed = match state.auth.password_changed_at(user.user.id).await {
+        Ok(at) => {
+            at.map(|dt| list::format_ts(&dt.to_rfc3339(), shell.tz, locale, "%-d %b %Y, %H:%M"))
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "reading the password change time failed");
+            None
+        }
+    };
+    AccountSecurity {
+        sessions: session_rows(state, user, shell, jar).await,
+        password_changed,
     }
 }
 
@@ -3106,6 +3128,8 @@ struct PreferencesTemplate {
     inherits_locale: bool,
     /// The account's live sessions, most recently active first.
     sessions: Vec<SessionRow>,
+    /// When the password last changed, formatted; `None` when not recorded.
+    password_changed: Option<String>,
     error: Option<String>,
 }
 

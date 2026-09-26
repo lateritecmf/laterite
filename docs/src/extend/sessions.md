@@ -41,6 +41,30 @@ async fn save(Extension(session): Extension<SessionHandle>, /* ... */) -> Respon
 The next full page renders and clears it, across a redirect. Levels:
 `Success`, `Error`, `Info`.
 
+## Change a password
+
+```rust
+use laterite_core::Actor;
+
+auth.change_password(
+    user.id,
+    &new_password,
+    Some(&session_token),
+    &Actor::user(user.id, &user.username),
+)
+.await?;
+```
+
+Argument | Value
+--- | ---
+`user_id` | The account whose password changes.
+`new_password` | Refused under `MIN_PASSWORD_LENGTH` (8).
+`keep_token` | The session to keep signed in, or `None` to end all of them.
+`actor` | Who made the change, recorded on the audit log. `Actor::system("lat admin reset-password")` for a process.
+
+`AuthService::password_changed_at(user_id)` returns when it last changed, or
+`None` if never recorded.
+
 ## Why a session ended
 
 Event | The signed-out device sees

@@ -13,6 +13,7 @@
     <div><dt>{{ shell.t("Username") }}</dt><dd>{{ username }}</dd></div>
     <div><dt>{{ shell.t("Email") }}</dt><dd>{{ email }}</dd></div>
     <div><dt>{{ shell.t("Status") }}</dt><dd>{% if is_active %}{{ shell.t("Active") }}{% else %}{{ shell.t("Deactivated") }}{% endif %}</dd></div>
+    <div><dt>{{ shell.t("Password changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>
 
   {# Deactivating is the reversible counterpart to deleting an operator, which

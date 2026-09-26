@@ -118,6 +118,7 @@ pub(crate) async fn edit_form(
                 Alias::new("is_superuser"),
                 Alias::new("is_active"),
                 Alias::new("permissions"),
+                Alias::new("password_changed_at"),
             ])
             .from(Alias::new("backend_users"))
             .and_where(
@@ -138,6 +139,14 @@ pub(crate) async fn edit_form(
     let email = row.get_text("email").unwrap_or_default();
     let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
     let is_active = row.get_bool("is_active").unwrap_or(true);
+    let password_changed = row
+        .get_text_opt("password_changed_at")
+        .ok()
+        .flatten()
+        .map(|raw| {
+            let locale = crate::list::date_locale(shell.locale());
+            crate::list::format_ts(&raw, shell.tz, locale, "%-d %b %Y, %H:%M")
+        });
     // Refused server-side either way; hiding the control keeps the screen from
     // offering an action it will not carry out.
     let can_change_state =
@@ -156,7 +165,7 @@ pub(crate) async fn edit_form(
             editor.user.id.to_string() == id,
         )
     };
-    Ok(render(build(
+    let mut page = build(
         &state,
         shell,
         &editor.permissions,
@@ -170,7 +179,9 @@ pub(crate) async fn edit_form(
         format!("{}/users/{id}/active", state.admin_path),
         &overrides,
         roles,
-    )))
+    );
+    page.password_changed = password_changed;
+    Ok(render(page))
 }
 
 /// Persists the changed overrides, then redirects to the list.
@@ -372,6 +383,7 @@ fn build(
         groups,
         roles_locked: !roles.is_empty() && roles.iter().all(|r| !r.changeable),
         roles,
+        password_changed: None,
     }
 }
 
@@ -443,6 +455,8 @@ struct UsersFormTemplate {
     roles: Vec<RoleRowView>,
     /// Whether any role is changeable, so the screen can say why not.
     roles_locked: bool,
+    /// When the password last changed, formatted; `None` when not recorded.
+    password_changed: Option<String>,
 }
 
 #[cfg(test)]

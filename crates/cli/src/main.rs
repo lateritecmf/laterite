@@ -153,7 +153,14 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             // Through the service, so the reset signs the account out everywhere:
             // a password is usually reset because someone else may hold it.
             let svc = AuthService::new(pool.clone(), AuthConfig::default());
-            if !svc.reset_password(&args.username, &plain).await? {
+            if !svc
+                .reset_password(
+                    &args.username,
+                    &plain,
+                    &laterite_core::Actor::system("lat admin reset-password"),
+                )
+                .await?
+            {
                 bail!("no backend user named '{}'", args.username);
             }
             println!(

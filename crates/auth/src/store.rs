@@ -618,6 +618,7 @@ pub(crate) async fn delete_user_session(
 /// on a redirect and a sentence on the login screen, so nothing a caller wrote
 /// is ever shown back to anyone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RevokeReason {
     /// The account's password changed.
     PasswordChanged,
@@ -648,11 +649,22 @@ impl RevokeReason {
 
 /// How a session that no longer works came to an end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SessionEnd {
     /// It ran out: idle too long, or past its ceiling.
     Expired,
     /// It was ended on purpose.
     Revoked(RevokeReason),
+}
+
+impl SessionEnd {
+    /// A stable code for the ending: `expired`, or the revoke reason's code.
+    pub fn code(self) -> &'static str {
+        match self {
+            SessionEnd::Expired => "expired",
+            SessionEnd::Revoked(reason) => reason.as_str(),
+        }
+    }
 }
 
 /// Ends a user's sessions on purpose, recording why, except `keep` when given.
@@ -726,6 +738,7 @@ pub(crate) async fn update_password(
         Query::update()
             .table(BackendUsers::Table)
             .value(BackendUsers::PasswordHash, password_hash)
+            .value(BackendUsers::PasswordChangedAt, now_ts())
             .value(BackendUsers::UpdatedAt, now_ts())
             .and_where(Expr::col(BackendUsers::Id).eq(user_id))
             .to_owned(),
@@ -734,6 +747,32 @@ pub(crate) async fn update_password(
         .execute(&db.pool)
         .await?;
     Ok(done.rows_affected())
+}
+
+/// When a user's password was last set, `None` if it has not changed since
+/// the time was first recorded.
+pub(crate) async fn password_changed_at(
+    db: &Db,
+    user_id: i64,
+) -> Result<Option<DateTime<Utc>>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUsers::PasswordChangedAt)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    match row {
+        Some(row) => row
+            .get_text_opt("password_changed_at")?
+            .map(|s| parse_ts(&s))
+            .transpose(),
+        None => Ok(None),
+    }
 }
 
 pub(crate) async fn delete_session(db: &Db, token_hash: &str) -> Result<(), AuthError> {
@@ -1459,6 +1498,7 @@ pub async fn update_password_by_username(
         Query::update()
             .table(BackendUsers::Table)
             .value(BackendUsers::PasswordHash, password_hash)
+            .value(BackendUsers::PasswordChangedAt, now_ts())
             .value(BackendUsers::UpdatedAt, now_ts())
             .and_where(Expr::col(BackendUsers::Username).eq(normalize_key(username)))
             .to_owned(),

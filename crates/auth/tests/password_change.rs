@@ -5,7 +5,7 @@ use laterite_auth::{
     password, store, AuthConfig, AuthService, RequestContext, RevokeReason, SessionEnd,
     MIN_PASSWORD_LENGTH,
 };
-use laterite_core::Db;
+use laterite_core::{Actor, Db};
 
 const OLD: &str = "correct-horse-1";
 const NEW: &str = "battery-staple-2";
@@ -23,6 +23,10 @@ async fn setup(db: &Db) -> (AuthService, i64) {
     (svc, id)
 }
 
+fn system() -> Actor {
+    Actor::system("lat admin reset-password")
+}
+
 async fn sign_in(svc: &AuthService) -> String {
     svc.authenticate("ada", OLD, &RequestContext::default())
         .await
@@ -37,7 +41,9 @@ async fn every_other_session_is_ended_and_told_why() {
     let here = sign_in(&svc).await;
     let laptop = sign_in(&svc).await;
 
-    svc.change_password(id, NEW, Some(&here)).await.unwrap();
+    svc.change_password(id, NEW, Some(&here), &Actor::user(id, "ada"))
+        .await
+        .unwrap();
 
     assert!(
         svc.resolve_session(&here).await.is_ok(),
@@ -60,7 +66,7 @@ async fn the_reason_is_given_once() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
     let laptop = sign_in(&svc).await;
-    svc.change_password(id, NEW, None).await.unwrap();
+    svc.change_password(id, NEW, None, &system()).await.unwrap();
     assert!(svc.session_end(&laptop).await.unwrap().is_some());
     assert_eq!(svc.session_end(&laptop).await.unwrap(), None);
 }
@@ -73,7 +79,7 @@ async fn stay_signed_in_credentials_stop_working() {
     let (svc, id) = setup(&db).await;
     let remembered = svc.issue_remember(id).await.unwrap();
 
-    svc.change_password(id, NEW, None).await.unwrap();
+    svc.change_password(id, NEW, None, &system()).await.unwrap();
 
     assert!(
         svc.consume_remember(&remembered.cookie, &RequestContext::default())
@@ -87,7 +93,7 @@ async fn stay_signed_in_credentials_stop_working() {
 async fn the_new_password_works_and_the_old_one_does_not() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
-    svc.change_password(id, NEW, None).await.unwrap();
+    svc.change_password(id, NEW, None, &system()).await.unwrap();
     assert!(svc
         .authenticate("ada", NEW, &RequestContext::default())
         .await
@@ -105,11 +111,11 @@ async fn a_reset_by_username_signs_out_every_session() {
     let (svc, _) = setup(&db).await;
     let a = sign_in(&svc).await;
     let b = sign_in(&svc).await;
-    assert!(svc.reset_password("ada", NEW).await.unwrap());
+    assert!(svc.reset_password("ada", NEW, &system()).await.unwrap());
     assert!(svc.resolve_session(&a).await.is_err());
     assert!(svc.resolve_session(&b).await.is_err());
     assert!(
-        !svc.reset_password("nobody", NEW).await.unwrap(),
+        !svc.reset_password("nobody", NEW, &system()).await.unwrap(),
         "an unknown name is reported"
     );
 }
@@ -120,7 +126,10 @@ async fn a_short_password_is_refused_and_changes_nothing() {
     let (svc, id) = setup(&db).await;
     let here = sign_in(&svc).await;
     let short = "x".repeat(MIN_PASSWORD_LENGTH - 1);
-    assert!(svc.change_password(id, &short, None).await.is_err());
+    assert!(svc
+        .change_password(id, &short, None, &system())
+        .await
+        .is_err());
     assert!(
         svc.resolve_session(&here).await.is_ok(),
         "nobody was signed out"
@@ -175,7 +184,7 @@ async fn a_remembered_device_is_told_why_once() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
     let remembered = svc.issue_remember(id).await.unwrap();
-    svc.change_password(id, NEW, None).await.unwrap();
+    svc.change_password(id, NEW, None, &system()).await.unwrap();
 
     let (selector, _) = remembered.cookie.split_once(':').unwrap();
     assert_eq!(
@@ -199,7 +208,7 @@ async fn a_revoked_cookie_does_not_look_stolen() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
     let remembered = svc.issue_remember(id).await.unwrap();
-    svc.change_password(id, NEW, None).await.unwrap();
+    svc.change_password(id, NEW, None, &system()).await.unwrap();
 
     assert!(svc
         .consume_remember(&remembered.cookie, &RequestContext::default())
@@ -210,4 +219,45 @@ async fn a_revoked_cookie_does_not_look_stolen() {
         Some(RevokeReason::PasswordChanged),
         "the credential survived the attempt, so theft detection did not fire"
     );
+}
+
+/// The change is on the audit trail, attributed, with no trace of the password.
+#[tokio::test]
+async fn the_change_is_audited_and_timed() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+
+    svc.change_password(id, NEW, None, &Actor::user(id, "ada"))
+        .await
+        .unwrap();
+    svc.reset_password("ada", OLD, &system()).await.unwrap();
+
+    let trail = svc.recent_audit(10).await.unwrap();
+    let changes: Vec<_> = trail
+        .iter()
+        .filter(|e| e.action == "backend.user.password_change")
+        .collect();
+    assert_eq!(changes.len(), 2);
+    let by = |name: &str| changes.iter().find(|e| e.actor_username == name).unwrap();
+    assert_eq!(by("lat admin reset-password").actor_user_id, None);
+    assert_eq!(by("ada").actor_user_id, Some(id));
+    assert!(changes
+        .iter()
+        .all(|e| e.target_id.as_deref() == Some(id.to_string().as_str())));
+    assert!(changes.iter().all(|e| e.detail.is_none()));
+    assert!(svc.password_changed_at(id).await.unwrap().is_some());
+}
+
+/// A refused password is not a change.
+#[tokio::test]
+async fn a_refused_password_leaves_no_record() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    assert!(svc
+        .change_password(id, "short", None, &system())
+        .await
+        .is_err());
+    assert!(svc.recent_audit(10).await.unwrap().is_empty());
+    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
 }

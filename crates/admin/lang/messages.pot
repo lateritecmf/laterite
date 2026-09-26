@@ -295,6 +295,10 @@ msgstr ""
 msgid "Last active"
 msgstr ""
 
+#: templates/preferences.html
+msgid "Last changed"
+msgstr ""
+
 #: templates/setup.html
 #: (descriptors)
 msgid "Last name"
@@ -373,6 +377,11 @@ msgstr ""
 msgid "Not found"
 msgstr ""
 
+#: templates/preferences.html
+#: templates/users_form.html
+msgid "Not recorded"
+msgstr ""
+
 #: templates/login.html
 #: templates/setup.html
 msgid "Open source Rust web framework"
@@ -391,8 +400,13 @@ msgid "Page {page} of {pages}"
 msgstr ""
 
 #: templates/login.html
+#: templates/preferences.html
 #: templates/setup.html
 msgid "Password"
+msgstr ""
+
+#: templates/users_form.html
+msgid "Password changed"
 msgstr ""
 
 #: templates/users_form.html

@@ -12,7 +12,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use laterite_core::Db;
+use laterite_core::{Actor, Db};
 
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser};
@@ -595,12 +595,17 @@ impl AuthService {
     /// change was made from, which survives so nobody is thrown out mid-edit.
     /// The sessions ended record why, so their holders are told.
     ///
+    /// The change is written to the audit log under `backend.user.password_change`,
+    /// attributed to `actor`: the operator who made it, or the process for a
+    /// system change. The password itself is never recorded.
+    ///
     /// Refuses a password shorter than [`MIN_PASSWORD_LENGTH`].
     pub async fn change_password(
         &self,
         user_id: i64,
         new_password: &str,
         keep_token: Option<&str>,
+        actor: &Actor,
     ) -> Result<(), AuthError> {
         if new_password.chars().count() < MIN_PASSWORD_LENGTH {
             return Err(AuthError::Refused(format!(
@@ -621,7 +626,25 @@ impl AuthService {
         .await?;
         store::revoke_user_remember_tokens(&self.db, user_id, store::RevokeReason::PasswordChanged)
             .await?;
-        Ok(())
+        let target = user_id.to_string();
+        store::insert_audit_log(
+            &self.db,
+            actor.user_id(),
+            actor.label(),
+            "backend.user.password_change",
+            Some("backend_user"),
+            Some(&target),
+            None,
+        )
+        .await
+    }
+
+    /// When the account's password was last set, `None` if never recorded.
+    pub async fn password_changed_at(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<DateTime<Utc>>, AuthError> {
+        store::password_changed_at(&self.db, user_id).await
     }
 
     /// [`AuthService::change_password`] for an account named by username, with no
@@ -631,11 +654,13 @@ impl AuthService {
         &self,
         username: &str,
         new_password: &str,
+        actor: &Actor,
     ) -> Result<bool, AuthError> {
         let Some(user) = store::find_user_by_username(&self.db, username).await? else {
             return Ok(false);
         };
-        self.change_password(user.id, new_password, None).await?;
+        self.change_password(user.id, new_password, None, actor)
+            .await?;
         Ok(true)
     }
 

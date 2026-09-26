@@ -14,8 +14,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
-- `AuthService::change_password` revokes every other session with a reason,
-  and refuses a password under `MIN_PASSWORD_LENGTH` (8).
+- `AuthService::change_password` revokes every other session with a reason, is
+  audited, and refuses a password under `MIN_PASSWORD_LENGTH` (8).
+- When a password last changed shows on the Users form and in Preferences.
 - A signed-out session or stay-signed-in device is told why on the login screen:
   a changed password, deactivation, sign-out elsewhere, or inactivity.
 
