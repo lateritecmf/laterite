@@ -26,4 +26,5 @@ laterite_core::migration_set! {
     m0013_add_backend_session_client,
     m0014_add_backend_role_system,
     m0015_add_backend_session_revoked_reason,
+    m0016_add_backend_remember_revoked_reason,
 }

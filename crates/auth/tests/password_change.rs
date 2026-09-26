@@ -167,3 +167,47 @@ async fn a_token_never_issued_has_no_end() {
     let (svc, _) = setup(&db).await;
     assert_eq!(svc.session_end("never-issued").await.unwrap(), None);
 }
+
+/// A device returning on its stay-signed-in cookie alone is told why too, once,
+/// and only if it holds the current secret.
+#[tokio::test]
+async fn a_remembered_device_is_told_why_once() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let remembered = svc.issue_remember(id).await.unwrap();
+    svc.change_password(id, NEW, None).await.unwrap();
+
+    let (selector, _) = remembered.cookie.split_once(':').unwrap();
+    assert_eq!(
+        svc.remember_end(&format!("{selector}:not-the-secret"))
+            .await
+            .unwrap(),
+        None,
+        "a copy without the current secret learns nothing"
+    );
+    assert_eq!(
+        svc.remember_end(&remembered.cookie).await.unwrap(),
+        Some(RevokeReason::PasswordChanged)
+    );
+    assert_eq!(svc.remember_end(&remembered.cookie).await.unwrap(), None);
+}
+
+/// Presenting a revoked cookie must fail quietly, not as a stolen copy: theft
+/// detection drops every credential, which would erase the reason with it.
+#[tokio::test]
+async fn a_revoked_cookie_does_not_look_stolen() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let remembered = svc.issue_remember(id).await.unwrap();
+    svc.change_password(id, NEW, None).await.unwrap();
+
+    assert!(svc
+        .consume_remember(&remembered.cookie, &RequestContext::default())
+        .await
+        .is_err());
+    assert_eq!(
+        svc.remember_end(&remembered.cookie).await.unwrap(),
+        Some(RevokeReason::PasswordChanged),
+        "the credential survived the attempt, so theft detection did not fire"
+    );
+}

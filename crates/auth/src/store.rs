@@ -422,6 +422,7 @@ pub(crate) async fn find_remember_token(
             .from(BackendRememberTokens::Table)
             .and_where(Expr::col(BackendRememberTokens::Selector).eq(selector))
             .and_where(Expr::col(BackendRememberTokens::ExpiresAt).gt(ts(now)))
+            .and_where(Expr::col(BackendRememberTokens::RevokedReason).is_null())
             .to_owned(),
     );
     let row = bind_values(sqlx::query(&sql), values)
@@ -472,6 +473,57 @@ pub(crate) async fn delete_remember_token(db: &Db, selector: &str) -> Result<(),
         .execute(&db.pool)
         .await?;
     Ok(())
+}
+
+/// Ends a user's stay-signed-in credentials on purpose, recording why.
+pub(crate) async fn revoke_user_remember_tokens(
+    db: &Db,
+    user_id: i64,
+    reason: RevokeReason,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendRememberTokens::Table)
+            .value(BackendRememberTokens::RevokedReason, reason.as_str())
+            .and_where(Expr::col(BackendRememberTokens::BackendUserId).eq(user_id))
+            .and_where(Expr::col(BackendRememberTokens::RevokedReason).is_null())
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// A revoked credential by selector: its verifier hash and why it ended.
+pub(crate) async fn revoked_remember_token(
+    db: &Db,
+    selector: &str,
+) -> Result<Option<(String, RevokeReason)>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendRememberTokens::VerifierHash,
+                BackendRememberTokens::RevokedReason,
+            ])
+            .from(BackendRememberTokens::Table)
+            .and_where(Expr::col(BackendRememberTokens::Selector).eq(selector))
+            .and_where(Expr::col(BackendRememberTokens::RevokedReason).is_not_null())
+            .to_owned(),
+    );
+    let Some(row) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let reason = row
+        .get_text_opt("revoked_reason")?
+        .as_deref()
+        .and_then(RevokeReason::parse);
+    Ok(reason.map(|r| (row.get_text("verifier_hash").unwrap_or_default(), r)))
 }
 
 /// Drops every remember credential a user holds. The answer to a verifier

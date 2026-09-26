@@ -14,6 +14,8 @@ pub(crate) enum BackendRememberTokens {
     BackendUserId,
     CreatedAt,
     ExpiresAt,
+    /// Why the credential was ended on purpose; null while it is live.
+    RevokedReason,
 }
 
 #[derive(Iden)]

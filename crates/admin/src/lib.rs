@@ -2027,7 +2027,22 @@ async fn require_auth(
         }
         None => match recall(&state, &jar, &client_ctx).await {
             Some((token, resolved, credential)) => (token, resolved, Some(credential)),
-            None => return signed_out(&state, jar, &login, ended, htmx),
+            None => {
+                // A device returning on its stay-signed-in cookie alone has no
+                // session to say why; the credential itself may.
+                if ended.is_none() {
+                    if let Some(cookie) = jar.get(REMEMBER_COOKIE) {
+                        ended = state
+                            .auth
+                            .remember_end(cookie.value())
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(laterite_auth::SessionEnd::Revoked);
+                    }
+                }
+                return signed_out(&state, jar, &login, ended, htmx);
+            }
         },
     };
     let handle = session::SessionHandle::from_blob(resolved.data.as_deref());

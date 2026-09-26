@@ -577,7 +577,12 @@ impl AuthService {
             store::RevokeReason::SignedOutElsewhere,
         )
         .await?;
-        store::delete_user_remember_tokens(&self.db, user_id).await?;
+        store::revoke_user_remember_tokens(
+            &self.db,
+            user_id,
+            store::RevokeReason::SignedOutElsewhere,
+        )
+        .await?;
         Ok(ended)
     }
 
@@ -614,7 +619,8 @@ impl AuthService {
             store::RevokeReason::PasswordChanged,
         )
         .await?;
-        store::delete_user_remember_tokens(&self.db, user_id).await?;
+        store::revoke_user_remember_tokens(&self.db, user_id, store::RevokeReason::PasswordChanged)
+            .await?;
         Ok(())
     }
 
@@ -631,6 +637,31 @@ impl AuthService {
         };
         self.change_password(user.id, new_password, None).await?;
         Ok(true)
+    }
+
+    /// Why a presented stay-signed-in cookie no longer works, when it was ended
+    /// on purpose.
+    ///
+    /// Only the current holder is told: the verifier has to match, so a stale
+    /// copy learns nothing. Reading the reason removes the credential, so it is
+    /// told once.
+    pub async fn remember_end(
+        &self,
+        cookie: &str,
+    ) -> Result<Option<store::RevokeReason>, AuthError> {
+        let Some((selector, verifier)) = cookie.split_once(':') else {
+            return Ok(None);
+        };
+        let Some((verifier_hash, reason)) =
+            store::revoked_remember_token(&self.db, selector).await?
+        else {
+            return Ok(None);
+        };
+        if !constant_time_eq(&hash_token(verifier), &verifier_hash) {
+            return Ok(None);
+        }
+        store::delete_remember_token(&self.db, selector).await?;
+        Ok(Some(reason))
     }
 
     /// Why a presented session no longer works, if it was ever issued.
@@ -689,7 +720,8 @@ impl AuthService {
         if !active {
             store::revoke_user_sessions(&self.db, user_id, None, store::RevokeReason::Deactivated)
                 .await?;
-            store::delete_user_remember_tokens(&self.db, user_id).await?;
+            store::revoke_user_remember_tokens(&self.db, user_id, store::RevokeReason::Deactivated)
+                .await?;
         }
         Ok(())
     }

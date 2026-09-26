@@ -183,3 +183,27 @@ async fn the_reason_is_told_once() {
     let again = get(&db, "/admin", &laptop, false).await;
     assert_eq!(location(&again), "/admin/login");
 }
+
+/// A device whose session is gone and which returns on its stay-signed-in
+/// cookie alone is told why as well.
+#[tokio::test]
+async fn a_remembered_device_is_told_why() {
+    let (db, _guard) = test_db().await;
+    let (svc, id, _) = signed_in(&db).await;
+    let remembered = svc.issue_remember(id).await.unwrap();
+    svc.change_password(id, "battery-staple-2", None)
+        .await
+        .unwrap();
+
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .uri("/admin")
+                .header("cookie", format!("laterite_remember={}", remembered.cookie))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(location(&resp), "/admin/login?ended=password_changed");
+}
