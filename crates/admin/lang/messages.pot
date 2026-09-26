@@ -207,6 +207,7 @@ msgid "Disabled"
 msgstr ""
 
 #: templates/base.html
+#: templates/login.html
 msgid "Dismiss"
 msgstr ""
 

@@ -100,6 +100,10 @@ async fn the_login_screen_says_why() {
         .unwrap();
     let html = body(resp).await;
     assert!(html.contains("Your password was changed"), "{html}");
+    assert!(
+        html.contains("data-lat-persist"),
+        "shown as a toast that stays until dismissed"
+    );
 }
 
 /// Nothing from the URL reaches the page: an unknown code shows nothing.
@@ -117,7 +121,7 @@ async fn an_unknown_code_shows_no_message() {
         .await
         .unwrap();
     let html = body(resp).await;
-    assert!(!html.contains("lat-alert--info"));
+    assert!(!html.contains("lat-flash"));
     assert!(!html.contains("<script>alert(1)"));
 }
 

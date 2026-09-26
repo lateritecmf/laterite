@@ -7,8 +7,20 @@
   <link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">
   <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
   {% include "_theme_boot.html" %}
+  <script defer src="{{ self.asset("laterite.js") }}"></script>
 </head>
 <body>
+  {% if let Some(message) = notice %}
+  {# The admin's own toast. The session that would have queued it is the
+     thing that ended, so it comes from the redirect instead, and stays until
+     dismissed. #}
+  <div class="lat-flashes" role="status" aria-live="polite">
+    <div class="lat-flash is-info" data-lat-widget="flash" data-lat-persist>
+      <span class="lat-flash__text">{{ message }}</span>
+      <button type="button" class="lat-flash__close" aria-label='{{ self.t("Dismiss") }}' onclick="latDismissFlash(this)">&times;</button>
+    </div>
+  </div>
+  {% endif %}
   <div class="lat-login">
     <div class="lat-login__form">
       <div class="lat-login__inner">
@@ -19,7 +31,6 @@
         <h2 class="lat-login__title">{{ self.t("Admin panel") }}</h2>
         <p class="lat-login__lead">{{ self.t("Sign in to continue.") }}</p>
         {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-        {% if let Some(message) = notice %}<div class="lat-alert lat-alert--info" role="status">{{ message }}</div>{% endif %}
         <form method="post" action="{{ base }}/login">
           <div class="lat-field">
             <label class="lat-field__label" for="username">{{ self.t("Username") }}</label>

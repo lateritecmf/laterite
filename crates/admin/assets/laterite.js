@@ -250,7 +250,8 @@ document.addEventListener('htmx:sendError', latRequestFailed);
 
 // Flash toasts: auto-dismiss non-error messages after a few seconds.
 window.lat.widget('flash', function (el) {
-  if (el.classList.contains('is-error')) return;
+  // Errors stay until dismissed, and so does anything marked to persist.
+  if (el.classList.contains('is-error') || el.hasAttribute('data-lat-persist')) return;
   setTimeout(function () { latDismissFlash(el); }, 5000);
 });
 
