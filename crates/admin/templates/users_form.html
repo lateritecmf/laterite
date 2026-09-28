@@ -2,37 +2,55 @@
 {% block title %}{{ full_name }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Backend Users") }}</a></nav>
+{# The account actions sit in the title row, as a list keeps Export there. Each
+   is its own POST form, kept out of the flow and submitted by its button through
+   the `form` attribute, so the card below reads facts, then the form. #}
 <div class="lat-toolbar">
   <div class="lat-titleblock">
     <p class="lat-eyebrow">{{ shell.t("Backend user") }}</p>
     <h1>{{ full_name }}</h1>
   </div>
+  <div class="lat-toolbar__actions">
+    {% if locked %}
+    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-unlock">{{ shell.t("Unlock") }}</button>
+    {% endif %}
+    {% if can_reset %}
+    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-reset"
+            data-lat-confirm="{{ shell.t("Reset this account's password? They will be signed out everywhere and given a temporary password to replace at their next sign-in.") }}">{{ shell.t("Reset password") }}</button>
+    {% endif %}
+    {% if can_change_state %}
+    {% if is_active %}
+    <button class="lat-btn lat-btn--danger" type="submit" form="lat-state"
+            data-lat-confirm="{{ shell.t("Deactivate this account? They will be signed out everywhere and cannot sign in until reactivated.") }}">{{ shell.t("Deactivate") }}</button>
+    {% else %}
+    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-state">{{ shell.t("Reactivate") }}</button>
+    {% endif %}
+    {% endif %}
+  </div>
 </div>
+{% if locked %}
+<form id="lat-unlock" method="post" action="{{ unlock_action }}" hidden>{% include "_csrf.html" %}</form>
+{% endif %}
+{% if can_reset %}
+<form id="lat-reset" method="post" action="{{ reset_action }}" hidden>{% include "_csrf.html" %}</form>
+{% endif %}
+{# Deactivating is the reversible counterpart to deleting an operator, which
+   the panel does not offer. Hidden for your own account and without the
+   permission; the server refuses either way. #}
+{% if can_change_state %}
+<form id="lat-state" method="post" action="{{ state_action }}" hidden>
+  {% include "_csrf.html" %}
+  <input type="hidden" name="active" value="{% if is_active %}0{% else %}1{% endif %}">
+</form>
+{% endif %}
 <div class="lat-card lat-card--form">
+  {% if locked %}<div class="lat-alert">{{ shell.t("This account is locked out after too many failed sign-ins.") }}</div>{% endif %}
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Username") }}</dt><dd>{{ username }}</dd></div>
     <div><dt>{{ shell.t("Email") }}</dt><dd>{{ email }}</dd></div>
     <div><dt>{{ shell.t("Status") }}</dt><dd>{% if is_active %}{{ shell.t("Active") }}{% else %}{{ shell.t("Deactivated") }}{% endif %}</dd></div>
     <div><dt>{{ shell.t("Password changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>
-
-  {# Deactivating is the reversible counterpart to deleting an operator, which
-     the panel does not offer. Hidden for your own account and without the
-     permission; the server refuses either way. #}
-  {% if can_change_state %}
-  <form method="post" action="{{ state_action }}">
-    {% include "_csrf.html" %}
-    <input type="hidden" name="active" value="{% if is_active %}0{% else %}1{% endif %}">
-    <div class="lat-actions">
-      {% if is_active %}
-      <button class="lat-btn lat-btn--danger" type="submit"
-              data-lat-confirm="{{ shell.t("Deactivate this account? They will be signed out everywhere and cannot sign in until reactivated.") }}">{{ shell.t("Deactivate") }}</button>
-      {% else %}
-      <button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Reactivate") }}</button>
-      {% endif %}
-    </div>
-  </form>
-  {% endif %}
 
   {% if is_superuser %}
   <div class="lat-alert lat-alert--ok">{{ shell.t("This user is a superuser and holds every permission, so there is nothing to override.") }}</div>

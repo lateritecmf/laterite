@@ -11,6 +11,8 @@ Create | **New** on the list | Username, email, name, roles. A temporary passwor
 Assign roles | The edit screen | Only roles granting no more than you hold; never your own.
 Override a permission | The edit screen | Allow or Deny one permission regardless of roles.
 Deactivate | The edit screen | Signs the account out everywhere and refuses sign-in; reversible.
+Reset password | The edit screen | A new temporary password shown once; every device signed out. Never your own account, never one holding more than you.
+Unlock | The edit screen | Clears a sign-in lockout. Shown only while locked.
 
 Every action is on the audit log, named after the account it touched.
 
@@ -45,6 +47,9 @@ let id = auth
     )
     .await?;
 auth.require_password_change(id).await?;
+
+let temporary = auth.reset_operator_password(id, &actor).await?;
+auth.unlock("editor").await?;
 ```
 
 `create_superuser` makes a superuser the same way; first-run setup and

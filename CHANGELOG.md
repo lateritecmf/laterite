@@ -24,6 +24,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The audit log names its target: a username or a role name beside the id.
 - Operators are created from the Users screen: name, email and roles, with a
   generated temporary password shown once. `AuthService::create_operator`.
+- An administrator resets another operator's password from their edit screen
+  (temporary, shown once, every device signed out) and unlocks a locked-out
+  account. `AuthService::reset_operator_password`, `is_locked_out`, `unlock`.
 - A temporary password must be changed at first sign-in: every screen redirects
   to Preferences until it is. `--generate` on `lat admin create` and
   `reset-password` marks it; `AuthService::require_password_change` does too.

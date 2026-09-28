@@ -114,6 +114,10 @@ msgstr ""
 msgid "Change password"
 msgstr ""
 
+#: src/users.rs
+msgid "Change your own password under Preferences."
+msgstr ""
+
 #: src/settings/mod.rs
 msgid "Check the values and try again."
 msgstr ""
@@ -524,6 +528,18 @@ msgstr ""
 msgid "Request blocked"
 msgstr ""
 
+#: templates/users_form.html
+msgid "Reset password"
+msgstr ""
+
+#: templates/users_form.html
+msgid "Reset this account's password? They will be signed out everywhere and given a temporary password to replace at their next sign-in."
+msgstr ""
+
+#: src/users.rs
+msgid "Reset {username}. Their temporary password, shown only now: {password}. Every device was signed out."
+msgstr ""
+
 #: (descriptors)
 msgid "Review the record of administrative changes."
 msgstr ""
@@ -732,12 +748,20 @@ msgstr ""
 msgid "The password could not be changed."
 msgstr ""
 
+#: src/users.rs
+msgid "The password could not be reset."
+msgstr ""
+
 #: src/error.rs
 msgid "The server hit an unexpected error."
 msgstr ""
 
 #: src/error.rs
 msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: templates/users_form.html
+msgid "This account is locked out after too many failed sign-ins."
 msgstr ""
 
 #: src/lib.rs
@@ -782,6 +806,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Too many attempts. Try again later."
+msgstr ""
+
+#: templates/users_form.html
+msgid "Unlock"
 msgstr ""
 
 #: templates/preferences.html
@@ -830,6 +858,10 @@ msgstr ""
 
 #: templates/users_form.html
 msgid "You cannot change your own roles, and a role granting more than you hold yourself is shown locked."
+msgstr ""
+
+#: src/users.rs
+msgid "You cannot reset the password of an account holding more than you do."
 msgstr ""
 
 #: src/error.rs

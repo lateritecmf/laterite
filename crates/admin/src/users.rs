@@ -101,6 +101,109 @@ pub(crate) async fn set_active(
     Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
 }
 
+/// Gives an account a new temporary password on an administrator's behalf.
+/// Never your own (that is Preferences), and never an account holding more
+/// than you do: signing in as it would be an escalation.
+pub(crate) async fn reset_password(
+    State(state): State<AdminState>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Path(id): Path<String>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    let target: i64 = id.parse().map_err(|_| AdminError::NotFound)?;
+    let back = format!("{}/users/{id}/edit", state.admin_path);
+    let user = laterite_auth::store::find_user_by_id(&state.db, target)
+        .await?
+        .ok_or(AdminError::NotFound)?;
+    if target == editor.user.id {
+        session.push_flash(
+            crate::session::FlashLevel::Error,
+            t!("Change your own password under Preferences."),
+        );
+        return Ok(Redirect::to(&back).into_response());
+    }
+    if !may_manage_credentials(&state, &editor, &user).await? {
+        session.push_flash(
+            crate::session::FlashLevel::Error,
+            t!("You cannot reset the password of an account holding more than you do."),
+        );
+        return Ok(Redirect::to(&back).into_response());
+    }
+    let actor = laterite_core::Actor::user(editor.user.id, editor.user.username.clone());
+    match state.auth.reset_operator_password(target, &actor).await {
+        Ok(password) => session.push_flash_sticky(
+            crate::session::FlashLevel::Success,
+            t!(
+                "Reset {username}. Their temporary password, shown only now: {password}. Every device was signed out.",
+                username = user.username.clone(),
+                password = password
+            ),
+        ),
+        Err(e) => {
+            tracing::error!(error = %e, "resetting a password failed");
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                t!("The password could not be reset."),
+            );
+        }
+    }
+    Ok(Redirect::to(&back).into_response())
+}
+
+/// Clears a sign-in lockout so the account can sign in again now.
+pub(crate) async fn unlock(
+    State(state): State<AdminState>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Path(id): Path<String>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    let target: i64 = id.parse().map_err(|_| AdminError::NotFound)?;
+    let user = laterite_auth::store::find_user_by_id(&state.db, target)
+        .await?
+        .ok_or(AdminError::NotFound)?;
+    state.auth.unlock(&user.username).await?;
+    crate::audit::record(
+        &state,
+        &editor,
+        "backend.user.unlock",
+        Some("backend_user"),
+        Some(&id),
+        Some(&user.username),
+        None,
+    )
+    .await;
+    session.push_flash(
+        crate::session::FlashLevel::Success,
+        t!("That account can sign in again."),
+    );
+    Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
+}
+
+/// Whether `editor` may take over `target`'s credentials: a superuser's only by
+/// a superuser, and otherwise only an account whose every role grants nothing
+/// the editor lacks, the rule role assignment applies.
+async fn may_manage_credentials(
+    state: &AdminState,
+    editor: &AuthenticatedUser,
+    target: &laterite_auth::BackendUser,
+) -> Result<bool, AdminError> {
+    if target.is_superuser {
+        return Ok(editor.user.is_superuser);
+    }
+    let held = laterite_auth::store::user_role_ids(&state.db, target.id).await?;
+    let roles = laterite_auth::store::list_roles(&state.db).await?;
+    Ok(roles
+        .iter()
+        .filter(|r| held.contains(&r.id))
+        .all(|r| r.permissions.iter().all(|p| editor.permissions.allows(p))))
+}
+
 #[derive(serde::Deserialize)]
 pub(crate) struct ActiveForm {
     /// "1" to activate, anything else to deactivate.
@@ -349,6 +452,17 @@ pub(crate) async fn edit_form(
             editor.user.id.to_string() == id,
         )
     };
+    let target_id = id.parse::<i64>().unwrap_or_default();
+    let target = laterite_auth::store::find_user_by_id(&state.db, target_id).await?;
+    let can_reset = match &target {
+        Some(user) => {
+            editor.user.id != user.id
+                && editor.permissions.allows(crate::users::MANAGE_USERS)
+                && may_manage_credentials(&state, &editor, user).await?
+        }
+        None => false,
+    };
+    let locked = state.auth.is_locked_out(&username).await.unwrap_or(false);
     let mut page = build(
         &state,
         shell,
@@ -365,6 +479,10 @@ pub(crate) async fn edit_form(
         roles,
     );
     page.password_changed = password_changed;
+    page.can_reset = can_reset;
+    page.reset_action = format!("{}/users/{id}/password", state.admin_path);
+    page.locked = locked;
+    page.unlock_action = format!("{}/users/{id}/unlock", state.admin_path);
     Ok(render(page))
 }
 
@@ -573,6 +691,10 @@ fn build(
         roles_locked: !roles.is_empty() && roles.iter().all(|r| !r.changeable),
         roles,
         password_changed: None,
+        can_reset: false,
+        reset_action: String::new(),
+        locked: false,
+        unlock_action: String::new(),
     }
 }
 
@@ -646,6 +768,13 @@ struct UsersFormTemplate {
     roles_locked: bool,
     /// When the password last changed, formatted; `None` when not recorded.
     password_changed: Option<String>,
+    /// Whether the viewing operator may give this account a temporary
+    /// password: not their own, and holding nothing they lack.
+    can_reset: bool,
+    reset_action: String,
+    /// Failed sign-ins have locked the account out for now.
+    locked: bool,
+    unlock_action: String,
 }
 
 #[cfg(test)]

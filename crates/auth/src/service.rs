@@ -712,6 +712,38 @@ impl AuthService {
         Ok(id)
     }
 
+    /// Replaces an operator's password with a generated temporary one, on an
+    /// administrator's behalf: every session and stay-signed-in device ends
+    /// with the reason, the change is audited under `actor`, and the account
+    /// must set its own at the next sign-in. Returns the password, to be shown
+    /// once. Who may reset whom is the caller's rule.
+    pub async fn reset_operator_password(
+        &self,
+        user_id: i64,
+        actor: &Actor,
+    ) -> Result<String, AuthError> {
+        let password = password::generate();
+        self.change_password(user_id, &password, None, actor)
+            .await?;
+        store::set_must_change_password(&self.db, user_id, true).await?;
+        Ok(password)
+    }
+
+    /// Whether failed sign-ins have locked the username out for now.
+    pub async fn is_locked_out(&self, username: &str) -> Result<bool, AuthError> {
+        let since = Utc::now() - chrono_from_std(self.config.failure_window);
+        Ok(
+            store::count_recent_failures(&self.db, username, since).await?
+                >= self.config.max_failures,
+        )
+    }
+
+    /// Clears the failed sign-ins that locked the username out, so it can sign
+    /// in again now. Returns how many attempts were cleared.
+    pub async fn unlock(&self, username: &str) -> Result<u64, AuthError> {
+        store::clear_failed_attempts(&self.db, username).await
+    }
+
     /// Marks the account as holding a temporary password: one made for it by an
     /// administrator or the command line. Until the operator sets their own
     /// through [`AuthService::change_own_password`], the admin gate sends every

@@ -1375,6 +1375,14 @@ pub fn router(
             .route(
                 &format!("{admin_path}/users/{{id}}/active"),
                 post(users::set_active),
+            )
+            .route(
+                &format!("{admin_path}/users/{{id}}/password"),
+                post(users::reset_password),
+            )
+            .route(
+                &format!("{admin_path}/users/{{id}}/unlock"),
+                post(users::unlock),
             ),
         "backend.manage_users",
     ));
