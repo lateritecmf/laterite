@@ -249,6 +249,9 @@ async fn the_change_is_audited_and_timed() {
     assert!(changes
         .iter()
         .all(|e| e.target_id.as_deref() == Some(id.to_string().as_str())));
+    assert!(changes
+        .iter()
+        .all(|e| e.target_label.as_deref() == Some("ada")));
     assert!(changes.iter().all(|e| e.detail.is_none()));
     assert!(svc.password_changed_at(id).await.unwrap() > Some(created));
 }

@@ -311,6 +311,7 @@ pub struct NewOperator<'a> {
 /// One append-only audit entry: who did what, to which target. Actions are
 /// dot-keyed (`backend.role.update`); the username is snapshotted so the entry
 /// stays legible after the actor's account is removed.
+#[non_exhaustive]
 pub struct AuditEntry<'a> {
     /// The acting operator's id, or `None` for a system action.
     pub actor_user_id: Option<i64>,
@@ -321,8 +322,40 @@ pub struct AuditEntry<'a> {
     /// What was acted on (e.g. `backend_role`) and its id; both optional.
     pub target_type: Option<&'a str>,
     pub target_id: Option<&'a str>,
+    /// The target's name as operators know it (a username, a role name),
+    /// snapshotted like the actor's username.
+    pub target_label: Option<&'a str>,
     /// Optional JSON describing the change.
     pub detail: Option<&'a str>,
+}
+
+impl<'a> AuditEntry<'a> {
+    /// An entry for `action` by `actor`, with no target yet.
+    pub fn new(actor: &'a Actor, action: &'a str) -> Self {
+        Self {
+            actor_user_id: actor.user_id(),
+            actor_username: actor.label(),
+            action,
+            target_type: None,
+            target_id: None,
+            target_label: None,
+            detail: None,
+        }
+    }
+
+    /// What was acted on: its type (`backend_user`), its id, and its name.
+    pub fn target(mut self, kind: &'a str, id: &'a str, label: Option<&'a str>) -> Self {
+        self.target_type = Some(kind);
+        self.target_id = Some(id);
+        self.target_label = label;
+        self
+    }
+
+    /// JSON describing the change.
+    pub fn detail(mut self, detail: &'a str) -> Self {
+        self.detail = Some(detail);
+        self
+    }
 }
 
 /// The default [`PasswordPolicy::min_length`].
@@ -925,6 +958,7 @@ impl AuthService {
             entry.action,
             entry.target_type,
             entry.target_id,
+            entry.target_label,
             entry.detail,
         )
         .await
@@ -1446,6 +1480,7 @@ mod tests {
             action: "backend.role.update",
             target_type: Some("backend_role"),
             target_id: Some("42"),
+            target_label: Some("Editors"),
             detail: Some(r#"{"added":["a.b"]}"#),
         })
         .await
@@ -1456,6 +1491,7 @@ mod tests {
             action: "backend.plugin.disable",
             target_type: Some("plugin"),
             target_id: Some("acme.widgets"),
+            target_label: None,
             detail: None,
         })
         .await

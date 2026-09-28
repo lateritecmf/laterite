@@ -18,3 +18,4 @@ list:
     action:         { label: Action }
     target_type:    { label: Target }
     target_id:      { label: Target ID }
+    target_label:   { label: Name }

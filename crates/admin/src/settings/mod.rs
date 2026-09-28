@@ -292,6 +292,7 @@ pub(crate) async fn update(
                 Some("settings"),
                 Some(item.code.as_str()),
                 None,
+                None,
             )
             .await;
             session.push_flash(crate::session::FlashLevel::Success, t!("Settings saved."));

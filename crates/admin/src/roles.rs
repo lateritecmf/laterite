@@ -66,6 +66,7 @@ pub(crate) async fn create(
                 "backend.role.create",
                 Some("backend_role"),
                 Some(target_id.as_str()),
+                Some(name.as_str()),
                 Some(detail.as_str()),
             )
             .await;
@@ -214,6 +215,7 @@ pub(crate) async fn update(
                 "backend.role.update",
                 Some("backend_role"),
                 Some(id.as_str()),
+                Some(name.as_str()),
                 Some(detail.as_str()),
             )
             .await;

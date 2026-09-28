@@ -53,6 +53,7 @@ async fn first_run_setup_is_audited() {
     assert_eq!(created.actor_user_id, None);
     assert_eq!(created.target_type.as_deref(), Some("backend_user"));
     assert!(created.target_id.is_some());
+    assert_eq!(created.target_label.as_deref(), Some("ada"));
 }
 
 /// The policy holds at the front door too: a short password makes no account.

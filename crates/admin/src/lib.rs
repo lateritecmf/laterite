@@ -2564,14 +2564,13 @@ async fn setup_submit(
     };
     // Nobody is signed in yet, so the trail names the process rather than an
     // operator, the same as a command-line action.
-    let entry = laterite_auth::AuditEntry {
-        actor_user_id: None,
-        actor_username: "first-run setup",
-        action: "backend.user.create",
-        target_type: Some("backend_user"),
-        target_id: Some(&id.to_string()),
-        detail: None,
-    };
+    let actor = laterite_core::Actor::system("first-run setup");
+    let target = id.to_string();
+    let entry = laterite_auth::AuditEntry::new(&actor, "backend.user.create").target(
+        "backend_user",
+        &target,
+        Some(username),
+    );
     if let Err(e) = state.auth.record_audit(entry).await {
         tracing::error!(error = %e, "failed to write audit log entry");
     }
@@ -3397,7 +3396,8 @@ mod tests {
                 "actor_username",
                 "action",
                 "target_type",
-                "target_id"
+                "target_id",
+                "target_label"
             ],
             "in the order the file writes them"
         );

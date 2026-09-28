@@ -125,7 +125,8 @@ pub async fn find_user_by_username(
 /// A user by id whatever their state. Distinct from
 /// [`find_active_user_by_id`], which is the authentication path: this one is for
 /// administering an account, where a deactivated one still has to be readable.
-pub(crate) async fn find_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
+/// Looks up a user by id, active or not.
+pub async fn find_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
     let (sql, values) = build(
         db.backend,
         Query::select()
@@ -761,6 +762,22 @@ pub(crate) async fn change_password(
     let mut tx = db.pool.begin().await?;
     let (sql, values) = build(
         db.backend,
+        Query::select()
+            .column(BackendUsers::Username)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let Some(username) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(|row| row.get_text("username"))
+        .transpose()?
+    else {
+        return Ok(0);
+    };
+    let (sql, values) = build(
+        db.backend,
         Query::update()
             .table(BackendUsers::Table)
             .value(BackendUsers::PasswordHash, password_hash)
@@ -794,6 +811,7 @@ pub(crate) async fn change_password(
         "backend.user.password_change",
         Some("backend_user"),
         Some(&target),
+        Some(&username),
         None,
     );
     bind_values(sqlx::query(&sql), values)
@@ -931,12 +949,15 @@ pub async fn recent_access_log(
 
 /// One row of the audit log, newest-first from [`recent_audit`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AuditRecord {
     pub actor_user_id: Option<i64>,
     pub actor_username: String,
     pub action: String,
     pub target_type: Option<String>,
     pub target_id: Option<String>,
+    /// The target's name as operators know it, when the writer had one.
+    pub target_label: Option<String>,
     pub detail: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -950,6 +971,7 @@ pub async fn insert_audit_log(
     action: &str,
     target_type: Option<&str>,
     target_id: Option<&str>,
+    target_label: Option<&str>,
     detail: Option<&str>,
 ) -> Result<(), AuthError> {
     let (sql, values) = insert_audit_log_query(
@@ -959,6 +981,7 @@ pub async fn insert_audit_log(
         action,
         target_type,
         target_id,
+        target_label,
         detail,
     );
     bind_values(sqlx::query(&sql), values)
@@ -975,6 +998,7 @@ fn insert_audit_log_query(
     action: &str,
     target_type: Option<&str>,
     target_id: Option<&str>,
+    target_label: Option<&str>,
     detail: Option<&str>,
 ) -> (String, sea_query::Values) {
     build(
@@ -987,6 +1011,7 @@ fn insert_audit_log_query(
                 BackendAuditLog::Action,
                 BackendAuditLog::TargetType,
                 BackendAuditLog::TargetId,
+                BackendAuditLog::TargetLabel,
                 BackendAuditLog::Detail,
                 BackendAuditLog::CreatedAt,
             ])
@@ -996,6 +1021,7 @@ fn insert_audit_log_query(
                 action.to_string().into(),
                 target_type.map(str::to_string).into(),
                 target_id.map(str::to_string).into(),
+                target_label.map(str::to_string).into(),
                 detail.map(str::to_string).into(),
                 now_ts().into(),
             ])
@@ -1015,6 +1041,7 @@ pub async fn recent_audit(db: &Db, limit: u64) -> Result<Vec<AuditRecord>, AuthE
                 BackendAuditLog::Action,
                 BackendAuditLog::TargetType,
                 BackendAuditLog::TargetId,
+                BackendAuditLog::TargetLabel,
                 BackendAuditLog::Detail,
                 BackendAuditLog::CreatedAt,
             ])
@@ -1036,6 +1063,7 @@ fn audit_from_row(row: &AnyRow) -> Result<AuditRecord, AuthError> {
         action: row.get_text("action")?,
         target_type: row.get_text_opt("target_type")?,
         target_id: row.get_text_opt("target_id")?,
+        target_label: row.get_text_opt("target_label")?,
         detail: row.get_text_opt("detail")?,
         created_at: parse_ts(&row.get_text("created_at")?)?,
     })

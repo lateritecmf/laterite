@@ -18,16 +18,17 @@ pub(crate) async fn record(
     action: &str,
     target_type: Option<&str>,
     target_id: Option<&str>,
+    target_label: Option<&str>,
     detail: Option<&str>,
 ) {
-    let entry = AuditEntry {
-        actor_user_id: Some(user.user.id),
-        actor_username: &user.user.username,
-        action,
-        target_type,
-        target_id,
-        detail,
-    };
+    let actor = laterite_core::Actor::user(user.user.id, user.user.username.clone());
+    let mut entry = AuditEntry::new(&actor, action);
+    if let (Some(kind), Some(id)) = (target_type, target_id) {
+        entry = entry.target(kind, id, target_label);
+    }
+    if let Some(detail) = detail {
+        entry = entry.detail(detail);
+    }
     if let Err(e) = state.auth.record_audit(entry).await {
         tracing::error!(action, error = %e, "failed to write audit log entry");
     }

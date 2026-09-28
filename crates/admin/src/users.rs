@@ -54,6 +54,11 @@ pub(crate) async fn set_active(
         .await
     {
         Ok(()) => {
+            let label = laterite_auth::store::find_user_by_id(&state.db, target)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username);
             crate::audit::record(
                 &state,
                 &editor,
@@ -64,6 +69,7 @@ pub(crate) async fn set_active(
                 },
                 Some("backend_user"),
                 Some(&id),
+                label.as_deref(),
                 None,
             )
             .await;
@@ -195,7 +201,11 @@ pub(crate) async fn update(
     // Scope the builder so it drops before the await, keeping the future `Send`.
     let (sql, values) = {
         let stmt = Query::select()
-            .columns([Alias::new("is_superuser"), Alias::new("permissions")])
+            .columns([
+                Alias::new("username"),
+                Alias::new("is_superuser"),
+                Alias::new("permissions"),
+            ])
             .from(Alias::new("backend_users"))
             .and_where(
                 Expr::col(Alias::new("id"))
@@ -281,6 +291,7 @@ pub(crate) async fn update(
         "backend.user.permissions.update",
         Some("backend_user"),
         Some(id.as_str()),
+        Some(row.get_text("username").unwrap_or_default().as_str()),
         Some(detail.as_str()),
     )
     .await;

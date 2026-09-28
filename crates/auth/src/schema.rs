@@ -115,6 +115,8 @@ pub(crate) enum BackendAuditLog {
     /// What the action was on (e.g. `backend_role`) and its id, both optional.
     TargetType,
     TargetId,
+    /// The target's name as shown to operators, snapshotted.
+    TargetLabel,
     /// Optional JSON describing the change.
     Detail,
     CreatedAt,

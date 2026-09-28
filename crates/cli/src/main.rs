@@ -146,14 +146,15 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
                 })
                 .await
                 .context("could not create backend user")?;
-            auth.record_audit(laterite_auth::AuditEntry {
-                actor_user_id: None,
-                actor_username: "lat admin create",
-                action: "backend.user.create",
-                target_type: Some("backend_user"),
-                target_id: Some(&id.to_string()),
-                detail: None,
-            })
+            let actor = laterite_core::Actor::system("lat admin create");
+            let target = id.to_string();
+            auth.record_audit(
+                laterite_auth::AuditEntry::new(&actor, "backend.user.create").target(
+                    "backend_user",
+                    &target,
+                    Some(&args.username),
+                ),
+            )
             .await
             .context("could not record the audit entry")?;
             println!("Created backend superuser '{}' ({id})", args.username);

@@ -13,12 +13,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   build it from `Default` and set fields.
 - **Breaking:** `AccessEvent` is non-exhaustive and gains `PasswordChanged`,
   recorded when an operator changes their own password.
+- **Breaking:** `AuditEntry` and `AuditRecord` are non-exhaustive and carry a
+  `target_label`; build an entry with `AuditEntry::new(actor, action).target(..)`.
 
 ### Added
 
 - `[auth.password_policy] min_length` (default 8) is enforced wherever a
   password is set: Preferences, first-run setup and `lat admin create`.
 - `AuthService::recent_access` reads an account's access log.
+- The audit log names its target: a username or a role name beside the id.
 
 ### Fixed
 

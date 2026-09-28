@@ -508,6 +508,7 @@ pub(crate) async fn toggle(
                 Some("plugin"),
                 Some(form.plugin_id.as_str()),
                 None,
+                None,
             )
             .await;
             // Two whole messages rather than an interpolated verb: the state word

@@ -10,7 +10,7 @@ Field | Value
 When | The time of the change.
 Operator | The username, kept on the entry after the account is removed. A system change records the process name.
 Action | A dot-keyed name: `backend.role.update`, `backend.plugin.disable`.
-Target | A type and id, when the action has one.
+Target | A type, id and name, when the action has one.
 
 Change | Recorded
 --- | ---
@@ -33,6 +33,19 @@ An operator's own preferences | No
 A `Resource` with a form is audited as `backend.<entity>.create` and
 `backend.<entity>.update`, attributed to the signed-in operator, through a
 [model listener](model-listeners.md).
+
+A screen of your own records an entry with the builder:
+
+```rust
+use laterite_auth::AuditEntry;
+use laterite_core::Actor;
+
+let actor = Actor::user(operator.id, &operator.username);
+auth.record_audit(
+    AuditEntry::new(&actor, "acme.posts.publish").target("post", &post_id, Some(&post.title)),
+)
+.await?;
+```
 
 The audit write runs after the change commits. A failed audit write is logged;
 the operator's action stands.
