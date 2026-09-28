@@ -19,7 +19,8 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{Extension, Form};
-use laterite_auth::{AuthenticatedUser, PermissionSet};
+use laterite_auth::{AuthenticatedUser, NewOperator, PermissionSet};
+use laterite_core::i18n::Text;
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::{t, AnyRowExt};
 use sea_query::{Alias, Expr, Query};
@@ -104,6 +105,183 @@ pub(crate) async fn set_active(
 pub(crate) struct ActiveForm {
     /// "1" to activate, anything else to deactivate.
     active: String,
+}
+
+/// Renders the form for a new operator.
+pub(crate) async fn new_form(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(editor): Extension<AuthenticatedUser>,
+) -> Result<Response, AdminError> {
+    let roles = role_rows(
+        laterite_auth::store::list_roles(&state.db).await?,
+        &[],
+        &editor.permissions,
+        false,
+    );
+    Ok(render(new_page(
+        &state,
+        shell,
+        None,
+        NewFields::default(),
+        roles,
+    )))
+}
+
+/// Creates an operator with a generated temporary password, shown once, then
+/// opens their edit screen. The password is never typed by the administrator,
+/// so nobody but its holder ever knows a password that stays in use.
+pub(crate) async fn create(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Form(pairs): Form<Vec<(String, String)>>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    let (fields, wanted) = NewFields::parse(&pairs);
+    let roles = role_rows(
+        laterite_auth::store::list_roles(&state.db).await?,
+        &wanted,
+        &editor.permissions,
+        false,
+    );
+    if fields.username.is_empty() || fields.email.is_empty() || fields.first_name.is_empty() {
+        return Ok(render(new_page(
+            &state,
+            shell,
+            Some(t!("Username, email and first name are required.")),
+            fields,
+            roles,
+        )));
+    }
+    if !fields.email.contains('@') {
+        return Ok(render(new_page(
+            &state,
+            shell,
+            Some(t!("That is not an email address.")),
+            fields,
+            roles,
+        )));
+    }
+    let password = laterite_auth::password::generate();
+    let actor = laterite_core::Actor::user(editor.user.id, editor.user.username.clone());
+    let created = state
+        .auth
+        .create_operator(
+            NewOperator {
+                username: &fields.username,
+                email: &fields.email,
+                first_name: &fields.first_name,
+                last_name: (!fields.last_name.is_empty()).then_some(fields.last_name.as_str()),
+                password: &password,
+                timezone: None,
+            },
+            &actor,
+        )
+        .await;
+    let id = match created {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::warn!(error = %e, "creating an operator failed");
+            return Ok(render(new_page(
+                &state,
+                shell,
+                Some(t!(
+                    "Could not create the account. The username or email may already be taken."
+                )),
+                fields,
+                roles,
+            )));
+        }
+    };
+    // Only roles the editor may grant, the same rule the edit screen applies.
+    let granted: Vec<i64> = roles
+        .iter()
+        .filter(|r| r.held && r.changeable)
+        .map(|r| r.id)
+        .collect();
+    laterite_auth::store::set_user_roles(&state.db, id, &granted).await?;
+    state.auth.require_password_change(id).await?;
+    session.push_flash_sticky(
+        crate::session::FlashLevel::Success,
+        t!(
+            "Created {username}. Their temporary password, shown only now: {password}",
+            username = fields.username.clone(),
+            password = password
+        ),
+    );
+    Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
+}
+
+/// What the new-operator form carries, kept across a refused save.
+#[derive(Default)]
+struct NewFields {
+    username: String,
+    email: String,
+    first_name: String,
+    last_name: String,
+}
+
+impl NewFields {
+    /// The fields and the role ids ticked.
+    fn parse(pairs: &[(String, String)]) -> (Self, Vec<i64>) {
+        let mut fields = Self::default();
+        let mut roles = Vec::new();
+        for (key, value) in pairs {
+            match key.as_str() {
+                "username" => fields.username = value.trim().to_string(),
+                "email" => fields.email = value.trim().to_string(),
+                "first_name" => fields.first_name = value.trim().to_string(),
+                "last_name" => fields.last_name = value.trim().to_string(),
+                "role" => {
+                    if let Ok(id) = value.parse() {
+                        roles.push(id);
+                    }
+                }
+                _ => {}
+            }
+        }
+        (fields, roles)
+    }
+}
+
+fn new_page(
+    state: &AdminState,
+    shell: Shell,
+    error: Option<Text>,
+    fields: NewFields,
+    roles: Vec<RoleRowView>,
+) -> UsersNewTemplate {
+    let error = error.map(|e| shell.tt(&e));
+    UsersNewTemplate {
+        shell,
+        action: format!("{}/users/new", state.admin_path),
+        cancel_path: format!("{}/users", state.admin_path),
+        error,
+        username: fields.username,
+        email: fields.email,
+        first_name: fields.first_name,
+        last_name: fields.last_name,
+        roles,
+    }
+}
+
+#[derive(Template)]
+#[template(path = "users_new.html")]
+struct UsersNewTemplate {
+    shell: Shell,
+    action: String,
+    cancel_path: String,
+    error: Option<String>,
+    username: String,
+    email: String,
+    first_name: String,
+    last_name: String,
+    /// Every role, ticked as submitted; one the editor may not grant is locked.
+    roles: Vec<RoleRowView>,
 }
 
 /// Renders the edit form for a user, populated with their current overrides.

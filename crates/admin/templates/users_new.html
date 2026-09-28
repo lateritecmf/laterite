@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("New backend user") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Backend Users") }}</a></nav>
+<div class="lat-toolbar"><h1>{{ shell.t("New backend user") }}</h1></div>
+<div class="lat-card lat-card--form">
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  <form method="post" action="{{ action }}">
+    {% include "_csrf.html" %}
+    <div class="lat-field">
+      <label class="lat-field__label" for="username">{{ shell.t("Username") }}</label>
+      <input class="lat-input" type="text" id="username" name="username" value="{{ username }}" autocomplete="off" required>
+    </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="email">{{ shell.t("Email") }}</label>
+      <input class="lat-input" type="email" id="email" name="email" value="{{ email }}" autocomplete="off" required>
+    </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="first_name">{{ shell.t("First name") }}</label>
+      <input class="lat-input" type="text" id="first_name" name="first_name" value="{{ first_name }}" required>
+    </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="last_name">{{ shell.t("Last name") }}</label>
+      <input class="lat-input" type="text" id="last_name" name="last_name" value="{{ last_name }}">
+    </div>
+    {% if !roles.is_empty() %}
+    <div class="lat-field">
+      <span class="lat-field__label">{{ shell.t("Roles") }}</span>
+      <p class="lat-help">{{ shell.t("A role grants every permission it holds. A role granting more than you hold yourself is shown locked.") }}</p>
+      <fieldset class="lat-permgroup">
+        {% for role in roles %}
+        <label class="lat-check{% if !role.changeable %} is-locked{% endif %}">
+          <input type="checkbox" name="role" value="{{ role.id }}"{% if role.held %} checked{% endif %}{% if !role.changeable %} disabled{% endif %}>
+          <span>{{ role.name }}</span>
+          <code class="lat-code">{{ role.code }}</code>
+        </label>
+        {% endfor %}
+      </fieldset>
+    </div>
+    {% endif %}
+    <p class="lat-help">{{ shell.t("A temporary password is generated and shown to you once. The new user must replace it at their first sign-in.") }}</p>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create account") }}</button>
+      <a class="lat-btn lat-btn--secondary" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

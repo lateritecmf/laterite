@@ -678,6 +678,40 @@ impl AuthService {
         Ok(ended)
     }
 
+    /// Creates an operator who is not a superuser: the panel's account creation,
+    /// by an administrator. The password is checked against the policy, the
+    /// creation audited as `backend.user.create` and credited to `actor`. Roles
+    /// and the temporary-password mark are set by the caller.
+    pub async fn create_operator(
+        &self,
+        new: NewOperator<'_>,
+        actor: &Actor,
+    ) -> Result<i64, AuthError> {
+        self.config.password_policy.check(new.password)?;
+        let hash = password::hash_password(new.password)?;
+        let id = store::create_user(
+            &self.db,
+            new.username,
+            new.email,
+            new.first_name,
+            new.last_name,
+            &hash,
+            false,
+        )
+        .await?;
+        if new.timezone.is_some() {
+            store::set_user_timezone(&self.db, id, new.timezone).await?;
+        }
+        let target = id.to_string();
+        self.record_audit(AuditEntry::new(actor, "backend.user.create").target(
+            "backend_user",
+            &target,
+            Some(new.username),
+        ))
+        .await?;
+        Ok(id)
+    }
+
     /// Marks the account as holding a temporary password: one made for it by an
     /// administrator or the command line. Until the operator sets their own
     /// through [`AuthService::change_own_password`], the admin gate sends every

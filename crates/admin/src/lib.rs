@@ -1365,6 +1365,10 @@ pub fn router(
     protected = protected.merge(guard_with_permission(
         Router::new()
             .route(
+                &format!("{admin_path}/users/new"),
+                get(users::new_form).post(users::create),
+            )
+            .route(
                 &format!("{admin_path}/users/{{id}}/edit"),
                 get(users::edit_form).post(users::update),
             )
@@ -3178,16 +3182,17 @@ fn backend_users_list_config() -> list::ListConfig {
             list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
-        // Rows link to the per-user permission editor; users are created from the
-        // CLI or first-run setup, so no "New" screen here.
+        // Rows link to the per-user editor; New creates an account with a
+        // temporary password.
+        creatable: true,
         edit_base: Some("/users".to_string()),
         filters: vec![
             list::ListFilter::boolean("is_active", "Active"),
             list::ListFilter::boolean("is_superuser", "Superuser"),
         ],
-        // Operators are created by the CLI and first-run setup, and removing one
-        // from a list is too easy to do by accident; deactivating is the reversible
-        // equivalent and is what the filter above is for.
+        // Removing an operator from a list is too easy to do by accident;
+        // deactivating is the reversible equivalent and is what the filter above
+        // is for.
         ..Default::default()
     }
 }

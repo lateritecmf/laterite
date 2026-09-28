@@ -16,6 +16,7 @@
 
 - [Settings Models](extend/settings.md)
 - [Permissions](extend/permissions.md)
+- [Operators](extend/operators.md)
 - [Validation](extend/validation.md)
 - [Errors](extend/errors.md)
 - [Localization](extend/localization.md)

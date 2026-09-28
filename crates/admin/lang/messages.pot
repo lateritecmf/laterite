@@ -11,7 +11,12 @@ msgid "A password needs at least {n} characters."
 msgstr ""
 
 #: templates/users_form.html
+#: templates/users_new.html
 msgid "A role grants every permission it holds. A role granting more than you hold yourself is shown locked."
+msgstr ""
+
+#: templates/users_new.html
+msgid "A temporary password is generated and shown to you once. The new user must replace it at their first sign-in."
 msgstr ""
 
 #: (descriptors)
@@ -74,6 +79,7 @@ msgid "Backend"
 msgstr ""
 
 #: templates/users_form.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Backend Users"
 msgstr ""
@@ -100,6 +106,7 @@ msgstr ""
 #: templates/base.html
 #: templates/settings_form.html
 #: templates/users_form.html
+#: templates/users_new.html
 msgid "Cancel"
 msgstr ""
 
@@ -145,6 +152,7 @@ msgid "Could not check whether this role is maintained by the framework."
 msgstr ""
 
 #: src/lib.rs
+#: src/users.rs
 msgid "Could not create the account. The username or email may already be taken."
 msgstr ""
 
@@ -164,6 +172,10 @@ msgstr ""
 msgid "Could not save. The code may already be in use."
 msgstr ""
 
+#: templates/users_new.html
+msgid "Create account"
+msgstr ""
+
 #: templates/setup.html
 msgid "Create administrator"
 msgstr ""
@@ -174,6 +186,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Created"
+msgstr ""
+
+#: src/users.rs
+msgid "Created {username}. Their temporary password, shown only now: {password}"
 msgstr ""
 
 #: templates/preferences.html
@@ -254,6 +270,7 @@ msgstr ""
 
 #: templates/setup.html
 #: templates/users_form.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Email"
 msgstr ""
@@ -287,6 +304,7 @@ msgid "Export"
 msgstr ""
 
 #: templates/setup.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "First name"
 msgstr ""
@@ -324,6 +342,7 @@ msgid "Last changed"
 msgstr ""
 
 #: templates/setup.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Last name"
 msgstr ""
@@ -375,6 +394,10 @@ msgstr ""
 
 #: src/list.rs
 msgid "New"
+msgstr ""
+
+#: templates/users_new.html
+msgid "New backend user"
 msgstr ""
 
 #: templates/preferences.html
@@ -518,6 +541,7 @@ msgid "Role updated."
 msgstr ""
 
 #: templates/users_form.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Roles"
 msgstr ""
@@ -656,6 +680,10 @@ msgstr ""
 msgid "That is not a supported language."
 msgstr ""
 
+#: src/users.rs
+msgid "That is not an email address."
+msgstr ""
+
 #: src/export.rs
 msgid "That is too many records to export at once. Narrow the list and try again."
 msgstr ""
@@ -763,8 +791,13 @@ msgstr ""
 #: templates/login.html
 #: templates/setup.html
 #: templates/users_form.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Username"
+msgstr ""
+
+#: src/users.rs
+msgid "Username, email and first name are required."
 msgstr ""
 
 #: src/lib.rs
