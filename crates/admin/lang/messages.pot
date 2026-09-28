@@ -6,6 +6,10 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "(optional)"
 msgstr ""
 
+#: src/lib.rs
+msgid "A password needs at least 8 characters."
+msgstr ""
+
 #: templates/users_form.html
 msgid "A role grants every permission it holds. A role granting more than you hold yourself is shown locked."
 msgstr ""
@@ -45,6 +49,10 @@ msgstr ""
 
 #: templates/list.html
 msgid "Apply"
+msgstr ""
+
+#: templates/preferences.html
+msgid "At least 8 characters. Every other device is signed out."
 msgstr ""
 
 #: (descriptors)
@@ -91,6 +99,10 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+#: templates/preferences.html
+msgid "Change password"
+msgstr ""
+
 #: src/settings/mod.rs
 msgid "Check the values and try again."
 msgstr ""
@@ -118,6 +130,10 @@ msgstr ""
 
 #: templates/base.html
 msgid "Colour mode"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Confirm new password"
 msgstr ""
 
 #: src/lib.rs
@@ -154,6 +170,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Created"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Current password"
 msgstr ""
 
 #: templates/dashboard.html
@@ -353,6 +373,10 @@ msgstr ""
 msgid "New"
 msgstr ""
 
+#: templates/preferences.html
+msgid "New password"
+msgstr ""
+
 #: templates/_list_table.html
 msgid "Next"
 msgstr ""
@@ -407,6 +431,10 @@ msgstr ""
 
 #: templates/users_form.html
 msgid "Password changed"
+msgstr ""
+
+#: src/lib.rs
+msgid "Password changed. Every other device was signed out."
 msgstr ""
 
 #: templates/users_form.html
@@ -660,8 +688,16 @@ msgstr ""
 msgid "The framework maintains this role; it cannot be deleted."
 msgstr ""
 
+#: src/lib.rs
+msgid "The new passwords do not match."
+msgstr ""
+
 #: src/error.rs
 msgid "The page or record you asked for does not exist."
+msgstr ""
+
+#: src/lib.rs
+msgid "The password could not be changed."
 msgstr ""
 
 #: src/error.rs
@@ -706,6 +742,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Those sessions could not be signed out."
+msgstr ""
+
+#: src/lib.rs
+msgid "Too many attempts. Try again later."
 msgstr ""
 
 #: templates/preferences.html
@@ -757,6 +797,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "You were signed out from another device."
+msgstr ""
+
+#: src/lib.rs
+msgid "Your current password is not correct."
 msgstr ""
 
 #: src/lib.rs

@@ -65,6 +65,19 @@ Argument | Value
 `AuthService::password_changed_at(user_id)` returns when it last changed, or
 `None` if never recorded.
 
+An operator changes their own under **Preferences → Password**, which calls:
+
+```rust
+auth.change_own_password(user.id, &current, &new_password, &session_token, &ctx)
+    .await?;
+```
+
+Error | Returned when
+--- | ---
+`AuthError::InvalidCredentials` | `current` does not match. Counts as a failed sign-in.
+`AuthError::TooManyAttempts` | The account is locked out.
+`AuthError::Refused` | The new password is under `MIN_PASSWORD_LENGTH`.
+
 ## Why a session ended
 
 Event | The signed-out device sees

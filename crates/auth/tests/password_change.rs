@@ -261,3 +261,44 @@ async fn a_refused_password_leaves_no_record() {
     assert!(svc.recent_audit(10).await.unwrap().is_empty());
     assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn an_operator_changes_their_own_password_and_stays_signed_in() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let here = sign_in(&svc).await;
+    let laptop = sign_in(&svc).await;
+    let ctx = RequestContext::default();
+
+    svc.change_own_password(id, OLD, NEW, &here, &ctx)
+        .await
+        .unwrap();
+
+    assert!(svc.resolve_session(&here).await.is_ok());
+    assert!(svc.resolve_session(&laptop).await.is_err());
+    let trail = svc.recent_audit(10).await.unwrap();
+    assert_eq!(trail[0].action, "backend.user.password_change");
+    assert_eq!(trail[0].actor_user_id, Some(id));
+}
+
+/// Guessing the current password through a session counts toward the lockout.
+#[tokio::test]
+async fn a_wrong_current_password_changes_nothing_and_counts_as_a_failure() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let here = sign_in(&svc).await;
+    let ctx = RequestContext::default();
+
+    for _ in 0..AuthConfig::default().max_failures {
+        assert!(matches!(
+            svc.change_own_password(id, "wrong-guess", NEW, &here, &ctx)
+                .await,
+            Err(laterite_auth::AuthError::InvalidCredentials)
+        ));
+    }
+    assert!(matches!(
+        svc.change_own_password(id, OLD, NEW, &here, &ctx).await,
+        Err(laterite_auth::AuthError::TooManyAttempts)
+    ));
+    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+}

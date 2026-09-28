@@ -33,6 +33,26 @@
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Last changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>
+  {% if let Some(message) = password_error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  <form method="post" action="{{ shell.base }}/preferences/password">
+    {% include "_csrf.html" %}
+    <div class="lat-field">
+      <label class="lat-field__label" for="current_password">{{ shell.t("Current password") }}</label>
+      <input class="lat-input" type="password" id="current_password" name="current_password" autocomplete="current-password" required>
+    </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="new_password">{{ shell.t("New password") }}</label>
+      <input class="lat-input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="8" required>
+      <p class="lat-help">{{ shell.t("At least 8 characters. Every other device is signed out.") }}</p>
+    </div>
+    <div class="lat-field">
+      <label class="lat-field__label" for="confirm_password">{{ shell.t("Confirm new password") }}</label>
+      <input class="lat-input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="8" required>
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Change password") }}</button>
+    </div>
+  </form>
 </div>
 
 <div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Signed-in devices") }}</h2></div>

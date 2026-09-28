@@ -639,6 +639,50 @@ impl AuthService {
         .await
     }
 
+    /// [`AuthService::change_password`] for the signed-in operator, after
+    /// confirming their current password.
+    ///
+    /// A wrong current password is logged as a failed sign-in and counts toward
+    /// the same lockout, so a borrowed session cannot guess it freely. The session
+    /// `keep_token` names stays signed in.
+    pub async fn change_own_password(
+        &self,
+        user_id: i64,
+        current_password: &str,
+        new_password: &str,
+        keep_token: &str,
+        ctx: &RequestContext,
+    ) -> Result<(), AuthError> {
+        let user = store::find_user_by_id(&self.db, user_id)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+        let since = Utc::now() - chrono_from_std(self.config.failure_window);
+        if store::count_recent_failures(&self.db, &user.username, since).await?
+            >= self.config.max_failures
+        {
+            self.log(Some(user.id), &user.username, AccessEvent::LockedOut, ctx)
+                .await?;
+            return Err(AuthError::TooManyAttempts);
+        }
+        if !password::verify_password(current_password, &user.password_hash)? {
+            self.log(
+                Some(user.id),
+                &user.username,
+                AccessEvent::LoginFailure,
+                ctx,
+            )
+            .await?;
+            return Err(AuthError::InvalidCredentials);
+        }
+        self.change_password(
+            user.id,
+            new_password,
+            Some(keep_token),
+            &Actor::user(user.id, user.username.as_str()),
+        )
+        .await
+    }
+
     /// When the account's password was last set, `None` if never recorded.
     pub async fn password_changed_at(
         &self,

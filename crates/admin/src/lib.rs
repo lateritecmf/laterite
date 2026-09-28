@@ -1389,6 +1389,10 @@ pub fn router(
             get(preferences_form).post(preferences_update),
         )
         .route(
+            &format!("{admin_path}/preferences/password"),
+            post(password_update),
+        )
+        .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
             post(session_revoke),
         )
@@ -2754,6 +2758,96 @@ async fn session_revoke_others(
 }
 
 #[derive(Deserialize)]
+struct PasswordForm {
+    current_password: String,
+    new_password: String,
+    confirm_password: String,
+}
+
+/// Changes the operator's own password. This session stays signed in, and a
+/// stay-signed-in credential on this browser is reissued; every other device is
+/// signed out and told why.
+async fn password_update(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    Extension(ctx): Extension<RequestContext>,
+    jar: CookieJar,
+    Form(form): Form<PasswordForm>,
+) -> Response {
+    let refusal = if form.new_password != form.confirm_password {
+        Some(t!("The new passwords do not match."))
+    } else if form.new_password.chars().count() < laterite_auth::MIN_PASSWORD_LENGTH {
+        Some(t!("A password needs at least 8 characters."))
+    } else {
+        let token = jar
+            .get(SESSION_COOKIE)
+            .map(|c| c.value().to_string())
+            .unwrap_or_default();
+        let changed = state
+            .auth
+            .change_own_password(
+                user.user.id,
+                &form.current_password,
+                &form.new_password,
+                &token,
+                &ctx,
+            )
+            .await;
+        match changed {
+            Ok(()) => None,
+            Err(laterite_auth::AuthError::InvalidCredentials) => {
+                Some(t!("Your current password is not correct."))
+            }
+            Err(laterite_auth::AuthError::TooManyAttempts) => {
+                Some(t!("Too many attempts. Try again later."))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "changing a password failed");
+                Some(t!("The password could not be changed."))
+            }
+        }
+    };
+    if let Some(message) = refusal {
+        let mut page = preferences_view(
+            &shell,
+            &user,
+            state.timezone,
+            &state.default_locale,
+            &offered_locales(&state.catalogs),
+            account_security(&state, &user, &shell, &jar).await,
+            None,
+        );
+        page.password_error = Some(shell.tt(&message));
+        return render(page);
+    }
+    session.push_flash(
+        FlashLevel::Success,
+        t!("Password changed. Every other device was signed out."),
+    );
+    let mut jar = jar;
+    if jar.get(REMEMBER_COOKIE).is_some() {
+        jar = match state.auth.issue_remember(user.user.id).await {
+            Ok(credential) => jar.add(remember_cookie(
+                credential,
+                &state.admin_path,
+                state.secure_cookie,
+            )),
+            Err(e) => {
+                tracing::error!(error = %e, "reissuing a stay-signed-in credential failed");
+                jar.remove(remember_removal(&state.admin_path))
+            }
+        };
+    }
+    (
+        jar,
+        Redirect::to(&format!("{}/preferences", state.admin_path)),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
 struct PreferencesForm {
     timezone: String,
     /// Omitted means no locale choice was submitted, treated as inherit.
@@ -2861,6 +2955,7 @@ fn preferences_view(
         inherits_locale: current_locale.is_none(),
         sessions: account.sessions,
         password_changed: account.password_changed,
+        password_error: None,
         error: error.map(|e| shell.tt(&e)),
     }
 }
@@ -3130,6 +3225,8 @@ struct PreferencesTemplate {
     sessions: Vec<SessionRow>,
     /// When the password last changed, formatted; `None` when not recorded.
     password_changed: Option<String>,
+    /// Why the change-password form was refused, shown in its own card.
+    password_error: Option<String>,
     error: Option<String>,
 }
 
