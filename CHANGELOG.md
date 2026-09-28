@@ -7,12 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `SessionHandle::push_flash_sticky` keeps a message until dismissed; a
+  password change confirms with one.
+
 ### Fixed
 
 - Signing one device out from Preferences tells that device why, the same as
   signing out every other device does.
 - A password change and a deactivation each run as one transaction, and the
   time a password was set is recorded at account creation.
+- A refused password change redirects back with its reason, and the login
+  screen's forgot-password link, which went nowhere, is now a note.
 
 ## [0.8.1] - 2026-09-28
 

@@ -376,6 +376,8 @@ pub(crate) struct PageAsset {
 pub(crate) struct FlashLine {
     pub(crate) level: session::FlashLevel,
     pub(crate) text: String,
+    /// Stays until dismissed.
+    pub(crate) sticky: bool,
 }
 
 impl Shell {
@@ -407,6 +409,7 @@ impl Shell {
         let flash = flash
             .into_iter()
             .map(|f| FlashLine {
+                sticky: f.sticky,
                 level: f.level,
                 text: i18n.t(&f.text),
             })
@@ -2689,7 +2692,6 @@ async fn preferences_form(
         &state.default_locale,
         &offered_locales(&state.catalogs),
         account,
-        None,
     ))
 }
 
@@ -2760,70 +2762,78 @@ struct PasswordForm {
 }
 
 /// Changes the operator's own password. This session stays signed in, and a
-/// stay-signed-in credential on this browser is reissued; every other device is
-/// signed out and told why.
+/// stay-signed-in credential this browser holds for the account is reissued;
+/// every other device is signed out and told why. A refusal redirects back
+/// with its reason, so a reload never resubmits the form.
 async fn password_update(
     State(state): State<AdminState>,
-    Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
     Extension(session): Extension<session::SessionHandle>,
     Extension(ctx): Extension<RequestContext>,
     jar: CookieJar,
     Form(form): Form<PasswordForm>,
 ) -> Response {
-    let refusal = if form.new_password != form.confirm_password {
-        Some(t!("The new passwords do not match."))
-    } else if form.new_password.chars().count() < laterite_auth::MIN_PASSWORD_LENGTH {
-        Some(t!("A password needs at least 8 characters."))
-    } else {
-        let token = jar
-            .get(SESSION_COOKIE)
-            .map(|c| c.value().to_string())
-            .unwrap_or_default();
-        let changed = state
-            .auth
-            .change_own_password(
-                user.user.id,
-                &form.current_password,
-                &form.new_password,
-                &token,
-                &ctx,
-            )
-            .await;
-        match changed {
-            Ok(()) => None,
-            Err(laterite_auth::AuthError::InvalidCredentials) => {
-                Some(t!("Your current password is not correct."))
-            }
-            Err(laterite_auth::AuthError::TooManyAttempts) => {
-                Some(t!("Too many attempts. Try again later."))
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "changing a password failed");
-                Some(t!("The password could not be changed."))
-            }
-        }
+    let back = format!("{}/preferences#password", state.admin_path);
+    let refuse = |message: Text| {
+        session.push_flash(FlashLevel::Error, message);
+        Redirect::to(&back).into_response()
     };
-    if let Some(message) = refusal {
-        let mut page = preferences_view(
-            &shell,
-            &user,
-            state.timezone,
-            &state.default_locale,
-            &offered_locales(&state.catalogs),
-            account_security(&state, &user, &shell, &jar).await,
-            None,
-        );
-        page.password_error = Some(shell.tt(&message));
-        return render(page);
+    if form.new_password != form.confirm_password {
+        return refuse(t!("The new passwords do not match."));
     }
-    session.push_flash(
+    if form.new_password.chars().count() < laterite_auth::MIN_PASSWORD_LENGTH {
+        return refuse(t!(
+            "A password needs at least {n} characters.",
+            n = laterite_auth::MIN_PASSWORD_LENGTH as i64
+        ));
+    }
+    // Whether the stay-signed-in cookie here is this account's, asked before the
+    // change revokes it: only then is a fresh one owed.
+    let remembered_here = match jar.get(REMEMBER_COOKIE) {
+        Some(cookie) => {
+            state
+                .auth
+                .remember_holder(cookie.value())
+                .await
+                .ok()
+                .flatten()
+                == Some(user.user.id)
+        }
+        None => false,
+    };
+    let token = jar
+        .get(SESSION_COOKIE)
+        .map(|c| c.value().to_string())
+        .unwrap_or_default();
+    let changed = state
+        .auth
+        .change_own_password(
+            user.user.id,
+            &form.current_password,
+            &form.new_password,
+            &token,
+            &ctx,
+        )
+        .await;
+    match changed {
+        Ok(()) => {}
+        Err(laterite_auth::AuthError::InvalidCredentials) => {
+            return refuse(t!("Your current password is not correct."));
+        }
+        Err(laterite_auth::AuthError::TooManyAttempts) => {
+            return refuse(t!("Too many attempts. Try again later."));
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "changing a password failed");
+            return refuse(t!("The password could not be changed."));
+        }
+    }
+    session.push_flash_sticky(
         FlashLevel::Success,
         t!("Password changed. Every other device was signed out."),
     );
-    let mut jar = jar;
-    if jar.get(REMEMBER_COOKIE).is_some() {
-        jar = match state.auth.issue_remember(user.user.id).await {
+    let jar = if remembered_here {
+        match state.auth.issue_remember(user.user.id).await {
             Ok(credential) => jar.add(remember_cookie(
                 credential,
                 &state.admin_path,
@@ -2833,8 +2843,14 @@ async fn password_update(
                 tracing::error!(error = %e, "reissuing a stay-signed-in credential failed");
                 jar.remove(remember_removal(&state.admin_path))
             }
-        };
-    }
+        }
+    } else if jar.get(REMEMBER_COOKIE).is_some() {
+        // Not this account's, or no longer current: it would only fail on the
+        // next request.
+        jar.remove(remember_removal(&state.admin_path))
+    } else {
+        jar
+    };
     (
         jar,
         Redirect::to(&format!("{}/preferences", state.admin_path)),
@@ -2852,12 +2868,11 @@ struct PreferencesForm {
 
 async fn preferences_update(
     State(state): State<AdminState>,
-    Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
     Extension(session): Extension<session::SessionHandle>,
-    jar: CookieJar,
     Form(form): Form<PreferencesForm>,
 ) -> Response {
+    let back = format!("{}/preferences", state.admin_path);
     let offered = offered_locales(&state.catalogs);
     // An empty choice clears a preference so the operator inherits the default.
     let tz = form.timezone.trim();
@@ -2866,15 +2881,8 @@ async fn preferences_update(
     } else if tz.parse::<Tz>().is_ok() {
         Some(tz)
     } else {
-        return render(preferences_view(
-            &shell,
-            &user,
-            state.timezone,
-            &state.default_locale,
-            &offered,
-            account_security(&state, &user, &shell, &jar).await,
-            Some(t!("That is not a recognised timezone.")),
-        ));
+        session.push_flash(FlashLevel::Error, t!("That is not a recognised timezone."));
+        return Redirect::to(&back).into_response();
     };
     let loc = form.locale.trim();
     let loc_stored = if loc.is_empty() {
@@ -2882,15 +2890,8 @@ async fn preferences_update(
     } else if offered.iter().any(|l| l == loc) {
         Some(loc)
     } else {
-        return render(preferences_view(
-            &shell,
-            &user,
-            state.timezone,
-            &state.default_locale,
-            &offered,
-            account_security(&state, &user, &shell, &jar).await,
-            Some(t!("That is not a supported language.")),
-        ));
+        session.push_flash(FlashLevel::Error, t!("That is not a supported language."));
+        return Redirect::to(&back).into_response();
     };
     if state
         .auth
@@ -2903,7 +2904,7 @@ async fn preferences_update(
     match state.auth.set_user_locale(user.user.id, loc_stored).await {
         Ok(()) => {
             session.push_flash(session::FlashLevel::Success, t!("Preferences saved."));
-            Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
+            Redirect::to(&back).into_response()
         }
         Err(_) => render_error(),
     }
@@ -2919,7 +2920,6 @@ fn preferences_view(
     default_locale: &str,
     offered: &[String],
     account: AccountSecurity,
-    error: Option<Text>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
@@ -2950,8 +2950,7 @@ fn preferences_view(
         inherits_locale: current_locale.is_none(),
         sessions: account.sessions,
         password_changed: account.password_changed,
-        password_error: None,
-        error: error.map(|e| shell.tt(&e)),
+        min_password: laterite_auth::MIN_PASSWORD_LENGTH as i64,
     }
 }
 
@@ -3220,9 +3219,8 @@ struct PreferencesTemplate {
     sessions: Vec<SessionRow>,
     /// When the password last changed, formatted; `None` when not recorded.
     password_changed: Option<String>,
-    /// Why the change-password form was refused, shown in its own card.
-    password_error: Option<String>,
-    error: Option<String>,
+    /// The shortest password accepted, for the form's help and `minlength`.
+    min_password: i64,
 }
 
 /// One of the account's live sessions, formatted for the page.

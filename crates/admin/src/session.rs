@@ -33,6 +33,9 @@ pub(crate) const CSRF_FIELD: &str = "_csrf";
 pub(crate) struct Flash {
     pub(crate) level: FlashLevel,
     pub(crate) text: Text,
+    /// Stays until dismissed, for a consequence the operator should read.
+    #[serde(default)]
+    pub(crate) sticky: bool,
 }
 
 /// The severity of a [`Flash`], mapped to a style class by the template.
@@ -133,7 +136,23 @@ impl SessionHandle {
     /// [`Text`], built with `t!`, so it localizes at render.
     pub fn push_flash(&self, level: FlashLevel, text: Text) {
         let mut g = self.inner.lock().unwrap();
-        g.data.flash.push(Flash { level, text });
+        g.data.flash.push(Flash {
+            level,
+            text,
+            sticky: false,
+        });
+        g.dirty = true;
+    }
+
+    /// Queues a message that stays until dismissed, for a consequence the
+    /// operator should read rather than glance at, such as a security action.
+    pub fn push_flash_sticky(&self, level: FlashLevel, text: Text) {
+        let mut g = self.inner.lock().unwrap();
+        g.data.flash.push(Flash {
+            level,
+            text,
+            sticky: true,
+        });
         g.dirty = true;
     }
 

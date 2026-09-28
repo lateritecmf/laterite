@@ -158,9 +158,37 @@ async fn the_preferences_form_changes_the_password_and_keeps_this_session() {
     );
     assert!(svc.resolve_session(&here).await.is_ok());
     assert!(svc.resolve_session(&laptop).await.is_err());
-    assert!(page(&db, "/admin/preferences", &here)
-        .await
-        .contains("Password changed."));
+    let html = page(&db, "/admin/preferences", &here).await;
+    assert!(html.contains("Password changed."), "{html}");
+    assert!(
+        html.contains("data-lat-persist"),
+        "a security consequence stays until dismissed"
+    );
+}
+
+/// A stay-signed-in cookie that is not this account's current one is cleared,
+/// never traded for a fresh credential.
+#[tokio::test]
+async fn a_cookie_that_is_not_this_accounts_is_cleared() {
+    let (db, _guard) = test_db().await;
+    let (_, _, here) = operator(&db).await;
+    let resp = post_password(
+        &db,
+        &here,
+        "; laterite_remember=bogus:bogus",
+        PASSWORD,
+        "battery-staple-2",
+        "battery-staple-2",
+    )
+    .await;
+    let remember = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with("laterite_remember="))
+        .expect("the cookie is addressed");
+    assert!(remember.starts_with("laterite_remember=;"), "{remember}");
 }
 
 #[tokio::test]
@@ -183,12 +211,14 @@ async fn the_preferences_form_refuses_with_the_reason() {
             "not correct",
         ),
     ] {
+        // Redirected back with the reason: a reload never resubmits the form.
         let resp = post_password(&db, &here, "", current, new, confirm).await;
-        assert_eq!(resp.status(), 200);
-        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(resp.status().is_redirection());
+        assert_eq!(
+            resp.headers().get("location").unwrap(),
+            "/admin/preferences#password"
+        );
+        let html = page(&db, "/admin/preferences", &here).await;
         assert!(html.contains(says), "{says}: {html}");
     }
     assert_eq!(svc.password_changed_at(id).await.unwrap(), before);

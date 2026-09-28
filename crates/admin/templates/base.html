@@ -16,7 +16,7 @@
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">
     {% for f in shell.flash %}
-    <div class="lat-flash {{ f.level.class() }}" data-lat-widget="flash">
+    <div class="lat-flash {{ f.level.class() }}" data-lat-widget="flash"{% if f.sticky %} data-lat-persist{% endif %}>
       <span class="lat-flash__text">{{ f.text }}</span>
       <button type="button" class="lat-flash__close" aria-label='{{ shell.t("Dismiss") }}' onclick="latDismissFlash(this)">&times;</button>
     </div>

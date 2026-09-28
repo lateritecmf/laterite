@@ -39,7 +39,8 @@ async fn save(Extension(session): Extension<SessionHandle>, /* ... */) -> Respon
 ```
 
 The next full page renders and clears it, across a redirect. Levels:
-`Success`, `Error`, `Info`.
+`Success`, `Error`, `Info`. `push_flash_sticky` keeps the message until
+dismissed.
 
 ## Change a password
 

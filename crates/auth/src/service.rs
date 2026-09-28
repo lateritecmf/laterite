@@ -704,6 +704,19 @@ impl AuthService {
         Ok(true)
     }
 
+    /// Whose stay-signed-in credential a cookie is, without spending it: `None`
+    /// for one that is not current. The verifier has to match, so a stale copy
+    /// names nobody.
+    pub async fn remember_holder(&self, cookie: &str) -> Result<Option<i64>, AuthError> {
+        let Some((selector, verifier)) = cookie.split_once(':') else {
+            return Ok(None);
+        };
+        let Some(found) = store::find_remember_token(&self.db, selector, Utc::now()).await? else {
+            return Ok(None);
+        };
+        Ok(constant_time_eq(&hash_token(verifier), &found.verifier_hash).then_some(found.user_id))
+    }
+
     /// Why a presented stay-signed-in cookie no longer works, when it was ended
     /// on purpose.
     ///

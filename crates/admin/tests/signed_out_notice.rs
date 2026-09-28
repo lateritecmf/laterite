@@ -109,6 +109,7 @@ async fn the_login_screen_says_why() {
         html.contains("data-lat-persist"),
         "shown as a toast that stays until dismissed"
     );
+    assert!(!html.contains("href=\"#\""), "no link that goes nowhere");
 }
 
 /// Nothing from the URL reaches the page: an unknown code shows nothing.
