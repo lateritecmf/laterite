@@ -30,9 +30,13 @@ use crate::store;
 /// remember_duration_secs = 1209600
 /// max_failures = 5
 /// failure_window_secs = 900
+///
+/// [auth.password_policy]
+/// min_length = 8
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct AuthConfig {
     /// How long a session survives without a request. Activity past the halfway
     /// mark of this window pushes the deadline out again.
@@ -56,6 +60,8 @@ pub struct AuthConfig {
     /// The window over which failed attempts are counted.
     #[serde(rename = "failure_window_secs", deserialize_with = "de_secs")]
     pub failure_window: Duration,
+    /// What a new password must satisfy, wherever one is set.
+    pub password_policy: PasswordPolicy,
 }
 
 impl Default for AuthConfig {
@@ -66,7 +72,41 @@ impl Default for AuthConfig {
             remember_duration: Duration::from_secs(60 * 60 * 24 * 14),
             max_failures: 5,
             failure_window: Duration::from_secs(60 * 15),
+            password_policy: PasswordPolicy::default(),
         }
+    }
+}
+
+/// The rules a new password must meet, applied wherever one is set: the
+/// Preferences form, first-run setup, and `lat admin create`. Loaded from
+/// `[auth.password_policy]`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct PasswordPolicy {
+    /// The shortest password accepted, in characters. Default 8.
+    pub min_length: usize,
+}
+
+impl Default for PasswordPolicy {
+    fn default() -> Self {
+        Self {
+            min_length: MIN_PASSWORD_LENGTH,
+        }
+    }
+}
+
+impl PasswordPolicy {
+    /// Refuses a password that breaks a rule, with the reason as
+    /// [`AuthError::Refused`].
+    pub fn check(&self, password: &str) -> Result<(), AuthError> {
+        if password.chars().count() < self.min_length {
+            return Err(AuthError::Refused(format!(
+                "A password needs at least {} characters.",
+                self.min_length
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -88,7 +128,7 @@ fn de_secs<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Duration, D::Error
 
 #[cfg(test)]
 mod auth_config_tests {
-    use super::AuthConfig;
+    use super::{AuthConfig, MIN_PASSWORD_LENGTH};
     use chrono::Utc;
     use std::time::Duration;
 
@@ -138,6 +178,19 @@ mod auth_config_tests {
             cfg.deadline(login, seen),
             login + chrono::Duration::hours(12)
         );
+    }
+
+    #[test]
+    fn the_password_policy_reads_from_its_own_table() {
+        let cfg: AuthConfig =
+            serde_json::from_str(r#"{"password_policy": {"min_length": 12}}"#).unwrap();
+        assert_eq!(cfg.password_policy.min_length, 12);
+        assert_eq!(
+            AuthConfig::default().password_policy.min_length,
+            MIN_PASSWORD_LENGTH
+        );
+        assert!(cfg.password_policy.check("eleven-char").is_err());
+        assert!(cfg.password_policy.check("twelve-chars").is_ok());
     }
 
     #[test]
@@ -272,7 +325,7 @@ pub struct AuditEntry<'a> {
     pub detail: Option<&'a str>,
 }
 
-/// The shortest password [`AuthService::change_password`] accepts.
+/// The default [`PasswordPolicy::min_length`].
 pub const MIN_PASSWORD_LENGTH: usize = 8;
 
 /// The auth service. Cheap to clone: it holds a database handle and config.
@@ -592,6 +645,11 @@ impl AuthService {
         Ok(ended)
     }
 
+    /// The rules a new password must meet, for a form to state them up front.
+    pub fn password_policy(&self) -> &PasswordPolicy {
+        &self.config.password_policy
+    }
+
     /// Sets a new password and signs the account out everywhere else.
     ///
     /// A password is changed because it was forgotten, shared or stolen. In the
@@ -605,7 +663,7 @@ impl AuthService {
     /// attributed to `actor`: the operator who made it, or the process for a
     /// system change. The password itself is never recorded.
     ///
-    /// Refuses a password shorter than [`MIN_PASSWORD_LENGTH`].
+    /// Refuses a password the [`PasswordPolicy`] rejects.
     pub async fn change_password(
         &self,
         user_id: i64,
@@ -613,11 +671,7 @@ impl AuthService {
         keep_token: Option<&str>,
         actor: &Actor,
     ) -> Result<(), AuthError> {
-        if new_password.chars().count() < MIN_PASSWORD_LENGTH {
-            return Err(AuthError::Refused(format!(
-                "A password needs at least {MIN_PASSWORD_LENGTH} characters."
-            )));
-        }
+        self.config.password_policy.check(new_password)?;
         let hash = password::hash_password(new_password)?;
         let keep = keep_token.map(hash_token);
         let done = store::change_password(
@@ -874,6 +928,7 @@ impl AuthService {
     /// records their timezone preference. The single account-creation path,
     /// shared by the CLI and the first-run setup screen.
     pub async fn create_superuser(&self, new: NewOperator<'_>) -> Result<i64, AuthError> {
+        self.config.password_policy.check(new.password)?;
         let hash = password::hash_password(new.password)?;
         let id = store::create_user(
             &self.db,
@@ -1570,7 +1625,7 @@ mod tests {
             email: "first@example.test",
             first_name: "First",
             last_name: None,
-            password: "hunter2",
+            password: "hunter2-hunter2",
             timezone: Some("Asia/Kolkata"),
         })
         .await
@@ -1580,7 +1635,7 @@ mod tests {
 
         // The account is a usable superuser with the onboarding timezone recorded.
         let session = svc
-            .authenticate("first", "hunter2", &RequestContext::default())
+            .authenticate("first", "hunter2-hunter2", &RequestContext::default())
             .await
             .unwrap();
         let identity = svc.verify_session(&session.token).await.unwrap();

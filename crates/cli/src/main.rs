@@ -134,7 +134,7 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
     match command {
         AdminCommand::Create(args) => {
             let plain = resolve_password(args.password, args.generate)?;
-            let auth = AuthService::new(pool, AuthConfig::default());
+            let auth = AuthService::new(pool, auth_from_project());
             let id = auth
                 .create_superuser(NewOperator {
                     username: &args.username,
@@ -162,7 +162,7 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             let plain = resolve_password(args.password, args.generate)?;
             // Through the service, so the reset signs the account out everywhere:
             // a password is usually reset because someone else may hold it.
-            let svc = AuthService::new(pool.clone(), AuthConfig::default());
+            let svc = AuthService::new(pool.clone(), auth_from_project());
             if !svc
                 .reset_password(
                     &args.username,
@@ -210,6 +210,21 @@ async fn connect(database_url: Option<String>) -> Result<Db> {
     laterite_core::db::connect(&config)
         .await
         .context("could not connect to the database")
+}
+
+/// The `[auth]` section of the application found from the current directory
+/// upward, so a command applies the password policy the panel applies. The
+/// defaults when no application is found.
+fn auth_from_project() -> AuthConfig {
+    #[derive(serde::Deserialize)]
+    struct AuthOnly {
+        #[serde(default)]
+        auth: AuthConfig,
+    }
+    project::Project::locate()
+        .and_then(|project| project.load::<AuthOnly>())
+        .map(|config| config.auth)
+        .unwrap_or_default()
 }
 
 /// The database settings of the application found from the current directory

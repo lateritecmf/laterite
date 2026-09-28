@@ -484,13 +484,13 @@ impl syn::parse::Parse for TwoLit {
     }
 }
 
-// --- Templates: `shell.t(` / `shell.tf(` / `shell.tfs(` -------------------------
+// --- Templates: `shell.t(` / `shell.tf(` / `shell.tfs(` / `self.t(` / `self.tf(` ------
 
 /// Collects the leading string literal of every `shell.t`/`tf`/`tfs` call in a
 /// template, and `self.t` (the pre-auth login/setup screens, which have no shell).
 /// `shell.tt` takes a prebuilt `Text`, so it carries no literal to scan.
 fn scan_template(cat: &mut Catalog, path: &str, src: &str) {
-    for needle in ["shell.t(", "shell.tf(", "shell.tfs(", "self.t("] {
+    for needle in ["shell.t(", "shell.tf(", "shell.tfs(", "self.t(", "self.tf("] {
         let mut from = 0;
         while let Some(pos) = src[from..].find(needle) {
             let call = from + pos;
@@ -652,15 +652,17 @@ list:
             <p>{{ shell.tf("Page {n}", [("n", page)]) }}</p>
             <span>{{ shell.tfs("Hi {name}", [("name", u)]) }}</span>
             <label>{{ self.t("Username") }}</label>
+            <p>{{ self.tf("At least {n} characters.", [("n", min)]) }}</p>
             <i>{{ shell.tt(msg) }}</i>"#;
         scan_template(&mut cat, "templates/x.html", src);
         assert!(cat.contains_key(&(None, "Dashboard".to_string())));
         assert!(cat.contains_key(&(None, "Page {n}".to_string())));
         assert!(cat.contains_key(&(None, "Hi {name}".to_string())));
-        // self.t (the pre-auth screens) is scanned too.
+        // self.t and self.tf (the pre-auth screens) are scanned too.
         assert!(cat.contains_key(&(None, "Username".to_string())));
+        assert!(cat.contains_key(&(None, "At least {n} characters.".to_string())));
         // shell.tt has no literal source, so nothing is collected for it.
-        assert_eq!(cat.len(), 4);
+        assert_eq!(cat.len(), 5);
     }
 
     #[test]

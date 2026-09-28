@@ -2,8 +2,8 @@
 //! signed out are told why.
 
 use laterite_auth::{
-    password, store, AuthConfig, AuthService, RequestContext, RevokeReason, SessionEnd,
-    MIN_PASSWORD_LENGTH,
+    password, store, AuthConfig, AuthService, NewOperator, RequestContext, RevokeReason,
+    SessionEnd, MIN_PASSWORD_LENGTH,
 };
 use laterite_core::{Actor, Db};
 
@@ -349,4 +349,40 @@ async fn a_wrong_current_password_changes_nothing_and_counts_as_a_failure() {
             .is_err(),
         "locked out, the old password still stands"
     );
+}
+
+/// One policy, read from the config, for every place a password is set.
+#[tokio::test]
+async fn the_policy_applies_wherever_a_password_is_set() {
+    let (db, _guard) = test_db().await;
+    let mut config = AuthConfig::default();
+    config.password_policy.min_length = 12;
+    let svc = AuthService::new(db.clone(), config);
+    let operator = |password: &'static str| NewOperator {
+        username: "root",
+        email: "root@acme.test",
+        first_name: "Root",
+        last_name: None,
+        password,
+        timezone: None,
+    };
+
+    assert!(svc.create_superuser(operator("eleven-char")).await.is_err());
+    assert!(
+        !svc.has_any_operator().await.unwrap(),
+        "nothing was created"
+    );
+    let id = svc
+        .create_superuser(operator("twelve-chars"))
+        .await
+        .unwrap();
+
+    assert!(svc
+        .change_password(id, "eleven-char", None, &system())
+        .await
+        .is_err());
+    assert!(svc
+        .change_password(id, "another-dozen", None, &system())
+        .await
+        .is_ok());
 }

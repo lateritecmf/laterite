@@ -37,8 +37,8 @@ pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
     ActiveSession, AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession,
-    NewOperator, RecalledSession, RememberCredential, RequestContext, ResolvedSession,
-    MIN_PASSWORD_LENGTH,
+    NewOperator, PasswordPolicy, RecalledSession, RememberCredential, RequestContext,
+    ResolvedSession, MIN_PASSWORD_LENGTH,
 };
 pub use store::AuditRecord;
 pub use store::{RevokeReason, SessionEnd};

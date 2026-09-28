@@ -38,7 +38,8 @@
           </div>
           <div class="lat-field">
             <label class="lat-field__label" for="password">{{ self.t("Password") }}</label>
-            <input class="lat-input" type="password" id="password" name="password" autocomplete="new-password" required>
+            <input class="lat-input" type="password" id="password" name="password" autocomplete="new-password" minlength="{{ min_password }}" required>
+            <p class="lat-help">{{ self.tf("At least {n} characters.", [("n", min_password)]) }}</p>
           </div>
           <div class="lat-field">
             <label class="lat-field__label" for="timezone">{{ self.t("Display timezone") }}</label>

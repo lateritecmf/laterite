@@ -7,6 +7,20 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `AuthConfig` is non-exhaustive and gains `password_policy`;
+  build it from `Default` and set fields.
+
+### Added
+
+- `[auth.password_policy] min_length` (default 8) is enforced wherever a
+  password is set: Preferences, first-run setup and `lat admin create`.
+
+### Fixed
+
+- `lat i18n extract` reads `self.tf` calls in the pre-auth templates.
+
 ## [0.8.2] - 2026-09-28
 
 Password hardening: every sign-out says why, a change is one transaction and

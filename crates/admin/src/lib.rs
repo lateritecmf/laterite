@@ -2472,6 +2472,7 @@ async fn setup_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
             None,
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
+            state.auth.password_policy().min_length,
         )),
         Err(_) => render_error(),
     }
@@ -2506,6 +2507,7 @@ async fn setup_submit(
             )),
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
+            state.auth.password_policy().min_length,
         ));
     }
     // The setup select always carries a value, but guard against a bad one.
@@ -2517,9 +2519,25 @@ async fn setup_submit(
             Some(t!("That is not a recognised timezone.")),
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
+            state.auth.password_policy().min_length,
         ));
     }
 
+    let min_length = state.auth.password_policy().min_length;
+    if form.password.chars().count() < min_length {
+        return render(setup_view(
+            &state.admin_path,
+            state.brand().await,
+            state.timezone,
+            Some(t!(
+                "A password needs at least {n} characters.",
+                n = min_length as i64
+            )),
+            pre_auth_translator(&state, &headers),
+            state.asset_urls.clone(),
+            state.auth.password_policy().min_length,
+        ));
+    }
     let new = NewOperator {
         username,
         email,
@@ -2540,6 +2558,7 @@ async fn setup_submit(
                 )),
                 pre_auth_translator(&state, &headers),
                 state.asset_urls.clone(),
+                state.auth.password_policy().min_length,
             ));
         }
     };
@@ -2580,6 +2599,7 @@ fn setup_view(
     error: Option<Text>,
     i18n: Translator,
     asset_urls: Arc<AssetUrls>,
+    min_password: usize,
 ) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
@@ -2596,6 +2616,7 @@ fn setup_view(
         brand,
         zones,
         error: error.map(|e| i18n.t(&e)),
+        min_password: min_password as i64,
         i18n,
     }
 }
@@ -2708,6 +2729,7 @@ async fn preferences_form(
         &state.default_locale,
         &offered_locales(&state.catalogs),
         account,
+        state.auth.password_policy().min_length,
     ))
 }
 
@@ -2797,10 +2819,11 @@ async fn password_update(
     if form.new_password != form.confirm_password {
         return refuse(t!("The new passwords do not match."));
     }
-    if form.new_password.chars().count() < laterite_auth::MIN_PASSWORD_LENGTH {
+    let min_length = state.auth.password_policy().min_length;
+    if form.new_password.chars().count() < min_length {
         return refuse(t!(
             "A password needs at least {n} characters.",
-            n = laterite_auth::MIN_PASSWORD_LENGTH as i64
+            n = min_length as i64
         ));
     }
     // Whether the stay-signed-in cookie here is this account's, asked before the
@@ -2936,6 +2959,7 @@ fn preferences_view(
     default_locale: &str,
     offered: &[String],
     account: AccountSecurity,
+    min_password: usize,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
@@ -2966,7 +2990,7 @@ fn preferences_view(
         inherits_locale: current_locale.is_none(),
         sessions: account.sessions,
         password_changed: account.password_changed,
-        min_password: laterite_auth::MIN_PASSWORD_LENGTH as i64,
+        min_password: min_password as i64,
     }
 }
 
@@ -3201,9 +3225,21 @@ struct SetupTemplate {
     error: Option<String>,
     /// The pre-auth translator, as on [`LoginTemplate`].
     i18n: Translator,
+    /// The shortest password the policy accepts.
+    min_password: i64,
 }
 
 impl SetupTemplate {
+    /// Localizes a source string with integer `{name}` arguments, as
+    /// [`Shell::tf`] does for signed-in screens.
+    fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
+        let mut text = Text::dynamic(source);
+        for (name, value) in args {
+            text = text.arg(*name, *value);
+        }
+        self.i18n.t(&text)
+    }
+
     fn asset(&self, key: &str) -> String {
         preauth_asset(&self.asset_urls, &self.base, key)
     }

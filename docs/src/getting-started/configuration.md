@@ -48,6 +48,9 @@ session_absolute_timeout_secs = 43200 # 12h
 remember_duration_secs = 1209600      # 14d
 max_failures = 5
 failure_window_secs = 900
+
+[auth.password_policy]
+min_length = 8
 ```
 
 Every `[auth]` and `[backend]` key is optional.
@@ -72,6 +75,7 @@ Key | Description
 `remember_duration_secs` | How long an unused "stay signed in" credential lasts, from its last use. Default `1209600`.
 `max_failures` | Failed logins before a username is locked out. Default `5`.
 `failure_window_secs` | Window the failures are counted over. Default `900`.
+`password_policy.min_length` | The shortest password accepted, wherever one is set. Default `8`.
 
 ## Where a module's screens mount
 

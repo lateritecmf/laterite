@@ -51,6 +51,10 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
+#: templates/setup.html
+msgid "At least {n} characters."
+msgstr ""
+
 #: templates/preferences.html
 msgid "At least {n} characters. Every other device is signed out."
 msgstr ""

@@ -54,3 +54,32 @@ async fn first_run_setup_is_audited() {
     assert_eq!(created.target_type.as_deref(), Some("backend_user"));
     assert!(created.target_id.is_some());
 }
+
+/// The policy holds at the front door too: a short password makes no account.
+#[tokio::test]
+async fn setup_refuses_a_short_password() {
+    let (db, _guard) = test_db().await;
+    let body = "username=ada&first_name=Ada&last_name=&email=ada%40acme.test\
+                &password=short&timezone=UTC";
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/setup")
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(html.contains("at least 8 characters"), "{html}");
+
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    assert!(!svc.has_any_operator().await.unwrap());
+}
