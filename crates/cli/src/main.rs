@@ -157,7 +157,15 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             )
             .await
             .context("could not record the audit entry")?;
+            // A generated password was made to be handed over, so its holder
+            // replaces it at first sign-in; a typed one is the operator's own.
+            if args.generate {
+                auth.require_password_change(id).await?;
+            }
             println!("Created backend superuser '{}' ({id})", args.username);
+            if args.generate {
+                println!("The generated password must be changed at first sign-in");
+            }
         }
         AdminCommand::ResetPassword(args) => {
             let plain = resolve_password(args.password, args.generate)?;
@@ -174,10 +182,18 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             {
                 bail!("no backend user named '{}'", args.username);
             }
+            if args.generate {
+                if let Some(user) = store::find_user_by_username(&pool, &args.username).await? {
+                    svc.require_password_change(user.id).await?;
+                }
+            }
             println!(
                 "Password reset for '{}'; every session and stay-signed-in device was signed out",
                 args.username
             );
+            if args.generate {
+                println!("The generated password must be changed at first sign-in");
+            }
         }
         AdminCommand::List => {
             let users = store::list_backend_users(&pool).await?;
@@ -253,7 +269,7 @@ fn resolve_password(explicit: Option<String>, generate: bool) -> Result<String> 
         return Ok(password);
     }
     if generate {
-        let password = generate_password();
+        let password = laterite_auth::password::generate();
         println!("Generated password: {password}");
         return Ok(password);
     }
@@ -266,14 +282,4 @@ fn resolve_password(explicit: Option<String>, generate: bool) -> Result<String> 
         bail!("password must not be empty");
     }
     Ok(password)
-}
-
-fn generate_password() -> String {
-    use rand::Rng;
-    // Unambiguous alphabet (no 0/O, 1/l/I) for a password that is safe to read aloud.
-    const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-    let mut rng = rand::thread_rng();
-    (0..20)
-        .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
-        .collect()
 }

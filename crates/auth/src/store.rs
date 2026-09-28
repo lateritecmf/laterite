@@ -782,6 +782,7 @@ pub(crate) async fn change_password(
             .table(BackendUsers::Table)
             .value(BackendUsers::PasswordHash, password_hash)
             .value(BackendUsers::PasswordChangedAt, now_ts())
+            .value(BackendUsers::MustChangePassword, false)
             .value(BackendUsers::UpdatedAt, now_ts())
             .and_where(Expr::col(BackendUsers::Id).eq(user_id))
             .to_owned(),
@@ -819,6 +820,45 @@ pub(crate) async fn change_password(
         .await?;
     tx.commit().await?;
     Ok(done)
+}
+
+/// Whether the account holds a temporary password it must replace.
+pub(crate) async fn must_change_password(db: &Db, user_id: i64) -> Result<bool, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUsers::MustChangePassword)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    match row {
+        Some(row) => Ok(row.get_bool("must_change_password")?),
+        None => Ok(false),
+    }
+}
+
+/// Marks or clears the account as holding a temporary password.
+pub(crate) async fn set_must_change_password(
+    db: &Db,
+    user_id: i64,
+    must_change: bool,
+) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::MustChangePassword, must_change)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
 }
 
 /// When a user's password was last set, `None` if it has not changed since

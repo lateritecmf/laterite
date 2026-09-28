@@ -33,6 +33,8 @@ pub(crate) enum BackendUsers {
     Locale,
     Permissions,
     PasswordChangedAt,
+    /// Set while the account holds a temporary password it must replace.
+    MustChangePassword,
     CreatedAt,
     UpdatedAt,
 }

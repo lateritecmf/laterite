@@ -678,6 +678,22 @@ impl AuthService {
         Ok(ended)
     }
 
+    /// Marks the account as holding a temporary password: one made for it by an
+    /// administrator or the command line. Until the operator sets their own
+    /// through [`AuthService::change_own_password`], the admin gate sends every
+    /// request to the Preferences password form.
+    pub async fn require_password_change(&self, user_id: i64) -> Result<(), AuthError> {
+        if store::set_must_change_password(&self.db, user_id, true).await? == 0 {
+            return Err(AuthError::SessionInvalid);
+        }
+        Ok(())
+    }
+
+    /// Whether the account still holds a temporary password.
+    pub async fn must_change_password(&self, user_id: i64) -> Result<bool, AuthError> {
+        store::must_change_password(&self.db, user_id).await
+    }
+
     /// The rules a new password must meet, for a form to state them up front.
     pub fn password_policy(&self) -> &PasswordPolicy {
         &self.config.password_policy

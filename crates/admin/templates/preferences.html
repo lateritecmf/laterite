@@ -29,6 +29,7 @@
 
 <div class="lat-toolbar lat-toolbar--section" id="password"><h2>{{ shell.t("Password") }}</h2></div>
 <div class="lat-card lat-card--form">
+  {% if must_change %}<div class="lat-alert" data-lat-persist>{{ shell.t("This password is temporary. Set one of your own to continue.") }}</div>{% endif %}
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Last changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>

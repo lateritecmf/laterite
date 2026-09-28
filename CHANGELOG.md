@@ -22,6 +22,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   password is set: Preferences, first-run setup and `lat admin create`.
 - `AuthService::recent_access` reads an account's access log.
 - The audit log names its target: a username or a role name beside the id.
+- A temporary password must be changed at first sign-in: every screen redirects
+  to Preferences until it is. `--generate` on `lat admin create` and
+  `reset-password` marks it; `AuthService::require_password_change` does too.
 
 ### Fixed
 

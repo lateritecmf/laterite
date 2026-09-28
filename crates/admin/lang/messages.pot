@@ -728,6 +728,10 @@ msgstr ""
 msgid "This install has no accounts yet. Set one up to sign in."
 msgstr ""
 
+#: templates/preferences.html
+msgid "This password is temporary. Set one of your own to continue."
+msgstr ""
+
 #: src/roles.rs
 msgid "This role is maintained by the framework. Duplicate it to make your own."
 msgstr ""

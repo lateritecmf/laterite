@@ -391,3 +391,26 @@ async fn the_policy_applies_wherever_a_password_is_set() {
         .await
         .is_ok());
 }
+
+/// A password made for the operator is temporary until they set their own.
+#[tokio::test]
+async fn a_temporary_password_is_cleared_by_the_operators_own_change() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let here = sign_in(&svc).await;
+    assert!(!svc.must_change_password(id).await.unwrap());
+
+    svc.require_password_change(id).await.unwrap();
+    assert!(svc.must_change_password(id).await.unwrap());
+
+    svc.change_own_password(id, OLD, NEW, &here, &RequestContext::default())
+        .await
+        .unwrap();
+    assert!(!svc.must_change_password(id).await.unwrap());
+
+    // An administrator's change clears it too; marking it again is explicit.
+    svc.require_password_change(id).await.unwrap();
+    svc.change_password(id, OLD, None, &system()).await.unwrap();
+    assert!(!svc.must_change_password(id).await.unwrap());
+    assert!(svc.require_password_change(9999).await.is_err());
+}

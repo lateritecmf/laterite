@@ -121,6 +121,7 @@ lat admin create editor --email editor@acme.test --first-name Editor
 lat admin reset-password editor
 ```
 
-Both prompt for a password; `--generate` prints a strong one. Outside the
+Both prompt for a password; `--generate` prints a strong one that must be
+changed at first sign-in. Outside the
 application, pass `--database-url` or set `DATABASE_URL`. A fresh install with
 no accounts serves a first-run setup screen at `/admin`.

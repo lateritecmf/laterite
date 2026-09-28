@@ -82,6 +82,16 @@ Error | Returned when
 A change through this call is also on the access log as `password_changed`,
 with the address it came from.
 
+A password made for an operator is temporary:
+
+```rust
+auth.require_password_change(user.id).await?;
+```
+
+Every admin request then redirects to **Preferences → Password** until the
+operator sets their own. `lat admin create --generate` and
+`lat admin reset-password --generate` mark the account the same way.
+
 ## Why a session ended
 
 Event | The signed-out device sees

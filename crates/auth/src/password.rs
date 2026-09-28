@@ -24,6 +24,17 @@ pub fn hash_password(plain: &str) -> Result<String, AuthError> {
 ///
 /// A malformed stored hash is an internal error, not a failed match, so a
 /// corrupted record is never silently treated as a wrong password.
+/// A strong random password of twenty characters from an unambiguous alphabet
+/// (no `0`/`O`, `1`/`l`/`I`), safe to read aloud or paste once.
+pub fn generate() -> String {
+    use rand::Rng;
+    const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    let mut rng = rand::thread_rng();
+    (0..20)
+        .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+        .collect()
+}
+
 pub fn verify_password(plain: &str, stored_hash: &str) -> Result<bool, AuthError> {
     let parsed =
         PasswordHash::new(stored_hash).map_err(|e| AuthError::PasswordHash(e.to_string()))?;

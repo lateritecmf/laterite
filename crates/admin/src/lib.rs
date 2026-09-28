@@ -2094,6 +2094,33 @@ async fn require_auth(
         request = Request::from_parts(parts, body);
     }
 
+    let user = resolved.identity;
+    // Kept past the move into the request, for the deferred-check log below.
+    let acting_user_id = user.user.id;
+    let path = request.uri().path().to_string();
+    // A temporary password opens nothing but the Preferences form that replaces
+    // it, and the way out.
+    let preferences = format!("{}/preferences", state.admin_path);
+    if !path.starts_with(&preferences)
+        && path != format!("{}/logout", state.admin_path)
+        && state
+            .auth
+            .must_change_password(user.user.id)
+            .await
+            .unwrap_or(false)
+    {
+        let to = format!("{preferences}#password");
+        let response = if htmx {
+            (
+                [("HX-Redirect", to.as_str())],
+                axum::http::StatusCode::NO_CONTENT,
+            )
+                .into_response()
+        } else {
+            Redirect::to(&to).into_response()
+        };
+        return with_recall_cookies(response, recalled, jar, token, &state);
+    }
     // Deliver and clear any queued flash on a full-page render; a mutating
     // request leaves it for the redirect target's GET.
     let flash = if safe {
@@ -2101,10 +2128,6 @@ async fn require_auth(
     } else {
         Vec::new()
     };
-    let user = resolved.identity;
-    // Kept past the move into the request, for the deferred-check log below.
-    let acting_user_id = user.user.id;
-    let path = request.uri().path().to_string();
     // Resolve the locale chain for this request (operator preference, then the
     // browser's Accept-Language, then the deployment default) over the shared
     // catalogs, before the nav context, which localizes the settings sidebar.
@@ -2186,23 +2209,36 @@ async fn require_auth(
             tracing::error!(error = %e, "persisting admin session failed");
         }
     }
-    // A recall replaced both halves: the session it minted and the credential
-    // that replaced the one just spent.
-    if let Some(credential) = recalled {
-        let jar = jar
-            .add(session_cookie(
-                token,
-                &state.admin_path,
-                state.secure_cookie,
-            ))
-            .add(remember_cookie(
-                credential,
-                &state.admin_path,
-                state.secure_cookie,
-            ));
-        return (jar, response).into_response();
+    with_recall_cookies(response, recalled, jar, token, &state)
+}
+
+/// A recall replaced both halves, the session it minted and the credential that
+/// replaced the one just spent, so every response on such a request carries the
+/// new cookies, whichever branch produced it.
+fn with_recall_cookies(
+    response: Response,
+    recalled: Option<laterite_auth::RememberCredential>,
+    jar: CookieJar,
+    token: String,
+    state: &AdminState,
+) -> Response {
+    match recalled {
+        Some(credential) => {
+            let jar = jar
+                .add(session_cookie(
+                    token,
+                    &state.admin_path,
+                    state.secure_cookie,
+                ))
+                .add(remember_cookie(
+                    credential,
+                    &state.admin_path,
+                    state.secure_cookie,
+                ));
+            (jar, response).into_response()
+        }
+        None => response,
     }
-    response
 }
 
 /// Trades a presented stay-signed-in cookie for a live session. Returns the new
@@ -2989,6 +3025,7 @@ fn preferences_view(
         inherits_locale: current_locale.is_none(),
         sessions: account.sessions,
         password_changed: account.password_changed,
+        must_change: account.must_change,
         min_password: min_password as i64,
     }
 }
@@ -2998,6 +3035,8 @@ fn preferences_view(
 struct AccountSecurity {
     sessions: Vec<SessionRow>,
     password_changed: Option<String>,
+    /// The password is temporary and must be replaced before anything else.
+    must_change: bool,
 }
 
 async fn account_security(
@@ -3019,6 +3058,11 @@ async fn account_security(
     AccountSecurity {
         sessions: session_rows(state, user, shell, jar).await,
         password_changed,
+        must_change: state
+            .auth
+            .must_change_password(user.user.id)
+            .await
+            .unwrap_or(false),
     }
 }
 
@@ -3270,6 +3314,8 @@ struct PreferencesTemplate {
     sessions: Vec<SessionRow>,
     /// When the password last changed, formatted; `None` when not recorded.
     password_changed: Option<String>,
+    /// The password is temporary; nothing else opens until it is replaced.
+    must_change: bool,
     /// The shortest password accepted, for the form's help and `minlength`.
     min_password: i64,
 }
