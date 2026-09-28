@@ -17,6 +17,7 @@ Change | Recorded
 A role created or edited | Yes
 A user's permissions changed | Yes
 A password changed | Yes, as `backend.user.password_change`, never the password
+An operator created from setup or `lat admin create` | Yes, as `backend.user.create`, credited to the process
 A plugin enabled or disabled | Yes
 A settings model saved | Yes, without the contents
 A record created or edited through a resource form | Yes

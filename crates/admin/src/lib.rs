@@ -2528,17 +2528,33 @@ async fn setup_submit(
         password: &form.password,
         timezone: Some(tz),
     };
-    if state.auth.create_superuser(new).await.is_err() {
-        return render(setup_view(
-            &state.admin_path,
-            state.brand().await,
-            state.timezone,
-            Some(t!(
-                "Could not create the account. The username or email may already be taken."
-            )),
-            pre_auth_translator(&state, &headers),
-            state.asset_urls.clone(),
-        ));
+    let id = match state.auth.create_superuser(new).await {
+        Ok(id) => id,
+        Err(_) => {
+            return render(setup_view(
+                &state.admin_path,
+                state.brand().await,
+                state.timezone,
+                Some(t!(
+                    "Could not create the account. The username or email may already be taken."
+                )),
+                pre_auth_translator(&state, &headers),
+                state.asset_urls.clone(),
+            ));
+        }
+    };
+    // Nobody is signed in yet, so the trail names the process rather than an
+    // operator, the same as a command-line action.
+    let entry = laterite_auth::AuditEntry {
+        actor_user_id: None,
+        actor_username: "first-run setup",
+        action: "backend.user.create",
+        target_type: Some("backend_user"),
+        target_id: Some(&id.to_string()),
+        detail: None,
+    };
+    if let Err(e) = state.auth.record_audit(entry).await {
+        tracing::error!(error = %e, "failed to write audit log entry");
     }
 
     // Sign the new administrator straight in through the normal login path.

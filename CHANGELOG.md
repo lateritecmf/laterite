@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `SessionHandle::push_flash_sticky` keeps a message until dismissed; a
   password change confirms with one.
+- Creating an operator from first-run setup or `lat admin create` is audited
+  as `backend.user.create`, credited to the process.
 
 ### Fixed
 
