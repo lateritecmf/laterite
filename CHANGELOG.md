@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-28
+
+Password hardening: every sign-out says why, a change is one transaction and
+is dated from creation, a refusal redirects back, and creating an operator is
+on the audit trail.
+
 ### Added
 
 - `SessionHandle::push_flash_sticky` keeps a message until dismissed; a
