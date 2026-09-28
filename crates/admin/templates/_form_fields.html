@@ -1,8 +1,8 @@
-<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']">
+<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']"{% if enter_off %} data-lat-enter="off"{% endif %}>
   {% include "_csrf.html" %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   {% for field in fields %}
-  <div class="lat-field">
+  <div class="lat-field"{% if !field.enter.is_empty() %} data-lat-enter="{{ field.enter }}"{% endif %}>
     <label class="lat-field__label" for="{{ field.id }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
     {{ field.control|safe }}
     {% for message in field.errors %}<p class="lat-field__error">{{ message }}</p>{% endfor %}

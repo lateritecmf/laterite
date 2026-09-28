@@ -1,0 +1,13 @@
+entity: backend_roles
+path: /skus
+title: SKUs
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: SKU
+  enter: off
+  fields:
+    code: { enter: next, rules: [required] }
+    name: { label: Title }

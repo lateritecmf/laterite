@@ -360,3 +360,68 @@ window.lat.widget('copy', function (btn) {
     });
   });
 });
+
+// Enter policy. One rule per scope, framework-wide, so every form behaves the
+// way people expect without each screen wiring it:
+//   * a single-line field: Enter submits (the browser's implicit submission;
+//     every rendered form carries a submit button, which that needs);
+//   * a textarea: Enter is a newline, Cmd/Ctrl+Enter submits;
+//   * inside `[data-lat-enter-scope]` (a picker, a repeater): Enter acts there
+//     and never submits the form around it;
+//   * `data-lat-enter="off"` on a form or a field stops Enter submitting;
+//     `data-lat-enter="next"` on a field moves focus to the next one.
+(function () {
+  var NOT_TEXT = /^(checkbox|radio|file|button|submit|reset|image|range|color)$/;
+  function isSingleLine(el) {
+    return el.tagName === 'INPUT' && !NOT_TEXT.test(el.type);
+  }
+  function rule(el) {
+    var carrier = el.closest('[data-lat-enter]');
+    return carrier ? carrier.getAttribute('data-lat-enter') : 'submit';
+  }
+  function focusables(root) {
+    return Array.prototype.filter.call(
+      root.querySelectorAll('input, select, textarea, button, [tabindex]'),
+      function (f) { return !f.disabled && f.type !== 'hidden' && f.offsetParent !== null; }
+    );
+  }
+  function focusNext(el, root) {
+    var list = focusables(root);
+    var i = list.indexOf(el);
+    if (i < 0 || i + 1 >= list.length) return false;
+    list[i + 1].focus();
+    return true;
+  }
+  // A repeater: the next field in the row, or a new row from the last one.
+  function withinRows(el, scope) {
+    var row = el.closest('.lat-repeater__row');
+    if (row && focusNext(el, row)) return;
+    var add = scope.querySelector(':scope > .lat-repeater__add');
+    if (add) add.click();
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented) return;
+    var el = e.target;
+    if (!el || !el.closest) return;
+    var form = el.form || el.closest('form');
+    if (e.metaKey || e.ctrlKey) {
+      if (!form) return;
+      e.preventDefault();
+      form.requestSubmit();
+      return;
+    }
+    if (!isSingleLine(el)) return;
+    var scope = el.closest('[data-lat-enter-scope]');
+    if (scope && form && form.contains(scope)) {
+      e.preventDefault();
+      var kind = scope.getAttribute('data-lat-enter-scope');
+      var target = scope.getAttribute('data-lat-enter-target');
+      if (kind === 'rows') withinRows(el, scope);
+      else if (target) { var t = scope.querySelector(target); if (t) t.click(); }
+      return;
+    }
+    var what = rule(el);
+    if (what === 'off') e.preventDefault();
+    else if (what === 'next') { e.preventDefault(); focusNext(el, form || document); }
+  }, true);
+})();

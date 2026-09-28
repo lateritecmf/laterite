@@ -3397,6 +3397,7 @@ mod tests {
 
     fn write_form() -> form::FormConfig {
         form::FormConfig {
+            enter: Default::default(),
             entity: "widgets".to_string(),
             title: "Widgets".into(),
             base_path: "/widgets".to_string(),

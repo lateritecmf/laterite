@@ -15,6 +15,30 @@ Raise a toast from script:
 window.lat.flash('Import finished.', 'success');   // or 'error', which stays until dismissed
 ```
 
+## Keyboard
+
+Key | Where | Does
+--- | --- | ---
+Enter | A single-line field | Submits the form.
+Enter | A textarea | A newline.
+Cmd/Ctrl+Enter | Anywhere in a form | Submits it.
+Enter | A picker's search box, a repeater row | Acts there: the picker keeps searching; a repeater row moves to the next field, and from its last field adds a row. Never submits the form around it.
+Escape | A menu, a dialog | Closes it.
+
+Opt out in a descriptor:
+
+```yaml
+form:
+  enter: off               # Enter never submits this form; Cmd/Ctrl+Enter still does
+  fields:
+    sku: { enter: next }   # Enter moves to the next field
+    notes: { type: textarea }
+```
+
+A widget of your own that puts an input inside a form marks its root
+`data-lat-enter-scope`, with `data-lat-enter-target="<selector>"` naming the
+button Enter presses there; without a target, Enter does nothing.
+
 ## Lists
 
 Control | Behaviour

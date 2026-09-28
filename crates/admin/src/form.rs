@@ -43,6 +43,7 @@ use crate::{not_found, render, render_error, AdminState};
 /// descriptor, so it is authorable as data (later YAML) as well as by builder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct FormField {
     pub name: String,
     /// The field's label, localized at render. Serde stays a plain string.
@@ -65,6 +66,46 @@ pub struct FormField {
     /// Help text shown beneath the control, localized at render.
     #[serde(default)]
     pub help: Option<Text>,
+    /// What Enter does in this field: `submit` (the form's rule), `off`, or
+    /// `next` (moves to the next field).
+    #[serde(default)]
+    pub enter: FieldEnter,
+}
+
+/// What Enter does in a form's single-line fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnterPolicy {
+    /// Submits the form. Cmd/Ctrl+Enter submits from a textarea as well.
+    #[default]
+    Submit,
+    /// Enter never submits; Cmd/Ctrl+Enter still does.
+    Off,
+}
+
+/// What Enter does in one field, over the form's [`EnterPolicy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldEnter {
+    /// The form's rule.
+    #[default]
+    Submit,
+    /// Nothing.
+    Off,
+    /// Focus moves to the next field.
+    Next,
+}
+
+impl FieldEnter {
+    /// The `data-lat-enter` value the field wrapper carries; empty for the
+    /// form's rule.
+    fn attribute(self) -> &'static str {
+        match self {
+            FieldEnter::Submit => "",
+            FieldEnter::Off => "off",
+            FieldEnter::Next => "next",
+        }
+    }
 }
 
 impl Default for FormConfig {
@@ -77,6 +118,7 @@ impl Default for FormConfig {
             base_path: String::new(),
             id_field: "id".to_string(),
             fields: Vec::new(),
+            enter: EnterPolicy::default(),
             persist: None,
             timestamps: false,
         }
@@ -110,6 +152,7 @@ impl FormField {
             rules: Vec::new(),
             translatable: false,
             help: None,
+            enter: FieldEnter::default(),
         }
     }
 
@@ -265,6 +308,9 @@ pub struct FormConfig {
         serialize_with = "crate::keyed::serialize"
     )]
     pub fields: Vec<FormField>,
+    /// What Enter does in the form's single-line fields. Default `submit`.
+    #[serde(default)]
+    pub enter: EnterPolicy,
     /// The registered persister that writes this form (a dotted `vendor.name`),
     /// or `None` for the built-in descriptor insert/update. See [`crate::persist`].
     pub persist: Option<String>,
@@ -287,6 +333,7 @@ impl FormConfig {
         fields: Vec<FormField>,
     ) -> Self {
         Self {
+            enter: Default::default(),
             entity: entity.into(),
             title: title.into(),
             base_path: base_path.into(),
@@ -714,6 +761,7 @@ fn invalid_response(
             cancel_path: page.cancel_path,
             error: page.error,
             fields: page.fields,
+            enter_off: page.enter_off,
         })
     } else {
         render(page)
@@ -786,6 +834,7 @@ fn build(
                 label,
                 control,
                 required,
+                enter: f.enter.attribute(),
                 // Localize each per-field message through the request translator.
                 errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
@@ -819,6 +868,7 @@ fn build(
         cancel_path: form.config.base_path.clone(),
         error,
         fields,
+        enter_off: form.config.enter == EnterPolicy::Off,
     }
 }
 
@@ -831,6 +881,8 @@ struct FieldView {
     control: String,
     required: bool,
     errors: Vec<String>,
+    /// The field's own Enter rule (`off`, `next`), or empty for the form's.
+    enter: &'static str,
 }
 
 /// Just the form element, for an HTMX submit that failed validation: the
@@ -843,6 +895,8 @@ struct FormFragment {
     cancel_path: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+    /// Enter never submits this form.
+    enter_off: bool,
 }
 
 #[derive(Template)]
@@ -854,6 +908,8 @@ struct FormTemplate {
     cancel_path: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+    /// Enter never submits this form.
+    enter_off: bool,
 }
 
 #[cfg(test)]
@@ -901,6 +957,7 @@ mod tests {
 
     fn config() -> PreparedForm {
         let config = FormConfig {
+            enter: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1173,6 +1230,7 @@ mod tests {
         // contributes Rule::Email without the descriptor listing it.
         let cfg = PreparedForm::prepare(
             FormConfig {
+                enter: Default::default(),
                 entity: "samples".to_string(),
                 title: "Sample".into(),
                 base_path: "/admin/samples".to_string(),
@@ -1222,6 +1280,7 @@ mod tests {
     #[test]
     fn prepare_rejects_an_unregistered_field_type() {
         let config = FormConfig {
+            enter: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1246,6 +1305,7 @@ mod tests {
         // The text field's `input` option is a string; a wrong JSON type for it
         // aborts prepare naming the field.
         let config = FormConfig {
+            enter: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1317,6 +1377,7 @@ mod tests {
 
     fn config_with(persister: &str) -> FormConfig {
         FormConfig {
+            enter: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1411,6 +1472,7 @@ mod timestamp_tests {
 
     fn timestamped(on: bool) -> FormConfig {
         FormConfig {
+            enter: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1498,6 +1560,7 @@ mod htmx_tests {
         let st = state(db);
         let form = PreparedForm::prepare(
             FormConfig {
+                enter: Default::default(),
                 entity: "samples".to_string(),
                 title: "Sample".into(),
                 base_path: "/admin/samples".to_string(),

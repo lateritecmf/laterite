@@ -15,6 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   recorded when an operator changes their own password.
 - **Breaking:** `AuditEntry` and `AuditRecord` are non-exhaustive and carry a
   `target_label`; build an entry with `AuditEntry::new(actor, action).target(..)`.
+- **Breaking:** `FormField` is non-exhaustive and gains `enter`; build one with
+  `FormField::of` or from YAML.
 
 ### Added
 
@@ -24,6 +26,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The audit log names its target: a username or a role name beside the id.
 - Operators are created from the Users screen: name, email and roles, with a
   generated temporary password shown once. `AuthService::create_operator`.
+- Keyboard rules for every form: Enter submits, Cmd/Ctrl+Enter submits from a
+  textarea, a picker or a repeater row acts within itself. `enter: off` on a
+  form and `enter: next` on a field opt out.
 - An administrator resets another operator's password from their edit screen
   (temporary, shown once, every device signed out) and unlocks a locked-out
   account. `AuthService::reset_operator_password`, `is_locked_out`, `unlock`.
@@ -33,6 +38,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- Enter in a record picker's search box submitted the whole form around it.
 - `lat i18n extract` reads `self.tf` calls in the pre-auth templates.
 
 ## [0.8.2] - 2026-09-28
