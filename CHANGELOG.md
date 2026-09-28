@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-28
+
+Password changes that hold, and resources as files: a change signs the account
+out everywhere else and says why, is audited and dated, and can be made from
+Preferences; a resource can be written as one YAML descriptor file.
+
 ### Security
 
 - `lat admin reset-password` now signs the account out of every session and
@@ -16,26 +22,25 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `AuthService::change_password` revokes every other session with a reason, is
   audited, and refuses a password under `MIN_PASSWORD_LENGTH` (8).
-- When a password last changed shows on the Users form and in Preferences.
 - Operators change their own password under Preferences, confirming the current
   one; this browser stays signed in.
+- When a password last changed shows on the Users form and in Preferences.
 - A signed-out session or stay-signed-in device is told why on the login screen:
   a changed password, deactivation, sign-out elsewhere, or inactivity.
+- A resource can be written as a YAML file and read with
+  `laterite_admin::descriptor::from_yaml`. One file per resource, columns and
+  fields as named maps, an unknown key refused with its line.
+- `resource!("descriptors/posts.yaml")` embeds a descriptor file at compile time.
+- `lat i18n extract` reads the labels a descriptor file carries, and
+  `lat doctor` parses every `descriptors/**/*.yaml` without a compile.
+- The built-in audit log is itself a descriptor file.
+- `Permission::renamed_from` rewrites a renamed code in every role and
+  per-user override at boot, so an operator's own choices are repaired.
 
 ### Fixed
 
 - An htmx request from a signed-out session navigates to login through
   `HX-Redirect`, instead of rendering the login page inside the swap target.
-
-- A resource can be written as a YAML file and read with
-  `laterite_admin::descriptor::from_yaml`. One file per resource, columns and
-  fields as named maps, an unknown key refused with its line.
-- `resource!("admin/posts.yaml")` embeds a descriptor file at compile time.
-- `lat i18n extract` reads the labels a descriptor file carries, and
-  `lat doctor` parses every `admin/**/*.yaml` without a compile.
-- The built-in audit log is itself a descriptor file.
-- `Permission::renamed_from` rewrites a renamed code in every role and
-  per-user override at boot, so an operator's own choices are repaired.
 
 ## [0.8.0] - 2026-09-22
 
