@@ -481,19 +481,27 @@ pub(crate) async fn revoke_user_remember_tokens(
     user_id: i64,
     reason: RevokeReason,
 ) -> Result<(), AuthError> {
-    let (sql, values) = build(
-        db.backend,
+    let (sql, values) = revoke_user_remember_tokens_query(db.backend, user_id, reason);
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+fn revoke_user_remember_tokens_query(
+    backend: laterite_core::DbBackend,
+    user_id: i64,
+    reason: RevokeReason,
+) -> (String, sea_query::Values) {
+    build(
+        backend,
         Query::update()
             .table(BackendRememberTokens::Table)
             .value(BackendRememberTokens::RevokedReason, reason.as_str())
             .and_where(Expr::col(BackendRememberTokens::BackendUserId).eq(user_id))
             .and_where(Expr::col(BackendRememberTokens::RevokedReason).is_null())
             .to_owned(),
-    );
-    bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
-        .await?;
-    Ok(())
+    )
 }
 
 /// A revoked credential by selector: its verifier hash and why it ended.
@@ -595,17 +603,21 @@ pub(crate) async fn list_user_sessions(
 
 /// Deletes one of a user's sessions. Scoped by owner, so a forged id can only
 /// ever end one of the caller's own sessions.
-pub(crate) async fn delete_user_session(
+/// Ends one of a user's sessions with a reason, so its holder is told.
+pub(crate) async fn revoke_user_session(
     db: &Db,
     user_id: i64,
     token_hash: &str,
+    reason: RevokeReason,
 ) -> Result<u64, AuthError> {
     let (sql, values) = build(
         db.backend,
-        Query::delete()
-            .from_table(BackendSessions::Table)
+        Query::update()
+            .table(BackendSessions::Table)
+            .value(BackendSessions::RevokedReason, reason.as_str())
             .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
             .and_where(Expr::col(BackendSessions::TokenHash).eq(token_hash))
+            .and_where(Expr::col(BackendSessions::RevokedReason).is_null())
             .to_owned(),
     );
     let done = bind_values(sqlx::query(&sql), values)
@@ -677,23 +689,29 @@ pub(crate) async fn revoke_user_sessions(
     keep: Option<&str>,
     reason: RevokeReason,
 ) -> Result<u64, AuthError> {
-    // Scoped so the builder drops before the await, keeping the future `Send`.
-    let (sql, values) = {
-        let mut update = Query::update();
-        update
-            .table(BackendSessions::Table)
-            .value(BackendSessions::RevokedReason, reason.as_str())
-            .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
-            .and_where(Expr::col(BackendSessions::RevokedReason).is_null());
-        if let Some(keep) = keep {
-            update.and_where(Expr::col(BackendSessions::TokenHash).ne(keep));
-        }
-        build(db.backend, update.to_owned())
-    };
+    let (sql, values) = revoke_user_sessions_query(db.backend, user_id, keep, reason);
     let done = bind_values(sqlx::query(&sql), values)
         .execute(&db.pool)
         .await?;
     Ok(done.rows_affected())
+}
+
+fn revoke_user_sessions_query(
+    backend: laterite_core::DbBackend,
+    user_id: i64,
+    keep: Option<&str>,
+    reason: RevokeReason,
+) -> (String, sea_query::Values) {
+    let mut update = Query::update();
+    update
+        .table(BackendSessions::Table)
+        .value(BackendSessions::RevokedReason, reason.as_str())
+        .and_where(Expr::col(BackendSessions::BackendUserId).eq(user_id))
+        .and_where(Expr::col(BackendSessions::RevokedReason).is_null());
+    if let Some(keep) = keep {
+        update.and_where(Expr::col(BackendSessions::TokenHash).ne(keep));
+    }
+    build(backend, update.to_owned())
 }
 
 /// Why a presented session no longer works, or `None` for one never issued.
@@ -727,12 +745,20 @@ pub(crate) async fn session_end(
     Ok((expires <= now).then_some(SessionEnd::Expired))
 }
 
-/// Sets a user's password hash by id.
-pub(crate) async fn update_password(
+/// Sets a user's password hash, ends every other session and stay-signed-in
+/// credential with [`RevokeReason::PasswordChanged`], and writes the audit entry,
+/// all in one transaction: a change that half-landed would leave a new password
+/// beside sessions the old one opened. Returns how many user rows matched;
+/// nothing is written for an unknown id.
+pub(crate) async fn change_password(
     db: &Db,
     user_id: i64,
     password_hash: &str,
+    keep: Option<&str>,
+    actor_user_id: Option<i64>,
+    actor_username: &str,
 ) -> Result<u64, AuthError> {
+    let mut tx = db.pool.begin().await?;
     let (sql, values) = build(
         db.backend,
         Query::update()
@@ -744,9 +770,37 @@ pub(crate) async fn update_password(
             .to_owned(),
     );
     let done = bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    if done == 0 {
+        return Ok(0);
+    }
+    let (sql, values) =
+        revoke_user_sessions_query(db.backend, user_id, keep, RevokeReason::PasswordChanged);
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
         .await?;
-    Ok(done.rows_affected())
+    let (sql, values) =
+        revoke_user_remember_tokens_query(db.backend, user_id, RevokeReason::PasswordChanged);
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    let target = user_id.to_string();
+    let (sql, values) = insert_audit_log_query(
+        db.backend,
+        actor_user_id,
+        actor_username,
+        "backend.user.password_change",
+        Some("backend_user"),
+        Some(&target),
+        None,
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(done)
 }
 
 /// When a user's password was last set, `None` if it has not changed since
@@ -848,8 +902,33 @@ pub async fn insert_audit_log(
     target_id: Option<&str>,
     detail: Option<&str>,
 ) -> Result<(), AuthError> {
-    let (sql, values) = build(
+    let (sql, values) = insert_audit_log_query(
         db.backend,
+        actor_user_id,
+        actor_username,
+        action,
+        target_type,
+        target_id,
+        detail,
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_audit_log_query(
+    backend: laterite_core::DbBackend,
+    actor_user_id: Option<i64>,
+    actor_username: &str,
+    action: &str,
+    target_type: Option<&str>,
+    target_id: Option<&str>,
+    detail: Option<&str>,
+) -> (String, sea_query::Values) {
+    build(
+        backend,
         Query::insert()
             .into_table(BackendAuditLog::Table)
             .columns([
@@ -871,11 +950,7 @@ pub async fn insert_audit_log(
                 now_ts().into(),
             ])
             .to_owned(),
-    );
-    bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
-        .await?;
-    Ok(())
+    )
 }
 
 /// The most recent audit entries, newest first (id descending, matching insert
@@ -961,6 +1036,7 @@ pub async fn create_user(
             BackendUsers::LastName,
             BackendUsers::PasswordHash,
             BackendUsers::IsSuperuser,
+            BackendUsers::PasswordChangedAt,
             BackendUsers::CreatedAt,
             BackendUsers::UpdatedAt,
         ])
@@ -971,6 +1047,7 @@ pub async fn create_user(
             last_name.map(str::to_string).into(),
             password_hash.into(),
             is_superuser.into(),
+            now.clone().into(),
             now.clone().into(),
             now.into(),
         ])
@@ -1426,7 +1503,12 @@ pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), Auth
 
 /// Sets whether a user may sign in. Returns rows affected, so a caller can tell
 /// a no-op from a missing user.
+/// Sets whether an account may sign in. Deactivating also ends every session
+/// and stay-signed-in credential with [`RevokeReason::Deactivated`], in the same
+/// transaction, so the account is never blocked from signing in while still
+/// signed in somewhere.
 pub(crate) async fn set_user_active(db: &Db, user_id: i64, active: bool) -> Result<u64, AuthError> {
+    let mut tx = db.pool.begin().await?;
     let (sql, values) = build(
         db.backend,
         Query::update()
@@ -1436,9 +1518,23 @@ pub(crate) async fn set_user_active(db: &Db, user_id: i64, active: bool) -> Resu
             .to_owned(),
     );
     let done = bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
-        .await?;
-    Ok(done.rows_affected())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    if done > 0 && !active {
+        let (sql, values) =
+            revoke_user_sessions_query(db.backend, user_id, None, RevokeReason::Deactivated);
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *tx)
+            .await?;
+        let (sql, values) =
+            revoke_user_remember_tokens_query(db.backend, user_id, RevokeReason::Deactivated);
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(done)
 }
 
 /// How many active superusers there are besides `excluding`.

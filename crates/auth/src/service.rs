@@ -546,9 +546,9 @@ impl AuthService {
             .collect())
     }
 
-    /// Ends one of the account's sessions by its public id. Returns whether a
-    /// session matched. Scoped to `user_id`, so the worst a forged id can do is
-    /// end one of the caller's own sessions.
+    /// Ends one of the account's sessions by its public id, with a reason so the
+    /// device is told. Returns whether a session matched. Scoped to `user_id`, so
+    /// the worst a forged id can do is end one of the caller's own sessions.
     pub async fn revoke_session(&self, user_id: i64, id: &str) -> Result<bool, AuthError> {
         let rows = store::list_user_sessions(&self.db, user_id, Utc::now()).await?;
         let Some(target) = rows
@@ -557,7 +557,13 @@ impl AuthService {
         else {
             return Ok(false);
         };
-        let done = store::delete_user_session(&self.db, user_id, &target.token_hash).await?;
+        let done = store::revoke_user_session(
+            &self.db,
+            user_id,
+            &target.token_hash,
+            store::RevokeReason::SignedOutElsewhere,
+        )
+        .await?;
         Ok(done > 0)
     }
 
@@ -613,30 +619,20 @@ impl AuthService {
             )));
         }
         let hash = password::hash_password(new_password)?;
-        if store::update_password(&self.db, user_id, &hash).await? == 0 {
-            return Err(AuthError::SessionInvalid);
-        }
         let keep = keep_token.map(hash_token);
-        store::revoke_user_sessions(
+        let done = store::change_password(
             &self.db,
             user_id,
+            &hash,
             keep.as_deref(),
-            store::RevokeReason::PasswordChanged,
-        )
-        .await?;
-        store::revoke_user_remember_tokens(&self.db, user_id, store::RevokeReason::PasswordChanged)
-            .await?;
-        let target = user_id.to_string();
-        store::insert_audit_log(
-            &self.db,
             actor.user_id(),
             actor.label(),
-            "backend.user.password_change",
-            Some("backend_user"),
-            Some(&target),
-            None,
         )
-        .await
+        .await?;
+        if done == 0 {
+            return Err(AuthError::SessionInvalid);
+        }
+        Ok(())
     }
 
     /// [`AuthService::change_password`] for the signed-in operator, after
@@ -785,12 +781,6 @@ impl AuthService {
 
         if store::set_user_active(&self.db, user_id, active).await? == 0 {
             return Err(AuthError::SessionInvalid);
-        }
-        if !active {
-            store::revoke_user_sessions(&self.db, user_id, None, store::RevokeReason::Deactivated)
-                .await?;
-            store::revoke_user_remember_tokens(&self.db, user_id, store::RevokeReason::Deactivated)
-                .await?;
         }
         Ok(())
     }

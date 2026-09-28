@@ -44,7 +44,7 @@ async fn page(db: &Db, path: &str, token: &str) -> String {
 }
 
 #[tokio::test]
-async fn both_screens_show_when_the_password_changed() {
+async fn both_screens_show_when_the_password_was_set() {
     let (db, _guard) = test_db().await;
     let svc = AuthService::new(db.clone(), AuthConfig::default());
     let hash = password::hash_password(PASSWORD).unwrap();
@@ -57,11 +57,14 @@ async fn both_screens_show_when_the_password_changed() {
         .unwrap()
         .token;
 
+    // Creation sets the password, so a new account already has a date.
     let users = format!("/admin/users/{id}/edit");
-    assert!(page(&db, &users, &token).await.contains("Not recorded"));
-    assert!(page(&db, "/admin/preferences", &token)
-        .await
-        .contains("Not recorded"));
+    for html in [
+        page(&db, &users, &token).await,
+        page(&db, "/admin/preferences", &token).await,
+    ] {
+        assert!(!html.contains("Not recorded"), "{html}");
+    }
 
     svc.change_password(
         id,
@@ -164,6 +167,7 @@ async fn the_preferences_form_changes_the_password_and_keeps_this_session() {
 async fn the_preferences_form_refuses_with_the_reason() {
     let (db, _guard) = test_db().await;
     let (svc, id, here) = operator(&db).await;
+    let before = svc.password_changed_at(id).await.unwrap();
     for (current, new, confirm, says) in [
         (
             PASSWORD,
@@ -187,7 +191,7 @@ async fn the_preferences_form_refuses_with_the_reason() {
         let html = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(html.contains(says), "{says}: {html}");
     }
-    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+    assert_eq!(svc.password_changed_at(id).await.unwrap(), before);
 }
 
 /// The browser the change was made from keeps its stay-signed-in credential.

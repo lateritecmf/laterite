@@ -226,7 +226,11 @@ async fn a_revoked_cookie_does_not_look_stolen() {
 async fn the_change_is_audited_and_timed() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
-    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+    let created = svc
+        .password_changed_at(id)
+        .await
+        .unwrap()
+        .expect("the password was set at creation");
 
     svc.change_password(id, NEW, None, &Actor::user(id, "ada"))
         .await
@@ -246,7 +250,7 @@ async fn the_change_is_audited_and_timed() {
         .iter()
         .all(|e| e.target_id.as_deref() == Some(id.to_string().as_str())));
     assert!(changes.iter().all(|e| e.detail.is_none()));
-    assert!(svc.password_changed_at(id).await.unwrap().is_some());
+    assert!(svc.password_changed_at(id).await.unwrap() > Some(created));
 }
 
 /// A refused password is not a change.
@@ -254,12 +258,51 @@ async fn the_change_is_audited_and_timed() {
 async fn a_refused_password_leaves_no_record() {
     let (db, _guard) = test_db().await;
     let (svc, id) = setup(&db).await;
+    let before = svc.password_changed_at(id).await.unwrap();
     assert!(svc
         .change_password(id, "short", None, &system())
         .await
         .is_err());
     assert!(svc.recent_audit(10).await.unwrap().is_empty());
-    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+    assert_eq!(svc.password_changed_at(id).await.unwrap(), before);
+}
+
+/// An id nobody holds changes nothing and leaves no audit entry: the whole
+/// change is one transaction, or none of it.
+#[tokio::test]
+async fn an_unknown_account_leaves_no_trace() {
+    let (db, _guard) = test_db().await;
+    let (svc, _) = setup(&db).await;
+    assert!(svc
+        .change_password(9999, NEW, None, &system())
+        .await
+        .is_err());
+    assert!(svc.recent_audit(10).await.unwrap().is_empty());
+}
+
+/// Signing one device out from Preferences tells it why, the same as signing
+/// out every other device does.
+#[tokio::test]
+async fn signing_out_one_device_tells_it_why() {
+    let (db, _guard) = test_db().await;
+    let (svc, id) = setup(&db).await;
+    let here = sign_in(&svc).await;
+    let laptop = sign_in(&svc).await;
+    let other = svc
+        .list_sessions(id, &here)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|s| !s.current)
+        .unwrap();
+
+    assert!(svc.revoke_session(id, &other.id).await.unwrap());
+
+    assert!(svc.resolve_session(&here).await.is_ok());
+    assert_eq!(
+        svc.session_end(&laptop).await.unwrap(),
+        Some(SessionEnd::Revoked(RevokeReason::SignedOutElsewhere))
+    );
 }
 
 #[tokio::test]
@@ -300,5 +343,10 @@ async fn a_wrong_current_password_changes_nothing_and_counts_as_a_failure() {
         svc.change_own_password(id, OLD, NEW, &here, &ctx).await,
         Err(laterite_auth::AuthError::TooManyAttempts)
     ));
-    assert_eq!(svc.password_changed_at(id).await.unwrap(), None);
+    assert!(
+        svc.authenticate("ada", OLD, &RequestContext::default())
+            .await
+            .is_err(),
+        "locked out, the old password still stands"
+    );
 }

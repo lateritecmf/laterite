@@ -84,7 +84,7 @@ Event | The signed-out device sees
 --- | ---
 `AuthService::change_password` | "Your password was changed"; every other session and stay-signed-in device ends.
 Deactivation | "This account was deactivated."
-Sign out every other device | "You were signed out from another device."
+Sign out one device, or every other device | "You were signed out from another device."
 Inactivity or the absolute ceiling | "Your session ended after a period of inactivity."
 
 The login URL carries `?ended=<code>`, from a fixed set. An

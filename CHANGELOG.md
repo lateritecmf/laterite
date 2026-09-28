@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- Signing one device out from Preferences tells that device why, the same as
+  signing out every other device does.
+- A password change and a deactivation each run as one transaction, and the
+  time a password was set is recorded at account creation.
+
 ## [0.8.1] - 2026-09-28
 
 Password changes that hold, and resources as files: a change signs the account

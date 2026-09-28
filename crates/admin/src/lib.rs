@@ -2033,16 +2033,11 @@ async fn require_auth(
             Some((token, resolved, credential)) => (token, resolved, Some(credential)),
             None => {
                 // A device returning on its stay-signed-in cookie alone has no
-                // session to say why; the credential itself may.
-                if ended.is_none() {
-                    if let Some(cookie) = jar.get(REMEMBER_COOKIE) {
-                        ended = state
-                            .auth
-                            .remember_end(cookie.value())
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(laterite_auth::SessionEnd::Revoked);
+                // session to say why; the credential itself may, and an ending
+                // on purpose outranks a session that merely ran out.
+                if let Some(cookie) = jar.get(REMEMBER_COOKIE) {
+                    if let Ok(Some(reason)) = state.auth.remember_end(cookie.value()).await {
+                        ended = Some(laterite_auth::SessionEnd::Revoked(reason));
                     }
                 }
                 return signed_out(&state, jar, &login, ended, htmx);
