@@ -730,7 +730,24 @@ impl AuthService {
             Some(keep_token),
             &Actor::user(user.id, user.username.as_str()),
         )
+        .await?;
+        self.log(
+            Some(user.id),
+            &user.username,
+            AccessEvent::PasswordChanged,
+            ctx,
+        )
         .await
+    }
+
+    /// The account's most recent access-log rows, newest first: sign-ins,
+    /// failures, lockouts, sign-outs and its own password changes.
+    pub async fn recent_access(
+        &self,
+        user_id: i64,
+        limit: u64,
+    ) -> Result<Vec<store::AccessRecord>, AuthError> {
+        store::recent_access_log(&self.db, user_id, limit).await
     }
 
     /// When the account's password was last set, `None` if never recorded.

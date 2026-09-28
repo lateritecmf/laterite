@@ -40,7 +40,7 @@ pub use service::{
     NewOperator, PasswordPolicy, RecalledSession, RememberCredential, RequestContext,
     ResolvedSession, MIN_PASSWORD_LENGTH,
 };
-pub use store::AuditRecord;
+pub use store::{AccessRecord, AuditRecord};
 pub use store::{RevokeReason, SessionEnd};
 
 /// The `laterite.auth` module: the framework's backend-user auth tables.

@@ -11,11 +11,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - **Breaking:** `AuthConfig` is non-exhaustive and gains `password_policy`;
   build it from `Default` and set fields.
+- **Breaking:** `AccessEvent` is non-exhaustive and gains `PasswordChanged`,
+  recorded when an operator changes their own password.
 
 ### Added
 
 - `[auth.password_policy] min_length` (default 8) is enforced wherever a
   password is set: Preferences, first-run setup and `lat admin create`.
+- `AuthService::recent_access` reads an account's access log.
 
 ### Fixed
 

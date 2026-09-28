@@ -59,11 +59,14 @@ pub struct BackendUserSummary {
 
 /// The kind of event recorded in the access log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AccessEvent {
     LoginSuccess,
     LoginFailure,
     LockedOut,
     Logout,
+    /// The operator changed their own password, from the address recorded.
+    PasswordChanged,
 }
 
 impl AccessEvent {
@@ -74,6 +77,7 @@ impl AccessEvent {
             AccessEvent::LoginFailure => "login_failure",
             AccessEvent::LockedOut => "locked_out",
             AccessEvent::Logout => "logout",
+            AccessEvent::PasswordChanged => "password_changed",
         }
     }
 }

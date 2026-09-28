@@ -79,6 +79,9 @@ Error | Returned when
 `AuthError::TooManyAttempts` | The account is locked out.
 `AuthError::Refused` | The new password is under `password_policy.min_length`.
 
+A change through this call is also on the access log as `password_changed`,
+with the address it came from.
+
 ## Why a session ended
 
 Event | The signed-out device sees

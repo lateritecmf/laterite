@@ -879,6 +879,56 @@ pub async fn insert_access_log(
     Ok(())
 }
 
+/// One row of the access log, newest first from [`recent_access_log`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct AccessRecord {
+    /// The stored form of an [`AccessEvent`].
+    pub event: String,
+    pub username_attempted: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// The most recent access-log rows for one account, newest first.
+pub async fn recent_access_log(
+    db: &Db,
+    user_id: i64,
+    limit: u64,
+) -> Result<Vec<AccessRecord>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendAccessLog::Event,
+                BackendAccessLog::UsernameAttempted,
+                BackendAccessLog::IpAddress,
+                BackendAccessLog::UserAgent,
+                BackendAccessLog::CreatedAt,
+            ])
+            .from(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::BackendUserId).eq(user_id))
+            .order_by(BackendAccessLog::Id, Order::Desc)
+            .limit(limit)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(AccessRecord {
+                event: row.get_text("event")?,
+                username_attempted: row.get_text("username_attempted")?,
+                ip_address: row.get_text_opt("ip_address")?,
+                user_agent: row.get_text_opt("user_agent")?,
+                created_at: parse_ts(&row.get_text("created_at")?)?,
+            })
+        })
+        .collect()
+}
+
 /// One row of the audit log, newest-first from [`recent_audit`].
 #[derive(Debug, Clone)]
 pub struct AuditRecord {

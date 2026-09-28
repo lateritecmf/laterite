@@ -322,6 +322,8 @@ async fn an_operator_changes_their_own_password_and_stays_signed_in() {
     let trail = svc.recent_audit(10).await.unwrap();
     assert_eq!(trail[0].action, "backend.user.password_change");
     assert_eq!(trail[0].actor_user_id, Some(id));
+    let access = svc.recent_access(id, 5).await.unwrap();
+    assert_eq!(access[0].event, "password_changed", "{access:?}");
 }
 
 /// Guessing the current password through a session counts toward the lockout.
