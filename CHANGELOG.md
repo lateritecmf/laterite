@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-30
+
+The checklist: one component for every list of boxes, which offers select all,
+search and closed groups by itself as the list grows.
+
 ### Added
 
 - A `checklist` field type and `laterite_admin::checklist`: boxes in groups, with
