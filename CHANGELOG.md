@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-29
+
+Accounts and forms: operators are created, reset and unlocked from the panel
+under a password policy; forms fill the width, lay fields out on a grid and rule
+what Enter does; a type's keys are written on the entry itself.
+
 ### Changed
 
 - **Breaking:** `AuthConfig` is non-exhaustive and gains `password_policy`;
