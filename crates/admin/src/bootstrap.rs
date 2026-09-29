@@ -79,6 +79,7 @@ pub struct BootstrapCtx {
     db: Db,
     capabilities: CapabilitySet,
     translator: Translator,
+    events: laterite_core::Events,
 }
 
 impl BootstrapCtx {
@@ -97,6 +98,12 @@ impl BootstrapCtx {
     /// to resolve their own strings.
     pub fn translator(&self) -> &Translator {
         &self.translator
+    }
+
+    /// The application's event bus, with every module's listeners on it, for an
+    /// app's routes to announce on.
+    pub fn events(&self) -> &laterite_core::Events {
+        &self.events
     }
 }
 
@@ -432,7 +439,15 @@ impl Bootstrap {
         // Owned, so each icon is namespaced to the module that contributed it.
         let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
-        let auth = AuthService::new(db.clone(), config.auth.clone());
+        // One bus for the application, carrying every listener a module
+        // contributed, in dependency order.
+        let mut bus = laterite_core::Events::builder(db.clone());
+        for (owner, listener) in contributions.take_owned::<laterite_core::EventListenerReg>() {
+            bus = bus.registered(owner, listener);
+        }
+        let events = bus.build()?;
+
+        let auth = AuthService::new(db.clone(), config.auth.clone()).with_events(events.clone());
         // Expired sessions and stay-signed-in credentials are swept at boot and
         // then hourly, so the tables hold only what a request could still use.
         purge_expired(&auth).await;
@@ -508,6 +523,7 @@ impl Bootstrap {
                 db,
                 capabilities,
                 translator: Translator::new(&config.app.locale),
+                events,
             };
             app = extend(app, &ctx);
         }

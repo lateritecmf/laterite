@@ -1340,6 +1340,7 @@ pub fn router(
             &admin_path,
             &state.origin,
             state.plugin_defined.clone(),
+            state.auth.events().clone(),
         );
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
@@ -1481,6 +1482,7 @@ pub fn router(
             &admin_path,
             &state.origin,
             &state.plugin_defined,
+            state.auth.events(),
         ))
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
@@ -1559,6 +1561,7 @@ fn mount_public(
     admin_path: &str,
     origin: &str,
     plugin_defined: &Arc<laterite_core::Registry>,
+    events: &laterite_core::Events,
 ) -> Router<AdminState> {
     let mut router = Router::new();
     for reg in regs {
@@ -1568,6 +1571,7 @@ fn mount_public(
             admin_path,
             origin,
             plugin_defined.clone(),
+            events.clone(),
         );
         // A nested service does not inherit the outer fallback, so without this a
         // request *below* a public route (`/robots.txt/anything`) escapes into

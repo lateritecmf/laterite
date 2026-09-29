@@ -13,6 +13,7 @@
 
 pub mod audit_listener;
 pub mod error;
+pub mod events;
 pub mod migrations;
 pub mod password;
 pub mod permission;

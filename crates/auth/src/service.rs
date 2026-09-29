@@ -12,9 +12,10 @@ use rand::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use laterite_core::{Actor, Db};
+use laterite_core::{Actor, Db, Events};
 
 use crate::error::AuthError;
+use crate::events;
 use crate::models::{AccessEvent, BackendUser};
 use crate::password;
 use crate::permission::PermissionSet;
@@ -376,16 +377,33 @@ pub struct Purged {
 /// The default [`PasswordPolicy::min_length`].
 pub const MIN_PASSWORD_LENGTH: usize = 8;
 
-/// The auth service. Cheap to clone: it holds a database handle and config.
+/// The auth service. Cheap to clone: it holds a database handle, config and
+/// the event bus.
 #[derive(Clone)]
 pub struct AuthService {
     db: Db,
     config: AuthConfig,
+    events: Events,
 }
 
 impl AuthService {
+    /// A service announcing on a bus of its own, which nothing listens on.
+    /// [`AuthService::with_events`] hands it the application's.
     pub fn new(db: Db, config: AuthConfig) -> Self {
-        Self { db, config }
+        let events = Events::new(db.clone());
+        Self { db, config, events }
+    }
+
+    /// Announces on `events`: the bus the application's listeners are on. See
+    /// [`crate::events`] for what is announced.
+    pub fn with_events(mut self, events: Events) -> Self {
+        self.events = events;
+        self
+    }
+
+    /// The bus this service announces on.
+    pub fn events(&self) -> &Events {
+        &self.events
     }
 
     /// How long a session stays valid. A caller that persists the session in a
@@ -844,6 +862,9 @@ impl AuthService {
         if done == 0 {
             return Err(AuthError::SessionInvalid);
         }
+        self.events
+            .emit(&events::PasswordChanged::new(user_id, actor.user_id()))
+            .await;
         Ok(())
     }
 
@@ -1027,7 +1048,17 @@ impl AuthService {
 
     /// Invalidates a session. Unknown tokens are a no-op.
     pub async fn logout(&self, token: &str) -> Result<(), AuthError> {
-        store::delete_session(&self.db, &hash_token(token)).await
+        let hash = hash_token(token);
+        // Read before the row goes, to know whose sign-out to announce. A
+        // session already expired or revoked ended earlier, so it names nobody.
+        let owner = store::find_valid_session(&self.db, &hash, Utc::now()).await?;
+        store::delete_session(&self.db, &hash).await?;
+        if let Some(session) = owner {
+            self.events
+                .emit(&events::SignedOut::new(session.user_id))
+                .await;
+        }
+        Ok(())
     }
 
     /// Persists an operator's own display timezone. `Some(name)` sets an IANA
@@ -1141,7 +1172,30 @@ impl AuthService {
             ctx.ip_address.as_deref(),
             ctx.user_agent.as_deref(),
         )
-        .await
+        .await?;
+        // Announced from the one place the access log is written, so the log
+        // and the bus cannot disagree about what happened.
+        match (event, user_id) {
+            (AccessEvent::LoginSuccess, Some(id)) => {
+                self.events
+                    .emit(&events::SignedIn::new(id, username, ctx))
+                    .await;
+            }
+            (AccessEvent::LoginFailure, _) => {
+                self.events
+                    .emit(&events::SignInFailed::new(user_id, username, ctx))
+                    .await;
+            }
+            (AccessEvent::LockedOut, _) => {
+                self.events
+                    .emit(&events::LockedOut::new(user_id, username, ctx))
+                    .await;
+            }
+            // A password change is announced by `change_password`, which every
+            // change goes through; this row is only the operator's own.
+            _ => {}
+        }
+        Ok(())
     }
 }
 

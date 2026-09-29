@@ -79,7 +79,8 @@ lacks the permission for is not rendered.
 ## Events
 
 Every island announces what it does as a DOM event named
-`lat:<component>:<event>`, bubbling from its root.
+`lat:<component>:<event>`, bubbling from its root. Server-side facts are on the
+[event bus](events.md).
 
 ```js
 var stop = lat.on('repeater:added', function (detail, event) {

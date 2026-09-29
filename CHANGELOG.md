@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - Every admin island announces what it does as a `lat:<component>:<event>` DOM
   event and hands back a controller: `lat.on`, `lat.emit`, `lat.get`.
+- An event bus: `registry.listen::<E>(..)` hears a typed event, `events.emit(..)`
+  announces one. Auth announces sign-ins, sign-outs and password changes.
 
 ### Fixed
 

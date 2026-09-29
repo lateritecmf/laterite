@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use laterite_core::{Db, Registry, Text};
+use laterite_core::{Db, Events, Registry, Text};
 
 /// What a contributed route is given at boot.
 ///
@@ -26,6 +26,7 @@ pub struct RouteCtx {
     admin_path: Arc<str>,
     base_url: Arc<str>,
     plugin_defined: Arc<Registry>,
+    events: Events,
 }
 
 impl RouteCtx {
@@ -35,6 +36,7 @@ impl RouteCtx {
         admin_path: &str,
         base_url: &str,
         plugin_defined: Arc<Registry>,
+        events: Events,
     ) -> Self {
         Self {
             db,
@@ -42,11 +44,19 @@ impl RouteCtx {
             admin_path: Arc::from(admin_path),
             base_url: Arc::from(base_url),
             plugin_defined,
+            events,
         }
     }
 
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// The application's event bus, for a route that announces a fact:
+    /// `ctx.events().emit(&Published { article_id }).await`. Clone it into the
+    /// route's state.
+    pub fn events(&self) -> &Events {
+        &self.events
     }
 
     /// The site's own origin, without a trailing slash: the configured
@@ -109,6 +119,7 @@ impl RouteCtx {
             admin_path: "/admin".to_string(),
             base_url: "http://localhost".to_string(),
             plugin_defined: None,
+            events: None,
         }
     }
 }
@@ -121,6 +132,7 @@ pub struct RouteCtxBuilder {
     admin_path: String,
     base_url: String,
     plugin_defined: Option<Arc<Registry>>,
+    events: Option<Events>,
 }
 
 impl RouteCtxBuilder {
@@ -150,7 +162,16 @@ impl RouteCtxBuilder {
         self
     }
 
+    /// The bus `RouteCtx::events` will hand out. Defaults to one nothing
+    /// listens on; pass one built with a listener to assert on what a route
+    /// announces.
+    pub fn events(mut self, events: Events) -> Self {
+        self.events = Some(events);
+        self
+    }
+
     pub fn build(self) -> RouteCtx {
+        let events = self.events.unwrap_or_else(|| Events::new(self.db.clone()));
         RouteCtx::new(
             self.db,
             &self.base_path,
@@ -158,6 +179,7 @@ impl RouteCtxBuilder {
             &self.base_url,
             self.plugin_defined
                 .unwrap_or_else(|| Arc::new(Registry::new())),
+            events,
         )
     }
 }

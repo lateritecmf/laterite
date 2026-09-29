@@ -26,6 +26,7 @@
 - [Search and Matching](extend/search.md)
 - [Extending Fields, Writes and Lifecycles](extend/seams.md)
 - [Model Listeners](extend/model-listeners.md)
+- [Events](extend/events.md)
 - [Audit Log](extend/audit-log.md)
 - [Sessions and CSRF](extend/sessions.md)
 - [Media and File Storage](extend/media.md)

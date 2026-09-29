@@ -1391,6 +1391,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tracing",
  "unicode-normalization",
  "url",
  "uuid",
