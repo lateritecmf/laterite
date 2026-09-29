@@ -1,0 +1,12 @@
+entity: backend_roles
+path: /layout
+title: Layout
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Layout
+  fields:
+    code: { span: 2/3 }
+    name: { span: third, break: true }

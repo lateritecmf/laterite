@@ -490,6 +490,7 @@ fn build(
                 label,
                 help: f.help.as_ref().map(|h| shell.tt(h)),
                 control,
+                layout: crate::form::layout_classes(f.span, f.break_row),
             }
         })
         .collect();
@@ -535,6 +536,8 @@ struct FieldView {
     help: Option<String>,
     /// The control, rendered by the field's own type.
     control: String,
+    /// Wrapper classes for the span and a row break, each led by a space.
+    layout: String,
 }
 
 #[derive(Template)]

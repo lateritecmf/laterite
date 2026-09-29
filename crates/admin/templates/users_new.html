@@ -7,21 +7,23 @@
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <form method="post" action="{{ action }}">
     {% include "_csrf.html" %}
-    <div class="lat-field">
+    <div class="lat-fields">
+    <div class="lat-field lat-field--6">
       <label class="lat-field__label" for="username">{{ shell.t("Username") }}</label>
       <input class="lat-input" type="text" id="username" name="username" value="{{ username }}" autocomplete="off" required>
     </div>
-    <div class="lat-field">
+    <div class="lat-field lat-field--6">
       <label class="lat-field__label" for="email">{{ shell.t("Email") }}</label>
       <input class="lat-input" type="email" id="email" name="email" value="{{ email }}" autocomplete="off" required>
     </div>
-    <div class="lat-field">
+    <div class="lat-field lat-field--6">
       <label class="lat-field__label" for="first_name">{{ shell.t("First name") }}</label>
       <input class="lat-input" type="text" id="first_name" name="first_name" value="{{ first_name }}" required>
     </div>
-    <div class="lat-field">
+    <div class="lat-field lat-field--6">
       <label class="lat-field__label" for="last_name">{{ shell.t("Last name") }}</label>
       <input class="lat-input" type="text" id="last_name" name="last_name" value="{{ last_name }}">
+    </div>
     </div>
     {% if !roles.is_empty() %}
     <div class="lat-field">

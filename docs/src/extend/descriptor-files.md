@@ -25,8 +25,9 @@ list:
 form:
   title: Post
   fields:
-    title:  { rules: [required, { max_length: 120 }] }
-    status: { type: select, options: { options: [{ value: draft, label: Draft }] } }
+    title:  { span: 2/3, rules: [required, { max_length: 120 }] }
+    status: { span: 1/3, type: select, options: { options: [{ value: draft, label: Draft }] } }
+    body:   { type: textarea }
 ```
 
 Register it from your module:
@@ -65,6 +66,17 @@ columns:
 
 A missing `label` is made from the key: `created_at` becomes "Created at". It
 is still translatable, and `lat i18n extract` finds it.
+
+## Layout
+
+Fields lay out on a twelve-column row and wrap as it fills.
+
+Key | Description
+--- | ---
+`span` | The share of the row: `full` (default), `1/2`, `1/3`, `2/3`, `1/4`, `3/4`, or `1` to `12` columns. `left`, `right`, `auto` and `half` are halves; `third` and `quarter` as named.
+`break` | `true` starts a new row.
+
+Under 1100px a quarter becomes a half; under 768px every field takes the row.
 
 ## Errors
 

@@ -53,7 +53,7 @@
 /* Spacing + chrome */
 --space-4:8px;--space-5:12px;--space-6:16px;--space-7:20px;--space-8:24px;--space-9:32px;
 --topnav-h:66px;--sidebar-w:270px;--control-h:40px;--control-h-sm:32px;--control-h-lg:48px;
---page-gutter:32px;--card-pad:20px;--side-panel-w:350px;--login-form-col-w:480px;--page-max:1200px;--form-max:720px;
+--page-gutter:32px;--card-pad:20px;--side-panel-w:350px;--login-form-col-w:480px;--note-max:720px;
 
 /* Radius */
 --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:12px;--radius-brick:10px;--radius-pill:999px;
@@ -116,7 +116,7 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-app{min-height:100vh;display:flex;flex-direction:column;background:var(--surface-page)}
 .lat-body{flex:1;display:flex;min-height:0}
 .lat-main{flex:1;min-width:0;overflow-y:auto}
-.lat-page{max-width:var(--page-max);padding:var(--page-gutter)}
+.lat-page{padding:var(--page-gutter)}
 
 /* Top navigation */
 .lat-topnav{height:var(--topnav-h);flex:0 0 auto;display:flex;align-items:stretch;background:var(--surface-nav);color:var(--text-inverse);padding-right:16px;position:relative;z-index:20}
@@ -277,7 +277,7 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* A screen's opening explanation: sits above the card, reads as prose rather
    than as a field's help. Wider than the sidebar, so it has room to say why
    the screen exists. */
-.lat-note{max-width:var(--form-max);font-size:var(--fs-13);color:var(--text-muted);margin:0 0 16px;line-height:1.55}
+.lat-note{max-width:var(--note-max);font-size:var(--fs-13);color:var(--text-muted);margin:0 0 16px;line-height:1.55}
 /* Icons reference a shared sprite, so the outer element owns every presentation
    attribute: a symbol carrying its own could not be restyled from here. */
 .lat-icon{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
@@ -293,8 +293,22 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 /* A form reads better at a measure than stretched across the page, so a card
    holding one is capped. A card holding a repeater is not: a row of four columns
    at 720px is the cramped, misaligned thing this cap was causing. */
-.lat-card--form{max-width:var(--form-max)}
-.lat-card--form:has(.lat-repeater){max-width:none}
+/* Fields lay out on a twelve-column grid: a field takes the whole row unless
+   its span says otherwise, and rows wrap as they fill. */
+.lat-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:20px}
+.lat-fields>.lat-field{grid-column:span 12;min-width:0}
+.lat-fields>.lat-field--1{grid-column:span 1}
+.lat-fields>.lat-field--2{grid-column:span 2}
+.lat-fields>.lat-field--3{grid-column:span 3}
+.lat-fields>.lat-field--4{grid-column:span 4}
+.lat-fields>.lat-field--5{grid-column:span 5}
+.lat-fields>.lat-field--6{grid-column:span 6}
+.lat-fields>.lat-field--7{grid-column:span 7}
+.lat-fields>.lat-field--8{grid-column:span 8}
+.lat-fields>.lat-field--9{grid-column:span 9}
+.lat-fields>.lat-field--10{grid-column:span 10}
+.lat-fields>.lat-field--11{grid-column:span 11}
+.lat-fields>.lat-field--break{grid-column-start:1}
 .lat-card{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:var(--card-pad)}
 .lat-card__label{font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
 .lat-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
@@ -513,6 +527,8 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
 }
 
 /* Below --bp-md: collapse the inline nav into the off-canvas drawer */
+@media (max-width:1100px){.lat-fields>.lat-field--1,.lat-fields>.lat-field--2,.lat-fields>.lat-field--3{grid-column:span 6}}
+@media (max-width:768px){.lat-fields>.lat-field{grid-column:span 12}}
 @media (max-width:992px){
 .lat-topnav__burger{display:flex}
 .lat-topnav__nav{display:none}

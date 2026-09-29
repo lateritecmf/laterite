@@ -70,6 +70,111 @@ pub struct FormField {
     /// `next` (moves to the next field).
     #[serde(default)]
     pub enter: FieldEnter,
+    /// The share of the row the field takes, on a twelve-column grid.
+    #[serde(default)]
+    pub span: Span,
+    /// Starts a new row, whatever room the current one has left.
+    #[serde(default, rename = "break")]
+    pub break_row: bool,
+}
+
+/// The share of a row a field takes, in twelfths. Written in YAML as a
+/// fraction (`1/2`, `1/3`, `2/3`, `1/4`, `3/4`), `full`, a count of columns
+/// (`1` to `12`), or the words `half`, `third`, `quarter`, `left`, `right` and
+/// `auto` (each a half). Fields flow left to right and wrap when a row is full.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span(u8);
+
+impl Span {
+    /// The whole row.
+    pub const FULL: Span = Span(12);
+
+    /// `columns` twelfths of the row, clamped to 1 to 12.
+    pub fn columns(columns: u8) -> Self {
+        Span(columns.clamp(1, 12))
+    }
+
+    /// The twelfths this span covers.
+    pub fn width(self) -> u8 {
+        self.0
+    }
+
+    /// Reads the YAML spellings.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let columns = match text.trim() {
+            "full" | "12/12" => 12,
+            "1/2" | "half" | "left" | "right" | "auto" => 6,
+            "1/3" | "third" => 4,
+            "2/3" => 8,
+            "1/4" | "quarter" => 3,
+            "3/4" => 9,
+            other => match other.parse::<u8>() {
+                Ok(n) if (1..=12).contains(&n) => n,
+                _ => {
+                    return Err(format!(
+                        "unknown span `{other}`, expected full, 1/2, 1/3, 2/3, 1/4, 3/4 or 1 to 12"
+                    ))
+                }
+            },
+        };
+        Ok(Span(columns))
+    }
+
+    /// The CSS class the field wrapper carries; none for a full row.
+    fn class(self) -> String {
+        if self.0 == 12 {
+            String::new()
+        } else {
+            format!(" lat-field--{}", self.0)
+        }
+    }
+}
+
+impl Default for Span {
+    fn default() -> Self {
+        Span::FULL
+    }
+}
+
+impl Serialize for Span {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            12 => serializer.serialize_str("full"),
+            6 => serializer.serialize_str("1/2"),
+            4 => serializer.serialize_str("1/3"),
+            8 => serializer.serialize_str("2/3"),
+            3 => serializer.serialize_str("1/4"),
+            9 => serializer.serialize_str("3/4"),
+            n => serializer.serialize_u8(n),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Span {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Columns(u8),
+            Text(String),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Columns(n) if (1..=12).contains(&n) => Ok(Span(n)),
+            Raw::Columns(n) => Err(serde::de::Error::custom(format!(
+                "unknown span `{n}`, expected 1 to 12"
+            ))),
+            Raw::Text(text) => Span::parse(&text).map_err(serde::de::Error::custom),
+        }
+    }
+}
+
+/// The wrapper classes a field's layout adds: its span, and a row break.
+pub(crate) fn layout_classes(span: Span, break_row: bool) -> String {
+    let mut classes = span.class();
+    if break_row {
+        classes.push_str(" lat-field--break");
+    }
+    classes
 }
 
 /// What Enter does in a form's single-line fields.
@@ -153,6 +258,8 @@ impl FormField {
             translatable: false,
             help: None,
             enter: FieldEnter::default(),
+            span: Span::default(),
+            break_row: false,
         }
     }
 
@@ -285,6 +392,18 @@ impl FormField {
     /// Help text shown beneath the control.
     pub fn help(mut self, text: impl Into<Text>) -> Self {
         self.help = Some(text.into());
+        self
+    }
+
+    /// The share of the row this field takes.
+    pub fn span(mut self, span: Span) -> Self {
+        self.span = span;
+        self
+    }
+
+    /// Starts a new row.
+    pub fn break_row(mut self) -> Self {
+        self.break_row = true;
         self
     }
 }
@@ -835,6 +954,7 @@ fn build(
                 control,
                 required,
                 enter: f.enter.attribute(),
+                layout: layout_classes(f.span, f.break_row),
                 // Localize each per-field message through the request translator.
                 errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
@@ -883,6 +1003,8 @@ struct FieldView {
     errors: Vec<String>,
     /// The field's own Enter rule (`off`, `next`), or empty for the form's.
     enter: &'static str,
+    /// Wrapper classes for the span and a row break, each led by a space.
+    layout: String,
 }
 
 /// Just the form element, for an HTMX submit that failed validation: the

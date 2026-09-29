@@ -12,13 +12,15 @@
     {% include "_csrf.html" %}
     {# Each control is rendered by its own field type, the same way a descriptor
        form renders: one field system, so a module's type works on both. #}
+    <div class="lat-fields">
     {% for field in fields %}
-    <div class="lat-field">
+    <div class="lat-field{{ field.layout }}">
       <label class="lat-field__label">{{ field.label }}</label>
       {{ field.control|safe }}
       {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
     </div>
     {% endfor %}
+    </div>
     <div class="lat-actions">
       <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
       <a class="lat-btn lat-btn--ghost" href="{{ shell.base }}/settings">{{ shell.t("Cancel") }}</a>
