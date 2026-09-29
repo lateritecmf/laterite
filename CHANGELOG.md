@@ -30,6 +30,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `AuthService::recent_access` reads an account's access log.
 - An Access Log screen under Settings → System, gated by the new
   `backend.view_access_log`: sign-ins, failures, lockouts and sign-outs.
+- Expired sessions and stay-signed-in credentials are purged at boot and
+  hourly, and by `lat admin purge`; `AuthService::purge_expired`.
 - The audit log names its target: a username or a role name beside the id.
 - Operators are created from the Users screen: name, email and roles, with a
   generated temporary password shown once. `AuthService::create_operator`.

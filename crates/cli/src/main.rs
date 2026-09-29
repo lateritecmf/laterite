@@ -80,6 +80,8 @@ enum AdminCommand {
         /// The username to unlock.
         username: String,
     },
+    /// Remove expired sessions and stay-signed-in credentials.
+    Purge,
 }
 
 #[derive(Args)]
@@ -194,6 +196,14 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             if args.generate {
                 println!("The generated password must be changed at first sign-in");
             }
+        }
+        AdminCommand::Purge => {
+            let auth = AuthService::new(pool, auth_from_project());
+            let purged = auth.purge_expired().await?;
+            println!(
+                "Removed {} expired sessions and {} expired stay-signed-in credentials",
+                purged.sessions, purged.remember_tokens
+            );
         }
         AdminCommand::List => {
             let users = store::list_backend_users(&pool).await?;

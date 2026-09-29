@@ -822,6 +822,40 @@ pub(crate) async fn change_password(
     Ok(done)
 }
 
+/// Removes every session past its expiry, revoked or not: a holder who never
+/// returned before the session would have ended anyway is not told why.
+pub(crate) async fn delete_expired_sessions(db: &Db, now: DateTime<Utc>) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendSessions::Table)
+            .and_where(Expr::col(BackendSessions::ExpiresAt).lte(ts(now)))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// Removes every stay-signed-in credential past its expiry, revoked or not.
+pub(crate) async fn delete_expired_remember_tokens(
+    db: &Db,
+    now: DateTime<Utc>,
+) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendRememberTokens::Table)
+            .and_where(Expr::col(BackendRememberTokens::ExpiresAt).lte(ts(now)))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
 /// Whether the account holds a temporary password it must replace.
 pub(crate) async fn must_change_password(db: &Db, user_id: i64) -> Result<bool, AuthError> {
     let (sql, values) = build(

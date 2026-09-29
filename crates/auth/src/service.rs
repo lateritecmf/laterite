@@ -365,6 +365,14 @@ impl<'a> AuditEntry<'a> {
     }
 }
 
+/// What [`AuthService::purge_expired`] removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Purged {
+    pub sessions: u64,
+    pub remember_tokens: u64,
+}
+
 /// The default [`PasswordPolicy::min_length`].
 pub const MIN_PASSWORD_LENGTH: usize = 8;
 
@@ -766,6 +774,17 @@ impl AuthService {
     /// in again now. Returns how many attempts were cleared.
     pub async fn unlock(&self, username: &str) -> Result<u64, AuthError> {
         store::clear_failed_attempts(&self.db, username).await
+    }
+
+    /// Removes every session and stay-signed-in credential past its expiry,
+    /// revoked ones included. The admin runs this at boot and hourly;
+    /// `lat admin purge` runs it on demand.
+    pub async fn purge_expired(&self) -> Result<Purged, AuthError> {
+        let now = Utc::now();
+        Ok(Purged {
+            sessions: store::delete_expired_sessions(&self.db, now).await?,
+            remember_tokens: store::delete_expired_remember_tokens(&self.db, now).await?,
+        })
     }
 
     /// Marks the account as holding a temporary password: one made for it by an

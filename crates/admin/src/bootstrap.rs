@@ -433,6 +433,10 @@ impl Bootstrap {
         let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
         let auth = AuthService::new(db.clone(), config.auth.clone());
+        // Expired sessions and stay-signed-in credentials are swept at boot and
+        // then hourly, so the tables hold only what a request could still use.
+        purge_expired(&auth).await;
+        tokio::spawn(purge_hourly(auth.clone()));
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
@@ -522,6 +526,30 @@ impl Bootstrap {
 
 /// Binds the listener, preferring a `systemfd`-inherited socket (so the port
 /// survives reloads) and falling back to binding `listen`.
+/// One sweep of expired sessions and credentials, logged when it removed any.
+async fn purge_expired(auth: &AuthService) {
+    match auth.purge_expired().await {
+        Ok(purged) if purged.sessions + purged.remember_tokens > 0 => tracing::info!(
+            sessions = purged.sessions,
+            remember_tokens = purged.remember_tokens,
+            "purged expired sessions and credentials"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::error!(error = %e, "purging expired sessions failed"),
+    }
+}
+
+/// The hourly sweep, for as long as the process runs.
+async fn purge_hourly(auth: AuthService) {
+    let mut ticks = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    // The first tick fires at once; the boot sweep has just run.
+    ticks.tick().await;
+    loop {
+        ticks.tick().await;
+        purge_expired(&auth).await;
+    }
+}
+
 async fn bind(listen: &str) -> anyhow::Result<tokio::net::TcpListener> {
     use listenfd::ListenFd;
     match ListenFd::from_env().take_tcp_listener(0)? {

@@ -92,6 +92,20 @@ Every admin request then redirects to **Preferences → Password** until the
 operator sets their own. `lat admin create --generate` and
 `lat admin reset-password --generate` mark the account the same way.
 
+## Purge
+
+Expired sessions and stay-signed-in credentials are removed at boot, every
+hour, and on demand:
+
+```bash
+lat admin purge
+```
+
+```rust
+let purged = auth.purge_expired().await?;
+println!("{} sessions, {} credentials", purged.sessions, purged.remember_tokens);
+```
+
 ## Why a session ended
 
 Event | The signed-out device sees
