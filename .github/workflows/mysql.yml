@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same branch or pull request supersedes the run still going
+# for the older one, which is cancelled: only the newest commit's result is kept.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # The application crates against a real MariaDB (the maintained MySQL-protocol
 # server; Oracle MySQL 8 reached end of life in 2026). The harness provisions an
 # ephemeral database per test on the maintenance connection below, so root must
