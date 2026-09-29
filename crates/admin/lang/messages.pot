@@ -20,12 +20,20 @@ msgid "A temporary password is generated and shown to you once. The new user mus
 msgstr ""
 
 #: (descriptors)
+msgid "Access Log"
+msgstr ""
+
+#: (descriptors)
 msgid "Action"
 msgstr ""
 
 #: templates/users_form.html
 #: (descriptors)
 msgid "Active"
+msgstr ""
+
+#: (descriptors)
+msgid "Address"
 msgstr ""
 
 #: templates/login.html
@@ -128,6 +136,10 @@ msgstr ""
 
 #: templates/list.html
 msgid "Clear"
+msgstr ""
+
+#: (descriptors)
+msgid "Client"
 msgstr ""
 
 #: templates/_roles_form_fields.html
@@ -289,6 +301,10 @@ msgstr ""
 
 #: templates/plugins.html
 msgid "Enabling or disabling a plugin takes effect on the next restart."
+msgstr ""
+
+#: (descriptors)
+msgid "Event"
 msgstr ""
 
 #: templates/preferences.html
@@ -541,6 +557,10 @@ msgid "Reset {username}. Their temporary password, shown only now: {password}. E
 msgstr ""
 
 #: (descriptors)
+msgid "Review sign-ins, failures and lockouts."
+msgstr ""
+
+#: (descriptors)
 msgid "Review the record of administrative changes."
 msgstr ""
 
@@ -580,6 +600,10 @@ msgstr ""
 
 #: templates/list.html
 msgid "Search"
+msgstr ""
+
+#: (descriptors)
+msgid "Search by username or address"
 msgstr ""
 
 #: src/bulk.rs
@@ -838,6 +862,10 @@ msgstr ""
 
 #: templates/plugins.html
 msgid "Version"
+msgstr ""
+
+#: (descriptors)
+msgid "View the access log"
 msgstr ""
 
 #: (descriptors)

@@ -990,6 +990,7 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new("backend.manage_branding", "Manage branding", "Backend"),
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
         Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
+        Permission::new("backend.view_access_log", "View the access log", "Backend"),
     ]
 }
 
@@ -3136,6 +3137,7 @@ fn builtin_resources() -> Vec<Resource> {
             permission: Some("backend.manage_roles".to_string()),
         },
         resource!("descriptors/audit-log.yaml"),
+        resource!("descriptors/access-log.yaml"),
     ]
 }
 
@@ -3173,6 +3175,13 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("history")
             .permission("backend.view_audit_log")
             .link("/audit-log"),
+        settings::SettingsItem::new("backend.access_log", "Access Log", Vec::new())
+            .description("Review sign-ins, failures and lockouts.")
+            .category("System")
+            .order(30)
+            .icon("log-in")
+            .permission("backend.view_access_log")
+            .link("/access-log"),
     ]
 }
 
@@ -3431,6 +3440,36 @@ mod tests {
             &std::collections::HashSet::new(),
             &persist::PersisterRegistry::new(),
             &[],
+        );
+    }
+
+    /// The access log is a descriptor file too, pinned the same way.
+    #[test]
+    fn the_access_log_is_read_from_its_descriptor_file() {
+        let access = builtin_resources()
+            .into_iter()
+            .find(|r| r.base_path == "/access-log")
+            .expect("the access log is registered");
+        assert_eq!(access.list.entity, "backend_access_log");
+        assert_eq!(
+            access.permission.as_deref(),
+            Some("backend.view_access_log")
+        );
+        assert!(access.form.is_none(), "append-only");
+        assert_eq!(
+            access
+                .list
+                .columns
+                .iter()
+                .map(|c| c.field.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "created_at",
+                "username_attempted",
+                "event",
+                "ip_address",
+                "user_agent"
+            ]
         );
     }
 

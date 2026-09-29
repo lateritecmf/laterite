@@ -92,3 +92,4 @@ Permission | Grants
 `backend.manage_roles` | The roles list and the role editor.
 `backend.manage_plugins` | The plugins screen.
 `backend.view_audit_log` | The audit log.
+`backend.view_access_log` | The access log.

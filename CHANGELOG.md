@@ -28,6 +28,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `[auth.password_policy] min_length` (default 8) is enforced wherever a
   password is set: Preferences, first-run setup and `lat admin create`.
 - `AuthService::recent_access` reads an account's access log.
+- An Access Log screen under Settings → System, gated by the new
+  `backend.view_access_log`: sign-ins, failures, lockouts and sign-outs.
 - The audit log names its target: a username or a role name beside the id.
 - Operators are created from the Users screen: name, email and roles, with a
   generated temporary password shown once. `AuthService::create_operator`.

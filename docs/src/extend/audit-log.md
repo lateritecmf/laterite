@@ -28,6 +28,20 @@ An operator's own preferences | No
 **Settings → System → Audit Log**, newest first, read-only. Gated by
 `backend.view_audit_log`; superusers hold it.
 
+## The access log
+
+**Settings → System → Access Log**, newest first, read-only, gated by
+`backend.view_access_log`. Sign-in events, with the address and client they
+came from:
+
+Event | Recorded when
+--- | ---
+`login_success` | A sign-in succeeded.
+`login_failure` | A password was wrong, or the username unknown.
+`locked_out` | An attempt was refused by the lockout.
+`logout` | An operator signed out.
+`password_changed` | An operator changed their own password.
+
 ## Your own resources
 
 A `Resource` with a form is audited as `backend.<entity>.create` and

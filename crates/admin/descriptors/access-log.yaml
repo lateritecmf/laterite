@@ -1,0 +1,33 @@
+# Every sign-in, failure, lockout, sign-out and self-service password change,
+# newest first. Append-only: no form, so no create or edit path.
+entity: backend_access_log
+path: /access-log
+title: Access Log
+permission: backend.view_access_log
+list:
+  order_by: created_at
+  order_dir: desc
+  per_page: 50
+  per_page_options: [25, 50, 100]
+  # Evidence, like the audit log: it can leave the panel, nothing removes from it here.
+  exportable: true
+  search: { prompt: Search by username or address }
+  columns:
+    created_at:         { label: When, type: datetime }
+    username_attempted: { label: Username, searchable: true }
+    event:              { label: Event }
+    ip_address:         { label: Address, searchable: true }
+    # Raw and long; an operator who wants it turns it on in the list setup.
+    user_agent:         { label: Client, invisible: true }
+  filters:
+    event:
+      type: select
+      options:
+        options:
+          - { value: login_success, label: Signed in }
+          - { value: login_failure, label: Failed }
+          - { value: locked_out, label: Locked out }
+          - { value: logout, label: Signed out }
+          - { value: password_changed, label: Password changed }
+    username_attempted: { label: Username, type: text }
+    ip_address: { label: Address, type: text }
