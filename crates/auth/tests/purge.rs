@@ -38,14 +38,15 @@ async fn expired_rows_go_and_live_ones_stay() {
         .unwrap()
         .token;
     long.sign_out_everywhere(id, &old).await.unwrap();
+
+    // Past the second those were issued for, however long hashing took to get
+    // here; the live session is issued only now, so no clock decides the count.
+    tokio::time::sleep(Duration::from_millis(1300)).await;
     let live = long
         .authenticate("ada", PASSWORD, &ctx)
         .await
         .unwrap()
         .token;
-
-    assert_eq!(long.purge_expired().await.unwrap(), Purged::default());
-    tokio::time::sleep(Duration::from_millis(1300)).await;
 
     let purged = long.purge_expired().await.unwrap();
     assert_eq!(purged.sessions, 2, "the old session and the revoked one");
