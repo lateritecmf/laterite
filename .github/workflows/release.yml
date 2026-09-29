@@ -13,8 +13,37 @@ on:
 # on every push to main. A crate's first version is published by hand, then its
 # Trusted Publishing publisher (this repo, this workflow file, environment
 # `release`) is added on crates.io.
+#
+# One release per tag, however many runs start. Runs for a tag go one at a time
+# (a waiting run uses no runner), and each begins at `gate`: a tag whose GitHub
+# release exists is finished, so the run ends there in seconds, before anything
+# is built. A re-run after a part-way failure passes the gate and finishes what
+# is missing: a crate crates.io already holds at this version is left out.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - name: Is this tag already released?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$GITHUB_REF_NAME is already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,9 +96,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
-      - run: cargo publish --workspace --locked
+      - name: Publish the crates crates.io does not hold at this version
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          excludes=()
+          missing=0
+          for crate in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | .name'); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H 'User-Agent: laterite-release (github.com/lateritecmf/laterite)' \
+              "https://crates.io/api/v1/crates/$crate/$version")"
+            if [ "$code" = "200" ]; then
+              echo "$crate $version is already on crates.io"
+              excludes+=(--exclude "$crate")
+            else
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "Every crate is already published at $version; nothing to do."
+            exit 0
+          fi
+          cargo publish --workspace --locked "${excludes[@]}"
 
   github-release:
     needs: publish
@@ -91,6 +140,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The release for $GITHUB_REF_NAME already exists."
+            exit 0
+          fi
           flags=()
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" --verify-tag \
