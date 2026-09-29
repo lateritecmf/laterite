@@ -217,6 +217,8 @@ input[type=checkbox]::before,input[type=radio]::before{content:"";width:10px;hei
 input[type=radio]::before{width:8px;height:8px;border-radius:50%;-webkit-mask:none;mask:none}
 input[type=checkbox]:checked,input[type=radio]:checked{background:var(--accent);border-color:var(--accent)}
 input[type=checkbox]:checked::before,input[type=radio]:checked::before{transform:scale(1)}
+input[type=checkbox]:indeterminate{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox]:indeterminate::before{transform:scale(1);width:8px;height:2px;border-radius:1px;-webkit-mask:none;mask:none}
 input[type=checkbox]:disabled,input[type=radio]:disabled{opacity:.5;cursor:not-allowed}
 input[type=checkbox].lat-switch{width:36px;height:20px;display:inline-block;border-radius:999px;border:0;background:var(--border-strong);position:relative}
 input[type=checkbox].lat-switch::before{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:var(--shadow-sm);-webkit-mask:none;mask:none;transform:none}
@@ -271,6 +273,40 @@ textarea.lat-input{height:auto;min-height:6rem;padding:8px 12px;line-height:1.5;
 .lat-check.is-locked{opacity:.55;cursor:not-allowed}
 .lat-code{margin-left:auto;font-family:var(--font-mono);font-size:var(--fs-11);color:var(--text-subtle)}
 .lat-permrow.is-locked .lat-permstate{cursor:not-allowed}
+.lat-checklist{display:flex;flex-direction:column;gap:10px}
+.lat-checklist__bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lat-checklist__bar[hidden],.lat-checklist__item[hidden],.lat-checklist__group[hidden],.lat-checklist__parent[hidden]{display:none}
+.lat-checklist__search{flex:1 1 220px;max-width:320px}
+.lat-checklist__search .lat-input{height:var(--control-h-sm);font-size:var(--fs-13)}
+.lat-checklist__total{margin-left:auto;font-size:var(--fs-12);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.lat-checklist__list{border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--surface-card);overflow:hidden}
+.lat-checklist__list:empty{display:none}
+.lat-checklist__list > .lat-checklist__item{padding:8px 14px}
+.lat-checklist__list > .lat-checklist__item + .lat-checklist__item{border-top:1px solid var(--border-subtle)}
+.lat-checklist__group{border-bottom:1px solid var(--border-subtle)}
+.lat-checklist__group:last-child{border-bottom:0}
+.lat-checklist__summary{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;list-style:none;transition:background .12s}
+.lat-checklist__summary:hover{background:var(--surface-row-hover)}
+.lat-checklist__summary::-webkit-details-marker{display:none}
+.lat-checklist__summary::before{content:"";flex:none;width:0;height:0;border-left:5px solid var(--text-muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .12s}
+.lat-checklist__group[open] > .lat-checklist__summary::before{transform:rotate(90deg)}
+.lat-checklist__group[open] > .lat-checklist__summary{border-bottom:1px solid var(--border-subtle)}
+.lat-checklist__parent{width:16px;height:16px;flex:none;margin:0}
+.lat-checklist__title{flex:1 1 auto;min-width:0;font-size:var(--fs-13);font-weight:var(--fw-semibold);color:var(--text-heading)}
+.lat-checklist__count{flex:none;font-size:var(--fs-12);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.lat-checklist__items{padding:6px 14px 8px 39px;background:var(--surface-raised)}
+.lat-checklist__items > .lat-checklist__item{padding:5px 0}
+.lat-checklist__items > .lat-checklist__group{margin:6px 0;border:1px solid var(--border-subtle);border-radius:var(--radius-control);background:var(--surface-card);overflow:hidden}
+.lat-checklist__item{align-items:flex-start}
+.lat-checklist__item input{flex:none;margin:2px 0 0}
+.lat-checklist__label{flex:1 1 auto;min-width:0}
+.lat-checklist__note{display:block;margin-top:1px;font-size:var(--fs-12);color:var(--text-muted)}
+.lat-checklist__item.is-locked input:disabled{opacity:1}
+.lat-checklist.is-locked .lat-checklist__item{opacity:1;cursor:default}
+.lat-checklist.is-locked .lat-checklist__item input:disabled{opacity:.5}
+.lat-checklist__empty{margin:0;font-size:var(--fs-13);color:var(--text-muted)}
+.lat-checklist__empty[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.lat-checklist__summary,.lat-checklist__summary::before{transition:none}}
 .lat-facts{display:flex;flex-wrap:wrap;gap:8px 32px;margin:0 0 18px}
 .lat-facts dt{font-size:var(--fs-11);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text-muted);margin-bottom:2px}
 .lat-facts dd{margin:0;font-size:var(--fs-13);color:var(--text-body)}

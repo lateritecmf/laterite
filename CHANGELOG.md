@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A `checklist` field type and `laterite_admin::checklist`: boxes in groups, with
+  select all, search and settled groups closed once the list is long.
+- `FieldType::submitted` gathers a field of several controls into one value.
+
+### Changed
+
+- The Roles permission editor and role assignment are checklists.
+
 ## [0.9.1] - 2026-09-30
 
 Events: every admin island announces what it does and can be driven from

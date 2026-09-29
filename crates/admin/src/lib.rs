@@ -17,6 +17,7 @@
 mod audit;
 pub mod bootstrap;
 mod bulk;
+pub mod checklist;
 mod clientip;
 pub mod descriptor;
 mod error;

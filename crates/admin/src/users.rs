@@ -25,6 +25,7 @@ use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::{t, AnyRowExt};
 use sea_query::{Alias, Expr, Query};
 
+use crate::checklist::{Checklist, Choice};
 use crate::{render, AdminError, AdminState, Permission, Shell};
 
 /// The permission that gates changing an account's state, the same one that
@@ -359,8 +360,10 @@ fn new_page(
     roles: Vec<RoleRowView>,
 ) -> UsersNewTemplate {
     let error = error.map(|e| shell.tt(&e));
+    let role_list = role_checklist(&roles, &shell);
     UsersNewTemplate {
         shell,
+        role_list,
         action: format!("{}/users/new", state.admin_path),
         cancel_path: format!("{}/users", state.admin_path),
         error,
@@ -385,6 +388,8 @@ struct UsersNewTemplate {
     last_name: String,
     /// Every role, ticked as submitted; one the editor may not grant is locked.
     roles: Vec<RoleRowView>,
+    /// The roles as a checklist, rendered.
+    role_list: String,
 }
 
 /// Renders the edit form for a user, populated with their current overrides.
@@ -676,8 +681,10 @@ fn build(
     } else {
         group_permissions(&state.permissions, overrides, editor, &shell)
     };
+    let role_list = role_checklist(&roles, &shell);
     UsersFormTemplate {
         shell,
+        role_list,
         action,
         cancel_path: format!("{}/users", state.admin_path),
         full_name,
@@ -719,6 +726,21 @@ fn role_rows(
             code: role.code,
         })
         .collect()
+}
+
+/// The roles as a checklist: ticked where held, locked where this operator
+/// may not change them.
+fn role_checklist(roles: &[RoleRowView], shell: &Shell) -> String {
+    let mut list = Checklist::new(shell.tt(&t!("Roles")));
+    for role in roles {
+        list = list.choice(
+            Choice::new("role", role.id.to_string(), role.name.clone())
+                .code(role.code.clone())
+                .checked(role.held)
+                .locked(!role.changeable),
+        );
+    }
+    list.render(shell.i18n()).into_string()
 }
 
 /// One role on the assignment list.
@@ -764,6 +786,8 @@ struct UsersFormTemplate {
     groups: Vec<PermGroupView>,
     /// Every role, with the ones this operator holds ticked.
     roles: Vec<RoleRowView>,
+    /// The roles as a checklist, rendered.
+    role_list: String,
     /// Whether any role is changeable, so the screen can say why not.
     roles_locked: bool,
     /// When the password last changed, formatted; `None` when not recorded.

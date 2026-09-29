@@ -29,15 +29,7 @@
     <div class="lat-field">
       <span class="lat-field__label">{{ shell.t("Roles") }}</span>
       <p class="lat-help">{{ shell.t("A role grants every permission it holds. A role granting more than you hold yourself is shown locked.") }}</p>
-      <fieldset class="lat-permgroup">
-        {% for role in roles %}
-        <label class="lat-check{% if !role.changeable %} is-locked{% endif %}">
-          <input type="checkbox" name="role" value="{{ role.id }}"{% if role.held %} checked{% endif %}{% if !role.changeable %} disabled{% endif %}>
-          <span>{{ role.name }}</span>
-          <code class="lat-code">{{ role.code }}</code>
-        </label>
-        {% endfor %}
-      </fieldset>
+      {{ role_list|safe }}
     </div>
     {% endif %}
     <p class="lat-help">{{ shell.t("A temporary password is generated and shown to you once. The new user must replace it at their first sign-in.") }}</p>

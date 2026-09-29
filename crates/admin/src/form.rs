@@ -644,6 +644,28 @@ fn declared_record(
     Ok(rec)
 }
 
+/// The submission with every field present under its own name.
+///
+/// A field of several controls submits keys of its own and none under its name.
+/// Its type gathers them into one value, so the rules see the field and a
+/// refused save is re-rendered from what the operator entered. A key already
+/// present is left as submitted.
+fn gathered(form: &PreparedForm, mut data: HashMap<String, String>) -> HashMap<String, String> {
+    for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
+        if data.contains_key(&field.name) {
+            continue;
+        }
+        let value = prepared.field_type.submitted(
+            &crate::field::SubmittedField::new(&field.name, &data),
+            &prepared.opts,
+        );
+        if let Some(value) = value {
+            data.insert(field.name.clone(), value);
+        }
+    }
+    data
+}
+
 /// The merged validation rules for every field, in order.
 fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
     form.config
@@ -692,6 +714,7 @@ pub(crate) async fn create(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
+    let data = gathered(form, data);
 
     let bag = match validate(
         &state.db,
@@ -846,6 +869,7 @@ pub(crate) async fn update(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
+    let data = gathered(form, data);
 
     let bag = match validate(
         &state.db,

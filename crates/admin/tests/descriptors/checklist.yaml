@@ -1,0 +1,22 @@
+entity: teams
+path: /teams
+title: Teams
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Team
+  fields:
+    code: { rules: [required] }
+    name: { rules: [required] }
+    topics:
+      label: Topics
+      type: checklist
+      rules: [required]
+      options:
+        - { value: news, label: News }
+        - group: Sport
+          options:
+            - { value: football, label: Football, note: Every league }
+            - { value: cricket, label: Cricket }

@@ -1,0 +1,18 @@
+{% if group %}
+<details class="lat-checklist__group"{% if open %} open{% endif %}>
+  <summary class="lat-checklist__summary">
+    <input class="lat-checklist__parent" type="checkbox" aria-label="{{ label }}" hidden{% if checked %} checked{% endif %}{% if locked %} disabled{% endif %}>
+    <span class="lat-checklist__title">{{ label }}</span>
+    <span class="lat-checklist__count">{{ count }}</span>
+  </summary>
+  <div class="lat-checklist__items">
+    {% for node in nodes %}{{ node|safe }}{% endfor %}
+  </div>
+</details>
+{% else %}
+<label class="lat-check lat-checklist__item{% if locked %} is-locked{% endif %}">
+  <input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}{% if locked %} disabled{% endif %}>
+  <span class="lat-checklist__label">{{ label }}{% if let Some(note) = note %}<small class="lat-checklist__note">{{ note }}</small>{% endif %}</span>
+  {% if let Some(code) = code %}<code class="lat-code">{{ code }}</code>{% endif %}
+</label>
+{% endif %}

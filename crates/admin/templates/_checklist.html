@@ -1,0 +1,21 @@
+{# The checklist. The boxes submit and the groups open and close before any
+   script runs; the bar and the group boxes start hidden, and the island shows
+   them once it can make them work. #}
+<div class="lat-checklist{% if read_only %} is-locked{% endif %}"{% if let Some(id) = id %} id="{{ id }}"{% endif %} data-lat-widget="checklist" data-lat-count="{{ pattern }}" role="group" aria-label="{{ label }}">
+  {% if self.bar() %}
+  <div class="lat-checklist__bar" hidden>
+    {% if search %}
+    <span class="lat-checklist__search" data-lat-enter-scope><input class="lat-input" type="search" placeholder="{{ text_search }}" aria-label="{{ text_search }}" autocomplete="off" data-lat-checklist-search></span>
+    {% endif %}
+    {% if select_all %}
+    <button class="lat-btn lat-btn--ghost lat-btn--sm" type="button" data-lat-checklist-all>{{ text_select_all }}</button>
+    <button class="lat-btn lat-btn--ghost lat-btn--sm" type="button" data-lat-checklist-none>{{ text_select_none }}</button>
+    {% endif %}
+    <span class="lat-checklist__total" data-lat-checklist-total>{{ count }}</span>
+  </div>
+  {% endif %}
+  <div class="lat-checklist__list">
+    {% for node in nodes %}{{ node|safe }}{% endfor %}
+  </div>
+  <p class="lat-checklist__empty" hidden>{{ text_no_match }}</p>
+</div>

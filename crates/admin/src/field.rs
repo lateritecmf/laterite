@@ -232,6 +232,21 @@ pub trait FieldType: Send + Sync + 'static {
         stored.unwrap_or_default().to_string()
     }
 
+    /// What a field of several controls submitted, as the one value its control
+    /// is rebuilt from.
+    ///
+    /// A form holds one value a field, and a checklist submits a key for every
+    /// box ticked and none under its own name. Gathered here into one value, the
+    /// rules see the field, so `required` means a box is ticked, and a refused
+    /// save comes back with the operator's ticks in place. `None` when the
+    /// submission holds nothing of this field.
+    ///
+    /// Default: the value under the field's own name.
+    fn submitted(&self, field: &SubmittedField<'_>, opts: &ResolvedOptions) -> Option<String> {
+        let _ = opts;
+        field.value().map(str::to_string)
+    }
+
     /// Whether the framework wraps this field in standard chrome.
     fn chrome(&self) -> Chrome {
         Chrome::Wrapped
@@ -756,6 +771,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(TextareaField),
         Arc::new(RepeaterField),
         Arc::new(SelectField),
+        Arc::new(ChecklistField),
         Arc::new(SwitchField),
         Arc::new(DateField),
         Arc::new(PasswordField),
@@ -1350,6 +1366,214 @@ impl FieldType for SelectField {
             options: &options,
         })
         .unwrap_or_default()
+    }
+}
+
+/// A `checklist` field's keys.
+#[derive(Debug, Default, Deserialize)]
+struct ChecklistOptions {
+    #[serde(default)]
+    options: Vec<ChecklistEntry>,
+    #[serde(default)]
+    select_all: crate::checklist::Offer,
+    #[serde(default)]
+    search: crate::checklist::Offer,
+    #[serde(default)]
+    expand: crate::checklist::Expand,
+}
+
+/// One entry under `options`: a choice, or a group holding entries of its own.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ChecklistEntry {
+    Group {
+        group: String,
+        #[serde(default)]
+        options: Vec<ChecklistEntry>,
+    },
+    Choice {
+        value: String,
+        /// Display text; defaults to the value when omitted.
+        #[serde(default)]
+        label: Option<String>,
+        /// A second line under the label.
+        #[serde(default)]
+        note: Option<String>,
+    },
+}
+
+impl ChecklistOptions {
+    /// Every value a box can submit, in the order declared.
+    fn values(&self) -> Vec<&str> {
+        fn walk<'a>(entries: &'a [ChecklistEntry], out: &mut Vec<&'a str>) {
+            for entry in entries {
+                match entry {
+                    ChecklistEntry::Choice { value, .. } => out.push(value),
+                    ChecklistEntry::Group { options, .. } => walk(options, out),
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.options, &mut out);
+        out
+    }
+
+    /// The ticked values among those declared, in the order declared. A value
+    /// the descriptor does not offer is dropped, so a forged box stores nothing.
+    fn ticked<'a>(&'a self, submitted: &[&str]) -> Vec<&'a str> {
+        self.values()
+            .into_iter()
+            .filter(|value| submitted.contains(value))
+            .collect()
+    }
+}
+
+/// The values held by a stored or gathered checklist: a JSON array of strings.
+fn checklist_values(text: &str) -> Vec<String> {
+    serde_json::from_str(text).unwrap_or_default()
+}
+
+/// Boxes in groups, storing the ticked values as a JSON array.
+///
+/// Each box submits under `name[position]`, so a form's one-value-a-key
+/// submission carries them all.
+pub(crate) struct ChecklistField;
+
+impl ChecklistField {
+    fn gathered(field: &SubmittedField<'_>, opts: &ResolvedOptions) -> Vec<String> {
+        let submitted: Vec<&str> = field.nested().map(|(_, value)| value).collect();
+        match opts.get::<ChecklistOptions>() {
+            Some(options) => options
+                .ticked(&submitted)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+impl FieldType for ChecklistField {
+    fn view_key(&self) -> &'static str {
+        "checklist"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["options", "select_all", "search", "expand"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: ChecklistOptions = if raw.is_null() {
+            ChecklistOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        let mut seen = std::collections::HashSet::new();
+        for value in opts.values() {
+            if !seen.insert(value) {
+                return Err(OptionsError(format!("option `{value}` is listed twice")));
+            }
+        }
+        Ok(ResolvedOptions::new(opts))
+    }
+
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        // No box ticked submits nothing, which has to store an empty list:
+        // leaving the attribute out would keep the ticks that were just cleared.
+        let values = Self::gathered(field, opts)
+            .into_iter()
+            .map(serde_json::Value::String)
+            .collect();
+        Ok(Some(AttrValue::Json(serde_json::Value::Array(values))))
+    }
+
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        stored.unwrap_or("[]").to_string()
+    }
+
+    fn submitted(&self, field: &SubmittedField<'_>, opts: &ResolvedOptions) -> Option<String> {
+        let values = Self::gathered(field, opts);
+        if values.is_empty() {
+            return None;
+        }
+        serde_json::to_string(&values).ok()
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        use crate::checklist::{Checklist, Choice, Entry, Group};
+
+        let ticked: Vec<String> = match cx.value {
+            FieldValue::Json(serde_json::Value::Array(values)) => values
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect(),
+            FieldValue::Text(text) => checklist_values(text),
+            _ => Vec::new(),
+        };
+
+        fn build(
+            entries: &[ChecklistEntry],
+            name: &str,
+            ticked: &[String],
+            position: &mut usize,
+        ) -> Vec<Entry> {
+            entries
+                .iter()
+                .map(|entry| match entry {
+                    ChecklistEntry::Choice { value, label, note } => {
+                        let mut choice = Choice::new(
+                            format!("{name}[{position}]"),
+                            value.clone(),
+                            label.clone().unwrap_or_else(|| value.clone()),
+                        )
+                        .checked(ticked.contains(value));
+                        if let Some(note) = note {
+                            choice = choice.note(note.clone());
+                        }
+                        *position += 1;
+                        Entry::from(choice)
+                    }
+                    ChecklistEntry::Group { group, options } => Entry::from(Group::new(
+                        group.clone(),
+                        build(options, name, ticked, position),
+                    )),
+                })
+                .collect()
+        }
+
+        let mut list = Checklist::new(cx.label).id(cx.id);
+        if let Some(options) = cx.opts.get::<ChecklistOptions>() {
+            let mut position = 0;
+            for entry in build(&options.options, cx.name, &ticked, &mut position) {
+                list = list.entry(entry);
+            }
+            list = list
+                .select_all(options.select_all)
+                .search(options.search)
+                .expand(options.expand);
+        }
+        FieldVm {
+            view_key: "checklist".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::to_value(list.view(cx.i18n)).unwrap_or_default(),
+        }
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        serde_json::from_value::<crate::checklist::ChecklistView>(vm.data.clone())
+            .map(|view| view.render_markup())
+            .unwrap_or_default()
     }
 }
 

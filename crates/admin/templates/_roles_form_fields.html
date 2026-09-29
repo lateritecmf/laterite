@@ -11,17 +11,7 @@
   </div>
   <div class="lat-field">
     <span class="lat-field__label">{{ shell.t("Permissions") }}</span>
-    {% for group in groups %}
-    <fieldset class="lat-permgroup">
-      <legend class="lat-permgroup__legend">{{ group.name }}</legend>
-      {% for perm in group.perms %}
-      <label class="lat-check">
-        <input type="checkbox" name="perm" value="{{ perm.code }}"{% if perm.checked %} checked{% endif %}{% if system %} disabled{% endif %}>
-        <span>{{ perm.label }}</span>
-      </label>
-      {% endfor %}
-    </fieldset>
-    {% endfor %}
+    {{ permissions|safe }}
   </div>
   <div class="lat-actions">
     {% if system %}

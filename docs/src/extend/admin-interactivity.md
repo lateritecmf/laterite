@@ -105,6 +105,7 @@ Event | Detail | Cancelable
 `ref-picker:changed` | `id`, `label`, `previous` | No
 `ref-picker:cleared` | `previous` | No
 `selection:changed` | `ids`, `count` | No
+`checklist:changed` | `values`, `count`, `total` | No
 `flash:shown` | `text`, `level` | No
 `flash:dismissed` | `text` | No
 `confirm:opened` | `text` | No
@@ -115,6 +116,7 @@ Controller | Methods
 --- | ---
 Repeater | `add()`, `remove(index)`, `count()`
 Record picker | `value()`, `label()`, `choose({ id, label })`, `clear()`
+Checklist | `values()`, `count()`, `set(values)`, `all()`, `none()`, `search(text)`
 
 Helper | Does
 --- | ---

@@ -118,6 +118,36 @@ let response = Robots.mount(&ctx)
 
 Every builder field has a default; name only what you assert on.
 
+## Put a checklist on a screen
+
+```rust
+use laterite_admin::checklist::{Checklist, Choice, Expand, Offer};
+use laterite_core::Translator;
+
+let list = Checklist::new("Channels")
+    .choice(Choice::new("channel", "email", "Email").checked(true))
+    .group("Chat", vec![
+        Choice::new("channel", "slack", "Slack").note("One workspace").into(),
+        Choice::new("channel", "teams", "Teams").locked(true).into(),
+    ])
+    .select_all(Offer::Auto)
+    .search(Offer::Never)
+    .expand(Expand::All);
+
+// `Markup`, for a template's `|safe` slot
+let html = list.render(&Translator::new("en"));
+```
+
+Builder | Does
+--- | ---
+`Choice::new(name, value, label)` | One box, submitted as `name=value`.
+`.note(..)`, `.code(..)` | A second line under the label; an identifier beside it.
+`.checked(..)`, `.locked(..)` | Ticked; shown and not changeable.
+`.group(label, entries)` | A heading over entries of its own, nested to any depth.
+`.select_all(..)`, `.search(..)`, `.expand(..)` | The defaults listed under [Behaviours](../reference/behaviours.md).
+`.read_only(true)` | Every box locked.
+`.view(&translator)` | The resolved list as a serialisable value, for a field type's view-model.
+
 ## Contribute a column type
 
 ```rust

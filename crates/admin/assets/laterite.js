@@ -396,6 +396,150 @@ window.lat.widget('repeater', function (root) {
   };
 });
 
+// Checklist: boxes in groups. The markup submits and the groups open and close
+// without this; the island adds what needs a script. A group's box is ticked
+// when all of its boxes are, clear when none is and in between otherwise, and
+// ticking it ticks the group. Counts follow the ticks. Select all, select none
+// and a group's box act on what the search is showing, so narrowing the list
+// and ticking what is left is two steps. Every change is announced once as
+// `checklist:changed`, with the ticked values.
+window.lat.widget('checklist', function (root) {
+  var pattern = root.getAttribute('data-lat-count') || '{n} / {total}';
+  var bar = root.querySelector('.lat-checklist__bar');
+  var search = root.querySelector('[data-lat-checklist-search]');
+  var total = root.querySelector('[data-lat-checklist-total]');
+  var empty = root.querySelector('.lat-checklist__empty');
+
+  function list(scope, selector) {
+    return Array.prototype.slice.call(scope.querySelectorAll(selector));
+  }
+  function boxes(scope) { return list(scope || root, '.lat-checklist__item input[type="checkbox"]'); }
+  function groups() { return list(root, '.lat-checklist__group'); }
+  function shown(box) { return !box.closest('.lat-checklist__item').hidden; }
+  function own(group, selector) {
+    var summary = group.firstElementChild;
+    return summary ? summary.querySelector(selector) : null;
+  }
+  function ticked(all) { return all.filter(function (b) { return b.checked; }); }
+  function values() { return ticked(boxes()).map(function (b) { return b.value; }); }
+  function count(n, of) { return pattern.replace('{n}', n).replace('{total}', of); }
+
+  function refresh() {
+    groups().forEach(function (group) {
+      var all = boxes(group);
+      var on = ticked(all).length;
+      var parent = own(group, '.lat-checklist__parent');
+      var label = own(group, '.lat-checklist__count');
+      if (parent) {
+        parent.checked = all.length > 0 && on === all.length;
+        parent.indeterminate = on > 0 && on < all.length;
+        parent.disabled = !all.some(function (b) { return !b.disabled; });
+      }
+      if (label) label.textContent = count(on, all.length);
+    });
+    if (total) total.textContent = count(ticked(boxes()).length, boxes().length);
+  }
+
+  function changed() {
+    refresh();
+    var on = values();
+    window.lat.emit(root, 'checklist:changed', { values: on, count: on.length, total: boxes().length });
+  }
+
+  // Ticks or clears every box that may change. True when any did.
+  function put(all, on) {
+    var moved = false;
+    all.forEach(function (box) {
+      if (box.disabled || box.checked === on) return;
+      box.checked = on;
+      moved = true;
+    });
+    return moved;
+  }
+
+  function filter(text) {
+    var query = (text || '').trim().toLowerCase();
+    boxes().forEach(function (box) {
+      var item = box.closest('.lat-checklist__item');
+      item.hidden = query !== '' && item.textContent.toLowerCase().indexOf(query) === -1;
+    });
+    var any = false;
+    groups().forEach(function (group) {
+      var matches = boxes(group).some(shown);
+      any = any || matches;
+      group.hidden = !matches;
+      if (query === '') {
+        // Back to how the group stood before the search opened it.
+        if (group.hasAttribute('data-lat-was')) {
+          group.open = group.getAttribute('data-lat-was') === 'open';
+          group.removeAttribute('data-lat-was');
+        }
+      } else {
+        if (!group.hasAttribute('data-lat-was')) {
+          group.setAttribute('data-lat-was', group.open ? 'open' : 'closed');
+        }
+        group.open = matches;
+      }
+    });
+    any = any || boxes().some(shown);
+    if (empty) empty.hidden = any || boxes().length === 0;
+  }
+
+  root.addEventListener('change', function (e) {
+    var target = e.target;
+    if (target.classList.contains('lat-checklist__parent')) {
+      put(boxes(target.closest('.lat-checklist__group')).filter(shown), target.checked);
+      changed();
+    } else if (target.matches('.lat-checklist__item input[type="checkbox"]')) {
+      changed();
+    }
+  });
+
+  root.addEventListener('click', function (e) {
+    var all = e.target.closest('[data-lat-checklist-all]');
+    var none = e.target.closest('[data-lat-checklist-none]');
+    if (!all && !none) return;
+    if (put(boxes().filter(shown), !!all)) changed();
+  });
+
+  if (search) {
+    search.addEventListener('input', function () { filter(search.value); });
+    // Escape clears the search first, and only then reaches anything outside.
+    search.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || search.value === '') return;
+      e.stopPropagation();
+      search.value = '';
+      filter('');
+    });
+  }
+
+  list(root, '.lat-checklist__parent').forEach(function (parent) { parent.hidden = false; });
+  if (bar) bar.hidden = false;
+  refresh();
+
+  return {
+    values: values,
+    count: function () { return values().length; },
+    // Ticks exactly `wanted`, leaving locked boxes as they are.
+    set: function (wanted) {
+      var moved = false;
+      boxes().forEach(function (box) {
+        var on = wanted.indexOf(box.value) !== -1;
+        if (box.disabled || box.checked === on) return;
+        box.checked = on;
+        moved = true;
+      });
+      if (moved) changed();
+    },
+    all: function () { if (put(boxes(), true)) changed(); },
+    none: function () { if (put(boxes(), false)) changed(); },
+    search: function (text) {
+      if (search) search.value = text || '';
+      filter(text);
+    }
+  };
+});
+
 // Select-all checkbox in a list header: ticks every row box in its table. Bound
 // by structure, and re-bound after a swap because the header comes back with it.
 window.lat.widget('pick-all', function (box) {

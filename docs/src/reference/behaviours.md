@@ -14,6 +14,11 @@ A narrow window | Under 1100px a quarter is a half; under 768px every field is f
 A key the type does not read | Refused by name. | None.
 A repeater | Every row open. | `display: list` collapses each row to the line naming it.
 A refused save | The form returns with its errors, values kept. | None.
+A checklist past 10 choices | Offers select all and select none. | `select_all: true` or `false`.
+A checklist past 20 choices | Offers a search box. | `search: true` or `false`.
+A checklist past 10 choices, in groups | A group with every box ticked, or none, starts closed. A group partly ticked starts open. | `expand: all` or `none`.
+A checklist group | Its box ticks the whole group, and shows a dash when some are ticked. | None.
+A checklist being searched | Select all, select none and a group's box act on the matches. Escape clears the search. | None.
 
 ```yaml
 form:
@@ -21,6 +26,7 @@ form:
   fields:
     sku:   { enter: next, span: 1/3 }
     links: { type: repeater, display: list, fields: { url: { input: url } } }
+    tags:  { type: checklist, select_all: false, expand: all, options: [{ value: new }] }
 ```
 
 ## Lists

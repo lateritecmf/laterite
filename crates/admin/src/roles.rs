@@ -17,6 +17,7 @@ use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::{t, AnyRowExt, Text};
 use sea_query::{Alias, Expr, Query};
 
+use crate::checklist::{Checklist, Choice, Entry};
 use crate::{not_found, render, render_error, AdminState, Permission, Shell};
 
 /// Renders an empty create form.
@@ -264,31 +265,31 @@ fn registered_only(perms: Vec<String>, registry: &[Permission]) -> Vec<String> {
         .collect()
 }
 
-/// Groups the registered permissions by their `group`, preserving registry
-/// order, and marks the ones the role currently holds.
+/// The registered permissions as a checklist: grouped by their `group` in
+/// registry order, with the ones the role holds ticked. A role the framework
+/// owns is shown and cannot be changed.
 fn group_permissions(
     registry: &[Permission],
     selected: &[String],
+    system: bool,
     shell: &Shell,
-) -> Vec<PermGroupView> {
-    let mut groups: Vec<PermGroupView> = Vec::new();
+) -> Checklist {
+    let mut groups: Vec<(String, Vec<Entry>)> = Vec::new();
     for permission in registry {
-        let check = PermCheckView {
-            code: permission.code.clone(),
-            label: shell.tt(&permission.label),
-            checked: selected.iter().any(|s| s == &permission.code),
-        };
+        let choice = Choice::new("perm", permission.code.clone(), shell.tt(&permission.label))
+            .checked(selected.iter().any(|s| s == &permission.code));
         // Merge by the localized group heading (same source localizes identically).
-        let gname = shell.tt(&permission.group);
-        match groups.iter_mut().find(|g| g.name == gname) {
-            Some(group) => group.perms.push(check),
-            None => groups.push(PermGroupView {
-                name: gname,
-                perms: vec![check],
-            }),
+        let heading = shell.tt(&permission.group);
+        match groups.iter_mut().find(|(name, _)| *name == heading) {
+            Some((_, entries)) => entries.push(choice.into()),
+            None => groups.push((heading, vec![choice.into()])),
         }
     }
-    groups
+    let mut list = Checklist::new(shell.tt(&t!("Permissions"))).read_only(system);
+    for (heading, entries) in groups {
+        list = list.group(heading, entries);
+    }
+    list
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -302,7 +303,9 @@ fn build(
     system: bool,
     shell: Shell,
 ) -> RolesFormTemplate {
-    let groups = group_permissions(&state.permissions, selected, &shell);
+    let permissions = group_permissions(&state.permissions, selected, system, &shell)
+        .render(shell.i18n())
+        .into_string();
     let title = shell.tt(&t!("Role"));
     let error = error.map(|e| shell.tt(&e));
     RolesFormTemplate {
@@ -313,21 +316,10 @@ fn build(
         error,
         code: code.to_string(),
         name: name.to_string(),
-        groups,
+        permissions,
         system,
         duplicate_path: format!("{}/roles/new", state.admin_path),
     }
-}
-
-struct PermCheckView {
-    code: String,
-    label: String,
-    checked: bool,
-}
-
-struct PermGroupView {
-    name: String,
-    perms: Vec<PermCheckView>,
 }
 
 #[derive(Template)]
@@ -340,7 +332,8 @@ struct RolesFormTemplate {
     error: Option<String>,
     code: String,
     name: String,
-    groups: Vec<PermGroupView>,
+    /// The permission checklist, rendered.
+    permissions: String,
     /// A role the framework owns: shown, never saved.
     system: bool,
     duplicate_path: String,
@@ -356,7 +349,8 @@ struct RolesFormFragment {
     error: Option<String>,
     code: String,
     name: String,
-    groups: Vec<PermGroupView>,
+    /// The permission checklist, rendered.
+    permissions: String,
     system: bool,
     duplicate_path: String,
 }
@@ -372,7 +366,7 @@ fn invalid_response(htmx: bool, page: RolesFormTemplate) -> Response {
             error: page.error,
             code: page.code,
             name: page.name,
-            groups: page.groups,
+            permissions: page.permissions,
             system: page.system,
             duplicate_path: page.duplicate_path,
         })
@@ -421,11 +415,24 @@ mod tests {
 
     #[test]
     fn grouping_preserves_order_and_marks_selected() {
-        let groups = group_permissions(&registry(), &["acme.publish".to_string()], &Shell::test());
-        assert_eq!(groups[0].name, "Backend");
-        assert_eq!(groups[1].name, "Content");
-        assert!(!groups[0].perms[0].checked);
-        assert!(groups[1].perms[0].checked);
+        let shell = Shell::test();
+        let list = group_permissions(&registry(), &["acme.publish".to_string()], false, &shell);
+        assert_eq!((list.checked(), list.total()), (1, 2));
+        let html = list.render(shell.i18n()).into_string();
+        let backend = html.find("Backend").unwrap();
+        let content = html.find("Content").unwrap();
+        assert!(backend < content);
+        assert!(html.contains(r#"name="perm" value="backend.manage_users">"#));
+        assert!(html.contains(r#"name="perm" value="acme.publish" checked>"#));
+    }
+
+    #[test]
+    fn a_system_role_is_shown_locked() {
+        let shell = Shell::test();
+        let html = group_permissions(&registry(), &["acme.publish".to_string()], true, &shell)
+            .render(shell.i18n())
+            .into_string();
+        assert!(html.contains(r#"name="perm" value="acme.publish" checked disabled>"#));
     }
 }
 
@@ -489,7 +496,10 @@ mod htmx_tests {
         let html = body_of(resp).await;
         assert!(html.contains("<form"), "the form comes back");
         assert!(html.contains("lat-alert"), "carrying the error");
-        assert!(html.contains("lat-permgroup"), "and the permission editor");
+        assert!(
+            html.contains(r#"data-lat-widget="checklist""#),
+            "and the permission editor"
+        );
         assert!(!html.contains("<body"), "no page chrome");
     }
 

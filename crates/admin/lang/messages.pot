@@ -453,6 +453,10 @@ msgstr ""
 msgid "Not recorded"
 msgstr ""
 
+#: src/checklist.rs
+msgid "Nothing matches."
+msgstr ""
+
 #: templates/login.html
 #: templates/setup.html
 msgid "Open source Rust web framework"
@@ -488,6 +492,7 @@ msgstr ""
 msgid "Permission overrides"
 msgstr ""
 
+#: src/roles.rs
 #: templates/_roles_form_fields.html
 msgid "Permissions"
 msgstr ""
@@ -576,6 +581,7 @@ msgstr ""
 msgid "Role updated."
 msgstr ""
 
+#: src/users.rs
 #: templates/users_form.html
 #: templates/users_new.html
 #: (descriptors)
@@ -598,6 +604,7 @@ msgstr ""
 msgid "Saved."
 msgstr ""
 
+#: src/checklist.rs
 #: templates/list.html
 msgid "Search"
 msgstr ""
@@ -610,8 +617,13 @@ msgstr ""
 msgid "Select a record first."
 msgstr ""
 
+#: src/checklist.rs
 #: templates/_list_table.html
 msgid "Select all"
+msgstr ""
+
+#: src/checklist.rs
+msgid "Select none"
 msgstr ""
 
 #: templates/_list_table.html
@@ -910,4 +922,8 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your session ended after a period of inactivity. Sign in again."
+msgstr ""
+
+#: src/checklist.rs
+msgid "{n} of {total}"
 msgstr ""

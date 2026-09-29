@@ -43,10 +43,11 @@ Method | Role
 `render_default` | The markup.
 `to_attr` | The submitted string as the typed value that reaches the database. `Err` refuses the save.
 `option_keys` | The keys the type reads from a field's entry. Any other key is refused by name.
+`submitted` | For a type of several controls: what it submitted, gathered into one value. The rules read it, and a refused save is rebuilt from it.
 `resolve_options` | Those keys, typed once at boot.
 
-Built in: `text`, `textarea`, `select`, `radio`, `switch`, `date`, `password`,
-`reference`, `repeater`.
+Built in: `text`, `textarea`, `select`, `radio`, `checklist`, `switch`, `date`,
+`password`, `reference`, `repeater`.
 
 Register it and name it from a descriptor:
 

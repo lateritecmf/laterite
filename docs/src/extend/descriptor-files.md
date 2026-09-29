@@ -85,6 +85,7 @@ Type | Keys
 `text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
 `textarea` | `rows`, `placeholder`
 `select`, `radio` | `options`: a list of `{ value, label }`
+`checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
 `reference` | `source`
 `repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`
 `switch`, `date`, `password` | None
@@ -92,6 +93,35 @@ A `select` filter | `options`
 
 A key the type does not read is refused, naming the entry and the keys it
 accepts.
+
+## Checklist
+
+Boxes in groups. The column holds the ticked values as a JSON array of text.
+
+```yaml
+fields:
+  topics:
+    type: checklist
+    rules: [required]        # a box must be ticked
+    options:
+      - { value: news, label: News }
+      - group: Sport
+        options:
+          - { value: football, label: Football, note: Every league }
+          - { value: cricket, label: Cricket }
+    select_all: auto
+    search: auto
+    expand: auto
+```
+
+Key | Values | Default
+--- | --- | ---
+`options` | A list of `{ value, label, note }` and `{ group, options }`, nested to any depth. | None
+`select_all` | `auto`, `true`, `false` | `auto`: past 10 choices
+`search` | `auto`, `true`, `false` | `auto`: past 20 choices
+`expand` | `auto`, `all`, `none` | `auto`: past 10 choices in more than one group, a group with every box ticked or none starts closed and a group partly ticked starts open
+
+A value listed twice stops the boot, naming it.
 
 ## Layout
 
