@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-30
+
+Events: every admin island announces what it does and can be driven from
+script, and modules hear each other's facts on an application event bus.
+
 ### Added
 
 - Every admin island announces what it does as a `lat:<component>:<event>` DOM
