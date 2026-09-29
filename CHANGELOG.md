@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Every admin island announces what it does as a `lat:<component>:<event>` DOM
+  event and hands back a controller: `lat.on`, `lat.emit`, `lat.get`.
+
+### Fixed
+
+- An island that is itself the swapped-in element now starts, and a success
+  message raised with `lat.flash` leaves after five seconds.
+
 ## [0.9.0] - 2026-09-29
 
 Accounts and forms: operators are created, reset and unlocked from the panel

@@ -76,14 +76,64 @@ lacks the permission for is not rendered.
 </button>
 ```
 
+## Events
+
+Every island announces what it does as a DOM event named
+`lat:<component>:<event>`, bubbling from its root.
+
+```js
+var stop = lat.on('repeater:added', function (detail, event) {
+  console.log(detail.count, 'rows; the new one is', detail.row);
+});
+
+// A `before-` event is cancelable: this caps a repeater at five rows.
+lat.on('repeater:before-add', function (detail, event) {
+  if (detail.count >= 5) event.preventDefault();
+});
+
+// Drive an island through its controller.
+lat.get(document.querySelector('[data-lat-widget="repeater"]')).add();
+```
+
+Event | Detail | Cancelable
+--- | --- | ---
+`repeater:before-add` | `count` | Yes
+`repeater:added` | `row`, `index`, `count` | No
+`repeater:before-remove` | `row`, `index`, `count` | Yes
+`repeater:removed` | `index`, `count` | No
+`ref-picker:changed` | `id`, `label`, `previous` | No
+`ref-picker:cleared` | `previous` | No
+`selection:changed` | `ids`, `count` | No
+`flash:shown` | `text`, `level` | No
+`flash:dismissed` | `text` | No
+`confirm:opened` | `text` | No
+`confirm:confirmed`, `confirm:cancelled` | None | No
+`copy:copied` | `value` | No
+
+Controller | Methods
+--- | ---
+Repeater | `add()`, `remove(index)`, `count()`
+Record picker | `value()`, `label()`, `choose({ id, label })`, `clear()`
+
+Helper | Does
+--- | ---
+`lat.on(name, handler)` | Listens page-wide, swapped content included. Returns the function that stops listening.
+`lat.emit(el, name, detail, cancelable)` | Announces `lat:<name>` from `el`. Returns `false` when a listener cancelled it.
+`lat.get(el)` | The controller of the island at or around `el`.
+`lat.scan(root)` | Starts the islands in markup a script added. Swapped content starts without it.
+
 ## Write an island
 
 ```js
 window.lat.widget('char-count', function (el) {
   var input = el.querySelector('input');
+  function count() { return input.value.length; }
   input.addEventListener('input', function () {
-    el.querySelector('.count').textContent = input.value.length;
+    el.querySelector('.count').textContent = count();
+    lat.emit(el, 'acme.char-count:changed', { count: count() });
   });
+  // Returned, so `lat.get(el).count()` reads it from outside.
+  return { count: count };
 });
 ```
 

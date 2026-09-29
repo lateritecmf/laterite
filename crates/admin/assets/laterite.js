@@ -18,9 +18,14 @@ function latToggleMenu() {
   var m = document.getElementById('lat-menu');
   if (m) m.classList.toggle('is-open');
 }
+function flashText(toast) {
+  var label = toast.querySelector('.lat-flash__text');
+  return label ? label.textContent : '';
+}
 function latDismissFlash(btn) {
   var t = btn.closest('.lat-flash');
   if (!t) return;
+  window.lat.emit(t, 'flash:dismissed', { text: flashText(t) });
   t.classList.add('is-leaving');
   setTimeout(function () { t.remove(); }, 180);
 }
@@ -38,12 +43,42 @@ document.addEventListener('htmx:beforeSwap', function (e) {
 // Widget (island) registry: register an initialiser by name; every element with
 // a matching data-lat-widget is initialised exactly once, on first load and
 // after an htmx swap (swapped fragments carry their own widgets).
+//
+// Islands speak through DOM events named `lat:<component>:<event>`, bubbling
+// from the island's root with a detail object, and an island may hand back a
+// controller (its methods) from its initialiser. Both are public: `lat.on`
+// listens, `lat.emit` announces, `lat.get` finds a controller.
 (function () {
   var registry = {};
+  var controllers = new WeakMap();
   var lat = (window.lat = window.lat || {});
   lat.widget = function (name, init) {
     registry[name] = init;
     scan(document);
+  };
+  // The controller the island at `el` (or around it) handed back when it
+  // started, or undefined for one with none.
+  lat.get = function (el) {
+    var root = el && el.closest ? el.closest('[data-lat-widget]') : null;
+    return root ? controllers.get(root) : undefined;
+  };
+  // Announces `lat:<name>` from `el`. Returns false when the event was
+  // cancelable and a listener called preventDefault(), which is how a
+  // `before-` event stops the action it announces.
+  lat.emit = function (el, name, detail, cancelable) {
+    return (el || document).dispatchEvent(new CustomEvent('lat:' + name, {
+      bubbles: true,
+      cancelable: !!cancelable,
+      detail: detail || {}
+    }));
+  };
+  // Listens for `lat:<name>` anywhere on the page, including content that
+  // arrives with a swap. The handler gets the detail, then the event. Returns
+  // the function that stops listening.
+  lat.on = function (name, handler) {
+    function listener(e) { handler(e.detail, e); }
+    document.addEventListener('lat:' + name, listener);
+    return function () { document.removeEventListener('lat:' + name, listener); };
   };
   lat.assets = {
     // Idempotently load a stylesheet or script (for fragments whose assets are
@@ -64,16 +99,22 @@ document.addEventListener('htmx:beforeSwap', function (e) {
       document.head.appendChild(el);
     }
   };
+  var unstarted = '[data-lat-widget]:not([data-lat-ready])';
+  function start(el) {
+    var init = registry[el.getAttribute('data-lat-widget')];
+    if (!init) return;
+    el.setAttribute('data-lat-ready', '1');
+    var controller = init(el);
+    if (controller) controllers.set(el, controller);
+  }
+  // Starts every island in `root` that has not started, `root` included: a
+  // swapped-in fragment is often the island itself.
   function scan(root) {
     var scope = root && root.querySelectorAll ? root : document;
-    scope.querySelectorAll('[data-lat-widget]:not([data-lat-ready])').forEach(function (el) {
-      var init = registry[el.getAttribute('data-lat-widget')];
-      if (init) {
-        el.setAttribute('data-lat-ready', '1');
-        init(el);
-      }
-    });
+    if (scope.matches && scope.matches(unstarted)) start(scope);
+    scope.querySelectorAll(unstarted).forEach(start);
   }
+  lat.scan = scan;
   document.addEventListener('DOMContentLoaded', function () {
     scan(document);
     var e = document.getElementById('lat-mode-ico');
@@ -95,6 +136,7 @@ window.lat.flash = function (text, level) {
   }
   var toast = document.createElement('div');
   toast.className = 'lat-flash is-' + (level || 'error');
+  toast.setAttribute('data-lat-widget', 'flash');
   var label = document.createElement('span');
   label.className = 'lat-flash__text';
   label.textContent = text;
@@ -106,6 +148,9 @@ window.lat.flash = function (text, level) {
   toast.appendChild(label);
   toast.appendChild(close);
   box.appendChild(toast);
+  // Started as the island a server-rendered message is, so it announces itself
+  // and leaves on the same terms.
+  window.lat.scan(toast);
 };
 
 // A response htmx will not swap is otherwise swallowed, so a 500 or a dropped
@@ -178,6 +223,11 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   }
 
   function close() {
+    if (pending) window.lat.emit(pending, 'confirm:cancelled', {});
+    hide();
+  }
+
+  function hide() {
     pending = null;
     var el = document.getElementById('lat-confirm');
     if (el) el.classList.remove('is-open');
@@ -185,8 +235,9 @@ document.addEventListener('htmx:sendError', latRequestFailed);
 
   function go() {
     var el = pending;
-    close();
+    hide();
     if (!el) return;
+    window.lat.emit(el, 'confirm:confirmed', {});
     // Marked so the second pass through the handler lets it through.
     el.setAttribute('data-lat-confirmed', '1');
     el.click();
@@ -211,6 +262,7 @@ document.addEventListener('htmx:sendError', latRequestFailed);
       document.body.getAttribute('data-lat-cancel') || 'Cancel';
     modal.classList.add('is-open');
     modal.querySelector('[data-lat-go]').focus();
+    window.lat.emit(el, 'confirm:opened', { text: el.getAttribute('data-lat-confirm') });
   }, true);
 })();
 
@@ -250,6 +302,8 @@ document.addEventListener('htmx:sendError', latRequestFailed);
 
 // Flash toasts: auto-dismiss non-error messages after a few seconds.
 window.lat.widget('flash', function (el) {
+  var level = (el.className.match(/is-(success|error|info)/) || [])[1] || 'info';
+  window.lat.emit(el, 'flash:shown', { text: flashText(el), level: level });
   // Errors stay until dismissed, and so does anything marked to persist.
   if (el.classList.contains('is-error') || el.hasAttribute('data-lat-persist')) return;
   setTimeout(function () { latDismissFlash(el); }, 5000);
@@ -288,7 +342,12 @@ window.lat.widget('repeater', function (root) {
     }
   }
 
-  add.addEventListener('click', function () {
+  function all() {
+    return Array.prototype.slice.call(rows.querySelectorAll(':scope > .lat-repeater__row'));
+  }
+
+  function addRow() {
+    if (!window.lat.emit(root, 'repeater:before-add', { count: all().length }, true)) return null;
     rows.appendChild(blank.content.cloneNode(true));
     renumber();
     var added = rows.lastElementChild;
@@ -297,7 +356,24 @@ window.lat.widget('repeater', function (root) {
       var first = added.querySelector('.lat-repeater__fields [name], [name]');
       if (first) first.focus();
     }
-  });
+    var list = all();
+    window.lat.emit(root, 'repeater:added', { row: added, index: list.length - 1, count: list.length });
+    return added;
+  }
+
+  function removeRow(row) {
+    var index = all().indexOf(row);
+    if (index < 0) return false;
+    if (!window.lat.emit(root, 'repeater:before-remove', { row: row, index: index, count: all().length }, true)) {
+      return false;
+    }
+    row.remove();
+    renumber();
+    window.lat.emit(root, 'repeater:removed', { index: index, count: all().length });
+    return true;
+  }
+
+  add.addEventListener('click', addRow);
 
   root.addEventListener('input', function (e) {
     var row = e.target.closest('.lat-repeater__row');
@@ -307,11 +383,17 @@ window.lat.widget('repeater', function (root) {
   root.addEventListener('click', function (e) {
     if (!e.target.classList.contains('lat-repeater__remove')) return;
     var row = e.target.closest('.lat-repeater__row');
-    if (row) {
-      row.remove();
-      renumber();
-    }
+    if (row) removeRow(row);
   });
+
+  return {
+    add: addRow,
+    remove: function (index) {
+      var row = all()[index];
+      return row ? removeRow(row) : false;
+    },
+    count: function () { return all().length; }
+  };
 });
 
 // Select-all checkbox in a list header: ticks every row box in its table. Bound
@@ -323,7 +405,22 @@ window.lat.widget('pick-all', function (box) {
     table.querySelectorAll('tbody input[type="checkbox"][name="id"]').forEach(function (row) {
       row.checked = box.checked;
     });
+    latSelectionChanged(table);
   });
+});
+
+// The rows ticked in a list, announced whenever they change.
+function latSelectionChanged(table) {
+  var ids = Array.prototype.map.call(
+    table.querySelectorAll('tbody input[type="checkbox"][name="id"]:checked'),
+    function (box) { return box.value; }
+  );
+  window.lat.emit(table, 'selection:changed', { ids: ids, count: ids.length });
+}
+document.addEventListener('change', function (e) {
+  if (!e.target.matches || !e.target.matches('tbody input[type="checkbox"][name="id"]')) return;
+  var table = e.target.closest('table');
+  if (table) latSelectionChanged(table);
 });
 
 // Bulk Delete: it sits in the action row, outside the table it acts on, so no
@@ -351,6 +448,7 @@ window.lat.widget('copy', function (btn) {
     var input = group && group.querySelector('input');
     if (!input || !navigator.clipboard) return;
     navigator.clipboard.writeText(input.value).then(function () {
+      window.lat.emit(btn, 'copy:copied', { value: input.value });
       btn.classList.add('is-copied');
       btn.textContent = 'Copied';
       setTimeout(function () {

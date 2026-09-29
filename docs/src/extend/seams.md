@@ -79,6 +79,9 @@ Works with no configuration | Every key has a default chosen for the common case
 Each default can be turned off | One key per behaviour, named for what it does, read from the field's entry.
 Its keys are declared | `option_keys` lists them, so a typo is refused by name.
 Enter stays inside it | A root marked `data-lat-enter-scope` when the control holds an input of its own. See [Admin Interactivity](admin-interactivity.md).
+It says what it did | `lat.emit(root, 'acme.money:changed', detail)`; a `before-` event is cancelable.
+It can be driven | The island's initialiser returns its controller; `lat.get(el)` finds it.
+It is listed | One row per behaviour in your plugin's docs: the default, and the key that changes it. See [Behaviours](../reference/behaviours.md).
 Works before scripts load | The markup submits as a plain form; a script island improves it.
 
 ## Write a persister

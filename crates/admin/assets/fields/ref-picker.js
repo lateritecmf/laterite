@@ -32,10 +32,22 @@ window.lat.widget('ref-picker', function (root) {
   }
 
   function choose(node) {
+    var previous = hidden.value;
     hidden.value = node.id;
     currentLabel = node.label;
     search.value = node.label;
     closeMenu();
+    window.lat.emit(root, 'ref-picker:changed', { id: String(node.id), label: node.label, previous: previous });
+  }
+
+  function clear() {
+    var previous = hidden.value;
+    if (!previous) return;
+    hidden.value = '';
+    currentLabel = '';
+    search.value = '';
+    closeMenu();
+    window.lat.emit(root, 'ref-picker:cleared', { previous: previous });
   }
 
   function renderMenu(items) {
@@ -109,4 +121,11 @@ window.lat.widget('ref-picker', function (root) {
       search.value = currentLabel;
     }, 150);
   });
+
+  return {
+    value: function () { return hidden.value; },
+    label: function () { return currentLabel; },
+    choose: choose,
+    clear: clear
+  };
 });

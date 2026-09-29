@@ -37,5 +37,6 @@
 
 # Reference
 
+- [Behaviours](reference/behaviours.md)
 - [Icons](reference/icons.md)
 - [API Reference](reference/api.md)
