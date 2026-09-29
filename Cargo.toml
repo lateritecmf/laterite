@@ -40,7 +40,7 @@ dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 rand = "0.8"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 # YAML for descriptor files. serde_yaml was archived in 2024; saphyr is the
 # maintained successor (YAML 1.2 with 1.1 compatibility).
 serde-saphyr = "1.3"

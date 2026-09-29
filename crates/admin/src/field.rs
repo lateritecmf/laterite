@@ -174,6 +174,14 @@ pub trait FieldType: Send + Sync + 'static {
     ) -> Result<ResolvedOptions, OptionsError> {
         Ok(ResolvedOptions::none())
     }
+    /// The keys this type reads from a field's entry, beyond the ones every
+    /// field has (`rows` for a textarea, `options` for a select). A key outside
+    /// the list is refused when the form is prepared, naming the field and the
+    /// keys accepted, so a typo never passes silently. `None` accepts any key
+    /// unchecked; declare yours.
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        None
+    }
 
     /// Rules this type always contributes, merged before the descriptor's own
     /// (e.g. the text field's `email` input contributes [`Rule::Email`]).
@@ -370,6 +378,8 @@ pub(crate) struct RepeaterSub {
 /// The descriptor shape a repeater's `options` blob takes.
 #[derive(Deserialize)]
 struct RepeaterOptionsRaw {
+    /// Written as a map of named fields in a file, a list by the builders.
+    #[serde(deserialize_with = "named_or_listed")]
     fields: Vec<crate::form::FormField>,
     #[serde(default)]
     min_items: usize,
@@ -379,6 +389,72 @@ struct RepeaterOptionsRaw {
     display: RepeaterDisplay,
     #[serde(default)]
     summary_field: Option<String>,
+}
+
+/// Refuses a key the type does not read, naming the ones it does.
+pub(crate) fn check_option_keys(
+    raw: &serde_json::Value,
+    accepted: &[String],
+) -> Result<(), OptionsError> {
+    let serde_json::Value::Object(entries) = raw else {
+        return Ok(());
+    };
+    for key in entries.keys() {
+        if !accepted.iter().any(|k| k == key) {
+            return Err(OptionsError(if accepted.is_empty() {
+                format!("unknown key `{key}`: this type takes no keys of its own")
+            } else {
+                format!(
+                    "unknown key `{key}`, expected one of: {}",
+                    accepted.join(", ")
+                )
+            }));
+        }
+    }
+    Ok(())
+}
+
+/// The keys a field's type declares, checked against what the field carries.
+/// A type that declares none is left unchecked.
+pub(crate) fn check_field_keys(
+    field: &crate::form::FormField,
+    field_type: &dyn FieldType,
+) -> Result<(), OptionsError> {
+    match field_type.option_keys(&field.options) {
+        Some(keys) => check_option_keys(&field.options, &keys),
+        None => Ok(()),
+    }
+}
+
+fn keys(names: &[&str]) -> Option<Vec<String>> {
+    Some(names.iter().map(|k| k.to_string()).collect())
+}
+
+/// Reads a repeater's sub-fields from either shape: `{ label: {}, url: {} }`,
+/// each told its name by its key, or a list whose entries carry `name`.
+fn named_or_listed<'de, D>(de: D) -> Result<Vec<crate::form::FormField>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::keyed::Keyed;
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Shape {
+        Listed(Vec<crate::form::FormField>),
+        Named(serde_json::Map<String, serde_json::Value>),
+    }
+    match Shape::deserialize(de)? {
+        Shape::Listed(fields) => Ok(fields),
+        Shape::Named(entries) => entries
+            .into_iter()
+            .map(|(name, entry)| {
+                let mut field: crate::form::FormField =
+                    serde_json::from_value(entry).map_err(serde::de::Error::custom)?;
+                field.set_key(name);
+                Ok(field)
+            })
+            .collect(),
+    }
 }
 
 /// A list of rows, stored as a JSON array of objects.
@@ -401,6 +477,16 @@ impl FieldType for RepeaterField {
         "repeater"
     }
 
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[
+            "fields",
+            "min_items",
+            "max_items",
+            "display",
+            "summary_field",
+        ])
+    }
+
     fn resolve_options(
         &self,
         raw: &serde_json::Value,
@@ -419,6 +505,8 @@ impl FieldType for RepeaterField {
                 .get(&field.field_type)
                 .cloned()
                 .ok_or_else(|| OptionsError(format!("unregistered type `{}`", field.field_type)))?;
+            check_field_keys(&field, field_type.as_ref())
+                .map_err(|e| OptionsError(format!("field `{}`: {}", field.name, e.0)))?;
             let opts = field_type.resolve_options(&field.options, types)?;
             rows.push(RepeaterSub {
                 field,
@@ -727,6 +815,11 @@ pub trait InputType: Send + Sync + 'static {
     ) -> Result<ResolvedOptions, OptionsError> {
         Ok(ResolvedOptions::none())
     }
+    /// The keys this input reads from the field's entry (`min`, `max`, `step`
+    /// for a number). A key no part of the field reads is refused.
+    fn option_keys(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
     /// Rules this input contributes (an `email` input adds [`Rule::Email`]).
     fn rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
         Vec::new()
@@ -799,6 +892,9 @@ impl InputType for NumberInput {
     fn html_type(&self) -> &'static str {
         "number"
     }
+    fn option_keys(&self) -> Vec<&'static str> {
+        vec!["min", "max", "step"]
+    }
     fn resolve_options(
         &self,
         raw: &serde_json::Value,
@@ -855,6 +951,9 @@ impl InputType for UrlInput {
     }
     fn html_type(&self) -> &'static str {
         "url"
+    }
+    fn option_keys(&self) -> Vec<&'static str> {
+        vec!["copy"]
     }
     fn resolve_options(
         &self,
@@ -945,6 +1044,9 @@ pub(crate) fn is_name(s: &str, dotted: bool) -> bool {
 struct TextOptions {
     #[serde(default = "default_input")]
     input: String,
+    /// Shown in the empty input.
+    #[serde(default)]
+    placeholder: Option<String>,
 }
 
 fn default_input() -> String {
@@ -1002,6 +1104,15 @@ impl FieldType for TextField {
     fn view_key(&self) -> &'static str {
         "text"
     }
+    fn option_keys(&self, raw: &serde_json::Value) -> Option<Vec<String>> {
+        let input = raw.get("input").and_then(|v| v.as_str()).unwrap_or("text");
+        // An input this registry does not hold is refused by name when the
+        // options resolve; its keys are not this check's to judge.
+        let input = self.inputs.get(input)?;
+        let mut all = vec!["input".to_string(), "placeholder".to_string()];
+        all.extend(input.option_keys().into_iter().map(str::to_string));
+        Some(all)
+    }
     fn resolve_options(
         &self,
         raw: &serde_json::Value,
@@ -1010,6 +1121,7 @@ impl FieldType for TextField {
         let opts: TextOptions = if raw.is_null() {
             TextOptions {
                 input: default_input(),
+                placeholder: None,
             }
         } else {
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
@@ -1022,9 +1134,12 @@ impl FieldType for TextField {
         // The input reads its own keys from the same blob, then contributes its
         // control shape; the contributed names are validated before caching.
         let input_opts = input.resolve_options(raw, _types)?;
-        let attrs = input.attributes(&input_opts);
+        let mut attrs = input.attributes(&input_opts);
         let adornments = input.adornments(&input_opts);
         validate_contributions(&attrs, &adornments)?;
+        if let Some(placeholder) = opts.placeholder {
+            attrs.insert("placeholder".to_string(), placeholder);
+        }
         Ok(ResolvedOptions::new(TextResolved {
             html_type: input.html_type(),
             rules: input.rules(&input_opts),
@@ -1092,6 +1207,17 @@ struct TextareaTmpl<'a> {
     id: &'a str,
     value: &'a str,
     required: bool,
+    rows: Option<u16>,
+    placeholder: Option<&'a str>,
+}
+
+/// A textarea's own keys: its height in rows, and what an empty one shows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TextareaOptions {
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default)]
+    placeholder: Option<String>,
 }
 
 /// A multi-line text input.
@@ -1101,15 +1227,37 @@ impl FieldType for TextareaField {
     fn view_key(&self) -> &'static str {
         "textarea"
     }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["rows", "placeholder"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: TextareaOptions = if raw.is_null() {
+            TextareaOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
-        scalar_vm("textarea", cx)
+        let mut vm = scalar_vm("textarea", cx);
+        if let Some(opts) = cx.opts.get::<TextareaOptions>() {
+            vm.data = serde_json::to_value(opts).unwrap_or_default();
+        }
+        vm
     }
     fn render_default(&self, vm: &FieldVm) -> Markup {
+        let opts: TextareaOptions = serde_json::from_value(vm.data.clone()).unwrap_or_default();
         Markup::from_template(&TextareaTmpl {
             name: &vm.name,
             id: &vm.id,
             value: vm.value.as_text(),
             required: vm.required,
+            rows: opts.rows,
+            placeholder: opts.placeholder.as_deref(),
         })
         .unwrap_or_default()
     }
@@ -1154,6 +1302,9 @@ pub(crate) struct SelectField;
 impl FieldType for SelectField {
     fn view_key(&self) -> &'static str {
         "select"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["options"])
     }
     fn resolve_options(
         &self,
@@ -1230,6 +1381,9 @@ impl FieldType for SwitchField {
     fn view_key(&self) -> &'static str {
         "switch"
     }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
+    }
 
     fn to_attr(
         &self,
@@ -1283,6 +1437,9 @@ pub(crate) struct DateField;
 impl FieldType for DateField {
     fn view_key(&self) -> &'static str {
         "date"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
     }
 
     fn intrinsic_rules(&self, _opts: &ResolvedOptions) -> Vec<Rule> {
@@ -1348,6 +1505,9 @@ impl FieldType for PasswordField {
     fn view_key(&self) -> &'static str {
         "password"
     }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
+    }
 
     fn to_attr(
         &self,
@@ -1401,6 +1561,9 @@ pub(crate) struct RadioField;
 impl FieldType for RadioField {
     fn view_key(&self) -> &'static str {
         "radio"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["options"])
     }
 
     fn resolve_options(
@@ -1514,6 +1677,9 @@ impl RefPickerField {
 impl FieldType for RefPickerField {
     fn view_key(&self) -> &'static str {
         "reference"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["source"])
     }
     fn resolve_options(
         &self,

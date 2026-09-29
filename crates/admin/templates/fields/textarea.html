@@ -1,1 +1,1 @@
-<textarea class="lat-input" id="{{ id }}" name="{{ name }}"{% if required %} required{% endif %}>{{ value }}</textarea>
+<textarea class="lat-input" id="{{ id }}" name="{{ name }}"{% if let Some(r) = rows %} rows="{{ r }}"{% endif %}{% if let Some(p) = placeholder %} placeholder="{{ p }}"{% endif %}{% if required %} required{% endif %}>{{ value }}</textarea>

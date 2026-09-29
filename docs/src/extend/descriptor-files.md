@@ -21,13 +21,13 @@ list:
     status:     { type: status_pill, width: 10% }
     created_at: { type: datetime, align: right }
   filters:
-    status: { type: select, options: { options: [{ value: draft, label: Draft }] } }
+    status: { type: select, options: [{ value: draft, label: Draft }] }
 form:
   title: Post
   fields:
     title:  { span: 2/3, rules: [required, { max_length: 120 }] }
-    status: { span: 1/3, type: select, options: { options: [{ value: draft, label: Draft }] } }
-    body:   { type: textarea }
+    status: { span: 1/3, type: select, options: [{ value: draft, label: Draft }] }
+    body:   { type: textarea, rows: 8 }
 ```
 
 Register it from your module:
@@ -66,6 +66,32 @@ columns:
 
 A missing `label` is made from the key: `created_at` becomes "Created at". It
 is still translatable, and `lat i18n extract` finds it.
+
+## Type keys
+
+An entry carries its own keys and its type's, side by side:
+
+```yaml
+fields:
+  body:   { type: textarea, rows: 8, placeholder: Write here }
+  price:  { input: number, min: 0, step: 0.01 }
+  status: { type: select, options: [{ value: draft, label: Draft }] }
+filters:
+  status: { type: select, options: [{ value: draft, label: Draft }] }
+```
+
+Type | Keys
+--- | ---
+`text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
+`textarea` | `rows`, `placeholder`
+`select`, `radio` | `options`: a list of `{ value, label }`
+`reference` | `source`
+`repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`
+`switch`, `date`, `password` | None
+A `select` filter | `options`
+
+A key the type does not read is refused, naming the entry and the keys it
+accepts.
 
 ## Layout
 

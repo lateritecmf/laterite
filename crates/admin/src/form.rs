@@ -41,8 +41,7 @@ use crate::{not_found, render, render_error, AdminState};
 /// through the field-type registry), typed options for that type, the validation
 /// rules it carries, and whether it holds translatable content. A serde
 /// descriptor, so it is authorable as data (later YAML) as well as by builder.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct FormField {
     pub name: String,
@@ -50,31 +49,24 @@ pub struct FormField {
     pub label: Text,
     /// The field-type registry key (`text`, `textarea`, or a plugin's
     /// `vendor.name`), resolved to behaviour at render time (see [`crate::field`]).
-    #[serde(rename = "type")]
     pub field_type: String,
-    /// Per-type options, typed by the field type. Absent (null) for scalar types.
-    #[serde(default)]
+    /// The keys that belong to the field's type, as an object: in a file they
+    /// are written on the field itself, beside its own. Null when there are none.
     pub options: serde_json::Value,
     /// Validation rules run on submit (see [`laterite_core::validation`]).
-    #[serde(default)]
     pub rules: Vec<Rule>,
     /// Marks a field whose value is translatable content. A reserved seam: the
     /// framework stores the value verbatim; a content-translation plugin reads
     /// the flag to manage per-locale values.
-    #[serde(default)]
     pub translatable: bool,
     /// Help text shown beneath the control, localized at render.
-    #[serde(default)]
     pub help: Option<Text>,
     /// What Enter does in this field: `submit` (the form's rule), `off`, or
     /// `next` (moves to the next field).
-    #[serde(default)]
     pub enter: FieldEnter,
     /// The share of the row the field takes, on a twelve-column grid.
-    #[serde(default)]
     pub span: Span,
     /// Starts a new row, whatever room the current one has left.
-    #[serde(default, rename = "break")]
     pub break_row: bool,
 }
 
@@ -234,6 +226,67 @@ impl Default for FormField {
     /// A text field, named by the key it is written under.
     fn default() -> Self {
         Self::of("", Text::new(""), "text")
+    }
+}
+
+impl<'de> Deserialize<'de> for FormField {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Entry;
+        impl<'de> serde::de::Visitor<'de> for Entry {
+            type Value = FormField;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a field: its own keys and its type's")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<FormField, A::Error> {
+                let mut field = FormField::default();
+                let theirs = crate::keyed::split_entry(map, |key, map| {
+                    match key {
+                        "name" => field.name = map.next_value()?,
+                        "label" => field.label = map.next_value()?,
+                        "type" => field.field_type = map.next_value()?,
+                        "rules" => field.rules = map.next_value()?,
+                        "translatable" => field.translatable = map.next_value()?,
+                        "help" => field.help = map.next_value()?,
+                        "enter" => field.enter = map.next_value()?,
+                        "span" => field.span = map.next_value()?,
+                        "break" => field.break_row = map.next_value()?,
+                        _ => return Ok(false),
+                    }
+                    Ok(true)
+                })?;
+                field.options = theirs;
+                Ok(field)
+            }
+
+            /// A key written bare (`title:`) is a field with every default.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<FormField, E> {
+                Ok(FormField::default())
+            }
+        }
+        de.deserialize_map(Entry)
+    }
+}
+
+impl Serialize for FormField {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = ser.serialize_map(None)?;
+        map.serialize_entry("name", &self.name)?;
+        map.serialize_entry("label", &self.label)?;
+        map.serialize_entry("type", &self.field_type)?;
+        map.serialize_entry("rules", &self.rules)?;
+        map.serialize_entry("translatable", &self.translatable)?;
+        map.serialize_entry("help", &self.help)?;
+        map.serialize_entry("enter", &self.enter)?;
+        map.serialize_entry("span", &self.span)?;
+        map.serialize_entry("break", &self.break_row)?;
+        crate::keyed::serialize_theirs(&mut map, &self.options)?;
+        map.end()
     }
 }
 
@@ -525,6 +578,8 @@ impl PreparedForm {
                     f.name, f.field_type
                 )
             })?;
+            crate::field::check_field_keys(f, ft.as_ref())
+                .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
             let opts = ft
                 .resolve_options(&f.options, field_types)
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;

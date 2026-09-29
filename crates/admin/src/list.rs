@@ -56,17 +56,18 @@ impl Align {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ListColumn {
     /// Comes from the key this was written under, never from the body.
-    #[serde(skip)]
     pub field: String,
     /// The column header, localized at render. Serde stays a plain string.
     pub label: Text,
     /// The column-type registry key (`text`, `date`, `boolean`, `status_pill`, ...).
-    #[serde(rename = "type")]
     pub column_type: String,
+    /// The keys that belong to the column's type, as an object: in a file they
+    /// are written on the column itself. Null when there are none.
+    pub options: serde_json::Value,
     /// Whether the header sorts. Off for a column whose order means nothing.
     pub sortable: bool,
     /// Hidden until the operator picks it from the column chooser.
@@ -95,6 +96,7 @@ impl ListColumn {
             align: None,
             permission: None,
             searchable: None,
+            options: serde_json::Value::Null,
         }
     }
 
@@ -200,6 +202,12 @@ pub trait ColumnType: Send + Sync + 'static {
     fn view_key(&self) -> &'static str;
     fn view_model(&self, cx: &CellCx<'_>) -> CellVm;
     fn render_default(&self, vm: &CellVm) -> Markup;
+    /// The keys this type reads from a column's entry, beyond the ones every
+    /// column has. A key outside the list is refused when the file is read.
+    /// `None` accepts any key unchecked; declare yours.
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        None
+    }
     /// Asset-registry keys this column's cell needs (a heavy cell widget). The
     /// page shell collects and emits them; keys must exist in the registry.
     fn assets(&self) -> Vec<&'static str> {
@@ -301,6 +309,9 @@ pub(crate) fn format_ts(raw: &str, tz: Tz, locale: chrono::Locale, pattern: &str
 
 struct TextColumn;
 impl ColumnType for TextColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "text"
     }
@@ -314,6 +325,9 @@ impl ColumnType for TextColumn {
 
 struct DateTimeColumn;
 impl ColumnType for DateTimeColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "datetime"
     }
@@ -331,6 +345,9 @@ impl ColumnType for DateTimeColumn {
 
 struct DateColumn;
 impl ColumnType for DateColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "date"
     }
@@ -348,6 +365,9 @@ impl ColumnType for DateColumn {
 
 struct TimeColumn;
 impl ColumnType for TimeColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "time"
     }
@@ -365,6 +385,9 @@ impl ColumnType for TimeColumn {
 
 struct BoolColumn;
 impl ColumnType for BoolColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "boolean"
     }
@@ -391,6 +414,9 @@ struct CellStatusTmpl<'a> {
 /// A status shown as a coloured pill: the first Markup-bearing cell.
 struct StatusPillColumn;
 impl ColumnType for StatusPillColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
     fn view_key(&self) -> &'static str {
         "status_pill"
     }
@@ -437,6 +463,116 @@ impl Default for ListFilter {
     }
 }
 
+impl<'de> Deserialize<'de> for ListColumn {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Entry;
+        impl<'de> serde::de::Visitor<'de> for Entry {
+            type Value = ListColumn;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a column: its own keys and its type's")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<ListColumn, A::Error> {
+                let mut column = ListColumn::default();
+                let theirs = crate::keyed::split_entry(map, |key, map| {
+                    match key {
+                        "label" => column.label = map.next_value()?,
+                        "type" => column.column_type = map.next_value()?,
+                        "sortable" => column.sortable = map.next_value()?,
+                        "invisible" => column.invisible = map.next_value()?,
+                        "width" => column.width = map.next_value()?,
+                        "align" => column.align = map.next_value()?,
+                        "permission" => column.permission = map.next_value()?,
+                        "searchable" => column.searchable = map.next_value()?,
+                        _ => return Ok(false),
+                    }
+                    Ok(true)
+                })?;
+                column.options = theirs;
+                Ok(column)
+            }
+
+            /// A key written bare (`title:`) is a column with every default.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<ListColumn, E> {
+                Ok(ListColumn::default())
+            }
+        }
+        de.deserialize_map(Entry)
+    }
+}
+
+impl Serialize for ListColumn {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = ser.serialize_map(None)?;
+        map.serialize_entry("label", &self.label)?;
+        map.serialize_entry("type", &self.column_type)?;
+        map.serialize_entry("sortable", &self.sortable)?;
+        map.serialize_entry("invisible", &self.invisible)?;
+        map.serialize_entry("width", &self.width)?;
+        map.serialize_entry("align", &self.align)?;
+        map.serialize_entry("permission", &self.permission)?;
+        map.serialize_entry("searchable", &self.searchable)?;
+        crate::keyed::serialize_theirs(&mut map, &self.options)?;
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ListFilter {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Entry;
+        impl<'de> serde::de::Visitor<'de> for Entry {
+            type Value = ListFilter;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a filter: its own keys and its type's")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<ListFilter, A::Error> {
+                let mut filter = ListFilter::default();
+                let theirs = crate::keyed::split_entry(map, |key, map| {
+                    match key {
+                        "label" => filter.label = map.next_value()?,
+                        "type" => filter.filter_type = map.next_value()?,
+                        "default_value" => filter.default_value = map.next_value()?,
+                        "permission" => filter.permission = map.next_value()?,
+                        _ => return Ok(false),
+                    }
+                    Ok(true)
+                })?;
+                filter.options = theirs;
+                Ok(filter)
+            }
+
+            /// A key written bare is a text filter with every default.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<ListFilter, E> {
+                Ok(ListFilter::default())
+            }
+        }
+        de.deserialize_map(Entry)
+    }
+}
+
+impl Serialize for ListFilter {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = ser.serialize_map(None)?;
+        map.serialize_entry("label", &self.label)?;
+        map.serialize_entry("type", &self.filter_type)?;
+        map.serialize_entry("default_value", &self.default_value)?;
+        map.serialize_entry("permission", &self.permission)?;
+        crate::keyed::serialize_theirs(&mut map, &self.options)?;
+        map.end()
+    }
+}
+
 impl crate::keyed::Keyed for ListColumn {
     fn key(&self) -> &str {
         &self.field
@@ -473,19 +609,17 @@ impl FilterOption {
 }
 
 /// One filter offered above a list: a column, its label, and what it offers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ListFilter {
     /// Comes from the key this was written under, never from the body.
-    #[serde(skip)]
     pub field: String,
     /// The control's label, localized at render.
     pub label: Text,
     /// What the filter offers: `boolean`, `select`, `text`, `number` or `date`.
-    #[serde(rename = "type")]
     pub filter_type: String,
-    /// Per-type options. A `select` carries its choices here; the rest none.
-    #[serde(default)]
+    /// The keys that belong to the filter's type, as an object: in a file they
+    /// are written on the filter itself. A `select` carries its choices here.
     pub options: serde_json::Value,
     /// Applied when the request names no value for this filter at all, so a
     /// screen can open already narrowed. Clearing it is still "no filter".

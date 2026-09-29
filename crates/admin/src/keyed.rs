@@ -80,3 +80,55 @@ where
     }
     map.end()
 }
+
+/// Reads one entry of a descriptor map, keeping the keys the descriptor owns
+/// apart from the keys that belong to the entry's type.
+///
+/// `own` is offered every key in turn: for one the descriptor owns it reads the
+/// value and answers `true`. Any other key is the type's, kept as written, and
+/// the type checks it when the screen is prepared, so `rows: 6` is valid on a
+/// `textarea` and refused on a `switch`. Returns the type's keys as an object,
+/// or null when there are none.
+pub(crate) fn split_entry<'de, A, F>(mut map: A, mut own: F) -> Result<serde_json::Value, A::Error>
+where
+    A: MapAccess<'de>,
+    F: FnMut(&str, &mut A) -> Result<bool, A::Error>,
+{
+    let mut theirs = serde_json::Map::new();
+    while let Some(key) = map.next_key::<String>()? {
+        if !own(&key, &mut map)? {
+            let value: serde_json::Value = map.next_value()?;
+            theirs.insert(key, value);
+        }
+    }
+    // A type's choices are a list; a map under `options` is the nested bag a
+    // type's keys used to be written in.
+    if matches!(theirs.get("options"), Some(serde_json::Value::Object(_))) {
+        return Err(de::Error::custom(
+            "`options: { .. }` no longer nests a type's keys: write them on the entry itself",
+        ));
+    }
+    Ok(if theirs.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Object(theirs)
+    })
+}
+
+/// Writes a type's keys back beside the descriptor's own, the shape they are
+/// read in.
+pub(crate) fn serialize_theirs<M: SerializeMap>(
+    map: &mut M,
+    options: &serde_json::Value,
+) -> Result<(), M::Error> {
+    match options {
+        serde_json::Value::Object(entries) => {
+            for (key, value) in entries {
+                map.serialize_entry(key, value)?;
+            }
+        }
+        serde_json::Value::Null => {}
+        other => map.serialize_entry("options", other)?,
+    }
+    Ok(())
+}

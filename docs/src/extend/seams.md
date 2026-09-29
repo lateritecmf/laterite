@@ -42,6 +42,8 @@ Method | Role
 `view_model` | The submitted or stored value as a view-model.
 `render_default` | The markup.
 `to_attr` | The submitted string as the typed value that reaches the database. `Err` refuses the save.
+`option_keys` | The keys the type reads from a field's entry. Any other key is refused by name.
+`resolve_options` | Those keys, typed once at boot.
 
 Built in: `text`, `textarea`, `select`, `radio`, `switch`, `date`, `password`,
 `reference`, `repeater`.
@@ -56,6 +58,28 @@ FormField::of("price", "Price", "acme.money")
 
 One registration covers forms and settings. A descriptor naming an
 unregistered type aborts the boot.
+
+A type's keys are written on the field, beside the field's own:
+
+```yaml
+price: { type: acme.money, currency: EUR, precision: 2, span: 1/3 }
+```
+
+```rust
+fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+    Some(vec!["currency".into(), "precision".into()])
+}
+```
+
+### What a field type owes the people using it
+
+Rule | How
+--- | ---
+Works with no configuration | Every key has a default chosen for the common case: `type: acme.money` alone renders a usable control.
+Each default can be turned off | One key per behaviour, named for what it does, read from the field's entry.
+Its keys are declared | `option_keys` lists them, so a typo is refused by name.
+Enter stays inside it | A root marked `data-lat-enter-scope` when the control holds an input of its own. See [Admin Interactivity](admin-interactivity.md).
+Works before scripts load | The markup submits as a plain form; a script island improves it.
 
 ## Write a persister
 

@@ -1,0 +1,19 @@
+entity: backend_roles
+path: /typed
+title: Typed
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+  filters:
+    code: { type: select, options: [{ value: admin, label: Administrator }] }
+form:
+  title: Typed
+  fields:
+    code: { placeholder: A short code, rules: [required] }
+    name: { type: textarea, rows: 8, placeholder: Write here }
+    description:
+      type: select
+      options:
+        - { value: draft, label: Draft }
+        - { value: live, label: Live }

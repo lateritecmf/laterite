@@ -23,11 +23,10 @@ list:
     event:
       type: select
       options:
-        options:
-          - { value: login_success, label: Signed in }
-          - { value: login_failure, label: Failed }
-          - { value: locked_out, label: Locked out }
-          - { value: logout, label: Signed out }
-          - { value: password_changed, label: Password changed }
+        - { value: login_success, label: Signed in }
+        - { value: login_failure, label: Failed }
+        - { value: locked_out, label: Locked out }
+        - { value: logout, label: Signed out }
+        - { value: password_changed, label: Password changed }
     username_attempted: { label: Username, type: text }
     ip_address: { label: Address, type: text }

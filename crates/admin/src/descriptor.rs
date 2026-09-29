@@ -20,7 +20,7 @@
 //!   title: Post
 //!   fields:
 //!     title:  { rules: [required, { max_length: 120 }] }
-//!     status: { type: select, options: { options: { draft: Draft } } }
+//!     status: { type: select, options: [{ value: draft, label: Draft }] }
 //! ```
 //!
 //! The entity, the path and the id column are written once at the top and
@@ -77,6 +77,47 @@ impl std::fmt::Display for DescriptorError {
 
 impl std::error::Error for DescriptorError {}
 
+/// Checks every entry's type keys against the built-in types, so a typo is
+/// named when the file is read. A type a module contributes is checked when
+/// the screen is prepared, where its registry is in hand.
+fn check_type_keys(list: &ListConfig, form: Option<&FormConfig>) -> Result<(), String> {
+    let columns = crate::list::builtin_column_registry();
+    for column in &list.columns {
+        let declared = columns
+            .get(&column.column_type)
+            .and_then(|column_type| column_type.option_keys());
+        if let Some(keys) = declared {
+            let keys: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+            crate::field::check_option_keys(&column.options, &keys).map_err(|e| {
+                format!("column `{}` (`{}`): {e}", column.field, column.column_type)
+            })?;
+        }
+    }
+    for filter in &list.filters {
+        let declared: Option<&[&str]> = match filter.filter_type.as_str() {
+            "select" => Some(&["options"]),
+            "boolean" | "text" | "number" | "date" => Some(&[]),
+            _ => None,
+        };
+        if let Some(keys) = declared {
+            let keys: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+            crate::field::check_option_keys(&filter.options, &keys).map_err(|e| {
+                format!("filter `{}` (`{}`): {e}", filter.field, filter.filter_type)
+            })?;
+        }
+    }
+    if let Some(form) = form {
+        let fields = crate::field::builtin_registry();
+        for field in &form.fields {
+            if let Some(field_type) = fields.get(&field.field_type) {
+                crate::field::check_field_keys(field, field_type.as_ref())
+                    .map_err(|e| format!("field `{}` (`{}`): {e}", field.name, field.field_type))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Reads a resource from the contents of a descriptor file.
 ///
 /// `source` names the file in any error, so a message points at something the
@@ -85,6 +126,10 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     let file: ResourceFile = serde_saphyr::from_str(yaml).map_err(|e| DescriptorError {
         source: source.to_string(),
         message: e.to_string(),
+    })?;
+    check_type_keys(&file.list, file.form.as_ref()).map_err(|message| DescriptorError {
+        source: source.to_string(),
+        message,
     })?;
 
     let mut list = file.list;

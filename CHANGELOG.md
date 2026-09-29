@@ -17,6 +17,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `target_label`; build an entry with `AuditEntry::new(actor, action).target(..)`.
 - **Breaking:** `FormField` is non-exhaustive and gains `enter`, `span` and
   `break`; build one with `FormField::of` or from YAML.
+- **Breaking:** a type's keys are written on the entry itself, `rows: 8` on a
+  textarea or `options: [..]` on a select; the nested `options: { .. }` is refused.
+- **Breaking:** `ListColumn` and `ListFilter` are non-exhaustive, and a column
+  carries its type's keys in `options`.
 - Pages and form cards fill the width beside the sidebar, or the whole window
   without one. The 1200px page and 720px form caps are gone.
 - A sign-in lockout counts failures per username and address, so a stranger
@@ -35,6 +39,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The audit log names its target: a username or a role name beside the id.
 - Operators are created from the Users screen: name, email and roles, with a
   generated temporary password shown once. `AuthService::create_operator`.
+- `textarea` takes `rows` and `placeholder`, `text` takes `placeholder`. A key a
+  type does not read is refused by name; `FieldType::option_keys` declares them.
 - `span` on a form field (`1/2`, `1/3`, `2/3`, `1/4`, `3/4`, `full`, or 1 to 12
   columns) and `break` lay fields out on a twelve-column grid that wraps.
 - Keyboard rules for every form: Enter submits, Cmd/Ctrl+Enter submits from a
