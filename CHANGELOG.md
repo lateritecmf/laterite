@@ -19,6 +19,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `break`; build one with `FormField::of` or from YAML.
 - Pages and form cards fill the width beside the sidebar, or the whole window
   without one. The 1200px page and 720px form caps are gone.
+- A sign-in lockout counts failures per username and address, so a stranger
+  cannot lock an operator out from elsewhere; one address is also limited
+  across usernames (`max_failures_per_address`, default 20).
 
 ### Added
 

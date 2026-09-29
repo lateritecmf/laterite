@@ -29,6 +29,7 @@ use crate::store;
 /// session_absolute_timeout_secs = 43200
 /// remember_duration_secs = 1209600
 /// max_failures = 5
+/// max_failures_per_address = 20
 /// failure_window_secs = 900
 ///
 /// [auth.password_policy]
@@ -55,8 +56,13 @@ pub struct AuthConfig {
     /// ceiling: the point of it is to outlive the session and mint a new one.
     #[serde(rename = "remember_duration_secs", deserialize_with = "de_secs")]
     pub remember_duration: Duration,
-    /// Failed attempts within `failure_window` before a username is locked out.
+    /// Failed attempts within `failure_window`, for one username from one
+    /// address, before that address is locked out of that username. Counted
+    /// per address so a stranger cannot lock an operator out from elsewhere.
     pub max_failures: i64,
+    /// Failed attempts within `failure_window` from one address, whatever the
+    /// usernames, before that address is locked out of signing in at all.
+    pub max_failures_per_address: i64,
     /// The window over which failed attempts are counted.
     #[serde(rename = "failure_window_secs", deserialize_with = "de_secs")]
     pub failure_window: Duration,
@@ -71,6 +77,7 @@ impl Default for AuthConfig {
             session_absolute_timeout: Duration::from_secs(60 * 60 * 12),
             remember_duration: Duration::from_secs(60 * 60 * 24 * 14),
             max_failures: 5,
+            max_failures_per_address: 20,
             failure_window: Duration::from_secs(60 * 15),
             password_policy: PasswordPolicy::default(),
         }
@@ -392,9 +399,7 @@ impl AuthService {
         let now = Utc::now();
         let since = now - chrono_from_std(self.config.failure_window);
 
-        if store::count_recent_failures(&self.db, username, since).await?
-            >= self.config.max_failures
-        {
+        if self.locked_out(username, ctx, since).await? {
             self.log(None, username, AccessEvent::LockedOut, ctx)
                 .await?;
             return Err(AuthError::TooManyAttempts);
@@ -729,11 +734,30 @@ impl AuthService {
         Ok(password)
     }
 
-    /// Whether failed sign-ins have locked the username out for now.
+    /// Whether failed sign-ins have locked the username out from any address
+    /// for now.
     pub async fn is_locked_out(&self, username: &str) -> Result<bool, AuthError> {
         let since = Utc::now() - chrono_from_std(self.config.failure_window);
+        store::any_address_locked(&self.db, username, since, self.config.max_failures).await
+    }
+
+    /// Whether this request may try a password: its address has not reached
+    /// the per-address ceiling across every username, nor the limit for this
+    /// username in particular.
+    async fn locked_out(
+        &self,
+        username: &str,
+        ctx: &RequestContext,
+        since: DateTime<Utc>,
+    ) -> Result<bool, AuthError> {
+        let address = ctx.ip_address.as_deref();
+        if store::count_recent_failures_by_address(&self.db, address, since).await?
+            >= self.config.max_failures_per_address
+        {
+            return Ok(true);
+        }
         Ok(
-            store::count_recent_failures(&self.db, username, since).await?
+            store::count_recent_failures_from(&self.db, username, address, since).await?
                 >= self.config.max_failures,
         )
     }
@@ -822,9 +846,7 @@ impl AuthService {
             .await?
             .ok_or(AuthError::SessionInvalid)?;
         let since = Utc::now() - chrono_from_std(self.config.failure_window);
-        if store::count_recent_failures(&self.db, &user.username, since).await?
-            >= self.config.max_failures
-        {
+        if self.locked_out(&user.username, ctx, since).await? {
             self.log(Some(user.id), &user.username, AccessEvent::LockedOut, ctx)
                 .await?;
             return Err(AuthError::TooManyAttempts);

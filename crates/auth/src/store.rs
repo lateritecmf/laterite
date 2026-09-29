@@ -1132,6 +1132,90 @@ pub async fn count_recent_failures(
     Ok(count)
 }
 
+/// Failed sign-ins for `username` from `address` since `since`. Requests that
+/// carried no address are one bucket of their own.
+pub async fn count_recent_failures_from(
+    db: &Db,
+    username: &str,
+    address: Option<&str>,
+    since: DateTime<Utc>,
+) -> Result<i64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(BackendAccessLog::Id).count())
+            .from(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(normalize_key(username)))
+            .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
+            .and_where(Expr::col(BackendAccessLog::CreatedAt).gte(ts(since)))
+            .and_where(address_is(address))
+            .to_owned(),
+    );
+    let count: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&sql), values)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
+    Ok(count)
+}
+
+/// Failed sign-ins from one address since `since`, whatever the username.
+pub async fn count_recent_failures_by_address(
+    db: &Db,
+    address: Option<&str>,
+    since: DateTime<Utc>,
+) -> Result<i64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(BackendAccessLog::Id).count())
+            .from(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
+            .and_where(Expr::col(BackendAccessLog::CreatedAt).gte(ts(since)))
+            .and_where(address_is(address))
+            .to_owned(),
+    );
+    let count: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&sql), values)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
+    Ok(count)
+}
+
+/// Whether any one address has reached `max` failed sign-ins for `username`
+/// since `since`: the account is locked out from there.
+pub async fn any_address_locked(
+    db: &Db,
+    username: &str,
+    since: DateTime<Utc>,
+    max: i64,
+) -> Result<bool, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendAccessLog::IpAddress)
+            .from(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::UsernameAttempted).eq(normalize_key(username)))
+            .and_where(Expr::col(BackendAccessLog::Event).eq(AccessEvent::LoginFailure.as_str()))
+            .and_where(Expr::col(BackendAccessLog::CreatedAt).gte(ts(since)))
+            .group_by_col(BackendAccessLog::IpAddress)
+            .and_having(Expr::expr(Expr::col(BackendAccessLog::Id).count()).gte(max))
+            .limit(1)
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(row.is_some())
+}
+
+/// The address clause: a request with no address matches the rows with none.
+fn address_is(address: Option<&str>) -> sea_query::SimpleExpr {
+    match address {
+        Some(ip) => Expr::col(BackendAccessLog::IpAddress).eq(ip),
+        None => Expr::col(BackendAccessLog::IpAddress).is_null(),
+    }
+}
+
 /// Creates a backend user, returning the id the database assigned. Timestamps
 /// are generated here (no database-side defaults) so the insert is portable.
 #[allow(clippy::too_many_arguments)]
