@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-09-30
+
+Lists that keep their place: a row opens its record, a range of rows ticks
+with Shift, the query an operator used comes back, and stored codes read as
+words.
+
 ### Added
 
 - A list row opens its record, Shift and a click ticks a range of rows, the
