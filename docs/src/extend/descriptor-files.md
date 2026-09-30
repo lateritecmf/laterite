@@ -89,7 +89,7 @@ Type | Keys
 `radio` | `options`
 `checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
 `reference` | `source`
-`repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`
+`repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`, `reorder`, `duplicate`
 `password` | `reveal`
 `switch`, `date` | None
 A `select` filter | `options`
@@ -149,6 +149,9 @@ Key | On | Values | Default
 `grow` | `textarea` | `true`, `false` | `true`: as tall as its text, from `rows` up to most of the window
 `reveal` | `password` | `true`, `false` | `true`: a button shows what was typed
 `search` | `select` | `auto`, `true`, `false` | `auto`: past 10 choices, the dropdown is searched. An option with an empty value is what clearing chooses.
+`display` | `repeater` | `auto`, `inline`, `list` | `auto`: past 3 fields a row, rows collapse to the line naming them
+`reorder` | `repeater` | `true`, `false` | `true`: each row moves up and down
+`duplicate` | `repeater` | `true`, `false` | `true`: each row copies into a new one beneath it
 
 A `max_length` rule also sets the control's `maxlength`.
 

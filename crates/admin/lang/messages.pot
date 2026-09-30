@@ -32,6 +32,10 @@ msgstr ""
 msgid "Active"
 msgstr ""
 
+#: src/field.rs
+msgid "Add"
+msgstr ""
+
 #: (descriptors)
 msgid "Address"
 msgstr ""
@@ -276,6 +280,7 @@ msgstr ""
 msgid "Displayed records: {shown} of {total}"
 msgstr ""
 
+#: src/field.rs
 #: templates/_roles_form_fields.html
 msgid "Duplicate"
 msgstr ""
@@ -419,6 +424,14 @@ msgstr ""
 msgid "Menu"
 msgstr ""
 
+#: src/field.rs
+msgid "Move down"
+msgstr ""
+
+#: src/field.rs
+msgid "Move up"
+msgstr ""
+
 #: templates/_roles_form_fields.html
 #: (descriptors)
 msgid "Name"
@@ -556,6 +569,10 @@ msgstr ""
 
 #: templates/users_form.html
 msgid "Reactivate"
+msgstr ""
+
+#: src/field.rs
+msgid "Remove"
 msgstr ""
 
 #: src/error.rs
@@ -875,6 +892,10 @@ msgstr ""
 
 #: templates/users_form.html
 msgid "Unlock"
+msgstr ""
+
+#: src/field.rs
+msgid "Untitled"
 msgstr ""
 
 #: templates/preferences.html

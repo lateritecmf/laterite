@@ -5,36 +5,46 @@
    suits one narrow column. List collapses a row to the line that names it and
    opens one at a time, which is what a row of several fields needs: four
    columns side by side is a table nobody can read. `details` carries the open
-   state, so the collapse works before any script runs. #}
-<div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}" data-lat-widget="repeater" data-lat-enter-scope="rows">
+   state, so the collapse works before any script runs. The move and duplicate
+   controls need the script and start hidden. #}
+{% macro tools() %}
+<span class="lat-repeater__tools">
+  {% if data.reorder %}
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__up" type="button" aria-label="{{ data.text.up }}" title="{{ data.text.up }}" hidden></button>
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__down" type="button" aria-label="{{ data.text.down }}" title="{{ data.text.down }}" hidden></button>
+  {% endif %}
+  {% if data.duplicate %}
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__duplicate" type="button" aria-label="{{ data.text.duplicate }}" title="{{ data.text.duplicate }}" hidden></button>
+  {% endif %}
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">{{ data.text.remove }}</button>
+</span>
+{% endmacro %}
+{% macro cells(row) %}
+{% for cell in row %}
+<div class="lat-field">
+  <span class="lat-field__label">{{ cell.label }}</span>
+  {{ cell.control|safe }}
+  {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
+</div>
+{% endfor %}
+{% endmacro %}
+<div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}" data-lat-widget="repeater" data-lat-enter-scope="rows"{% if !data.reorder %} data-lat-reorder="off"{% endif %}{% if !data.duplicate %} data-lat-duplicate="off"{% endif %}>
   <div class="lat-repeater__rows{% if !data.rows.is_empty() %} lat-repeater__rows--filled{% endif %}">
     {% for row in data.rows %}
     {% if data.list %}
     <details class="lat-repeater__row">
       <summary class="lat-repeater__summary">
-        <span class="lat-repeater__title">{% let text = data.summaries[loop.index0].clone() %}{% if text.is_empty() %}<span class="lat-repeater__untitled">Untitled</span>{% else %}{{ text }}{% endif %}</span>
-        <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+        <span class="lat-repeater__title">{% let text = data.summaries[loop.index0].clone() %}{% if text.is_empty() %}<span class="lat-repeater__untitled">{{ data.text.untitled }}</span>{% else %}{{ text }}{% endif %}</span>
+        {% call tools() %}
       </summary>
       <div class="lat-repeater__fields">
-        {% for cell in row %}
-        <div class="lat-field">
-          <span class="lat-field__label">{{ cell.label }}</span>
-          {{ cell.control|safe }}
-          {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
-        </div>
-        {% endfor %}
+        {% call cells(row) %}
       </div>
     </details>
     {% else %}
     <div class="lat-repeater__row">
-      {% for cell in row %}
-      <div class="lat-field">
-        <span class="lat-field__label">{{ cell.label }}</span>
-        {{ cell.control|safe }}
-        {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
-      </div>
-      {% endfor %}
-      <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+      {% call cells(row) %}
+      {% call tools() %}
     </div>
     {% endif %}
     {% endfor %}
@@ -46,31 +56,19 @@
     {% if data.list %}
     <details class="lat-repeater__row" open>
       <summary class="lat-repeater__summary">
-        <span class="lat-repeater__title"><span class="lat-repeater__untitled">Untitled</span></span>
-        <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+        <span class="lat-repeater__title"><span class="lat-repeater__untitled">{{ data.text.untitled }}</span></span>
+        {% call tools() %}
       </summary>
       <div class="lat-repeater__fields">
-        {% for cell in data.blank %}
-        <div class="lat-field">
-          <span class="lat-field__label">{{ cell.label }}</span>
-          {{ cell.control|safe }}
-          {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
-        </div>
-        {% endfor %}
+        {% call cells(data.blank) %}
       </div>
     </details>
     {% else %}
     <div class="lat-repeater__row">
-      {% for cell in data.blank %}
-      <div class="lat-field">
-        <span class="lat-field__label">{{ cell.label }}</span>
-        {{ cell.control|safe }}
-        {% if !cell.help.is_empty() %}<p class="lat-help">{{ cell.help }}</p>{% endif %}
-      </div>
-      {% endfor %}
-      <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">Remove</button>
+      {% call cells(data.blank) %}
+      {% call tools() %}
     </div>
     {% endif %}
   </template>
-  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button" data-lat-summary-index="{{ data.summary_index }}">+ Add</button>
+  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button" data-lat-summary-index="{{ data.summary_index }}">+ {{ data.text.add }}</button>
 </div>

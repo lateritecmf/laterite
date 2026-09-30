@@ -140,6 +140,8 @@ Event | Detail | Cancelable
 `repeater:added` | `row`, `index`, `count` | No
 `repeater:before-remove` | `row`, `index`, `count` | Yes
 `repeater:removed` | `index`, `count` | No
+`repeater:moved` | `row`, `from`, `to`, `count` | No
+`repeater:duplicated` | `row`, `index`, `count` | No
 `ref-picker:changed` | `id`, `label`, `previous` | No
 `ref-picker:cleared` | `previous` | No
 `selection:changed` | `ids`, `count` | No
@@ -155,7 +157,7 @@ Event | Detail | Cancelable
 
 Controller | Methods
 --- | ---
-Repeater | `add()`, `remove(index)`, `count()`
+Repeater | `add()`, `remove(index)`, `move(from, to)`, `duplicate(index)`, `count()`
 Record picker, searched select | `value()`, `label()`, `choose({ id, label })`, `clear()`
 Checklist | `values()`, `count()`, `set(values)`, `all()`, `none()`, `search(text)`
 Form | `changed()`, `settle()`: takes the form as it stands for saved

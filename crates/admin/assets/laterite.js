@@ -358,17 +358,33 @@ window.lat.widget('repeater', function (root) {
   var blank = root.querySelector('.lat-repeater__blank');
   var add = root.querySelector('.lat-repeater__add');
   if (!rows || !blank || !add) return;
+  var reorder = root.getAttribute('data-lat-reorder') !== 'off';
+  var duplicate = root.getAttribute('data-lat-duplicate') !== 'off';
+  // The placeholder a row with no name shows, as the server wrote it.
+  var untitled = blank.content.querySelector('.lat-repeater__untitled');
+  untitled = untitled ? untitled.textContent : 'Untitled';
 
+  function all() {
+    return Array.prototype.slice.call(rows.querySelectorAll(':scope > .lat-repeater__row'));
+  }
+
+  // Indices read 0,1,2 after every change, and the first row cannot move up
+  // nor the last down.
   function renumber() {
-    rows.querySelectorAll('.lat-repeater__row').forEach(function (row, index) {
+    var list = all();
+    list.forEach(function (row, index) {
       row.querySelectorAll('[name]').forEach(function (control) {
         control.name = control.name.replace(/\[[^\]]*\]/, '[' + index + ']');
       });
+      var up = row.querySelector('.lat-repeater__up');
+      var down = row.querySelector('.lat-repeater__down');
+      if (up) up.disabled = index === 0;
+      if (down) down.disabled = index === list.length - 1;
     });
   }
 
   // The line that names a collapsed row, kept current as the operator types.
-  // Without this a new row would read "Untitled" until the page reloaded.
+  // Without this a new row would read as untitled until the page reloaded.
   var summaryIndex = parseInt(add.getAttribute('data-lat-summary-index'), 10) || 0;
 
   function retitle(row) {
@@ -379,24 +395,36 @@ window.lat.widget('repeater', function (root) {
     if (text) {
       title.textContent = text;
     } else {
-      title.innerHTML = '<span class="lat-repeater__untitled">Untitled</span>';
+      title.textContent = '';
+      var span = document.createElement('span');
+      span.className = 'lat-repeater__untitled';
+      span.textContent = untitled;
+      title.appendChild(span);
     }
   }
 
-  function all() {
-    return Array.prototype.slice.call(rows.querySelectorAll(':scope > .lat-repeater__row'));
+  // The controls that need the script, shown once it runs.
+  function reveal(scope) {
+    scope.querySelectorAll('.lat-repeater__up, .lat-repeater__down, .lat-repeater__duplicate').forEach(function (b) {
+      b.hidden = false;
+    });
+  }
+
+  function fresh(after) {
+    var row = blank.content.cloneNode(true).firstElementChild;
+    if (after) after.insertAdjacentElement('afterend', row); else rows.appendChild(row);
+    renumber();
+    reveal(row);
+    window.lat.scan(row);
+    return row;
   }
 
   function addRow() {
     if (!window.lat.emit(root, 'repeater:before-add', { count: all().length }, true)) return null;
-    rows.appendChild(blank.content.cloneNode(true));
-    renumber();
-    var added = rows.lastElementChild;
+    var added = fresh(null);
     // A details row is added open, so focus lands where the operator is looking.
-    if (added) {
-      var first = added.querySelector('.lat-repeater__fields [name], [name]');
-      if (first) first.focus();
-    }
+    var first = added.querySelector('.lat-repeater__fields [name], [name]');
+    if (first) first.focus();
     var list = all();
     window.lat.emit(root, 'repeater:added', { row: added, index: list.length - 1, count: list.length });
     return added;
@@ -414,6 +442,59 @@ window.lat.widget('repeater', function (root) {
     return true;
   }
 
+  function moveRow(from, to) {
+    var list = all();
+    var row = list[from];
+    var target = list[to];
+    if (!row || !target || from === to) return false;
+    if (to > from) target.insertAdjacentElement('afterend', row);
+    else target.insertAdjacentElement('beforebegin', row);
+    renumber();
+    var focus = row.querySelector(to > from ? '.lat-repeater__down' : '.lat-repeater__up');
+    if (focus && !focus.disabled) focus.focus();
+    window.lat.emit(root, 'repeater:moved', { row: row, from: from, to: to, count: list.length });
+    return true;
+  }
+
+  // Values by position: a fresh row has the same controls in the same order,
+  // so a picker's hidden id and its box both copy across.
+  function copyValues(from, to) {
+    var sources = from.querySelectorAll('input, select, textarea');
+    var targets = to.querySelectorAll('input, select, textarea');
+    sources.forEach(function (source, i) {
+      var target = targets[i];
+      if (!target || target.tagName !== source.tagName || target.type !== source.type) return;
+      if (source.type === 'checkbox' || source.type === 'radio') target.checked = source.checked;
+      else target.value = source.value;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    // A picker keeps its choice in its island as well as its inputs.
+    var pickers = from.querySelectorAll('[data-lat-widget="ref-picker"]');
+    to.querySelectorAll('[data-lat-widget="ref-picker"]').forEach(function (picker, i) {
+      var origin = pickers[i] && window.lat.get(pickers[i]);
+      var mine = window.lat.get(picker);
+      if (origin && mine && origin.value()) mine.choose({ id: origin.value(), label: origin.label() });
+    });
+  }
+
+  function duplicateRow(index) {
+    var list = all();
+    var source = list[index];
+    if (!source) return null;
+    if (!window.lat.emit(root, 'repeater:before-add', { count: list.length }, true)) return null;
+    var row = fresh(source);
+    copyValues(source, row);
+    if (row.tagName === 'DETAILS') {
+      retitle(row);
+      row.open = true;
+    }
+    var first = row.querySelector('.lat-repeater__fields [name], [name]');
+    if (first) first.focus();
+    window.lat.emit(root, 'repeater:duplicated', { row: row, index: index + 1, count: all().length });
+    return row;
+  }
+
   add.addEventListener('click', addRow);
 
   root.addEventListener('input', function (e) {
@@ -422,10 +503,21 @@ window.lat.widget('repeater', function (root) {
   });
 
   root.addEventListener('click', function (e) {
-    if (!e.target.classList.contains('lat-repeater__remove')) return;
-    var row = e.target.closest('.lat-repeater__row');
-    if (row) removeRow(row);
+    var button = e.target.closest('button');
+    var row = button && button.closest('.lat-repeater__row');
+    if (!row || !rows.contains(row)) return;
+    var index = all().indexOf(row);
+    if (button.classList.contains('lat-repeater__remove')) removeRow(row);
+    else if (reorder && button.classList.contains('lat-repeater__up')) moveRow(index, index - 1);
+    else if (reorder && button.classList.contains('lat-repeater__down')) moveRow(index, index + 1);
+    else if (duplicate && button.classList.contains('lat-repeater__duplicate')) duplicateRow(index);
+    else return;
+    // A button in a summary must not toggle the row.
+    e.preventDefault();
   });
+
+  if (reorder || duplicate) reveal(rows);
+  renumber();
 
   return {
     add: addRow,
@@ -433,6 +525,8 @@ window.lat.widget('repeater', function (root) {
       var row = all()[index];
       return row ? removeRow(row) : false;
     },
+    move: moveRow,
+    duplicate: duplicateRow,
     count: function () { return all().length; }
   };
 });

@@ -362,9 +362,50 @@ pub(crate) struct RepeaterOptions {
     rows: Vec<RepeaterSub>,
     min_items: usize,
     max_items: Option<usize>,
-    display: RepeaterDisplay,
+    /// Stated, or `None` for the display chosen from the row: past
+    /// [`REPEATER_LIST_PAST`] fields a row, rows collapse to a list.
+    display: Option<RepeaterDisplay>,
     /// Which sub-field names a collapsed row. Defaults to the first.
     summary_field: Option<String>,
+    /// Rows can be moved up and down.
+    reorder: bool,
+    /// A row can be copied into a new one beneath it.
+    duplicate: bool,
+}
+
+/// Past this many fields a row, a repeater with no stated `display` is a list.
+pub const REPEATER_LIST_PAST: usize = 3;
+
+impl RepeaterOptions {
+    fn list(&self) -> bool {
+        match self.display {
+            Some(RepeaterDisplay::List) => true,
+            Some(RepeaterDisplay::Inline) => false,
+            None => self.rows.len() > REPEATER_LIST_PAST,
+        }
+    }
+}
+
+/// Reads `display`: a stated layout, or `auto` for the one chosen from the row.
+fn auto_or_display<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Option<RepeaterDisplay>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Raw {
+        Auto,
+        Inline,
+        List,
+    }
+    Ok(match Raw::deserialize(de)? {
+        Raw::Auto => None,
+        Raw::Inline => Some(RepeaterDisplay::Inline),
+        Raw::List => Some(RepeaterDisplay::List),
+    })
+}
+
+fn on() -> bool {
+    true
 }
 
 /// How a repeater's rows are laid out.
@@ -402,10 +443,14 @@ struct RepeaterOptionsRaw {
     min_items: usize,
     #[serde(default)]
     max_items: Option<usize>,
-    #[serde(default)]
-    display: RepeaterDisplay,
+    #[serde(default, deserialize_with = "auto_or_display")]
+    display: Option<RepeaterDisplay>,
     #[serde(default)]
     summary_field: Option<String>,
+    #[serde(default = "on")]
+    reorder: bool,
+    #[serde(default = "on")]
+    duplicate: bool,
 }
 
 /// Refuses a key the type does not read, naming the ones it does.
@@ -501,6 +546,8 @@ impl FieldType for RepeaterField {
             "max_items",
             "display",
             "summary_field",
+            "reorder",
+            "duplicate",
         ])
     }
 
@@ -537,6 +584,8 @@ impl FieldType for RepeaterField {
             max_items: parsed.max_items,
             display: parsed.display,
             summary_field: parsed.summary_field,
+            reorder: parsed.reorder,
+            duplicate: parsed.duplicate,
         }))
     }
 
@@ -577,9 +626,19 @@ impl FieldType for RepeaterField {
             blank: opts
                 .map(|o| render_row(o, cx, Self::BLANK, None))
                 .unwrap_or_default(),
-            list: opts.is_some_and(|o| o.display == RepeaterDisplay::List),
+            list: opts.is_some_and(RepeaterOptions::list),
             summary_index,
             summaries,
+            reorder: opts.is_none_or(|o| o.reorder),
+            duplicate: opts.is_none_or(|o| o.duplicate),
+            text: RepeaterText {
+                add: cx.i18n.t(&laterite_core::t!("Add")),
+                remove: cx.i18n.t(&laterite_core::t!("Remove")),
+                duplicate: cx.i18n.t(&laterite_core::t!("Duplicate")),
+                up: cx.i18n.t(&laterite_core::t!("Move up")),
+                down: cx.i18n.t(&laterite_core::t!("Move down")),
+                untitled: cx.i18n.t(&laterite_core::t!("Untitled")),
+            },
         };
 
         FieldVm {
@@ -757,6 +816,26 @@ struct RepeaterData {
     /// Each row's summary text, parallel to `rows`. Empty when a row's naming
     /// cell has no value yet, which the template shows as a placeholder.
     summaries: Vec<String>,
+    /// Rows carry move controls.
+    #[serde(default = "on")]
+    reorder: bool,
+    /// Rows carry a duplicate control.
+    #[serde(default = "on")]
+    duplicate: bool,
+    /// The control labels, localized.
+    #[serde(default)]
+    text: RepeaterText,
+}
+
+/// The repeater's control labels, localized once for the render.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct RepeaterText {
+    add: String,
+    remove: String,
+    duplicate: String,
+    up: String,
+    down: String,
+    untitled: String,
 }
 
 #[derive(Template)]

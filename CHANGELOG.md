@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A repeater row moves up and down and copies into a new row (`reorder`,
+  `duplicate`), and past three fields a row the rows collapse to a list
+  (`display: auto`).
+
+### Fixed
+
+- A repeater's Add, Remove and Untitled read in the operator's language, and a
+  widget inside an added row now starts.
+
 ## [0.9.6] - 2026-09-30
 
 Lists that keep their place: a row opens its record, a range of rows ticks

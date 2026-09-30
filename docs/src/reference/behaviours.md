@@ -12,7 +12,8 @@ A picker or a repeater row | Enter acts inside it. | `data-lat-enter-scope` and 
 A field's width | The whole row. | `span: 1/2`, `1/3`, `2/3`, `1/4`, `3/4`; `break: true`.
 A narrow window | Under 1100px a quarter is a half; under 768px every field is full. | None.
 A key the type does not read | Refused by name. | None.
-A repeater | Every row open. | `display: list` collapses each row to the line naming it.
+A repeater | Past 3 fields a row, rows collapse to the line naming them; fewer stay open. | `display: list` or `inline`.
+A repeater row | Moves up and down, copies into a new row beneath it, and is removed. | `reorder: false`, `duplicate: false`.
 A refused save | The form returns with its errors, values kept, and the cursor in the first field it refused. | `focus: off`.
 A new record | Opens with the cursor in its first field. | `focus: off`.
 Leaving with changes unsaved | Asks first, with the cursor on Stay. Typing and undoing it is not a change. | `confirm_leave: false`.

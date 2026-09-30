@@ -1,0 +1,36 @@
+entity: backend_roles
+path: /plans
+title: Plans
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Plan
+  fields:
+    code: {}
+    permissions:
+      label: Steps
+      type: repeater
+      fields:
+        title: {}
+        owner: {}
+        due: { type: date }
+        notes: { type: textarea }
+    name:
+      label: Links
+      type: repeater
+      fields:
+        label: {}
+        url: { input: url }
+    description:
+      label: Wide but inline
+      type: repeater
+      display: inline
+      reorder: false
+      duplicate: false
+      fields:
+        a: {}
+        b: {}
+        c: {}
+        d: {}
