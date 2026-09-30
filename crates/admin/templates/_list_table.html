@@ -29,7 +29,7 @@
         </td></tr>
         {% else %}
         {% for row in rows %}
-        <tr>
+        <tr{% if row_link %}{% if let Some(base) = edit_base %} data-lat-href="{{ base }}/{{ row.id }}/edit" tabindex="0"{% endif %}{% endif %}>
           {% if deletable %}<td class="lat-table__pick"><input type="checkbox" name="id" value="{{ row.id }}" form="lat-list-actions" aria-label='{{ shell.t("Select record") }}'></td>{% endif %}
           {% for cell in row.cells %}<td{% if !cell.class.is_empty() %} class="{{ cell.class }}"{% endif %}>{{ cell.html|safe }}</td>{% endfor %}
           {% if let Some(base) = edit_base %}<td class="lat-table__actions"><a href="{{ base }}/{{ row.id }}/edit">{{ shell.t("Edit") }}</a></td>{% endif %}

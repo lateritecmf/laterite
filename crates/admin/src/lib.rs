@@ -1828,12 +1828,26 @@ fn mount_resource(
                   Extension(shell): Extension<Shell>,
                   Query(params): Query<list::ListParams>,
                   Query(raw): Query<std::collections::HashMap<String, String>>,
+                  axum::extract::RawQuery(query_string): axum::extract::RawQuery,
                   Extension(user): Extension<AuthenticatedUser>,
+                  Extension(session): Extension<session::SessionHandle>,
                   headers: axum::http::HeaderMap| {
                 let cfg = list_cfg.clone();
                 let path = list_path.clone();
                 async move {
-                    list::handle(&state, &cfg, &path, params, &raw, &user, shell, &headers).await
+                    list::handle_remembering(
+                        &state,
+                        &cfg,
+                        &path,
+                        params,
+                        &raw,
+                        &user,
+                        shell,
+                        &headers,
+                        query_string.as_deref(),
+                        Some(&session),
+                    )
+                    .await
                 }
             },
         ),

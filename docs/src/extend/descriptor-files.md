@@ -65,7 +65,8 @@ columns:
 ```
 
 A missing `label` is made from the key: `created_at` becomes "Created at". It
-is still translatable, and `lat i18n extract` finds it.
+is still translatable, and `lat i18n extract` finds it, as it finds the `label`
+of every entry under a column's `labels`.
 
 ## Type keys
 

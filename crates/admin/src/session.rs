@@ -70,7 +70,15 @@ struct SessionData {
     /// Queued flash messages.
     #[serde(default)]
     flash: Vec<Flash>,
+    /// The query each list was last shown with, newest last: `(path, query)`.
+    #[serde(default)]
+    lists: Vec<(String, String)>,
 }
+
+/// How many lists a session remembers, and how long a query it keeps: the blob
+/// is small by design, and a query past this is a filter nobody will retype.
+const REMEMBERED_LISTS: usize = 8;
+const REMEMBERED_QUERY: usize = 512;
 
 fn default_version() -> u8 {
     VERSION
@@ -82,6 +90,7 @@ impl Default for SessionData {
             v: VERSION,
             csrf: String::new(),
             flash: Vec::new(),
+            lists: Vec::new(),
         }
     }
 }
@@ -154,6 +163,33 @@ impl SessionHandle {
             sticky: true,
         });
         g.dirty = true;
+    }
+
+    /// The query the list at `path` was last shown with, if the session holds one.
+    pub(crate) fn remembered_list(&self, path: &str) -> Option<String> {
+        let g = self.inner.lock().unwrap();
+        g.data
+            .lists
+            .iter()
+            .find(|(p, _)| p == path)
+            .map(|(_, q)| q.clone())
+    }
+
+    /// Remembers `query` for the list at `path`, or forgets the list when
+    /// `query` is `None`. The newest lists are kept.
+    pub(crate) fn remember_list(&self, path: &str, query: Option<&str>) {
+        let mut g = self.inner.lock().unwrap();
+        let before = g.data.lists.clone();
+        g.data.lists.retain(|(p, _)| p != path);
+        if let Some(query) = query.filter(|q| q.len() <= REMEMBERED_QUERY) {
+            g.data.lists.push((path.to_string(), query.to_string()));
+            if g.data.lists.len() > REMEMBERED_LISTS {
+                g.data.lists.remove(0);
+            }
+        }
+        if g.data.lists != before {
+            g.dirty = true;
+        }
     }
 
     /// Takes and clears the queued flash messages.

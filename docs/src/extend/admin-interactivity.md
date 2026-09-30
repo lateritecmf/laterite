@@ -45,7 +45,10 @@ button Enter presses there; without a target, Enter does nothing.
 Control | Behaviour
 --- | ---
 Column header | Sorts; a second click flips it. Only a declared, `sortable` column sorts.
-Column | `ListColumn` builders: `sortable(false)`, `invisible()`, `width("10%")`, `align(Align::Right)`, `require(permission)`. A column the operator may not see is not queried, sorted, searched or exported.
+Column | `ListColumn` builders: `sortable(false)`, `invisible()`, `width("10%")`, `align(Align::Right)`, `require(permission)`, `labels(..)`. A column the operator may not see is not queried, sorted, searched or exported.
+A stored code | `labels`: `[{ value: login_success, label: Signed in }]` shows the label for the value, whatever the column's type. A value without one shows as stored.
+Row | Opens its record on a click or Enter when the list links rows to a form. A modified or middle click opens a new tab; a click on the row's own controls is theirs. `row_click: none` leaves it to the Edit link.
+Row boxes | Shift and a click ticks, or clears, every box between it and the last one clicked.
 Search | Asks as you type, in the columns marked searchable; text columns by default. `ListColumn::searchable` overrides. `ListConfig::search(SearchConfig)` sets a `prompt`, asks `on_enter` only, or turns it `off()`.
 Empty state | "No records yet.", or `ListConfig::no_records_message(text)`.
 Filters | `boolean`, `select`, `text`, `number`, `date`, or `of(field, label, type)`. Only a value the type accepts reaches the query. `default_value` narrows the list until the operator decides; `require(permission)` gates it.
@@ -53,6 +56,7 @@ List setup | Each operator chooses which columns show, and the page size. Pickin
 Export | On a list that calls `.exportable()`: CSV or JSON of the current query without paging. Over 20,000 rows is refused.
 Pager | Keeps the sort, search and filters.
 Page size | `per_page`. `per_page_options` offers a choice in the list setup, remembered per operator.
+The query | The sort, search and filters an operator used come back when they return to the list from a plain link, within the session; clearing them forgets them. `remember: false` turns it off.
 
 Every control is a link or a GET form, so it works with scripting off.
 

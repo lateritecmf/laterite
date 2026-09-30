@@ -1,0 +1,13 @@
+entity: backend_roles
+path: /plain
+title: Plain
+permission: acme.manage_posts
+list:
+  row_click: none
+  remember: false
+  columns:
+    code: {}
+form:
+  title: Plain
+  fields:
+    code: {}

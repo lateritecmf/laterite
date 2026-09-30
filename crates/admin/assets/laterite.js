@@ -594,6 +594,27 @@ window.lat.widget('pick-all', function (box) {
   });
 });
 
+// A click on a row box with Shift held ticks, or clears, every box between it
+// and the box clicked before it, to the state of the one just clicked. The
+// click runs before the change the browser fires for the clicked box, so that
+// change announces the whole range once.
+document.addEventListener('click', function (e) {
+  var box = e.target;
+  if (!box.matches || !box.matches('tbody input[type="checkbox"][name="id"]')) return;
+  var table = box.closest('table');
+  if (!table) return;
+  var all = Array.prototype.slice.call(table.querySelectorAll('tbody input[type="checkbox"][name="id"]'));
+  var last = table._latLastPick;
+  var from = all.indexOf(last);
+  if (e.shiftKey && from !== -1 && last !== box) {
+    var to = all.indexOf(box);
+    all.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (other) {
+      other.checked = box.checked;
+    });
+  }
+  table._latLastPick = box;
+});
+
 // The rows ticked in a list, announced whenever they change.
 function latSelectionChanged(table) {
   var ids = Array.prototype.map.call(
@@ -1050,5 +1071,44 @@ window.lat.widget('reveal', function (btn) {
   }
   document.addEventListener('DOMContentLoaded', function () { start(document); });
   document.addEventListener('htmx:load', function (e) { start(e.target); });
+})();
+
+// Rows: a row that names its record (`data-lat-href`) opens it on a click or
+// Enter, as its Edit link would. A click on a control in the row is that
+// control's, and text being selected is left to be copied. A modified click
+// or a middle click opens the record in a new tab. `row_click: none` on the
+// list renders rows without the attribute.
+(function () {
+  function target(e) {
+    var row = e.target.closest ? e.target.closest('tr[data-lat-href]') : null;
+    if (!row) return null;
+    if (e.target.closest('a, button, input, select, textarea, label, [data-lat-widget]')) return null;
+    return row;
+  }
+  function open(url, newTab) {
+    if (newTab) window.open(url, '_blank', 'noopener');
+    else window.location.href = url;
+  }
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0) return;
+    var row = target(e);
+    if (!row) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (selection && String(selection) !== '' && row.contains(selection.anchorNode)) return;
+    open(row.getAttribute('data-lat-href'), e.metaKey || e.ctrlKey);
+  });
+  document.addEventListener('auxclick', function (e) {
+    if (e.button !== 1) return;
+    var row = target(e);
+    if (!row) return;
+    e.preventDefault();
+    open(row.getAttribute('data-lat-href'), true);
+  });
+  document.addEventListener('keydown', function (e) {
+    var row = e.target;
+    if (e.key !== 'Enter' || !row.matches || !row.matches('tr[data-lat-href]')) return;
+    e.preventDefault();
+    open(row.getAttribute('data-lat-href'), e.metaKey || e.ctrlKey);
+  });
 })();
 

@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A list row opens its record, Shift and a click ticks a range of rows, the
+  query an operator used comes back (`remember`), and a column's `labels` name
+  its stored codes; `row_click: none` keeps rows plain.
+
 ## [0.9.5] - 2026-09-30
 
 Pickers: a long dropdown is searched, and the record picker takes the

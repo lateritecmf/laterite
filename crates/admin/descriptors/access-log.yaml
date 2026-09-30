@@ -15,7 +15,14 @@ list:
   columns:
     created_at:         { label: When, type: datetime }
     username_attempted: { label: Username, searchable: true }
-    event:              { label: Event }
+    event:
+      label: Event
+      labels:
+        - { value: login_success, label: Signed in }
+        - { value: login_failure, label: Failed }
+        - { value: locked_out, label: Locked out }
+        - { value: logout, label: Signed out }
+        - { value: password_changed, label: Password changed }
     ip_address:         { label: Address, searchable: true }
     # Raw and long; an operator who wants it turns it on in the list setup.
     user_agent:         { label: Client, invisible: true }

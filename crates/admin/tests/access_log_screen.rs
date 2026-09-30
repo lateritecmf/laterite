@@ -79,15 +79,20 @@ async fn the_screen_lists_sign_ins_newest_first() {
     let (status, html) = get(&db, "/admin/access-log", &token).await;
     assert_eq!(status, StatusCode::OK);
     let body = rows(&html);
-    let failure = body.find("login_failure").expect("the failure is listed");
-    let success = body.find("login_success").expect("the sign-in is listed");
+    // Stored codes read as their labels.
+    let failure = body.find(">Failed<").expect("the failure is listed");
+    let success = body.find(">Signed in<").expect("the sign-in is listed");
     assert!(failure < success, "newest first");
+    assert!(
+        !body.contains("login_success"),
+        "the code itself is not shown: {body}"
+    );
 
     let (status, html) = get(&db, "/admin/access-log?f_event=login_failure", &token).await;
     assert_eq!(status, StatusCode::OK);
     let body = rows(&html);
-    assert!(body.contains("login_failure"));
-    assert!(!body.contains("login_success"), "filtered: {body}");
+    assert!(body.contains(">Failed<"));
+    assert!(!body.contains(">Signed in<"), "filtered: {body}");
 }
 
 #[tokio::test]

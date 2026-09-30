@@ -48,12 +48,20 @@ Columns and page size | Each operator's choice is remembered. | `per_page` sets 
 A column | Sortable, visible. | `sortable: false`, `invisible: true`.
 Export | Off. | `exportable: true`.
 Deleting rows | Off. | `deletable: true`; it asks before it deletes.
+A row | Opens its record on a click or Enter, when the list has a form. A modified or middle click opens a new tab. | `row_click: none`.
+Row boxes | Shift and a click ticks or clears the range from the last box clicked. | None.
+Returning to a list | The sort, search and filters used last come back, for the session. Clearing them forgets them. | `remember: false`.
+A stored code in a column | Shown as stored. | `labels: [{ value, label }]` shows a label for each value.
 
 ```yaml
 list:
   search: { on_enter: true, prompt: Search posts }
   per_page_options: [25, 50, 100]
   exportable: true
+  row_click: none
+  remember: false
+  columns:
+    status: { labels: [{ value: pub, label: Published }, { value: dr, label: Draft }] }
 ```
 
 ## Messages and dialogs

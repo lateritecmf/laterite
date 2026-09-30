@@ -323,6 +323,10 @@ msgstr ""
 msgid "Export"
 msgstr ""
 
+#: (descriptors)
+msgid "Failed"
+msgstr ""
+
 #: templates/setup.html
 #: templates/users_new.html
 #: (descriptors)
@@ -377,6 +381,10 @@ msgstr ""
 
 #: src/list.rs
 msgid "List setup saved."
+msgstr ""
+
+#: (descriptors)
+msgid "Locked out"
 msgstr ""
 
 #: templates/dashboard.html
@@ -485,6 +493,7 @@ msgid "Password"
 msgstr ""
 
 #: templates/users_form.html
+#: (descriptors)
 msgid "Password changed"
 msgstr ""
 
@@ -675,11 +684,16 @@ msgid "Sign out every other device"
 msgstr ""
 
 #: templates/preferences.html
+#: (descriptors)
 msgid "Signed in"
 msgstr ""
 
 #: templates/dashboard.html
 msgid "Signed in as {name}."
+msgstr ""
+
+#: (descriptors)
+msgid "Signed out"
 msgstr ""
 
 #: templates/preferences.html

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use chrono::DateTime;
 use chrono_tz::Tz;
 use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
@@ -56,6 +56,24 @@ impl Align {
     }
 }
 
+/// What a stored value reads as in a cell.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValueLabel {
+    pub value: String,
+    /// Localized at render.
+    pub label: Text,
+}
+
+impl ValueLabel {
+    pub fn new(value: impl Into<String>, label: impl Into<Text>) -> Self {
+        Self {
+            value: value.into(),
+            label: label.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ListColumn {
@@ -82,6 +100,9 @@ pub struct ListColumn {
     /// column type: text columns are searched, the rest are not, because a
     /// substring match on a boolean or a stored timestamp answers nonsense.
     pub searchable: Option<bool>,
+    /// What a stored value reads as: `login_success` shown as "Signed in". A
+    /// value with no label shows as stored.
+    pub labels: Vec<ValueLabel>,
 }
 
 impl ListColumn {
@@ -97,7 +118,14 @@ impl ListColumn {
             permission: None,
             searchable: None,
             options: serde_json::Value::Null,
+            labels: Vec::new(),
         }
+    }
+
+    /// What each stored value reads as. A value not listed shows as stored.
+    pub fn labels(mut self, labels: Vec<ValueLabel>) -> Self {
+        self.labels = labels;
+        self
     }
 
     fn of(mut self, column_type: &str) -> Self {
@@ -240,13 +268,20 @@ impl ColumnTypeReg {
 pub type ColumnRegistry = HashMap<String, Arc<dyn ColumnType>>;
 
 /// Renders a cell: an override if the resolver supplies one, else the default.
+/// Renders one cell: the type's view-model, an override when one is registered,
+/// else the type's own markup. A stored value with a label is shown as it,
+/// whatever the column's type.
 pub(crate) fn render_cell(
     ct: &dyn ColumnType,
     resolver: &dyn OverrideResolver,
     scope: &OverrideScope<'_>,
     cx: &CellCx<'_>,
+    labels: Option<&HashMap<String, String>>,
 ) -> Markup {
-    let vm = ct.view_model(cx);
+    let mut vm = ct.view_model(cx);
+    if let Some(label) = labels.and_then(|l| l.get(&vm.value)) {
+        vm.display = label.clone();
+    }
     match resolver.render_override(scope, &serde_json::to_value(&vm).unwrap_or_default()) {
         Some(Ok(html)) => Markup::from_override(html),
         Some(Err(_)) | None => ct.render_default(&vm),
@@ -488,6 +523,7 @@ impl<'de> Deserialize<'de> for ListColumn {
                         "align" => column.align = map.next_value()?,
                         "permission" => column.permission = map.next_value()?,
                         "searchable" => column.searchable = map.next_value()?,
+                        "labels" => column.labels = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -517,6 +553,9 @@ impl Serialize for ListColumn {
         map.serialize_entry("align", &self.align)?;
         map.serialize_entry("permission", &self.permission)?;
         map.serialize_entry("searchable", &self.searchable)?;
+        if !self.labels.is_empty() {
+            map.serialize_entry("labels", &self.labels)?;
+        }
         crate::keyed::serialize_theirs(&mut map, &self.options)?;
         map.end()
     }
@@ -1077,6 +1116,23 @@ pub struct ListConfig {
     pub per_page_options: Vec<i64>,
     /// Shown when the list has no records at all. `None` shows "No records yet."
     pub no_records_message: Option<Text>,
+    /// What clicking a row does. Default `open`: the row opens its record when
+    /// the list has an `edit_base`.
+    pub row_click: RowClick,
+    /// Whether the sort, search, filters and page an operator last used come
+    /// back when they return to the list. Default `true`.
+    pub remember: bool,
+}
+
+/// What clicking a list row does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RowClick {
+    /// Opens the record, when the list links rows to a form.
+    #[default]
+    Open,
+    /// Nothing: only the Edit link opens it.
+    None,
 }
 
 impl ListConfig {
@@ -1168,6 +1224,19 @@ impl ListConfig {
         self.no_records_message = Some(text.into());
         self
     }
+
+    /// What clicking a row does. Default: it opens the record.
+    pub fn row_click(mut self, action: RowClick) -> Self {
+        self.row_click = action;
+        self
+    }
+
+    /// Whether the query an operator last used comes back when they return.
+    /// Default `true`.
+    pub fn remember(mut self, remember: bool) -> Self {
+        self.remember = remember;
+        self
+    }
 }
 
 impl Default for ListConfig {
@@ -1195,6 +1264,8 @@ impl Default for ListConfig {
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
             no_records_message: None,
+            row_click: RowClick::Open,
+            remember: true,
         }
     }
 }
@@ -1505,9 +1576,91 @@ fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
     row.get_text_opt(column).ok().flatten().unwrap_or_default()
 }
 
-/// Renders a list view for the given config.
+/// Renders a list view for the given config, remembering nothing.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    params: ListParams,
+    raw: &HashMap<String, String>,
+    user: &laterite_auth::AuthenticatedUser,
+    shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
+) -> Response {
+    handle_remembering(
+        state, config, path, params, raw, user, shell, headers, None, None,
+    )
+    .await
+}
+
+/// The query as a request narrows the list, with the parts a return should
+/// bring back: the sort when it is not the descriptor's own, the search, the
+/// filters. The page is left out, since the rows behind it move.
+fn query_to_remember(
+    config: &ListConfig,
+    params: &ListParams,
+    active: &[ActiveFilter<'_>],
+) -> Option<String> {
+    let mut parts = Vec::new();
+    let (by, dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
+    if by != config.order_by || dir != config.order_dir {
+        let dir = match dir {
+            SortDir::Asc => "asc",
+            SortDir::Desc => "desc",
+        };
+        parts.push(format!("sort={}&dir={dir}", urlencode(&by)));
+    }
+    if let Some(q) = params.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        parts.push(format!("q={}", urlencode(q)));
+    }
+    for f in active {
+        parts.push(format!("{}={}", f.filter.param(), urlencode(&f.raw)));
+    }
+    (!parts.is_empty()).then(|| parts.join("&"))
+}
+
+/// [`handle`], remembering the query in the session when the list asks to.
+///
+/// A request with no query at all is sent to the query the operator last used;
+/// a request with one records it, and one that narrows nothing forgets it. Only
+/// a plain page load is redirected: a swap always names what it wants.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_remembering(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    params: ListParams,
+    raw: &HashMap<String, String>,
+    user: &laterite_auth::AuthenticatedUser,
+    shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
+    query_string: Option<&str>,
+    session: Option<&crate::session::SessionHandle>,
+) -> Response {
+    if let Some(session) = session.filter(|_| config.remember) {
+        match query_string.filter(|q| !q.is_empty()) {
+            None if !crate::form::is_htmx(headers) => {
+                if let Some(remembered) = session.remembered_list(path) {
+                    return axum::response::Redirect::to(&format!("{path}?{remembered}"))
+                        .into_response();
+                }
+            }
+            None => {}
+            Some(_) => {
+                let active = resolve_filters(config, raw);
+                let keep = query_to_remember(config, &params, &active);
+                session.remember_list(path, keep.as_deref());
+            }
+        }
+    }
+    show(state, config, path, params, raw, user, shell, headers).await
+}
+
+/// Renders the list for the request as it stands.
+#[allow(clippy::too_many_arguments)]
+async fn show(
     state: &AdminState,
     config: &ListConfig,
     path: &str,
@@ -1552,6 +1705,19 @@ pub(crate) async fn handle(
         Ok(result) => {
             let total_pages = ((result.total + per_page - 1) / per_page).max(1);
             let date_loc = date_locale(shell.locale());
+            // Each column's labels, localized once for the page.
+            let labels: Vec<Option<HashMap<String, String>>> = config
+                .columns
+                .iter()
+                .map(|c| {
+                    (!c.labels.is_empty()).then(|| {
+                        c.labels
+                            .iter()
+                            .map(|l| (l.value.clone(), shell.tt(&l.label)))
+                            .collect()
+                    })
+                })
+                .collect();
             let rows: Vec<RenderedRow> = result
                 .rows
                 .into_iter()
@@ -1560,8 +1726,8 @@ pub(crate) async fn handle(
                     cells: row
                         .cells
                         .iter()
-                        .zip(&config.columns)
-                        .map(|(raw, col)| {
+                        .zip(config.columns.iter().zip(&labels))
+                        .map(|(raw, (col, labels))| {
                             let cx = CellCx {
                                 value: raw,
                                 tz: shell.tz,
@@ -1574,10 +1740,14 @@ pub(crate) async fn handle(
                                 field: Some(&col.field),
                             };
                             let html = match state.column_types.get(&col.column_type) {
-                                Some(ct) => {
-                                    render_cell(ct.as_ref(), state.overrides.as_ref(), &scope, &cx)
-                                        .into_string()
-                                }
+                                Some(ct) => render_cell(
+                                    ct.as_ref(),
+                                    state.overrides.as_ref(),
+                                    &scope,
+                                    &cx,
+                                    labels.as_ref(),
+                                )
+                                .into_string(),
                                 // Unreachable: `check` refused the type at boot.
                                 None => String::new(),
                             };
@@ -1656,6 +1826,7 @@ pub(crate) async fn handle(
                 total: result.total,
                 total_pages,
                 edit_base: config.edit_base.clone(),
+                row_link: config.row_click == RowClick::Open,
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
@@ -1689,6 +1860,7 @@ pub(crate) async fn handle(
                     total: page_view.total,
                     total_pages: page_view.total_pages,
                     edit_base: page_view.edit_base,
+                    row_link: page_view.row_link,
                     sort: page_view.sort,
                     dir: page_view.dir,
                     carry: page_view.carry,
@@ -1816,6 +1988,8 @@ struct ListTemplate {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
+    /// A row opens its record; the Edit link is there regardless.
+    row_link: bool,
     /// The active ordering, carried on the pager links so paging keeps the sort.
     sort: String,
     dir: String,
@@ -1951,6 +2125,8 @@ struct ListFragment {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
+    /// A row opens its record; the Edit link is there regardless.
+    row_link: bool,
     sort: String,
     dir: String,
     carry: String,
@@ -2107,6 +2283,7 @@ mod tests {
                 tz: Tz::UTC,
                 locale: chrono::Locale::en_US,
             },
+            None,
         );
         assert!(rendered.into_string().contains("***"));
     }

@@ -1,0 +1,16 @@
+entity: backend_roles
+path: /teams
+title: Teams
+permission: acme.manage_posts
+list:
+  columns:
+    code:
+      labels:
+        - { value: admin, label: Administrators }
+        - { value: editor, label: Editors }
+    name: {}
+form:
+  title: Team
+  fields:
+    code: {}
+    name: {}
