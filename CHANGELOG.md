@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-09-30
+
+Pickers: a long dropdown is searched, and the record picker takes the
+keyboard.
+
 ### Added
 
 - A dropdown past ten choices is searched (`search`), and the record picker
