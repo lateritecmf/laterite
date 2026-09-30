@@ -1,6 +1,6 @@
 [package]
 name = "laterite-macros"
-version = "0.9.6"
+version = "0.9.7"
 description = "Laterite CMF procedural macros: the t!/tn!/tp! translation-string macros"
 edition.workspace = true
 license.workspace = true

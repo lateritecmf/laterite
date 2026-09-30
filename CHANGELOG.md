@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-09-30
+
+The repeater: rows move, copy and collapse to a list by themselves, and every
+control reads in the operator's language.
+
 ### Added
 
 - A repeater row moves up and down and copies into a new row (`reorder`,
