@@ -591,8 +591,14 @@ impl FieldType for RepeaterField {
 
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
         let opts = cx.opts.get::<RepeaterOptions>();
+        // A settings screen hands the rows over typed; a descriptor form hands
+        // over the column's text, or what a refused save gathered.
         let stored = match cx.value {
             FieldValue::Json(serde_json::Value::Array(rows)) => rows.clone(),
+            FieldValue::Text(text) => serde_json::from_str::<serde_json::Value>(text)
+                .ok()
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default(),
             _ => Vec::new(),
         };
         // The cell that names a row: the one the descriptor nominated, else the
@@ -706,6 +712,39 @@ impl FieldType for RepeaterField {
 
     fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
         stored.unwrap_or("[]").to_string()
+    }
+
+    /// The rows as submitted, each value the text it arrived as, so a refused
+    /// save shows them again and `required` means a row is there.
+    fn submitted(&self, field: &SubmittedField<'_>, opts: &ResolvedOptions) -> Option<String> {
+        let options = opts.get::<RepeaterOptions>()?;
+        let mut indices: Vec<usize> = field
+            .nested()
+            .filter_map(|(rest, _)| rest.split_once(']').and_then(|(i, _)| i.parse().ok()))
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        let rows: Vec<serde_json::Value> = indices
+            .into_iter()
+            .map(|index| {
+                let mut object = serde_json::Map::new();
+                for sub in &options.rows {
+                    let key = format!("{}[{index}][{}]", field.name(), sub.field.name);
+                    if let Some(value) = field.all().get(&key) {
+                        object.insert(
+                            sub.field.name.clone(),
+                            serde_json::Value::String(value.clone()),
+                        );
+                    }
+                }
+                serde_json::Value::Object(object)
+            })
+            .filter(|row| !is_blank_row(row))
+            .collect();
+        if rows.is_empty() {
+            return None;
+        }
+        serde_json::to_string(&rows).ok()
     }
 }
 

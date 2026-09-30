@@ -14,7 +14,7 @@ A narrow window | Under 1100px a quarter is a half; under 768px every field is f
 A key the type does not read | Refused by name. | None.
 A repeater | Past 3 fields a row, rows collapse to the line naming them; fewer stay open. | `display: list` or `inline`.
 A repeater row | Moves up and down, copies into a new row beneath it, and is removed. | `reorder: false`, `duplicate: false`.
-A refused save | The form returns with its errors, values kept, and the cursor in the first field it refused. | `focus: off`.
+A refused save | The form returns with its errors, values kept (a repeater's rows and a checklist's ticks included), and the cursor in the first field it refused. | `focus: off`.
 A new record | Opens with the cursor in its first field. | `focus: off`.
 Leaving with changes unsaved | Asks first, with the cursor on Stay. Typing and undoing it is not a change. | `confirm_leave: false`.
 A field with a `max_length` rule | The control holds the limit, and a count appears once four fifths of it are used. | `counter: true` or `false`.

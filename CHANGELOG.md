@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A repeater on a descriptor form shows its stored rows on edit (saving the
+  form had emptied them) and keeps typed rows when a save is refused.
+
 ## [0.9.7] - 2026-09-30
 
 The repeater: rows move, copy and collapse to a list by themselves, and every

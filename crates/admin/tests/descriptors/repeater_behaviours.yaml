@@ -8,7 +8,7 @@ list:
 form:
   title: Plan
   fields:
-    code: {}
+    code: { rules: [required] }
     permissions:
       label: Steps
       type: repeater
