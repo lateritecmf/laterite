@@ -1,0 +1,22 @@
+entity: backend_roles
+path: /letters
+title: Letters
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Letter
+  fields:
+    name: { label: Title, rules: [required] }
+    code: { label: Slug, preset: name, rules: [required] }
+    description:
+      type: textarea
+      trigger: { action: show|empty, field: name, condition: "value[*]" }
+    permissions:
+      type: checklist
+      options: [{ value: later, label: Send later }]
+    is_system:
+      type: switch
+      label: Confirmed
+      trigger: { action: enable, field: "permissions[]", condition: "value[later]" }

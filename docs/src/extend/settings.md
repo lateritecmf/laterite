@@ -85,10 +85,12 @@ Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
 through `FormField::of(name, label, "vendor.type")`. A type that refuses its
 input refuses the save.
 
-A type's keys go through `options`:
+A type's keys go through `options`; a dependency through its builder:
 
 ```rust
 FormField::textarea("notice", "Notice").options(serde_json::json!({ "rows": 4, "grow": false }))
+FormField::text("slug", "Slug").preset("title", PresetShape::Slug)
+FormField::date("send_at", "Send date").trigger(Trigger::new("show", "is_delayed", "checked"))
 ```
 
 ## Link a screen into the settings menu

@@ -68,6 +68,167 @@ pub struct FormField {
     pub span: Span,
     /// Starts a new row, whatever room the current one has left.
     pub break_row: bool,
+    /// Follows another field as it is typed, until this one is edited.
+    pub preset: Option<Preset>,
+    /// Changes when another field's state meets a condition.
+    pub trigger: Option<Trigger>,
+}
+
+/// How a preset shapes the text it copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresetShape {
+    /// As typed.
+    Exact,
+    /// Lowercase words joined by hyphens: `hello-world`.
+    #[default]
+    Slug,
+    /// A slug with a leading slash: `/hello-world`.
+    Url,
+    /// A file name: spaces to hyphens, the rest kept.
+    File,
+}
+
+impl PresetShape {
+    /// The word the page carries, for the island.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PresetShape::Exact => "exact",
+            PresetShape::Slug => "slug",
+            PresetShape::Url => "url",
+            PresetShape::File => "file",
+        }
+    }
+}
+
+/// Fills a field from another as it is typed, until the field is edited.
+///
+/// In YAML, the followed field's name alone (`preset: title`, a slug), or a
+/// map: `preset: { field: title, type: url }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Preset {
+    pub field: String,
+    pub shape: PresetShape,
+}
+
+impl Preset {
+    pub fn new(field: impl Into<String>, shape: PresetShape) -> Self {
+        Self {
+            field: field.into(),
+            shape,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Preset {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Full {
+            field: String,
+            #[serde(rename = "type", default)]
+            shape: PresetShape,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Field(String),
+            Full(Full),
+        }
+        Ok(match Raw::deserialize(de)? {
+            Raw::Field(field) => Preset::new(field, PresetShape::Slug),
+            Raw::Full(full) => Preset::new(full.field, full.shape),
+        })
+    }
+}
+
+/// Changes a field when another field's state meets a condition.
+///
+/// ```yaml
+/// send_at:
+///   type: date
+///   trigger: { action: show, field: is_delayed, condition: checked }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Trigger {
+    /// What happens when the condition holds: `show`, `hide`, `enable`,
+    /// `disable`, `empty`, `fill[value]`, or several joined by `|`.
+    pub action: String,
+    /// The field watched. `name[]` watches every value of a checklist.
+    pub field: String,
+    /// `checked`, `unchecked`, `value[x]`, `value[x][y]` (either), `value[]`
+    /// (empty), `value[*]` (anything), `value[foo*]` (a prefix).
+    pub condition: String,
+}
+
+impl Trigger {
+    pub fn new(
+        action: impl Into<String>,
+        field: impl Into<String>,
+        condition: impl Into<String>,
+    ) -> Self {
+        Self {
+            action: action.into(),
+            field: field.into(),
+            condition: condition.into(),
+        }
+    }
+
+    /// Refuses an action or condition the island does not know.
+    pub fn check(&self) -> Result<(), String> {
+        for action in self.action.split('|') {
+            let known = matches!(action, "show" | "hide" | "enable" | "disable" | "empty")
+                || (action.starts_with("fill[") && action.ends_with(']'));
+            if !known {
+                return Err(format!(
+                    "unknown trigger action `{action}`: show, hide, enable, disable, empty or fill[value]"
+                ));
+            }
+        }
+        let known = matches!(self.condition.as_str(), "checked" | "unchecked")
+            || (self.condition.starts_with("value[") && self.condition.ends_with(']'));
+        if !known {
+            return Err(format!(
+                "unknown trigger condition `{}`: checked, unchecked or value[..]",
+                self.condition
+            ));
+        }
+        Ok(())
+    }
+
+    /// The name of the field watched, without a `[]` suffix.
+    pub fn watched(&self) -> &str {
+        self.field.trim_end_matches("[]")
+    }
+}
+
+/// The attributes a field's wrapper carries for its preset and trigger, each
+/// led by a space, empty when it has neither.
+pub(crate) fn behaviour_attrs(field: &FormField) -> String {
+    fn escaped(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+    let mut attrs = String::new();
+    if let Some(preset) = &field.preset {
+        attrs.push_str(&format!(
+            r#" data-lat-preset="{}" data-lat-preset-type="{}""#,
+            escaped(&preset.field),
+            preset.shape.as_str()
+        ));
+    }
+    if let Some(trigger) = &field.trigger {
+        attrs.push_str(&format!(
+            r#" data-lat-trigger-action="{}" data-lat-trigger-field="{}" data-lat-trigger-condition="{}""#,
+            escaped(&trigger.action),
+            escaped(&trigger.field),
+            escaped(&trigger.condition)
+        ));
+    }
+    attrs
 }
 
 /// The share of a row a field takes, in twelfths. Written in YAML as a
@@ -269,11 +430,16 @@ impl<'de> Deserialize<'de> for FormField {
                         "enter" => field.enter = map.next_value()?,
                         "span" => field.span = map.next_value()?,
                         "break" => field.break_row = map.next_value()?,
+                        "preset" => field.preset = map.next_value()?,
+                        "trigger" => field.trigger = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
                 })?;
                 field.options = theirs;
+                if let Some(trigger) = &field.trigger {
+                    trigger.check().map_err(serde::de::Error::custom)?;
+                }
                 Ok(field)
             }
 
@@ -299,6 +465,12 @@ impl Serialize for FormField {
         map.serialize_entry("enter", &self.enter)?;
         map.serialize_entry("span", &self.span)?;
         map.serialize_entry("break", &self.break_row)?;
+        if let Some(preset) = &self.preset {
+            map.serialize_entry("preset", preset)?;
+        }
+        if let Some(trigger) = &self.trigger {
+            map.serialize_entry("trigger", trigger)?;
+        }
         crate::keyed::serialize_theirs(&mut map, &self.options)?;
         map.end()
     }
@@ -327,7 +499,22 @@ impl FormField {
             enter: FieldEnter::default(),
             span: Span::default(),
             break_row: false,
+            preset: None,
+            trigger: None,
         }
+    }
+
+    /// Follows `field` as it is typed, shaped as `shape`, until this field is
+    /// edited.
+    pub fn preset(mut self, field: &str, shape: PresetShape) -> Self {
+        self.preset = Some(Preset::new(field, shape));
+        self
+    }
+
+    /// Changes when `trigger`'s condition holds on the field it watches.
+    pub fn trigger(mut self, trigger: Trigger) -> Self {
+        self.trigger = Some(trigger);
+        self
     }
 
     pub fn text(name: &str, label: impl Into<Text>) -> Self {
@@ -604,6 +791,27 @@ impl PreparedForm {
     ) -> Result<Self, String> {
         let mut fields = Vec::with_capacity(config.fields.len());
         for f in &config.fields {
+            let names = || config.fields.iter().map(|other| other.name.as_str());
+            if let Some(preset) = &f.preset {
+                if !names().any(|n| n == preset.field) {
+                    return Err(format!(
+                        "field `{}` presets from `{}`, which is not in this form",
+                        f.name, preset.field
+                    ));
+                }
+            }
+            if let Some(trigger) = &f.trigger {
+                trigger
+                    .check()
+                    .map_err(|e| format!("field `{}`: {e}", f.name))?;
+                if !names().any(|n| n == trigger.watched()) {
+                    return Err(format!(
+                        "field `{}` watches `{}`, which is not in this form",
+                        f.name,
+                        trigger.watched()
+                    ));
+                }
+            }
             let ft = field_types.get(&f.field_type).ok_or_else(|| {
                 format!(
                     "field `{}` uses unregistered type `{}`",
@@ -1081,6 +1289,7 @@ fn build(
                 required,
                 enter: f.enter.attribute(),
                 layout: layout_classes(f.span, f.break_row),
+                attrs: behaviour_attrs(f),
                 // Localize each per-field message through the request translator.
                 errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
@@ -1141,6 +1350,8 @@ struct FieldView {
     enter: &'static str,
     /// Wrapper classes for the span and a row break, each led by a space.
     layout: String,
+    /// The wrapper's preset and trigger attributes, each led by a space.
+    attrs: String,
 }
 
 /// Just the form element, for an HTMX submit that failed validation: the

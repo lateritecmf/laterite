@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `preset` fills a field from another as it is typed (a slug from a title), and
+  `trigger` shows, hides, enables, empties or fills a field as another changes.
+
 ## [0.9.3] - 2026-09-30
 
 Everyday form behaviours: a form asks before losing work, opens with the cursor

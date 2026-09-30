@@ -502,6 +502,7 @@ fn build(
                 help: f.help.as_ref().map(|h| shell.tt(h)),
                 control,
                 layout: crate::form::layout_classes(f.span, f.break_row),
+                attrs: crate::form::behaviour_attrs(f),
             }
         })
         .collect();
@@ -550,6 +551,8 @@ struct FieldView {
     control: String,
     /// Wrapper classes for the span and a row break, each led by a space.
     layout: String,
+    /// The wrapper's preset and trigger attributes, each led by a space.
+    attrs: String,
 }
 
 #[derive(Template)]

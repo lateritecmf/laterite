@@ -19,6 +19,8 @@ Leaving with changes unsaved | Asks first, with the cursor on Stay. Typing and u
 A field with a `max_length` rule | The control holds the limit, and a count appears once four fifths of it are used. | `counter: true` or `false`.
 A textarea | As tall as its text, from `rows` up to most of the window. | `grow: false`.
 A password field | A button shows what was typed. Sending the form hides it again. | `reveal: false`.
+A field with `preset` | Follows the named field as it is typed, until edited. | Omit the key.
+A field with `trigger` | Shows, hides, enables, disables, empties or fills itself as the watched field changes. A hidden field is left out of the submission. | Omit the key.
 A checklist past 10 choices | Offers select all and select none. | `select_all: true` or `false`.
 A checklist past 20 choices | Offers a search box. | `search: true` or `false`.
 A checklist past 10 choices, in groups | A group with every box ticked, or none, starts closed. A group partly ticked starts open. | `expand: all` or `none`.

@@ -253,6 +253,7 @@ textarea.lat-input:not([data-lat-grow="off"]){field-sizing:content;max-height:70
 textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) * 1.5em + 18px)}
 .lat-counter{margin:4px 0 0;font-size:var(--fs-12);color:var(--text-muted);text-align:right;font-variant-numeric:tabular-nums}
 .lat-counter[hidden]{display:none}
+.lat-field[hidden]{display:none}
 .lat-counter.is-full{color:var(--danger)}
 .lat-reveal__btn{width:var(--control-h);padding:0;justify-content:center}
 .lat-reveal__btn[hidden]{display:none}

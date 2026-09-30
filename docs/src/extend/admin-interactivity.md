@@ -106,6 +106,8 @@ Attribute | Does
 `data-lat-confirm-leave="off"` | Never asks.
 `data-lat-counter` | On a control with `maxlength`: `auto` or `on`.
 `data-lat-grow="off"` | On a textarea: keeps the height it was given.
+`data-lat-preset`, `data-lat-preset-type` | On a field's wrapper: the field followed and the shape (`slug`, `url`, `file`, `exact`).
+`data-lat-trigger-action`, `data-lat-trigger-field`, `data-lat-trigger-condition` | On a field's wrapper: the dependency, as [Descriptor Files](descriptor-files.md#dependencies) spells it.
 
 ## Events
 
@@ -143,6 +145,8 @@ Event | Detail | Cancelable
 `confirm:confirmed`, `confirm:cancelled` | None | No
 `copy:copied` | `value` | No
 `reveal:shown`, `reveal:hidden` | None | No
+`preset:filled` | `from`, `value` | No
+`trigger:changed` | `field`, `met` | No
 
 Controller | Methods
 --- | ---

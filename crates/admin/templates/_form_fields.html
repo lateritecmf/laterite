@@ -3,7 +3,7 @@
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
   <div class="lat-fields">
   {% for field in fields %}
-  <div class="lat-field{{ field.layout }}"{% if !field.enter.is_empty() %} data-lat-enter="{{ field.enter }}"{% endif %}>
+  <div class="lat-field{{ field.layout }}"{% if !field.enter.is_empty() %} data-lat-enter="{{ field.enter }}"{% endif %}{{ field.attrs|safe }}>
     <label class="lat-field__label" for="{{ field.id }}">{{ field.label }}{% if field.required %}<span class="lat-field__req">*</span>{% endif %}</label>
     {{ field.control|safe }}
     {% for message in field.errors %}<p class="lat-field__error">{{ message }}</p>{% endfor %}

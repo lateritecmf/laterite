@@ -872,3 +872,175 @@ window.lat.widget('reveal', function (btn) {
   }
   return { show: function () { show(true); }, hide: function () { show(false); } };
 });
+
+// Preset: a field follows another as it is typed, shaped on the way (a slug
+// from a title), until the operator edits it. Clearing it hands it back to
+// the source. The wrapper carries `data-lat-preset="<field>"` and
+// `data-lat-preset-type="exact|slug|url|file"`.
+(function () {
+  var LETTERS = { 'ß': 'ss', 'æ': 'ae', 'ø': 'o', 'œ': 'oe', 'đ': 'd', 'ł': 'l', 'þ': 'th' };
+  function slug(text) {
+    return text
+      .toLowerCase()
+      .replace(/[ßæøœđłþ]/g, function (c) { return LETTERS[c]; })
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+  function shape(text, kind) {
+    if (text.trim() === '') return '';
+    if (kind === 'exact') return text;
+    if (kind === 'url') return '/' + slug(text);
+    if (kind === 'file') return text.trim().replace(/\s+/g, '-');
+    return slug(text);
+  }
+  function control(wrapper) {
+    return wrapper.querySelector('input:not([type="hidden"]), textarea');
+  }
+  function followers(form, name) {
+    return Array.prototype.filter.call(form.querySelectorAll('[data-lat-preset]'), function (w) {
+      return w.getAttribute('data-lat-preset') === name;
+    });
+  }
+  document.addEventListener('input', function (e) {
+    var source = e.target;
+    var form = source.form;
+    if (!form || !source.name) return;
+    // Editing a follower takes it over; emptying it hands it back.
+    var own = source.closest('[data-lat-preset]');
+    if (own && control(own) === source && !source._latPreset) {
+      own._latTaken = source.value !== '';
+    }
+    followers(form, source.name).forEach(function (wrapper) {
+      var target = control(wrapper);
+      if (!target || wrapper._latTaken) return;
+      var value = shape(source.value, wrapper.getAttribute('data-lat-preset-type'));
+      if (target.value === value) return;
+      target.value = value;
+      target._latPreset = true;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target._latPreset = false;
+      window.lat.emit(target, 'preset:filled', { from: source.name, value: value });
+    });
+  });
+  // A follower that opens with a value of its own is already taken.
+  function settle(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('[data-lat-preset]').forEach(function (wrapper) {
+      var target = control(wrapper);
+      if (target && target.value !== '') wrapper._latTaken = true;
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () { settle(document); });
+  document.addEventListener('htmx:load', function (e) { settle(e.target); });
+})();
+
+// Trigger: a field changes when another field's state meets a condition. The
+// wrapper carries `data-lat-trigger-action` (`show`, `hide`, `enable`,
+// `disable`, `empty`, `fill[value]`, joined by `|`), `data-lat-trigger-field`
+// (`name`, or `name[]` for every value of a checklist) and
+// `data-lat-trigger-condition` (`checked`, `unchecked`, `value[..]`).
+(function () {
+  function values(form, field) {
+    var many = /\[\]$/.test(field);
+    var name = field.replace(/\[\]$/, '');
+    var out = [];
+    var controls = form.querySelectorAll('[name]');
+    Array.prototype.forEach.call(controls, function (c) {
+      var mine = many ? (c.name === name || c.name.indexOf(name + '[') === 0) : c.name === name;
+      if (!mine) return;
+      if (c.type === 'checkbox' || c.type === 'radio') {
+        if (c.checked) out.push(c.value);
+      } else if (c.tagName === 'SELECT' && c.multiple) {
+        Array.prototype.forEach.call(c.selectedOptions, function (o) { out.push(o.value); });
+      } else {
+        out.push(c.value);
+      }
+    });
+    return out;
+  }
+  function ticked(form, field) {
+    var name = field.replace(/\[\]$/, '');
+    return Array.prototype.some.call(form.querySelectorAll('[name]'), function (c) {
+      return (c.type === 'checkbox' || c.type === 'radio') && (c.name === name || c.name.indexOf(name + '[') === 0) && c.checked;
+    });
+  }
+  // `value[a][b*]` lists what counts; `value[]` is empty and `value[*]` anything.
+  function wanted(condition) {
+    var list = [];
+    var re = /\[([^\]]*)\]/g, m;
+    while ((m = re.exec(condition))) list.push(m[1]);
+    return list;
+  }
+  function matches(want, have) {
+    if (want === '*') return have !== '';
+    if (want.indexOf('*') === -1) return want === have;
+    var head = want.split('*')[0], tail = want.split('*').slice(1).join('*');
+    return have.indexOf(head) === 0 && (tail === '' || have.slice(-tail.length) === tail);
+  }
+  function met(form, wrapper) {
+    var field = wrapper.getAttribute('data-lat-trigger-field');
+    var condition = wrapper.getAttribute('data-lat-trigger-condition');
+    if (condition === 'checked') return ticked(form, field);
+    if (condition === 'unchecked') return !ticked(form, field);
+    var have = values(form, field);
+    var want = wanted(condition);
+    if (want.length === 0 || (want.length === 1 && want[0] === '')) return have.every(function (v) { return v === ''; });
+    return have.some(function (v) { return want.some(function (w) { return matches(w, v); }); });
+  }
+  // A hidden field is left out of the submission, so a required one cannot
+  // hold the form back from behind its own trigger.
+  function conceal(wrapper, controls, hidden) {
+    wrapper.hidden = hidden;
+    controls.forEach(function (c) {
+      if (hidden && !c.disabled) { c.disabled = true; c._latConcealed = true; }
+      else if (!hidden && c._latConcealed) { c.disabled = false; c._latConcealed = false; }
+    });
+  }
+  function apply(form, wrapper) {
+    var on = met(form, wrapper);
+    var controls = wrapper.querySelectorAll('input:not([type="hidden"]), select, textarea, button');
+    wrapper.getAttribute('data-lat-trigger-action').split('|').forEach(function (action) {
+      if (action === 'show') conceal(wrapper, controls, !on);
+      else if (action === 'hide') conceal(wrapper, controls, on);
+      else if (action === 'enable') controls.forEach(function (c) { c.disabled = !on; });
+      else if (action === 'disable') controls.forEach(function (c) { c.disabled = on; });
+      else if (on && action === 'empty') controls.forEach(function (c) {
+        if (c.type === 'checkbox' || c.type === 'radio') c.checked = false;
+        else if (c.tagName !== 'BUTTON') c.value = '';
+      });
+      else if (on && action.indexOf('fill[') === 0) {
+        var value = action.slice(5, -1);
+        controls.forEach(function (c) {
+          if (c.type === 'checkbox' || c.type === 'radio') c.checked = c.value === value;
+          else if (c.tagName !== 'BUTTON') c.value = value;
+        });
+      }
+    });
+    if (wrapper._latMet !== on) {
+      wrapper._latMet = on;
+      window.lat.emit(wrapper, 'trigger:changed', { field: wrapper.getAttribute('data-lat-trigger-field'), met: on });
+    }
+  }
+  function all(form) {
+    form.querySelectorAll('[data-lat-trigger-field]').forEach(function (w) { apply(form, w); });
+  }
+  function watching(e) {
+    var form = e.target.form || (e.target.closest && e.target.closest('form'));
+    if (form && form.querySelector('[data-lat-trigger-field]')) all(form);
+  }
+  document.addEventListener('change', watching);
+  document.addEventListener('input', watching);
+  function start(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var forms = Array.prototype.slice.call(scope.querySelectorAll('form'));
+    // A swapped-in fragment is often the form itself.
+    if (scope.matches && scope.matches('form')) forms.push(scope);
+    forms.forEach(function (form) {
+      if (form.querySelector('[data-lat-trigger-field]')) all(form);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () { start(document); });
+  document.addEventListener('htmx:load', function (e) { start(e.target); });
+})();
+
