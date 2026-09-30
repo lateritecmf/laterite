@@ -82,13 +82,14 @@ filters:
 
 Type | Keys
 --- | ---
-`text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
-`textarea` | `rows`, `placeholder`
+`text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`, `counter`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
+`textarea` | `rows`, `placeholder`, `grow`, `counter`
 `select`, `radio` | `options`: a list of `{ value, label }`
 `checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
 `reference` | `source`
 `repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`
-`switch`, `date`, `password` | None
+`password` | `reveal`
+`switch`, `date` | None
 A `select` filter | `options`
 
 A key the type does not read is refused, naming the entry and the keys it
@@ -122,6 +123,31 @@ Key | Values | Default
 `expand` | `auto`, `all`, `none` | `auto`: past 10 choices in more than one group, a group with every box ticked or none starts closed and a group partly ticked starts open
 
 A value listed twice stops the boot, naming it.
+
+## Form keys
+
+```yaml
+form:
+  enter: off
+  confirm_leave: false
+  focus: off
+  fields:
+    title: { rules: [{ max_length: 80 }], counter: true }
+    body:  { type: textarea, rows: 8, grow: false }
+    token: { type: password, reveal: false }
+```
+
+Key | On | Values | Default
+--- | --- | --- | ---
+`enter` | The form | `submit`, `off` | `submit`
+`confirm_leave` | The form | `true`, `false` | `true`: leaving with changes unsaved asks first
+`focus` | The form | `auto`, `off` | `auto`: a new record opens with the cursor in its first field, a refused save in the first field it refused
+`enter` | A field | `submit`, `off`, `next` | The form's
+`counter` | `text`, `textarea` | `auto`, `true`, `false` | `auto`: with a `max_length` rule, shown once four fifths of it are used
+`grow` | `textarea` | `true`, `false` | `true`: as tall as its text, from `rows` up to most of the window
+`reveal` | `password` | `true`, `false` | `true`: a button shows what was typed
+
+A `max_length` rule also sets the control's `maxlength`.
 
 ## Layout
 

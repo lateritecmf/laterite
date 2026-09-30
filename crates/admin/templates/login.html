@@ -38,7 +38,7 @@
           </div>
           <div class="lat-field">
             <label class="lat-field__label" for="password">{{ self.t("Password") }}</label>
-            <input class="lat-input" type="password" id="password" name="password" autocomplete="current-password" required>
+            <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="password" name="password" autocomplete="current-password" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ self.t("Show password") }}' aria-pressed="false" hidden></button></div>
           </div>
           <label class="lat-check"><input type="checkbox" name="remember" value="1"> {{ self.t("Stay signed in") }}</label>
           <button class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" type="submit" style="margin-top:20px">{{ self.t("Sign in") }}</button>

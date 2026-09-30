@@ -1,0 +1,14 @@
+entity: backend_roles
+path: /drafts
+title: Drafts
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Draft
+  fields:
+    code: { rules: [required, { max_length: 60 }] }
+    name: { input: number, rules: [{ max_length: 5 }] }
+    description: { type: textarea, rules: [{ max_length: 500 }] }
+    permissions: { type: password }

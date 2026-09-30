@@ -78,11 +78,18 @@ Builder | Description
 `icon(name)` | An [icon](../reference/icons.md). An unknown name stops the boot.
 `permission(code)` | Hides the item from operators without the grant.
 `link(path)` | Places an existing screen in the settings menu, with no form.
+`confirm_leave(false)` | Leaving the screen with changes unsaved does not ask.
 
 Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
 `textarea`, `switch`, `select`, `date`, `repeater`, and any registered type
 through `FormField::of(name, label, "vendor.type")`. A type that refuses its
 input refuses the save.
+
+A type's keys go through `options`:
+
+```rust
+FormField::textarea("notice", "Notice").options(serde_json::json!({ "rows": 4, "grow": false }))
+```
 
 ## Link a screen into the settings menu
 

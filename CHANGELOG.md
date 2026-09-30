@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Forms ask before leaving with changes unsaved and place the cursor where
+  typing starts: `confirm_leave`, `focus`.
+- A `max_length` rule sets `maxlength` and shows a count: `counter`. A textarea
+  grows with its text: `grow`. A password field shows what was typed: `reveal`.
+- `lat.confirm(text, labels, done)` asks in the admin's dialog from script.
+
 ## [0.9.2] - 2026-09-30
 
 The checklist: one component for every list of boxes, which offers select all,

@@ -76,6 +76,37 @@ lacks the permission for is not rendered.
 </button>
 ```
 
+## Ask from script
+
+```js
+lat.confirm('Archive 12 articles?', { go: 'Archive', cancel: 'Keep', focus: 'cancel' }, function (yes) {
+  if (yes) archive();
+});
+```
+
+Label | Does
+--- | ---
+`go` | Names the confirming button. Default `OK`.
+`cancel` | Names the other. Default `Cancel`, localized.
+`focus` | `'cancel'` opens with the cursor on it. Default: the confirming button.
+
+## Forms
+
+A form of your own template joins in with one attribute:
+
+```html
+<form method="post" action="/admin/acme/import" data-lat-widget="form" data-lat-focus="first">
+```
+
+Attribute | Does
+--- | ---
+`data-lat-widget="form"` | Asks before leaving with changes unsaved.
+`data-lat-refused` | The form holds a submission that was not saved: it opens changed, with the cursor in the first field carrying an error.
+`data-lat-focus` | `first` opens with the cursor in the first field; `off` leaves it alone.
+`data-lat-confirm-leave="off"` | Never asks.
+`data-lat-counter` | On a control with `maxlength`: `auto` or `on`.
+`data-lat-grow="off"` | On a textarea: keeps the height it was given.
+
 ## Events
 
 Every island announces what it does as a DOM event named
@@ -111,12 +142,15 @@ Event | Detail | Cancelable
 `confirm:opened` | `text` | No
 `confirm:confirmed`, `confirm:cancelled` | None | No
 `copy:copied` | `value` | No
+`reveal:shown`, `reveal:hidden` | None | No
 
 Controller | Methods
 --- | ---
 Repeater | `add()`, `remove(index)`, `count()`
 Record picker | `value()`, `label()`, `choose({ id, label })`, `clear()`
 Checklist | `values()`, `count()`, `set(values)`, `all()`, `none()`, `search(text)`
+Form | `changed()`, `settle()`: takes the form as it stands for saved
+Password reveal | `show()`, `hide()`
 
 Helper | Does
 --- | ---
@@ -124,6 +158,7 @@ Helper | Does
 `lat.emit(el, name, detail, cancelable)` | Announces `lat:<name>` from `el`. Returns `false` when a listener cancelled it.
 `lat.get(el)` | The controller of the island at or around `el`.
 `lat.scan(root)` | Starts the islands in markup a script added. Swapped content starts without it.
+`lat.confirm(text, labels, done)` | Asks in the admin's dialog. `done` hears `true` or `false`.
 
 ## Write an island
 

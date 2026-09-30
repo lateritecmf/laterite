@@ -180,6 +180,18 @@ pub enum EnterPolicy {
     Off,
 }
 
+/// Where the cursor goes when a form opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormFocus {
+    /// A new record opens with the cursor in its first field. A refused save
+    /// comes back with the cursor in the first field it refused.
+    #[default]
+    Auto,
+    /// The cursor is left where the browser puts it.
+    Off,
+}
+
 /// What Enter does in one field, over the form's [`EnterPolicy`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -216,6 +228,8 @@ impl Default for FormConfig {
             id_field: "id".to_string(),
             fields: Vec::new(),
             enter: EnterPolicy::default(),
+            confirm_leave: true,
+            focus: FormFocus::default(),
             persist: None,
             timestamps: false,
         }
@@ -483,6 +497,10 @@ pub struct FormConfig {
     /// What Enter does in the form's single-line fields. Default `submit`.
     #[serde(default)]
     pub enter: EnterPolicy,
+    /// Ask before leaving the form with changes unsaved. Default `true`.
+    pub confirm_leave: bool,
+    /// Where the cursor goes when the form opens. Default `auto`.
+    pub focus: FormFocus,
     /// The registered persister that writes this form (a dotted `vendor.name`),
     /// or `None` for the built-in descriptor insert/update. See [`crate::persist`].
     pub persist: Option<String>,
@@ -506,6 +524,8 @@ impl FormConfig {
     ) -> Self {
         Self {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: FormFocus::default(),
             entity: entity.into(),
             title: title.into(),
             base_path: base_path.into(),
@@ -520,6 +540,18 @@ impl FormConfig {
     /// descriptor insert/update.
     pub fn persist(mut self, name: impl Into<String>) -> Self {
         self.persist = Some(name.into());
+        self
+    }
+
+    /// Whether leaving the form with changes unsaved asks first. Default `true`.
+    pub fn confirm_leave(mut self, ask: bool) -> Self {
+        self.confirm_leave = ask;
+        self
+    }
+
+    /// Where the cursor goes when the form opens.
+    pub fn focus(mut self, focus: FormFocus) -> Self {
+        self.focus = focus;
         self
     }
 
@@ -676,6 +708,17 @@ fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
         // it as a nested Text, so it localizes at render like any other label.
         .map(|(f, pf)| FieldRules::new(f.name.clone(), f.label.source(), pf.rules.clone()))
         .collect()
+}
+
+/// The longest value the rules accept, when they set one.
+pub(crate) fn max_length(rules: &[Rule]) -> Option<usize> {
+    rules
+        .iter()
+        .filter_map(|r| match r {
+            Rule::MaxLength(n) => Some(*n),
+            _ => None,
+        })
+        .min()
 }
 
 /// Whether any rule marks the field required.
@@ -960,6 +1003,9 @@ fn invalid_response(
             error: page.error,
             fields: page.fields,
             enter_off: page.enter_off,
+            refused: page.refused,
+            leave_off: page.leave_off,
+            focus: page.focus,
         })
     } else {
         render(page)
@@ -1009,6 +1055,7 @@ fn build(
                 label: &label,
                 value: &value,
                 required,
+                max_length: max_length(&pf.rules),
                 opts: &pf.opts,
                 base: &shell.base,
                 i18n: shell.i18n(),
@@ -1057,6 +1104,7 @@ fn build(
         .collect();
     // Localize the title and banner before the shell is moved into the template.
     let shell_title = shell.tt(&form.config.title);
+    let refused = error.is_some() || !bag.is_empty();
     let error = error.map(|m| shell.tt(&m));
     let mut shell = shell.clone();
     shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
@@ -1068,6 +1116,15 @@ fn build(
         error,
         fields,
         enter_off: form.config.enter == EnterPolicy::Off,
+        refused,
+        leave_off: !form.config.confirm_leave,
+        focus: match form.config.focus {
+            FormFocus::Off => "off",
+            // A new record has nothing in it yet, so the first field is where
+            // the operator starts. An edit opens for reading first.
+            FormFocus::Auto if action.ends_with("/new") => "first",
+            FormFocus::Auto => "",
+        },
     }
 }
 
@@ -1098,6 +1155,12 @@ struct FormFragment {
     fields: Vec<FieldView>,
     /// Enter never submits this form.
     enter_off: bool,
+    /// The form holds a submission that was not saved.
+    refused: bool,
+    /// Leaving with changes unsaved does not ask.
+    leave_off: bool,
+    /// `first`, `off`, or empty for the default.
+    focus: &'static str,
 }
 
 #[derive(Template)]
@@ -1111,6 +1174,12 @@ struct FormTemplate {
     fields: Vec<FieldView>,
     /// Enter never submits this form.
     enter_off: bool,
+    /// The form holds a submission that was not saved.
+    refused: bool,
+    /// Leaving with changes unsaved does not ask.
+    leave_off: bool,
+    /// `first`, `off`, or empty for the default.
+    focus: &'static str,
 }
 
 #[cfg(test)]
@@ -1159,6 +1228,8 @@ mod tests {
     fn config() -> PreparedForm {
         let config = FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1432,6 +1503,8 @@ mod tests {
         let cfg = PreparedForm::prepare(
             FormConfig {
                 enter: Default::default(),
+                confirm_leave: true,
+                focus: Default::default(),
                 entity: "samples".to_string(),
                 title: "Sample".into(),
                 base_path: "/admin/samples".to_string(),
@@ -1482,6 +1555,8 @@ mod tests {
     fn prepare_rejects_an_unregistered_field_type() {
         let config = FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1507,6 +1582,8 @@ mod tests {
         // aborts prepare naming the field.
         let config = FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1579,6 +1656,8 @@ mod tests {
     fn config_with(persister: &str) -> FormConfig {
         FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1674,6 +1753,8 @@ mod timestamp_tests {
     fn timestamped(on: bool) -> FormConfig {
         FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "samples".to_string(),
             title: "Sample".into(),
             base_path: "/admin/samples".to_string(),
@@ -1762,6 +1843,8 @@ mod htmx_tests {
         let form = PreparedForm::prepare(
             FormConfig {
                 enter: Default::default(),
+                confirm_leave: true,
+                focus: Default::default(),
                 entity: "samples".to_string(),
                 title: "Sample".into(),
                 base_path: "/admin/samples".to_string(),

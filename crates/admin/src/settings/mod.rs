@@ -73,6 +73,8 @@ pub struct SettingsItem {
     /// nowhere else. Where [`SettingsItem::description`] must stay short enough
     /// to read in a sidebar, this has room to say why the screen exists.
     pub hint: Option<Text>,
+    /// Ask before leaving this screen with changes unsaved. Default `true`.
+    pub confirm_leave: bool,
     /// Weight within the category (lower sorts first).
     pub order: i32,
     /// Icon name shown beside the item in the context sidebar (a Lucide name
@@ -110,6 +112,7 @@ impl SettingsItem {
             description: Text::from(""),
             category: Text::from(""),
             hint: None,
+            confirm_leave: true,
             order: 0,
             icon: None,
             permission: None,
@@ -142,6 +145,13 @@ impl SettingsItem {
     /// it has no length limit: the reader has opened the screen.
     pub fn hint(mut self, text: impl Into<Text>) -> Self {
         self.hint = Some(text.into());
+        self
+    }
+
+    /// Whether leaving this screen with changes unsaved asks first. Default
+    /// `true`.
+    pub fn confirm_leave(mut self, ask: bool) -> Self {
+        self.confirm_leave = ask;
         self
     }
 
@@ -472,6 +482,7 @@ fn build(
                         label: &label,
                         value: &value,
                         required: false,
+                        max_length: crate::form::max_length(&f.rules),
                         opts: &opts,
                         base: &shell.base,
                         i18n: shell.i18n(),
@@ -501,6 +512,7 @@ fn build(
         action: item.path(&shell.base),
         error: error.map(|e| shell.tt(&e)),
         fields,
+        leave_off: !item.confirm_leave,
         shell: shell.clone(),
     }
 }
@@ -552,6 +564,8 @@ struct SettingsFormTemplate {
     action: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+    /// Leaving with changes unsaved does not ask.
+    leave_off: bool,
 }
 
 #[cfg(test)]
@@ -589,6 +603,7 @@ mod field_system_tests {
             description: Text::new(""),
             category: Text::new(""),
             hint: None,
+            confirm_leave: true,
             order: 0,
             icon: None,
             permission: None,
@@ -732,6 +747,7 @@ mod tests {
             description: "What the log records.".into(),
             category: "Logs".into(),
             hint: None,
+            confirm_leave: true,
             order: 10,
             icon: None,
             permission: None,
@@ -774,6 +790,7 @@ mod tests {
                 description: String::new().into(),
                 category: "System".into(),
                 hint: None,
+                confirm_leave: true,
                 order: 20,
                 icon: None,
                 permission: None,
@@ -787,6 +804,7 @@ mod tests {
                 description: String::new().into(),
                 category: "System".into(),
                 hint: None,
+                confirm_leave: true,
                 order: 10,
                 icon: None,
                 permission: None,
@@ -800,6 +818,7 @@ mod tests {
                 description: String::new().into(),
                 category: "Logs".into(),
                 hint: None,
+                confirm_leave: true,
                 order: 5,
                 icon: None,
                 permission: None,

@@ -1,0 +1,20 @@
+entity: backend_roles
+path: /notes
+title: Notes
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Note
+  confirm_leave: false
+  focus: off
+  fields:
+    code: { rules: [required, { max_length: 60 }] }
+    name: { rules: [{ max_length: 20 }], counter: true }
+    description:
+      type: textarea
+      grow: false
+      counter: false
+      rules: [{ max_length: 500 }]
+    permissions: { type: password, reveal: false }

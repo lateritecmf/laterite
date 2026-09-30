@@ -8,7 +8,7 @@
 {% else if !description.is_empty() %}<p class="lat-note">{{ description }}</p>{% endif %}
 <div class="lat-card lat-card--form">
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-  <form method="post" action="{{ action }}">
+  <form method="post" action="{{ action }}" data-lat-widget="form"{% if error.is_some() %} data-lat-refused{% endif %}{% if leave_off %} data-lat-confirm-leave="off"{% endif %}>
     {% include "_csrf.html" %}
     {# Each control is rendered by its own field type, the same way a descriptor
        form renders: one field system, so a module's type works on both. #}

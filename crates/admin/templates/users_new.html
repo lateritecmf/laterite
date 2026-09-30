@@ -5,7 +5,7 @@
 <div class="lat-toolbar"><h1>{{ shell.t("New backend user") }}</h1></div>
 <div class="lat-card lat-card--form">
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
-  <form method="post" action="{{ action }}">
+  <form method="post" action="{{ action }}" data-lat-widget="form"{% if error.is_some() %} data-lat-refused{% endif %} data-lat-focus="first">
     {% include "_csrf.html" %}
     <div class="lat-fields">
     <div class="lat-field lat-field--6">

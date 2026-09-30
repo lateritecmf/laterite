@@ -367,6 +367,10 @@ msgstr ""
 msgid "Last name"
 msgstr ""
 
+#: templates/base.html
+msgid "Leave"
+msgstr ""
+
 #: templates/list.html
 msgid "List setup"
 msgstr ""
@@ -642,6 +646,13 @@ msgstr ""
 msgid "Settings saved."
 msgstr ""
 
+#: src/field.rs
+#: templates/login.html
+#: templates/preferences.html
+#: templates/setup.html
+msgid "Show password"
+msgstr ""
+
 #: (descriptors)
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
 msgstr ""
@@ -690,6 +701,10 @@ msgstr ""
 #: templates/plugins.html
 #: templates/users_form.html
 msgid "Status"
+msgstr ""
+
+#: templates/base.html
+msgid "Stay"
 msgstr ""
 
 #: templates/login.html
@@ -906,6 +921,10 @@ msgstr ""
 
 #: src/error.rs
 msgid "You do not have permission to view this."
+msgstr ""
+
+#: templates/base.html
+msgid "You have unsaved changes. Leave without saving?"
 msgstr ""
 
 #: src/lib.rs

@@ -80,6 +80,8 @@ pub struct FieldCx<'a> {
     pub value: &'a FieldValue,
     /// Derived from the merged (intrinsic + descriptor) rules.
     pub required: bool,
+    /// The longest value the rules accept, from a `max_length` rule.
+    pub max_length: Option<usize>,
     pub opts: &'a ResolvedOptions,
     /// The admin mount path (e.g. `/admin`), so a type that calls an endpoint
     /// (the reference picker) builds its URL without knowing routing conventions.
@@ -686,6 +688,7 @@ fn render_row(
                 label: cx.label,
                 value: &value,
                 required: false,
+                max_length: crate::form::max_length(&sub.field.rules),
                 opts: &sub.opts,
                 base: cx.base,
                 i18n: cx.i18n,
@@ -1063,6 +1066,9 @@ struct TextOptions {
     /// Shown in the empty input.
     #[serde(default)]
     placeholder: Option<String>,
+    /// The count of characters against the limit a `max_length` rule sets.
+    #[serde(default)]
+    counter: crate::checklist::Offer,
 }
 
 fn default_input() -> String {
@@ -1077,6 +1083,26 @@ struct TextResolved {
     adornments: Vec<Adornment>,
     rules: Vec<Rule>,
     assets: Vec<&'static str>,
+    counter: crate::checklist::Offer,
+}
+
+/// The attributes a length limit puts on a control: `maxlength`, so the browser
+/// holds the limit, and the counter's setting for the island that draws it.
+fn length_attrs(
+    attrs: &mut BTreeMap<String, String>,
+    max_length: Option<usize>,
+    counter: crate::checklist::Offer,
+) {
+    use crate::checklist::Offer;
+    let Some(max) = max_length else {
+        return;
+    };
+    attrs.insert("maxlength".to_string(), max.to_string());
+    match counter {
+        Offer::Auto => attrs.insert("data-lat-counter".to_string(), "auto".to_string()),
+        Offer::Always => attrs.insert("data-lat-counter".to_string(), "on".to_string()),
+        Offer::Never => None,
+    };
 }
 
 /// The text field's view-model payload. Additive over the prior `{input_type}`,
@@ -1125,7 +1151,11 @@ impl FieldType for TextField {
         // An input this registry does not hold is refused by name when the
         // options resolve; its keys are not this check's to judge.
         let input = self.inputs.get(input)?;
-        let mut all = vec!["input".to_string(), "placeholder".to_string()];
+        let mut all = vec![
+            "input".to_string(),
+            "placeholder".to_string(),
+            "counter".to_string(),
+        ];
         all.extend(input.option_keys().into_iter().map(str::to_string));
         Some(all)
     }
@@ -1138,6 +1168,7 @@ impl FieldType for TextField {
             TextOptions {
                 input: default_input(),
                 placeholder: None,
+                counter: Default::default(),
             }
         } else {
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
@@ -1162,6 +1193,7 @@ impl FieldType for TextField {
             assets: input.assets(&input_opts),
             attrs,
             adornments,
+            counter: opts.counter,
         }))
     }
     fn intrinsic_rules(&self, opts: &ResolvedOptions) -> Vec<Rule> {
@@ -1175,7 +1207,7 @@ impl FieldType for TextField {
             .unwrap_or_default()
     }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
-        let data = match cx.opts.get::<TextResolved>() {
+        let mut data = match cx.opts.get::<TextResolved>() {
             Some(r) => TextData {
                 input_type: r.html_type.to_string(),
                 attrs: r.attrs.clone(),
@@ -1186,6 +1218,18 @@ impl FieldType for TextField {
                 ..TextData::default()
             },
         };
+        // A number or a date has no length to count.
+        if matches!(
+            data.input_type.as_str(),
+            "text" | "email" | "tel" | "url" | "search"
+        ) {
+            let counter = cx
+                .opts
+                .get::<TextResolved>()
+                .map(|r| r.counter)
+                .unwrap_or_default();
+            length_attrs(&mut data.attrs, cx.max_length, counter);
+        }
         FieldVm {
             view_key: "text".to_string(),
             name: cx.name.to_string(),
@@ -1225,15 +1269,62 @@ struct TextareaTmpl<'a> {
     required: bool,
     rows: Option<u16>,
     placeholder: Option<&'a str>,
+    grow: bool,
+    attrs: &'a BTreeMap<String, String>,
 }
 
-/// A textarea's own keys: its height in rows, and what an empty one shows.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+fn yes() -> bool {
+    true
+}
+
+/// A textarea's own keys: its height in rows, what an empty one shows, whether
+/// it grows with what is typed, and the count against a `max_length` rule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TextareaOptions {
     #[serde(default)]
     rows: Option<u16>,
     #[serde(default)]
     placeholder: Option<String>,
+    #[serde(default = "yes")]
+    grow: bool,
+    #[serde(default)]
+    counter: crate::checklist::Offer,
+}
+
+impl Default for TextareaOptions {
+    fn default() -> Self {
+        Self {
+            rows: None,
+            placeholder: None,
+            grow: true,
+            counter: Default::default(),
+        }
+    }
+}
+
+/// The textarea's view-model payload: its keys as resolved for this render.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TextareaData {
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default = "yes")]
+    grow: bool,
+    /// `maxlength` and the counter's setting, when a rule limits the length.
+    #[serde(default)]
+    attrs: BTreeMap<String, String>,
+}
+
+impl Default for TextareaData {
+    fn default() -> Self {
+        Self {
+            rows: None,
+            placeholder: None,
+            grow: true,
+            attrs: BTreeMap::new(),
+        }
+    }
 }
 
 /// A multi-line text input.
@@ -1244,7 +1335,7 @@ impl FieldType for TextareaField {
         "textarea"
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        keys(&["rows", "placeholder"])
+        keys(&["rows", "placeholder", "grow", "counter"])
     }
     fn resolve_options(
         &self,
@@ -1260,20 +1351,32 @@ impl FieldType for TextareaField {
     }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
         let mut vm = scalar_vm("textarea", cx);
-        if let Some(opts) = cx.opts.get::<TextareaOptions>() {
-            vm.data = serde_json::to_value(opts).unwrap_or_default();
-        }
+        let opts = cx
+            .opts
+            .get::<TextareaOptions>()
+            .cloned()
+            .unwrap_or_default();
+        let mut data = TextareaData {
+            rows: opts.rows,
+            placeholder: opts.placeholder,
+            grow: opts.grow,
+            attrs: BTreeMap::new(),
+        };
+        length_attrs(&mut data.attrs, cx.max_length, opts.counter);
+        vm.data = serde_json::to_value(data).unwrap_or_default();
         vm
     }
     fn render_default(&self, vm: &FieldVm) -> Markup {
-        let opts: TextareaOptions = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        let data: TextareaData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
         Markup::from_template(&TextareaTmpl {
             name: &vm.name,
             id: &vm.id,
             value: vm.value.as_text(),
             required: vm.required,
-            rows: opts.rows,
-            placeholder: opts.placeholder.as_deref(),
+            rows: data.rows,
+            placeholder: data.placeholder.as_deref(),
+            grow: data.grow,
+            attrs: &data.attrs,
         })
         .unwrap_or_default()
     }
@@ -1714,6 +1817,27 @@ struct PasswordTmpl<'a> {
     name: &'a str,
     id: &'a str,
     required: bool,
+    reveal: bool,
+    show: &'a str,
+}
+
+/// A password field's own key: whether it offers to show what was typed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PasswordOptions {
+    #[serde(default = "yes")]
+    reveal: bool,
+    /// The reveal control's name, localized when the field is rendered.
+    #[serde(default)]
+    show: String,
+}
+
+impl Default for PasswordOptions {
+    fn default() -> Self {
+        Self {
+            reveal: true,
+            show: String::new(),
+        }
+    }
 }
 
 /// A password: hashed on the way in, never shown on the way out.
@@ -1730,7 +1854,19 @@ impl FieldType for PasswordField {
         "password"
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        keys(&[])
+        keys(&["reveal"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: PasswordOptions = if raw.is_null() {
+            PasswordOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
     }
 
     fn to_attr(
@@ -1755,14 +1891,25 @@ impl FieldType for PasswordField {
     }
 
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
-        scalar_vm("password", cx)
+        let mut vm = scalar_vm("password", cx);
+        let mut opts = cx
+            .opts
+            .get::<PasswordOptions>()
+            .cloned()
+            .unwrap_or_default();
+        opts.show = cx.i18n.t(&laterite_core::t!("Show password"));
+        vm.data = serde_json::to_value(opts).unwrap_or_default();
+        vm
     }
 
     fn render_default(&self, vm: &FieldVm) -> Markup {
+        let opts: PasswordOptions = serde_json::from_value(vm.data.clone()).unwrap_or_default();
         Markup::from_template(&PasswordTmpl {
             name: &vm.name,
             id: &vm.id,
             required: vm.required,
+            reveal: opts.reveal,
+            show: &opts.show,
         })
         .unwrap_or_default()
     }
@@ -1984,6 +2131,7 @@ mod tests {
             label: "Label",
             value,
             required: true,
+            max_length: None,
             opts,
             base: "/admin",
             i18n,
@@ -2472,6 +2620,7 @@ mod repeater_tests {
             label: "Rules",
             value: &value,
             required: false,
+            max_length: None,
             opts: &options(),
             base: "/admin",
             i18n: &Translator::new("en"),
@@ -2511,6 +2660,7 @@ mod repeater_tests {
             label: "Rules",
             value,
             required: false,
+            max_length: None,
             opts,
             base: "/admin",
             i18n: &Translator::new("en"),
@@ -2639,6 +2789,7 @@ mod repeater_tests {
             label: "Rules",
             value: &value,
             required: false,
+            max_length: None,
             opts: &options(),
             base: "/admin",
             i18n: &i18n,

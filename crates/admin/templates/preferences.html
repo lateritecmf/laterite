@@ -3,7 +3,7 @@
 {% block content %}
 <div class="lat-toolbar"><h1>{{ shell.t("Preferences") }}</h1></div>
 <div class="lat-card lat-card--form">
-  <form method="post" action="{{ shell.base }}/preferences">
+  <form method="post" action="{{ shell.base }}/preferences" data-lat-widget="form">
     {% include "_csrf.html" %}
     <div class="lat-field">
       <label class="lat-field__label" for="timezone">{{ shell.t("Display timezone") }}</label>
@@ -33,20 +33,20 @@
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Last changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>
-  <form method="post" action="{{ shell.base }}/preferences/password">
+  <form method="post" action="{{ shell.base }}/preferences/password" data-lat-widget="form">
     {% include "_csrf.html" %}
     <div class="lat-field">
       <label class="lat-field__label" for="current_password">{{ shell.t("Current password") }}</label>
-      <input class="lat-input" type="password" id="current_password" name="current_password" autocomplete="current-password" required>
+      <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="current_password" name="current_password" autocomplete="current-password" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ shell.t("Show password") }}' aria-pressed="false" hidden></button></div>
     </div>
     <div class="lat-field">
       <label class="lat-field__label" for="new_password">{{ shell.t("New password") }}</label>
-      <input class="lat-input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="{{ min_password }}" required>
+      <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="{{ min_password }}" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ shell.t("Show password") }}' aria-pressed="false" hidden></button></div>
       <p class="lat-help">{{ shell.tf("At least {n} characters. Every other device is signed out.", [("n", min_password)]) }}</p>
     </div>
     <div class="lat-field">
       <label class="lat-field__label" for="confirm_password">{{ shell.t("Confirm new password") }}</label>
-      <input class="lat-input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="{{ min_password }}" required>
+      <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="{{ min_password }}" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ shell.t("Show password") }}' aria-pressed="false" hidden></button></div>
     </div>
     <div class="lat-actions">
       <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Change password") }}</button>

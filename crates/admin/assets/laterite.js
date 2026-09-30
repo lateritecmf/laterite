@@ -197,6 +197,8 @@ document.addEventListener('htmx:sendError', latRequestFailed);
 // cannot be styled or localized with the rest of the admin.
 (function () {
   var pending = null;
+  // The callback of a question asked from script, while it is open.
+  var asked = null;
 
   function box() {
     var el = document.getElementById('lat-confirm');
@@ -223,6 +225,7 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   }
 
   function close() {
+    if (answer(false)) return;
     if (pending) window.lat.emit(pending, 'confirm:cancelled', {});
     hide();
   }
@@ -233,7 +236,37 @@ document.addEventListener('htmx:sendError', latRequestFailed);
     if (el) el.classList.remove('is-open');
   }
 
+  // Asks from script, with no control behind the question: `done` hears true
+  // or false. `labels.go` and `labels.cancel` name the two buttons, and
+  // `labels.focus: 'cancel'` puts the cursor on the one that changes nothing.
+  window.lat.confirm = function (text, labels, done) {
+    labels = labels || {};
+    asked = done;
+    pending = null;
+    var modal = box();
+    modal.querySelector('.lat-modal__text').textContent = text;
+    modal.querySelector('[data-lat-go]').textContent = labels.go || 'OK';
+    modal.querySelector('[data-lat-close]:not(.lat-modal__backdrop)').textContent =
+      labels.cancel || document.body.getAttribute('data-lat-cancel') || 'Cancel';
+    modal.classList.add('is-open');
+    modal.querySelector(
+      labels.focus === 'cancel' ? '.lat-modal__actions [data-lat-close]' : '[data-lat-go]'
+    ).focus();
+    window.lat.emit(document, 'confirm:opened', { text: text });
+  };
+
+  function answer(yes) {
+    var done = asked;
+    asked = null;
+    if (!done) return false;
+    hide();
+    window.lat.emit(document, yes ? 'confirm:confirmed' : 'confirm:cancelled', {});
+    done(yes);
+    return true;
+  }
+
   function go() {
+    if (answer(true)) return;
     var el = pending;
     hide();
     if (!el) return;
@@ -667,3 +700,175 @@ window.lat.widget('copy', function (btn) {
     else if (what === 'next') { e.preventDefault(); focusNext(el, form || document); }
   }, true);
 })();
+
+// Form: two things every content form does. It asks before the operator leaves
+// with changes unsaved, and it puts the cursor where they will type next: the
+// first field of a new record, or the first field a save refused.
+//
+// Changed means different from how the form opened, so typing and undoing it
+// is not a change. A form that came back refused (`data-lat-refused`) opens
+// changed, since what it holds was never saved.
+// `data-lat-confirm-leave="off"` stops the question;
+// `data-lat-focus="off"` leaves the cursor alone.
+(function () {
+  var guarded = [];
+  var leaving = false;
+
+  function snapshot(form) {
+    var parts = [];
+    new FormData(form).forEach(function (value, key) {
+      if (key === '_csrf') return;
+      parts.push(key + '=' + (typeof value === 'string' ? value : value.name));
+    });
+    return parts.join('&');
+  }
+
+  function changed() {
+    return guarded.some(function (g) {
+      return document.body.contains(g.form) && !g.sent && (g.refused || snapshot(g.form) !== g.opened);
+    });
+  }
+
+  window.lat.widget('form', function (form) {
+    var refused = form.hasAttribute('data-lat-refused');
+    var state = { form: form, opened: snapshot(form), refused: refused, sent: false };
+    if (form.getAttribute('data-lat-confirm-leave') !== 'off') {
+      guarded = guarded.filter(function (g) { return document.body.contains(g.form); });
+      guarded.push(state);
+    }
+    form.addEventListener('submit', function () { state.sent = true; });
+    // A request that never arrived leaves the form as unsaved as it was.
+    form.addEventListener('htmx:sendError', function () { state.sent = false; });
+    form.addEventListener('htmx:responseError', function () { state.sent = false; });
+
+    var focus = form.getAttribute('data-lat-focus');
+    if (focus !== 'off') {
+      var field = refused ? form.querySelector('.lat-field__error') : null;
+      var scope = field ? field.closest('.lat-field') : (refused || focus === 'first' ? form : null);
+      var control = scope && scope.querySelector(
+        'input:not([type="hidden"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])'
+      );
+      if (control) {
+        control.focus({ preventScroll: !refused });
+        if (refused && control.scrollIntoView) control.scrollIntoView({ block: 'center' });
+      }
+    }
+
+    return {
+      changed: function () { return !state.sent && (state.refused || snapshot(form) !== state.opened); },
+      // Takes the form as it stands for saved, so leaving asks nothing.
+      settle: function () { state.refused = false; state.opened = snapshot(form); }
+    };
+  });
+
+  // Closing the tab, reloading and the back button: only the browser can ask.
+  window.addEventListener('beforeunload', function (e) {
+    if (leaving || !changed()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
+  // A link inside the admin: the admin asks, in its own dialog.
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var link = e.target.closest ? e.target.closest('a[href]') : null;
+    if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+    var href = link.getAttribute('href');
+    if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
+    if (!changed()) return;
+    e.preventDefault();
+    var body = document.body;
+    window.lat.confirm(
+      body.getAttribute('data-lat-leave') || 'You have unsaved changes. Leave without saving?',
+      {
+        go: body.getAttribute('data-lat-leave-go') || 'Leave',
+        cancel: body.getAttribute('data-lat-leave-stay') || 'Stay',
+        // Enter on a question about losing work should keep the work.
+        focus: 'cancel'
+      },
+      function (yes) {
+        if (!yes) return;
+        leaving = true;
+        window.location.href = link.href;
+      }
+    );
+  });
+})();
+
+// Counter: a field a rule limits shows how much of the limit is used. With
+// `data-lat-counter="auto"` it appears once four fifths are used, which is when
+// the limit starts to matter; with `on` it is always there.
+(function () {
+  function counter(control) {
+    var next = control.closest('.lat-input-group') || control;
+    var el = next.nextElementSibling;
+    if (el && el.classList.contains('lat-counter')) return el;
+    el = document.createElement('p');
+    el.className = 'lat-counter';
+    el.setAttribute('aria-live', 'polite');
+    next.parentNode.insertBefore(el, next.nextSibling);
+    return el;
+  }
+  function update(control) {
+    var max = parseInt(control.getAttribute('maxlength'), 10);
+    if (!max) return;
+    var used = control.value.length;
+    var el = counter(control);
+    el.textContent = used + ' / ' + max;
+    el.classList.toggle('is-full', used >= max);
+    el.hidden = control.getAttribute('data-lat-counter') === 'auto' && used < max * 0.8;
+  }
+  function all(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('[data-lat-counter]').forEach(update);
+  }
+  document.addEventListener('input', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-lat-counter')) update(e.target);
+  });
+  document.addEventListener('DOMContentLoaded', function () { all(document); });
+  document.addEventListener('htmx:load', function (e) { all(e.target); });
+})();
+
+// Textarea: grows with what is typed, up to the height the stylesheet allows,
+// so nothing is read through a slot. The stylesheet does this alone where the
+// browser can; this is for the ones that cannot. `data-lat-grow="off"` keeps
+// the height it was given.
+(function () {
+  if (window.CSS && CSS.supports && CSS.supports('field-sizing', 'content')) return;
+  function fit(area) {
+    if (area.getAttribute('data-lat-grow') === 'off') return;
+    area.style.height = 'auto';
+    area.style.height = (area.scrollHeight + 2) + 'px';
+  }
+  function all(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('textarea.lat-input').forEach(fit);
+  }
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('textarea.lat-input')) fit(e.target);
+  });
+  document.addEventListener('DOMContentLoaded', function () { all(document); });
+  document.addEventListener('htmx:load', function (e) { all(e.target); });
+})();
+
+// Reveal: shows what was typed into a password field, and hides it again. The
+// button starts hidden, so a page with no script has no button that does
+// nothing. What is shown is hidden again when the form is sent.
+window.lat.widget('reveal', function (btn) {
+  var group = btn.closest('.lat-input-group');
+  var input = group && group.querySelector('input');
+  if (!input) return;
+  function show(on) {
+    input.type = on ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    window.lat.emit(btn, on ? 'reveal:shown' : 'reveal:hidden', {});
+  }
+  btn.hidden = false;
+  btn.addEventListener('click', function () { show(input.type === 'password'); });
+  if (input.form) {
+    input.form.addEventListener('submit', function () {
+      if (input.type !== 'password') show(false);
+    });
+  }
+  return { show: function () { show(true); }, hide: function () { show(false); } };
+});

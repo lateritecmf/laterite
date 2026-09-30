@@ -12,7 +12,7 @@
   {% for a in shell.assets %}{% if a.css %}<link rel="stylesheet" href="{{ a.url }}" data-lat-asset="{{ a.url }}">{% else %}<script defer src="{{ a.url }}" data-lat-asset="{{ a.url }}"></script>{% endif %}
   {% endfor %}
 </head>
-<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}'>
+<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">
     {% for f in shell.flash %}

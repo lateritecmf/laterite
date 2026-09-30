@@ -3412,6 +3412,8 @@ mod tests {
     fn write_form() -> form::FormConfig {
         form::FormConfig {
             enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
             entity: "widgets".to_string(),
             title: "Widgets".into(),
             base_path: "/widgets".to_string(),
@@ -3767,6 +3769,7 @@ mod tests {
             description: String::new().into(),
             category: "General".into(),
             hint: None,
+            confirm_leave: true,
             order: 1,
             icon: None,
             permission: permission.map(str::to_string),

@@ -38,7 +38,7 @@
           </div>
           <div class="lat-field">
             <label class="lat-field__label" for="password">{{ self.t("Password") }}</label>
-            <input class="lat-input" type="password" id="password" name="password" autocomplete="new-password" minlength="{{ min_password }}" required>
+            <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="password" name="password" autocomplete="new-password" minlength="{{ min_password }}" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ self.t("Show password") }}' aria-pressed="false" hidden></button></div>
             <p class="lat-help">{{ self.tf("At least {n} characters.", [("n", min_password)]) }}</p>
           </div>
           <div class="lat-field">

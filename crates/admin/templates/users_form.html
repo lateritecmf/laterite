@@ -55,7 +55,7 @@
   {% if is_superuser %}
   <div class="lat-alert lat-alert--ok">{{ shell.t("This user is a superuser and holds every permission, so there is nothing to override.") }}</div>
   {% else %}
-  <form method="post" action="{{ action }}">
+  <form method="post" action="{{ action }}" data-lat-widget="form">
     {% include "_csrf.html" %}
     {% if !roles.is_empty() %}
     <div class="lat-field">
