@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-30
+
+Everyday form behaviours: a form asks before losing work, opens with the cursor
+where typing starts, counts against a length limit, grows its textareas and
+shows a password on request.
+
 ### Added
 
 - Forms ask before leaving with changes unsaved and place the cursor where
