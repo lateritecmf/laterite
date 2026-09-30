@@ -1,0 +1,43 @@
+entity: backend_roles
+path: /menus
+title: Menus
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Menu
+  fields:
+    code:
+      type: select
+      options:
+        - { value: a1 }
+        - { value: a2 }
+        - { value: a3 }
+        - { value: a4 }
+        - { value: a5 }
+        - { value: a6 }
+        - { value: a7 }
+        - { value: a8 }
+        - { value: a9 }
+        - { value: a10 }
+        - { value: a11 }
+    name:
+      type: select
+      search: true
+      options: [{ value: x, label: Ex }, { value: z, label: Zed }]
+    description:
+      type: select
+      search: false
+      options:
+        - { value: b1 }
+        - { value: b2 }
+        - { value: b3 }
+        - { value: b4 }
+        - { value: b5 }
+        - { value: b6 }
+        - { value: b7 }
+        - { value: b8 }
+        - { value: b9 }
+        - { value: b10 }
+        - { value: b11 }

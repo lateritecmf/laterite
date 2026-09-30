@@ -22,7 +22,8 @@ Key | Where | Does
 Enter | A single-line field | Submits the form.
 Enter | A textarea | A newline.
 Cmd/Ctrl+Enter | Anywhere in a form | Submits it.
-Enter | A picker's search box, a repeater row | Acts there: the picker keeps searching; a repeater row moves to the next field, and from its last field adds a row. Never submits the form around it.
+Enter | A picker's search box, a repeater row | Acts there: the picker chooses what is highlighted; a repeater row moves to the next field, and from its last field adds a row. Never submits the form around it.
+Down, Up, Home, End | A picker's list | Move the highlight. Down on a closed list opens it.
 Escape | A menu, a dialog | Closes it.
 
 Opt out in a descriptor:
@@ -151,7 +152,7 @@ Event | Detail | Cancelable
 Controller | Methods
 --- | ---
 Repeater | `add()`, `remove(index)`, `count()`
-Record picker | `value()`, `label()`, `choose({ id, label })`, `clear()`
+Record picker, searched select | `value()`, `label()`, `choose({ id, label })`, `clear()`
 Checklist | `values()`, `count()`, `set(values)`, `all()`, `none()`, `search(text)`
 Form | `changed()`, `settle()`: takes the form as it stands for saved
 Password reveal | `show()`, `hide()`
@@ -178,6 +179,9 @@ window.lat.widget('char-count', function (el) {
   return { count: count };
 });
 ```
+
+An island that builds markup around its element returns that markup as `root`,
+so `lat.get` finds the controller from inside it too.
 
 ```html
 <div data-lat-widget="char-count">

@@ -20,6 +20,8 @@ A field with a `max_length` rule | The control holds the limit, and a count appe
 A textarea | As tall as its text, from `rows` up to most of the window. | `grow: false`.
 A password field | A button shows what was typed. Sending the form hides it again. | `reveal: false`.
 A field with `preset` | Follows the named field as it is typed, until edited. | Omit the key.
+A select past 10 choices | Searched: a box that filters the choices as you type. | `search: true` or `false`.
+A picker or a searched select | Opens on focus with the choice made leading. Down and Up move, Enter chooses, Escape puts the choice back, leaving the box empty clears it. | None.
 A field with `trigger` | Shows, hides, enables, disables, empties or fills itself as the watched field changes. A hidden field is left out of the submission. | Omit the key.
 A checklist past 10 choices | Offers select all and select none. | `select_all: true` or `false`.
 A checklist past 20 choices | Offers a search box. | `search: true` or `false`.

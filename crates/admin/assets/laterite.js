@@ -105,7 +105,15 @@ document.addEventListener('htmx:beforeSwap', function (e) {
     if (!init) return;
     el.setAttribute('data-lat-ready', '1');
     var controller = init(el);
-    if (controller) controllers.set(el, controller);
+    if (!controller) return;
+    controllers.set(el, controller);
+    // An island that builds markup around its element names that markup as
+    // `root`, so `lat.get` finds it from inside the markup too.
+    if (controller.root && controller.root !== el) {
+      controller.root.setAttribute('data-lat-widget', el.getAttribute('data-lat-widget'));
+      controller.root.setAttribute('data-lat-ready', '1');
+      controllers.set(controller.root, controller);
+    }
   }
   // Starts every island in `root` that has not started, `root` included: a
   // swapped-in fragment is often the island itself.

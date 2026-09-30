@@ -1382,11 +1382,36 @@ impl FieldType for TextareaField {
     }
 }
 
-/// A `select` field's options: a list of value/label pairs.
+/// A dropdown turns searchable past this many choices.
+pub const SELECT_SEARCH_PAST: usize = 10;
+
+/// A `select` field's options: a list of value/label pairs, and whether the
+/// dropdown is searched rather than scrolled.
 #[derive(Debug, Default, Deserialize)]
 struct SelectOptions {
     #[serde(default)]
     options: Vec<SelectOption>,
+    #[serde(default)]
+    search: crate::checklist::Offer,
+}
+
+impl SelectOptions {
+    fn searchable(&self) -> bool {
+        use crate::checklist::Offer;
+        match self.search {
+            Offer::Auto => self.options.len() > SELECT_SEARCH_PAST,
+            Offer::Always => true,
+            Offer::Never => false,
+        }
+    }
+}
+
+/// The select's view-model payload: its choices, and whether it is searched.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct SelectData {
+    options: Vec<OptionView>,
+    #[serde(default)]
+    search: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1413,6 +1438,7 @@ struct SelectTmpl<'a> {
     id: &'a str,
     required: bool,
     options: &'a [OptionView],
+    search: bool,
 }
 
 /// A dropdown over a fixed option list.
@@ -1423,7 +1449,15 @@ impl FieldType for SelectField {
         "select"
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        keys(&["options"])
+        keys(&["options", "search"])
+    }
+    /// The typeahead ships with the record picker; a searched dropdown needs it
+    /// on the page too.
+    fn assets(&self, opts: &ResolvedOptions) -> Vec<&'static str> {
+        match opts.get::<SelectOptions>() {
+            Some(o) if o.searchable() => vec!["fields/ref-picker.js", "fields/ref-picker.css"],
+            _ => Vec::new(),
+        }
     }
     fn resolve_options(
         &self,
@@ -1436,20 +1470,22 @@ impl FieldType for SelectField {
     }
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
         let current = cx.value.as_text();
-        let views: Vec<OptionView> = cx
-            .opts
-            .get::<SelectOptions>()
-            .map(|o| {
-                o.options
-                    .iter()
-                    .map(|so| OptionView {
-                        value: so.value.clone(),
-                        label: so.label.clone().unwrap_or_else(|| so.value.clone()),
-                        selected: so.value == current,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let opts = cx.opts.get::<SelectOptions>();
+        let data = SelectData {
+            options: opts
+                .map(|o| {
+                    o.options
+                        .iter()
+                        .map(|so| OptionView {
+                            value: so.value.clone(),
+                            label: so.label.clone().unwrap_or_else(|| so.value.clone()),
+                            selected: so.value == current,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            search: opts.is_some_and(SelectOptions::searchable),
+        };
         FieldVm {
             view_key: "select".to_string(),
             name: cx.name.to_string(),
@@ -1457,16 +1493,17 @@ impl FieldType for SelectField {
             label: cx.label.to_string(),
             required: cx.required,
             value: cx.value.clone(),
-            data: serde_json::to_value(&views).unwrap_or_default(),
+            data: serde_json::to_value(&data).unwrap_or_default(),
         }
     }
     fn render_default(&self, vm: &FieldVm) -> Markup {
-        let options: Vec<OptionView> = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        let data: SelectData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
         Markup::from_template(&SelectTmpl {
             name: &vm.name,
             id: &vm.id,
             required: vm.required,
-            options: &options,
+            options: &data.options,
+            search: data.search,
         })
         .unwrap_or_default()
     }

@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A dropdown past ten choices is searched (`search`), and the record picker
+  takes the keyboard: Down and Up, Enter, Escape, an emptied box clears it.
+
 ## [0.9.4] - 2026-09-30
 
 Field dependencies: a slug follows its title, and a field shows, hides or

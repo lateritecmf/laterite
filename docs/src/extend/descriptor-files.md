@@ -84,7 +84,8 @@ Type | Keys
 --- | ---
 `text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`, `counter`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
 `textarea` | `rows`, `placeholder`, `grow`, `counter`
-`select`, `radio` | `options`: a list of `{ value, label }`
+`select` | `options`: a list of `{ value, label }`; `search`
+`radio` | `options`
 `checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
 `reference` | `source`
 `repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`
@@ -146,6 +147,7 @@ Key | On | Values | Default
 `counter` | `text`, `textarea` | `auto`, `true`, `false` | `auto`: with a `max_length` rule, shown once four fifths of it are used
 `grow` | `textarea` | `true`, `false` | `true`: as tall as its text, from `rows` up to most of the window
 `reveal` | `password` | `true`, `false` | `true`: a button shows what was typed
+`search` | `select` | `auto`, `true`, `false` | `auto`: past 10 choices, the dropdown is searched. An option with an empty value is what clearing chooses.
 
 A `max_length` rule also sets the control's `maxlength`.
 
