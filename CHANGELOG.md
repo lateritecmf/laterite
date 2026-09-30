@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-30
+
+Field dependencies: a slug follows its title, and a field shows, hides or
+fills itself as another field changes, all from the descriptor.
+
 ### Added
 
 - `preset` fills a field from another as it is typed (a slug from a title), and
