@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use laterite_core::query::{bind_values, build as to_sql, text_cast};
 use laterite_core::validation::{validate, FieldRules, Mode, Rule};
 use laterite_core::{
-    t, Actor, AnyRowExt, ErrorBag, ModelListener, ModelListenerReg, Op, Record, Text,
+    t, Actor, AnyRowExt, Db, ErrorBag, ModelListener, ModelListenerReg, Op, Record, Text,
 };
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
@@ -918,6 +918,131 @@ fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
         .collect()
 }
 
+/// The write a submit and a [`FormHandle`] share: `data` (already gathered)
+/// validated against the merged rules, shaped into the declared record and saved
+/// through the listeners and the persister. `id` names the row an edit updates;
+/// `None` creates. Returns the record as saved, its id set on a create.
+pub(crate) async fn write(
+    db: &Db,
+    form: &PreparedForm,
+    data: &HashMap<String, String>,
+    id: Option<&str>,
+    actor: &Actor,
+) -> Result<Record, SaveError> {
+    if !form.config.idents_valid() {
+        return Err(SaveError::Failed(format!(
+            "form `{}` names an invalid entity or field identifier",
+            form.config.entity
+        )));
+    }
+    let (mode, op) = match id {
+        None => (Mode::Create, Op::Create),
+        Some(_) => (Mode::Update, Op::Update),
+    };
+    let bag = validate(
+        db,
+        &form.config.entity,
+        &form.config.id_field,
+        &merged_field_rules(form),
+        data,
+        mode,
+        id,
+    )
+    .await
+    .map_err(|e| SaveError::Failed(e.to_string()))?;
+    if !bag.is_empty() {
+        return Err(SaveError::Invalid(bag));
+    }
+    let mut rec = declared_record(form, data, mode).map_err(|e| {
+        tracing::error!(entity = %form.config.entity, error = %e, "preparing the write failed");
+        SaveError::Failed(e)
+    })?;
+    if let Some(n) = id.and_then(|id| id.parse::<i64>().ok()) {
+        rec.set_id(n);
+    }
+    persist::save(
+        persist::SaveRequest {
+            db,
+            listeners: &form.listeners,
+            persister: form.persister.as_ref(),
+            actor,
+            op,
+            id,
+        },
+        &mut rec,
+    )
+    .await?;
+    Ok(rec)
+}
+
+/// The forms the resources mounted, keyed by each resource's path as its
+/// descriptor declares it, relative to the admin root.
+pub(crate) type Forms = Arc<HashMap<String, Arc<PreparedForm>>>;
+
+/// A resource's form, written through from code.
+///
+/// Runs what the form's own submit runs, with no request in hand: the values
+/// are validated against the form's rules, shaped by its field types and saved
+/// through its listeners and persister, so an importer or a sync writes exactly
+/// what an operator could have typed, audited the same way. A screen reaches one
+/// through [`crate::routes::RouteCtx::form`].
+#[derive(Clone)]
+pub struct FormHandle {
+    db: Db,
+    form: Arc<PreparedForm>,
+}
+
+impl FormHandle {
+    pub(crate) fn new(db: Db, form: Arc<PreparedForm>) -> Self {
+        Self { db, form }
+    }
+
+    /// The table the form writes.
+    pub fn entity(&self) -> &str {
+        &self.form.config.entity
+    }
+
+    /// The primary key column.
+    pub fn id_field(&self) -> &str {
+        &self.form.config.id_field
+    }
+
+    /// The fields the form declares, in order. `data` is keyed by their names.
+    pub fn fields(&self) -> &[FormField] {
+        &self.form.config.fields
+    }
+
+    /// Validates `data` as a submission and saves a new record, returning its id.
+    ///
+    /// `data` holds each field's value under the field's name, as the form's
+    /// control submits it; a field left out is blank. `Invalid` carries the
+    /// per-field messages a refused submit would show.
+    pub async fn create(
+        &self,
+        data: HashMap<String, String>,
+        actor: &Actor,
+    ) -> Result<i64, SaveError> {
+        let data = gathered(&self.form, data);
+        let rec = write(&self.db, &self.form, &data, None, actor).await?;
+        rec.id()
+            .ok_or_else(|| SaveError::Failed("the persister returned no id".to_string()))
+    }
+
+    /// Validates `data` as an edit of the record `id` and saves it. Every field
+    /// is written, so a field left out of `data` is stored blank.
+    pub async fn update(
+        &self,
+        id: i64,
+        data: HashMap<String, String>,
+        actor: &Actor,
+    ) -> Result<(), SaveError> {
+        let data = gathered(&self.form, data);
+        write(&self.db, &self.form, &data, Some(&id.to_string()), actor)
+            .await
+            .map(|_| ())
+    }
+}
+
 /// The longest value the rules accept, when they set one.
 pub(crate) fn max_length(rules: &[Rule]) -> Option<usize> {
     rules
@@ -966,55 +1091,16 @@ pub(crate) async fn create(
     let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
     let data = gathered(form, data);
-
-    let bag = match validate(
-        &state.db,
-        &form.config.entity,
-        &form.config.id_field,
-        &merged_field_rules(form),
-        &data,
-        Mode::Create,
-        None,
-    )
-    .await
-    {
-        Ok(bag) => bag,
-        Err(_) => return render_error(),
-    };
-    if !bag.is_empty() {
-        // A failed submission re-renders the form with per-field errors as 422,
-        // the cross-surface "validation failure" status.
-        return invalid_response(htmx, state, form, &action, None, &data, &bag, &shell);
-    }
-
-    let mut rec = match declared_record(form, &data, Mode::Create) {
-        Ok(rec) => rec,
-        Err(e) => {
-            tracing::error!(entity = %form.config.entity, error = %e, "preparing the write failed");
-            return render_error();
-        }
-    };
     let actor = Actor::from(user);
-    match persist::save(
-        persist::SaveRequest {
-            db: &state.db,
-            listeners: &form.listeners,
-            persister: form.persister.as_ref(),
-            actor: &actor,
-            op: Op::Create,
-            id: None,
-        },
-        &mut rec,
-    )
-    .await
-    {
+    match write(&state.db, form, &data, None, &actor).await {
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
-        Ok(()) => {
+        Ok(_) => {
             session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
             saved_response(htmx, &form.config.base_path)
         }
-        // A persist-time domain check re-renders 422 with its per-field messages.
+        // A refused submission re-renders the form with per-field errors as 422,
+        // the cross-surface "validation failure" status.
         Err(SaveError::Invalid(bag)) => {
             invalid_response(htmx, state, form, &action, None, &data, &bag, &shell)
         }
@@ -1121,55 +1207,14 @@ pub(crate) async fn update(
     let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
     let data = gathered(form, data);
-
-    let bag = match validate(
-        &state.db,
-        &form.config.entity,
-        &form.config.id_field,
-        &merged_field_rules(form),
-        &data,
-        Mode::Update,
-        Some(&id),
-    )
-    .await
-    {
-        Ok(bag) => bag,
-        Err(_) => return render_error(),
-    };
-    if !bag.is_empty() {
-        // A failed submission re-renders the form with per-field errors as 422,
-        // the cross-surface "validation failure" status.
-        return invalid_response(htmx, state, form, &action, None, &data, &bag, &shell);
-    }
-
-    let mut rec = match declared_record(form, &data, Mode::Update) {
-        Ok(rec) => rec,
-        Err(e) => {
-            tracing::error!(entity = %form.config.entity, error = %e, "preparing the write failed");
-            return render_error();
-        }
-    };
-    if let Ok(n) = id.parse::<i64>() {
-        rec.set_id(n);
-    }
     let actor = Actor::from(user);
-    match persist::save(
-        persist::SaveRequest {
-            db: &state.db,
-            listeners: &form.listeners,
-            persister: form.persister.as_ref(),
-            actor: &actor,
-            op: Op::Update,
-            id: Some(&id),
-        },
-        &mut rec,
-    )
-    .await
-    {
-        Ok(()) => {
+    match write(&state.db, form, &data, Some(&id), &actor).await {
+        Ok(_) => {
             session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
             saved_response(htmx, &form.config.base_path)
         }
+        // A refused submission re-renders the form with per-field errors as 422,
+        // the cross-surface "validation failure" status.
         Err(SaveError::Invalid(bag)) => {
             invalid_response(htmx, state, form, &action, None, &data, &bag, &shell)
         }

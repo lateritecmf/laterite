@@ -8,10 +8,13 @@
 //! A [`PublicRoute`] is the same idea outside the admin, for the endpoints that
 //! have to live at a literal path: `/robots.txt`, a sitemap, a feed, a webhook.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
 use laterite_core::{Db, Events, Registry, Text};
+
+use crate::form::{FormHandle, Forms};
 
 /// What a contributed route is given at boot.
 ///
@@ -27,6 +30,7 @@ pub struct RouteCtx {
     base_url: Arc<str>,
     plugin_defined: Arc<Registry>,
     events: Events,
+    forms: Forms,
 }
 
 impl RouteCtx {
@@ -37,6 +41,7 @@ impl RouteCtx {
         base_url: &str,
         plugin_defined: Arc<Registry>,
         events: Events,
+        forms: Forms,
     ) -> Self {
         Self {
             db,
@@ -45,11 +50,25 @@ impl RouteCtx {
             base_url: Arc::from(base_url),
             plugin_defined,
             events,
+            forms,
         }
     }
 
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// A resource's form, to write its records from code: an importer, a sync,
+    /// anything that saves what an operator could have typed.
+    ///
+    /// `path` is the resource's path as its descriptor declares it, relative to
+    /// the admin root (`/products`). `None` when no resource mounts there or the
+    /// one that does has no form. The handle is `Clone` and owns what it needs,
+    /// so a detached task may keep it.
+    pub fn form(&self, path: &str) -> Option<FormHandle> {
+        self.forms
+            .get(path)
+            .map(|form| FormHandle::new(self.db.clone(), form.clone()))
     }
 
     /// The application's event bus, for a route that announces a fact:
@@ -180,6 +199,7 @@ impl RouteCtxBuilder {
             self.plugin_defined
                 .unwrap_or_else(|| Arc::new(Registry::new())),
             events,
+            Arc::new(HashMap::new()),
         )
     }
 }

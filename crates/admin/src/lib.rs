@@ -1320,16 +1320,29 @@ pub fn router(
     };
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
+    // The resources' forms, collected as they mount so a screen can write
+    // through one (`RouteCtx::form`). Keyed by the path as authored, relative to
+    // the admin root, which is how a screen names a resource.
+    let mut forms: HashMap<String, Arc<form::PreparedForm>> = HashMap::new();
     for resource in &resources {
-        protected = protected.merge(mount_resource(
+        let (mounted, prepared) = mount_resource(
             resource,
             &state.field_types,
             &state.column_types,
             &permission_codes,
             &persisters,
             &app_listeners,
-        ));
+        );
+        protected = protected.merge(mounted);
+        if let Some(prepared) = prepared {
+            let key = resource
+                .base_path
+                .strip_prefix(admin_path.as_str())
+                .unwrap_or(&resource.base_path);
+            forms.insert(key.to_string(), prepared);
+        }
     }
+    let forms: form::Forms = Arc::new(forms);
     // A module's own screens: routes it wrote, mounted inside the protected tree
     // so they inherit the session, the permission guard, CSRF and the error pages.
     // Nested as a service, so the screen's router carries no framework state.
@@ -1342,6 +1355,7 @@ pub fn router(
             &state.origin,
             state.plugin_defined.clone(),
             state.auth.events().clone(),
+            forms.clone(),
         );
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
@@ -1484,6 +1498,7 @@ pub fn router(
             &state.origin,
             &state.plugin_defined,
             state.auth.events(),
+            &forms,
         ))
         // Unmatched URLs render the styled 404; a handler panic renders the 500.
         .fallback(not_found_fallback)
@@ -1563,6 +1578,7 @@ fn mount_public(
     origin: &str,
     plugin_defined: &Arc<laterite_core::Registry>,
     events: &laterite_core::Events,
+    forms: &form::Forms,
 ) -> Router<AdminState> {
     let mut router = Router::new();
     for reg in regs {
@@ -1573,6 +1589,7 @@ fn mount_public(
             origin,
             plugin_defined.clone(),
             events.clone(),
+            forms.clone(),
         );
         // A nested service does not inherit the outer fallback, so without this a
         // request *below* a public route (`/robots.txt/anything`) escapes into
@@ -1801,7 +1818,7 @@ fn mount_resource(
     permission_codes: &std::collections::HashSet<String>,
     persisters: &persist::PersisterRegistry,
     listeners: &[laterite_core::ModelListenerReg],
-) -> Router<AdminState> {
+) -> (Router<AdminState>, Option<Arc<form::PreparedForm>>) {
     // A column naming a type nobody registered used to render an empty cell;
     // it aborts boot instead, like a form field with an unregistered type. So
     // does a column requiring a permission nobody registered.
@@ -1935,6 +1952,7 @@ fn mount_resource(
             );
     }
 
+    let mut prepared_form = None;
     if let Some(form_cfg) = resource.form.clone() {
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
@@ -1942,6 +1960,7 @@ fn mount_resource(
             form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
                 .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
         );
+        prepared_form = Some(prepared.clone());
         let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
         router = router.route(
             &format!("{base}/new"),
@@ -1998,7 +2017,7 @@ fn mount_resource(
     if let Some(permission) = &resource.permission {
         router = guard_with_permission(router, permission);
     }
-    router
+    (router, prepared_form)
 }
 
 /// Wraps every route currently in `router` in a permission guard: the auth guard

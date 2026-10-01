@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `RouteCtx::form(path)` hands a screen a resource's form to write records
+  through from code, with the submit's rules, listeners, persister and audit.
+
 ## [0.9.8] - 2026-10-01
 
 ### Fixed

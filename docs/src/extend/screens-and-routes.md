@@ -186,3 +186,45 @@ impl PublicRoute for Feeds {
 Any `Send + Sync` type another module registers. Contributions the framework
 consumes itself (resources, screens, settings, permissions, persisters,
 listeners, column types, public routes) are not visible here.
+
+## Write through a resource's form
+
+```rust
+use std::collections::HashMap;
+use laterite_admin::persist::SaveError;
+use laterite_core::Actor;
+
+impl Screen for Importer {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let products = ctx.form("/products").expect("the products resource");
+        Router::new().route("/run", post(move || {
+            let products = products.clone();
+            async move {
+                let actor = Actor::system("acme.import");
+                let mut row = HashMap::new();
+                row.insert("sku".to_string(), "A-100".to_string());
+                row.insert("name".to_string(), "Anvil".to_string());
+                match products.create(row, &actor).await {
+                    Ok(id) => format!("created {id}"),
+                    Err(SaveError::Invalid(bag)) => format!("refused: {bag:?}"),
+                    Err(SaveError::Failed(e)) => format!("failed: {e}"),
+                }
+            }
+        }))
+    }
+}
+```
+
+`ctx.form(path)` takes the resource's path as its descriptor declares it, relative
+to the admin root, and is `None` when nothing with a form mounts there. The
+handle is `Clone` and owns what it needs.
+
+Method | Does
+--- | ---
+`create(data, &actor)` | Validates `data` as a submission, saves a new record through the form's field types, listeners and persister, and returns its id.
+`update(id, data, &actor)` | The same as an edit of the record `id`. Every field is written; one left out of `data` is stored blank.
+`entity()`, `id_field()` | The table and its primary key column.
+`fields()` | The declared fields, in order; `data` is keyed by their names.
+
+`SaveError::Invalid` carries the per-field messages a refused submit shows;
+`SaveError::Failed` is the write failing. The audit log records the actor.

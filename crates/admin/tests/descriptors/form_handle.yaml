@@ -1,0 +1,12 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Post
+  fields:
+    code: { rules: [required, { max_length: 60 }] }
+    name: { rules: [required] }
