@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-10-01
+
 ### Fixed
 
 - A repeater on a descriptor form shows its stored rows on edit (saving the
