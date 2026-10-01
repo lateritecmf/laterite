@@ -9,6 +9,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- New crate `laterite-import`: runs a CSV through a resource's form, detached,
+  with a polled report of the rows created, updated, skipped and refused.
+- `FormHandle::load(id)` returns a record's values as its edit form shows them.
 - `RouteCtx::form(path)` hands a screen a resource's form to write records
   through from code, with the submit's rules, listeners, persister and audit.
 

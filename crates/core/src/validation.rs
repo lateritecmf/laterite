@@ -109,6 +109,13 @@ impl ErrorBag {
     pub fn messages(&self, field: &str) -> &[Text] {
         self.fields.get(field).map(Vec::as_slice).unwrap_or(&[])
     }
+
+    /// Every field with messages, in field order, each with its messages.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &[Text])> {
+        self.fields
+            .iter()
+            .map(|(field, messages)| (field.as_str(), messages.as_slice()))
+    }
 }
 
 /// Whether the value is a calendar date in the one format a date control sends

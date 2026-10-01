@@ -1028,6 +1028,16 @@ impl FormHandle {
             .ok_or_else(|| SaveError::Failed("the persister returned no id".to_string()))
     }
 
+    /// The record `id` as the edit form shows it: each stored value back through
+    /// its field type, keyed by field name. `None` when no record has that id.
+    /// Lay a partial `data` over it before [`update`](Self::update) to change
+    /// some fields and keep the rest.
+    pub async fn load(&self, id: i64) -> Result<Option<HashMap<String, String>>, SaveError> {
+        load_values(&self.db, &self.form, &id.to_string())
+            .await
+            .map_err(|e| SaveError::Failed(e.to_string()))
+    }
+
     /// Validates `data` as an edit of the record `id` and saves it. Every field
     /// is written, so a field left out of `data` is stored blank.
     pub async fn update(
@@ -1129,11 +1139,36 @@ pub(crate) async fn edit_form(
     if !form.config.idents_valid() {
         return render_error();
     }
+    let values = match load_values(&state.db, form, &id).await {
+        Ok(Some(values)) => values,
+        Ok(None) => return not_found(),
+        Err(_) => return render_error(),
+    };
+
+    render(build(
+        state,
+        form,
+        &format!("{}/{}/edit", form.config.base_path, id),
+        None,
+        &values,
+        &ErrorBag::default(),
+        &shell,
+    ))
+}
+
+/// The stored record `id` as control values: each column back through its
+/// field type, since what a column holds and what its control shows are not
+/// always the same string. `None` when no record has that id.
+pub(crate) async fn load_values(
+    db: &Db,
+    form: &PreparedForm,
+    id: &str,
+) -> Result<Option<HashMap<String, String>>, sqlx::Error> {
     // Scope the sea-query builder so it is dropped before the await below: its
     // identifiers are reference-counted (not `Send`), and a live builder across
-    // the await would make this handler's future non-`Send`.
+    // the await would make the caller's future non-`Send`.
     let (sql, values) = {
-        let cast = text_cast(state.db.backend);
+        let cast = text_cast(db.backend);
         let mut select = Query::select();
         for field in &form.config.fields {
             select.expr_as(
@@ -1144,45 +1179,29 @@ pub(crate) async fn edit_form(
         select.from(Alias::new(&form.config.entity)).and_where(
             Expr::col(Alias::new(&form.config.id_field))
                 .cast_as(Alias::new(cast))
-                .eq(id.clone()),
+                .eq(id.to_string()),
         );
-        to_sql(state.db.backend, select)
+        to_sql(db.backend, select)
     };
-    let row = match bind_values(sqlx::query(&sql), values)
-        .fetch_optional(&state.db.pool)
-        .await
-    {
-        Ok(row) => row,
-        Err(_) => return render_error(),
+    let Some(row) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+    else {
+        return Ok(None);
     };
-    let Some(row) = row else {
-        return not_found();
-    };
-
-    // Each stored value goes back through its field type: what a column holds and
-    // what its control shows are not always the same string.
-    let values = form
-        .config
-        .fields
-        .iter()
-        .zip(&form.fields)
-        .map(|(f, prepared)| {
-            let stored = row.get_text_opt(f.name.as_str()).ok().flatten();
-            let value = prepared
-                .field_type
-                .to_control(stored.as_deref(), &prepared.opts);
-            (f.name.clone(), value)
-        })
-        .collect();
-
-    render(build(
-        state,
-        form,
-        &format!("{}/{}/edit", form.config.base_path, id),
-        None,
-        &values,
-        &ErrorBag::default(),
-        &shell,
+    Ok(Some(
+        form.config
+            .fields
+            .iter()
+            .zip(&form.fields)
+            .map(|(f, prepared)| {
+                let stored = row.get_text_opt(f.name.as_str()).ok().flatten();
+                let value = prepared
+                    .field_type
+                    .to_control(stored.as_deref(), &prepared.opts);
+                (f.name.clone(), value)
+            })
+            .collect(),
     ))
 }
 

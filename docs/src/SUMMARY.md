@@ -30,6 +30,7 @@
 - [Audit Log](extend/audit-log.md)
 - [Sessions and CSRF](extend/sessions.md)
 - [Media and File Storage](extend/media.md)
+- [Bulk Import](extend/bulk-import.md)
 - [Database Portability](extend/database-portability.md)
 
 # The Public Web

@@ -1398,6 +1398,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "laterite-import"
+version = "0.9.8"
+dependencies = [
+ "chrono",
+ "csv",
+ "futures",
+ "laterite-admin",
+ "laterite-auth",
+ "laterite-core",
+ "laterite-media",
+ "sea-query",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "laterite-macros"
 version = "0.9.8"
 dependencies = [
