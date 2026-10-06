@@ -99,7 +99,9 @@ pub async fn create(db: &Db, new: NewMedia) -> Result<i64, RecordError> {
             new.size.into(),
             new.content_type.into(),
             new.original_name.into(),
-            new.in_library.into(),
+            // The column is the integer polyfill; a boolean would not bind to it
+            // on every backend.
+            i32::from(new.in_library).into(),
             new.created_by.into(),
             now.clone().into(),
             now.into(),

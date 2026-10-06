@@ -1401,6 +1401,7 @@ dependencies = [
 name = "laterite-import"
 version = "0.9.8"
 dependencies = [
+ "askama",
  "chrono",
  "csv",
  "futures",
@@ -1412,8 +1413,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tower",
  "tracing",
 ]
 

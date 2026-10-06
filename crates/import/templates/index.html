@@ -1,0 +1,51 @@
+<div class="lat-card">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Resource") }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% if targets.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("Nothing is registered for import.") }}</td></tr>
+      {% endif %}
+      {% for t in targets %}
+      <tr>
+        <td>{{ t.label }}</td>
+        <td class="lat-table__actions"><a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ t.href }}">{{ shell.t("Import") }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<h2 class="lat-import__heading">{{ shell.t("Recent runs") }}</h2>
+<div class="lat-card">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Run") }}</th>
+      <th>{{ shell.t("Resource") }}</th>
+      <th>{{ shell.t("Status") }}</th>
+      <th>{{ shell.t("Created") }}</th>
+      <th>{{ shell.t("Updated") }}</th>
+      <th>{{ shell.t("Skipped") }}</th>
+      <th>{{ shell.t("Refused") }}</th>
+      <th>{{ shell.t("Started") }}</th>
+    </tr></thead>
+    <tbody>
+      {% if runs.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No runs yet.") }}</td></tr>
+      {% endif %}
+      {% for r in runs %}
+      <tr>
+        <td><a href="{{ r.href }}">#{{ r.id }}</a></td>
+        <td>{{ r.resource }}</td>
+        <td><span class="lat-status {{ r.status_class }}">{{ r.status }}</span></td>
+        <td>{{ r.created }}</td>
+        <td>{{ r.updated }}</td>
+        <td>{{ r.skipped }}</td>
+        <td>{{ r.errors }}</td>
+        <td>{{ r.started_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

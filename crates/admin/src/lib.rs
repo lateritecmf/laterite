@@ -312,8 +312,12 @@ struct NavLink {
 /// signed-in operator. Built once by the auth guard and injected into request
 /// extensions, so page handlers render inside the same shell without each
 /// rebuilding it. Templates embed it as `shell` and `base.html` renders it.
+///
+/// A contributed screen takes it as `Extension<Shell>` and renders its own
+/// markup inside the chrome with [`Shell::page`]; [`Shell::t`] localizes its
+/// strings and [`Shell::csrf_token`] arms a form it builds by hand.
 #[derive(Clone)]
-pub(crate) struct Shell {
+pub struct Shell {
     /// The admin mount path (e.g. `/admin`), so shared chrome (asset links, the
     /// brand link, sign-out and preferences) builds URLs under the configured
     /// panel path rather than a hardcoded `/admin`.
@@ -362,6 +366,15 @@ pub(crate) struct Shell {
     /// deduped and emitted in the head after core `laterite.js`. See
     /// [`page_assets`].
     pub(crate) assets: Vec<PageAsset>,
+}
+
+/// A contributed screen's markup inside the chrome. See [`Shell::page`].
+#[derive(Template)]
+#[template(path = "page.html")]
+struct PageTemplate {
+    title: String,
+    body: html::Markup,
+    shell: Shell,
 }
 
 /// One per-page asset to load: a resolved URL and whether it is a stylesheet.
@@ -472,31 +485,66 @@ impl Shell {
 
     /// Localizes a source string in this request's locale, falling back to the
     /// source itself. Templates call `{{ shell.t("Save") }}`.
-    pub(crate) fn t(&self, source: &str) -> String {
+    pub fn t(&self, source: &str) -> String {
         self.i18n.t(&Text::dynamic(source))
     }
 
     /// Localizes a prebuilt message (a `t!`/`tn!` value, a descriptor label, a
     /// flash) into this request's locale.
-    pub(crate) fn tt(&self, text: &Text) -> String {
+    pub fn tt(&self, text: &Text) -> String {
         self.i18n.t(text)
     }
 
     /// The request's translator, for a field type that localizes strings of its
     /// own (a repeater's sub-field labels) rather than only the label it is given.
-    pub(crate) fn i18n(&self) -> &Translator {
+    pub fn i18n(&self) -> &Translator {
         &self.i18n
     }
 
     /// The active locale (most specific in the chain), for `<html lang>`.
-    pub(crate) fn locale(&self) -> &str {
+    pub fn locale(&self) -> &str {
         self.i18n.locale()
+    }
+
+    /// The admin mount (`/admin`), for a link into the panel.
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// This session's request token, for a form a screen builds by hand: a
+    /// hidden field named `_csrf`, placed first when the form uploads a file.
+    /// An HTMX request carries it already.
+    pub fn csrf_token(&self) -> &str {
+        &self.csrf_token
+    }
+
+    /// A UTC timestamp as stored (RFC 3339), shown in this operator's timezone.
+    /// Text that does not parse is shown as it is.
+    pub fn datetime(&self, utc: &str) -> String {
+        match chrono::DateTime::parse_from_rfc3339(utc) {
+            Ok(at) => at
+                .with_timezone(&self.tz)
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
+            Err(_) => utc.to_string(),
+        }
+    }
+
+    /// Renders `body` as a page in the admin chrome, headed by `title`. The
+    /// body is a screen's own markup, built from its templates through
+    /// [`html::Markup::from_template`].
+    pub fn page(&self, title: &Text, body: html::Markup) -> Response {
+        render(PageTemplate {
+            title: self.tt(title),
+            body,
+            shell: self.clone(),
+        })
     }
 
     /// Localizes a source string with integer `{name}` arguments, for a template
     /// (`{{ shell.tf("Page {n} of {m}", [("n", page), ("m", pages)]) }}`). Nested-`Text`
     /// arguments are built in Rust with `t!` and rendered with `tt`.
-    pub(crate) fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
+    pub fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
         let mut text = Text::dynamic(source);
         for (name, value) in args {
             text = text.arg(*name, *value);
@@ -506,7 +554,7 @@ impl Shell {
 
     /// Like [`Shell::tf`], but with string `{name}` arguments, for a template
     /// (`{{ shell.tfs("Signed in as {name}", [("name", user)]) }}`).
-    pub(crate) fn tfs(&self, source: &str, args: &[(&'static str, &str)]) -> String {
+    pub fn tfs(&self, source: &str, args: &[(&'static str, &str)]) -> String {
         let mut text = Text::dynamic(source);
         for (name, value) in args {
             text = text.arg(*name, *value);

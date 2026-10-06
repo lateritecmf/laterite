@@ -122,40 +122,33 @@ fn count_values(counts: &Counts) -> Vec<(ImportRuns, sea_query::SimpleExpr)> {
     ]
 }
 
-/// One run by id, or `None` when there is no such run.
-pub(crate) async fn find(db: &Db, id: i64) -> Result<Option<Run>, sqlx::Error> {
-    let (sql, values) = build(
-        db.backend,
-        Query::select()
-            .columns([
-                ImportRuns::Id,
-                ImportRuns::Resource,
-                ImportRuns::MediaId,
-                ImportRuns::ActorLabel,
-                ImportRuns::Status,
-                ImportRuns::Processed,
-                ImportRuns::Created,
-                ImportRuns::Updated,
-                ImportRuns::Skipped,
-                ImportRuns::Errors,
-                ImportRuns::Notes,
-                ImportRuns::Failure,
-                ImportRuns::StartedAt,
-                ImportRuns::FinishedAt,
-            ])
-            .from(ImportRuns::Table)
-            .and_where(Expr::col(ImportRuns::Id).eq(id))
-            .to_owned(),
-    );
-    let Some(row) = bind_values(sqlx::query(&sql), values)
-        .fetch_optional(&db.pool)
-        .await?
-    else {
-        return Ok(None);
-    };
+/// The run columns a read selects, in one place.
+fn select_runs() -> sea_query::SelectStatement {
+    Query::select()
+        .columns([
+            ImportRuns::Id,
+            ImportRuns::Resource,
+            ImportRuns::MediaId,
+            ImportRuns::ActorLabel,
+            ImportRuns::Status,
+            ImportRuns::Processed,
+            ImportRuns::Created,
+            ImportRuns::Updated,
+            ImportRuns::Skipped,
+            ImportRuns::Errors,
+            ImportRuns::Notes,
+            ImportRuns::Failure,
+            ImportRuns::StartedAt,
+            ImportRuns::FinishedAt,
+        ])
+        .from(ImportRuns::Table)
+        .to_owned()
+}
+
+fn read_run(row: &sqlx::any::AnyRow) -> Result<Run, sqlx::Error> {
     let status = row.get_text("status")?;
     let notes: Vec<Note> = serde_json::from_str(&row.get_text("notes")?).unwrap_or_default();
-    Ok(Some(Run {
+    Ok(Run {
         id: row.get_int("id")?,
         resource: row.get_text("resource")?,
         media_id: row.get_int_opt("media_id")?,
@@ -170,5 +163,38 @@ pub(crate) async fn find(db: &Db, id: i64) -> Result<Option<Run>, sqlx::Error> {
         failure: row.get_text_opt("failure")?,
         started_at: row.get_text("started_at")?,
         finished_at: row.get_text_opt("finished_at")?,
-    }))
+    })
+}
+
+/// One run by id, or `None` when there is no such run.
+pub(crate) async fn find(db: &Db, id: i64) -> Result<Option<Run>, sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        select_runs()
+            .and_where(Expr::col(ImportRuns::Id).eq(id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+        .as_ref()
+        .map(read_run)
+        .transpose()
+}
+
+/// The latest `limit` runs, newest first.
+pub(crate) async fn recent(db: &Db, limit: i64) -> Result<Vec<Run>, sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        select_runs()
+            .order_by(ImportRuns::Id, sea_query::Order::Desc)
+            .limit(limit as u64)
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?
+        .iter()
+        .map(read_run)
+        .collect()
 }

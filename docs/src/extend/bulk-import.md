@@ -11,10 +11,34 @@ laterite-import = "0.9"
 
 ```rust
 Bootstrap::new("config")
-    .module(laterite_media::module())
-    .module(laterite_import::module())
+    .module(laterite_media::MediaModule)
+    .module(laterite_import::ImportModule)
     .serve()
 ```
+
+## Register what may be imported
+
+```rust
+use laterite_import::ImportReg;
+use laterite_media::{DiskReg, LocalDisk};
+
+fn register(&self, registry: &mut Registry) {
+    registry.add(ImportReg::new("/products", "Products").permission("acme.manage_products"));
+    registry.add(DiskReg::new("private", Arc::new(LocalDisk::new("storage/private"))));
+}
+```
+
+Registration | Does
+--- | ---
+`ImportReg::new(resource, label)` | Offers the resource at `resource` (its path as the descriptor declares it) on the screen under `label`. The resource must mount a form.
+`.permission(code)` | A permission the operator must hold besides `laterite.import.run`.
+`DiskReg::new("private", driver)` | The disk uploaded files are stored on. Required; a boot without one aborts naming it.
+
+The screen mounts at `/admin/import` under the **Import** menu entry and
+requires `laterite.import.run`. An operator picks a resource, uploads a CSV,
+sees each file column with a sample and the form field proposed for it, chooses
+how existing records are found, and starts the run. The report page shows the
+counts as they move and every refused or skipped row by its line in the file.
 
 ## Start a run
 

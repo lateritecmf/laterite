@@ -25,7 +25,43 @@ pub use ingest::{blob_path, ingest, stream_of, IngestError, Ingested};
 pub use local::LocalDisk;
 pub use record::{MediaRecord, NewMedia, RecordError};
 
-use laterite_core::{MigrationSet, Module, ModuleId};
+use std::sync::Arc;
+
+use laterite_core::{MigrationSet, Module, ModuleId, Text};
+
+/// A named disk the application declares, for a module that stores files to
+/// find.
+///
+/// Registered once, from the application's own module:
+/// `registry.add(DiskReg::new("private", Arc::new(LocalDisk::new("storage/private"))))`.
+/// A module reads it through `RouteCtx::contributions::<DiskReg>()`, picks the
+/// disk by name and stores that name on each record it writes, so a file's
+/// location is knowable from the record alone.
+#[non_exhaustive]
+pub struct DiskReg {
+    pub name: String,
+    pub driver: Arc<dyn StorageDriver>,
+    /// What the disk is for, shown where an operator chooses one. Defaults to
+    /// the name.
+    pub label: Text,
+}
+
+impl DiskReg {
+    pub fn new(name: impl Into<String>, driver: Arc<dyn StorageDriver>) -> Self {
+        let name = name.into();
+        Self {
+            label: Text::dynamic(name.clone()),
+            name,
+            driver,
+        }
+    }
+
+    /// What the disk is for, localized where shown.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = label.into();
+        self
+    }
+}
 
 /// This crate's module. An application that stores files registers it on
 /// `Bootstrap`; one that does not never compiles this crate at all.

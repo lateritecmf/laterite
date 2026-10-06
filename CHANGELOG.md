@@ -14,6 +14,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `FormHandle::load(id)` returns a record's values as its edit form shows them.
 - `RouteCtx::form(path)` hands a screen a resource's form to write records
   through from code, with the submit's rules, listeners, persister and audit.
+- The import screen at `/admin/import`: a CSV uploaded, its columns matched to a
+  resource's fields, the run started and its report watched. `ImportReg` says
+  which resources; a `laterite_media::DiskReg` named `private` keeps the file.
+- `laterite_admin::Shell` is public: a contributed screen renders its own
+  templates inside the admin chrome with `Shell::page`.
+
+### Fixed
+
+- `laterite-media`'s table migrates on Postgres and MySQL: its `in_library`
+  default and binding were booleans on the integer column.
 
 ## [0.9.8] - 2026-10-01
 

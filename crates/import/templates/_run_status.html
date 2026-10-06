@@ -1,0 +1,29 @@
+<div id="lat-import-run" class="lat-card"{% if let Some(url) = poll %} hx-get="{{ url }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <dl class="lat-facts">
+    <div><dt>{{ shell.t("Status") }}</dt><dd><span class="lat-status {{ status_class }}">{{ status }}</span></dd></div>
+    <div><dt>{{ shell.t("Rows read") }}</dt><dd>{{ run.processed }}</dd></div>
+    <div><dt>{{ shell.t("Created") }}</dt><dd>{{ run.created }}</dd></div>
+    <div><dt>{{ shell.t("Updated") }}</dt><dd>{{ run.updated }}</dd></div>
+    <div><dt>{{ shell.t("Skipped") }}</dt><dd>{{ run.skipped }}</dd></div>
+    <div><dt>{{ shell.t("Refused") }}</dt><dd>{{ run.errors }}</dd></div>
+    {% if let Some(at) = finished_at %}<div><dt>{{ shell.t("Finished") }}</dt><dd>{{ at }}</dd></div>{% endif %}
+  </dl>
+  {% if let Some(reason) = failure %}<div class="lat-alert">{{ reason }}</div>{% endif %}
+  {% if !notes.is_empty() %}
+  <div class="lat-tablewrap">
+    <table class="lat-table">
+      <thead><tr>
+        <th>{{ shell.t("Row") }}</th>
+        <th>{{ shell.t("Outcome") }}</th>
+        <th>{{ shell.t("Field") }}</th>
+        <th>{{ shell.t("Message") }}</th>
+      </tr></thead>
+      <tbody>
+        {% for n in notes %}
+        <tr><td>{{ n.row }}</td><td>{{ n.kind }}</td><td>{{ n.field }}</td><td>{{ n.message }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

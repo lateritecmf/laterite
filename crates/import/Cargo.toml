@@ -11,8 +11,10 @@ publish = false
 
 [dependencies]
 laterite-core = { workspace = true }
+laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }
 laterite-media = { workspace = true }
+askama = { workspace = true }
 chrono = { workspace = true }
 csv = { workspace = true }
 futures = { workspace = true }
@@ -34,5 +36,6 @@ sqlite = ["laterite-core/sqlite", "laterite-admin/sqlite"]
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["sqlite", "testing"] }
-laterite-auth = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
+tower = { workspace = true }

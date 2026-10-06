@@ -45,6 +45,54 @@ fn register(&self, registry: &mut Registry) {
 The screen inherits the session, the operator, CSRF protection and the error
 pages.
 
+## Render a page in the admin
+
+```rust
+use askama::Template;
+use laterite_admin::axum::{Extension, Router};
+use laterite_admin::html::Markup;
+use laterite_admin::{AdminError, Shell};
+use laterite_core::t;
+
+#[derive(Template)]
+#[template(path = "places.html")]
+struct PlacesTemplate<'a> {
+    shell: &'a Shell,
+    rows: Vec<String>,
+}
+
+async fn places(Extension(shell): Extension<Shell>) -> Response {
+    let body = PlacesTemplate { shell: &shell, rows: vec![] };
+    match Markup::from_template(&body) {
+        Ok(body) => shell.page(&t!("Places"), body),
+        Err(e) => AdminError::Internal(e.into()).into_response(),
+    }
+}
+```
+
+```html
+<div class="lat-card">
+  <form method="post" action="/admin/places">
+    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+    <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
+  </form>
+</div>
+```
+
+Method | Does
+--- | ---
+`shell.page(&title, body)` | The body inside the chrome: nav, flash messages, assets, the title as the heading.
+`shell.t("Save")`, `shell.tt(&text)` | A string, or a `Text`, in the operator's locale.
+`shell.csrf_token()` | The request token for a form the template builds. First in an upload form.
+`shell.datetime(&utc)` | A stored RFC 3339 timestamp in the operator's timezone.
+`shell.base()` | The admin mount, for a link into the panel.
+
+The admin's stylesheet is already on the page: `lat-card`, `lat-table`,
+`lat-fields`, `lat-field`, `lat-input`, `lat-select`, `lat-check`, `lat-facts`,
+`lat-actions`, `lat-btn`, `lat-alert`, `lat-help`, `lat-status`. A
+`SessionHandle` extension carries `push_flash`; an `AdminError` renders the
+styled 404, 403 or 500.
+
 ## Choose where it mounts
 
 ```rust

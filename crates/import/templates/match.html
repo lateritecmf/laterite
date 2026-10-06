@@ -1,0 +1,73 @@
+<div class="lat-card">
+  <form method="get" action="{{ action }}" hx-get="{{ action }}" hx-trigger="change" hx-target="#lat-import-match" hx-select="#lat-import-match" hx-swap="outerHTML" hx-push-url="true" data-lat-widget="form" data-lat-confirm-leave="off">
+    <dl class="lat-facts">
+      <div><dt>{{ shell.t("File") }}</dt><dd>{{ file_name }}</dd></div>
+    </dl>
+    <div class="lat-fields">
+      <div class="lat-field">
+        <label class="lat-check"><input type="hidden" name="titles" value="0"><input type="checkbox" name="titles" value="1"{% if titles %} checked{% endif %}> {{ shell.t("The first row holds the column titles") }}</label>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="delimiter">{{ shell.t("Values are separated by") }}</label>
+        <select class="lat-input lat-select" id="delimiter" name="delimiter">
+          <option value=","{% if delimiter == "," %} selected{% endif %}>{{ shell.t("Comma") }}</option>
+          <option value=";"{% if delimiter == ";" %} selected{% endif %}>{{ shell.t("Semicolon") }}</option>
+          <option value="tab"{% if delimiter == "tab" %} selected{% endif %}>{{ shell.t("Tab") }}</option>
+        </select>
+      </div>
+    </div>
+    <noscript><div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Read again") }}</button></div></noscript>
+  </form>
+</div>
+<div id="lat-import-match" class="lat-card">
+  <form method="post" action="{{ action }}" data-lat-widget="form" data-lat-confirm-leave="off">
+    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+    <input type="hidden" name="titles" value="{% if titles %}1{% else %}0{% endif %}">
+    <input type="hidden" name="delimiter" value="{{ delimiter }}">
+    {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+    <div class="lat-tablewrap">
+      <table class="lat-table">
+        <thead><tr>
+          <th>{{ shell.t("File column") }}</th>
+          <th>{{ shell.t("Sample") }}</th>
+          <th>{{ shell.t("Field") }}</th>
+        </tr></thead>
+        <tbody>
+          {% if columns.is_empty() %}
+          <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No columns could be read from the file.") }}</td></tr>
+          {% endif %}
+          {% for c in columns %}
+          <tr>
+            <td>{{ c.title }}</td>
+            <td class="lat-help">{{ c.sample }}</td>
+            <td>
+              <select class="lat-input lat-select" name="match_{{ c.index }}" aria-label="{{ c.title }}">
+                <option value="">{{ shell.t("Not imported") }}</option>
+                {% for f in fields %}<option value="{{ f.name }}"{% if c.selected == f.name %} selected{% endif %}>{{ f.label }}{% if f.required %} *{% endif %}</option>{% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="lat-help">{{ shell.t("A field marked * must be matched.") }}</p>
+    <div class="lat-fields">
+      <div class="lat-field">
+        <label class="lat-field__label" for="key">{{ shell.t("Existing records are found by") }}</label>
+        <select class="lat-input lat-select" id="key" name="key">
+          <option value="">{{ shell.t("Nothing: every row makes a new record") }}</option>
+          {% for f in fields %}<option value="{{ f.name }}">{{ f.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="lat-field">
+        <label class="lat-check"><input type="radio" name="on_match" value="skip" checked> {{ shell.t("Pass over a row whose record exists") }}</label>
+        <label class="lat-check"><input type="radio" name="on_match" value="update"> {{ shell.t("Update the record from the row") }}</label>
+      </div>
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Start the import") }}</button>
+      <a class="lat-btn lat-btn--ghost" href="{{ back }}">{{ shell.t("Back") }}</a>
+    </div>
+  </form>
+</div>

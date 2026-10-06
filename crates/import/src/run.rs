@@ -1,7 +1,8 @@
 //! The run: a file's rows through a form, detached from the request, with a
 //! report a screen polls.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
 use futures::TryStreamExt;
 use laterite_admin::form::FormHandle;
@@ -240,6 +241,27 @@ pub(crate) struct Counts {
 /// How many rows between writes of the counts, so a poll sees movement.
 const PROGRESS_EVERY: i64 = 25;
 
+/// The runs this process is working on. A row still `running` whose id is not
+/// here was left by a process that stopped mid-run; [`find`] reports it failed.
+static LIVE: LazyLock<Mutex<HashSet<i64>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// How old a `running` row has to be before its absence from [`LIVE`] means it
+/// was lost, so a run between its insert and its start is never mistaken.
+const STALE_AFTER_SECONDS: i64 = 5;
+
+fn live(id: i64, is: bool) {
+    let mut set = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+    if is {
+        set.insert(id);
+    } else {
+        set.remove(&id);
+    }
+}
+
+fn is_live(id: i64) -> bool {
+    LIVE.lock().unwrap_or_else(|e| e.into_inner()).contains(&id)
+}
+
 /// Starts a run: records it, detaches the work and returns the run's id for
 /// [`find`] to poll.
 ///
@@ -255,6 +277,7 @@ pub async fn start(
 ) -> Result<i64, RunError> {
     check(&spec, &form)?;
     let id = store::insert(db, &spec, &actor).await?;
+    live(id, true);
     let db = db.clone();
     tokio::spawn(async move {
         if let Err(e) = run(&db, id, &form, &actor, &spec, source).await {
@@ -263,13 +286,34 @@ pub async fn start(
                 tracing::error!(run = id, error = %e, "import run could not be marked failed");
             }
         }
+        live(id, false);
     });
     Ok(id)
 }
 
 /// One run by id, or `None` when there is no such run.
+///
+/// A run still recorded as running that this process is not working on was
+/// lost when a process stopped mid-run; it is marked failed here, with its
+/// counts as they were, so a report never shows a run that will not move.
 pub async fn find(db: &Db, id: i64) -> Result<Option<Run>, RunError> {
-    Ok(store::find(db, id).await?)
+    let Some(run) = store::find(db, id).await? else {
+        return Ok(None);
+    };
+    if run.status == Status::Running && !is_live(run.id) && is_stale(&run.started_at) {
+        store::fail(db, run.id, "The server stopped while the run was going.").await?;
+        return Ok(store::find(db, run.id).await?);
+    }
+    Ok(Some(run))
+}
+
+fn is_stale(started_at: &str) -> bool {
+    chrono::DateTime::parse_from_rfc3339(started_at)
+        .map(|at| {
+            (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_seconds()
+                > STALE_AFTER_SECONDS
+        })
+        .unwrap_or(true)
 }
 
 fn check(spec: &RunSpec, form: &FormHandle) -> Result<(), RunError> {

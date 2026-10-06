@@ -12,8 +12,12 @@ request that started it and keeps its counts and notes in a table a screen
 polls, so a long file finishes whether or not the browser waits, and a
 refused row is a line in the report, never a stopped import.
 
-This crate currently carries the engine: the run table, `start` and `find`.
-The upload and column-matching screen and the report page arrive next.
+The screen at `/import` takes a file, shows its columns beside the form's
+fields with a match proposed for each, starts the run and shows the report
+as it fills. The application says which resources may be imported into with
+an [`ImportReg`], and which disk keeps the uploaded file with a
+`laterite_media::DiskReg` named `private`. From code, [`start`] and [`find`]
+do the same without the screen.
 
 ## Part of Laterite
 

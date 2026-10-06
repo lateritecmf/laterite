@@ -10,7 +10,7 @@ laterite-media = "0.9"
 
 ```rust
 Bootstrap::new("config")
-    .module(laterite_media::module())
+    .module(laterite_media::MediaModule)
     .serve()
 ```
 
@@ -72,6 +72,10 @@ refused.
 ```rust
 let public = LocalDisk::new("storage/media").public_at("/storage/media");
 let private = LocalDisk::new("storage/private");
+
+fn register(&self, registry: &mut Registry) {
+    registry.add(DiskReg::new("private", Arc::new(private)).label("Uploads kept out of the library"));
+}
 ```
 
 Disk | Serving
@@ -79,7 +83,9 @@ Disk | Serving
 Public | Files served directly at the path.
 Private | No public URL; streamed through the application.
 
-Each record stores its disk. Deduplication is per disk.
+Each record stores its disk. Deduplication is per disk. A module that stores
+files reads the disks through `ctx.contributions::<DiskReg>()` and picks one by
+name; `laterite-import` expects `private`.
 
 ## Delete
 

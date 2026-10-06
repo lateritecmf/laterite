@@ -24,7 +24,7 @@ impl laterite_core::Migration for Migration {
                 .col(ColumnDef::new(Media::OriginalName).text().not_null())
                 .col(ColumnDef::new(Media::Title).text())
                 .col(ColumnDef::new(Media::Alt).text())
-                .col(bool_col(Media::InLibrary).not_null().default(false))
+                .col(bool_col(Media::InLibrary).not_null().default(0))
                 .col(ColumnDef::new(Media::CreatedBy).big_integer())
                 .col(ColumnDef::new(Media::CreatedAt).text().not_null())
                 .col(ColumnDef::new(Media::UpdatedAt).text().not_null())
