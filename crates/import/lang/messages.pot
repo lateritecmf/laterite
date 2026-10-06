@@ -2,8 +2,17 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
+#: templates/index.html
 #: templates/upload.html
 msgid "A CSV file, read as UTF-8."
+msgstr ""
+
+#: templates/match.html
+msgid "A blank cell leaves the record's value as it is"
+msgstr ""
+
+#: templates/_run_status.html
+msgid "A check: nothing was written. The counts say what an import would do."
 msgstr ""
 
 #: templates/match.html
@@ -22,6 +31,11 @@ msgstr ""
 msgid "Back to import"
 msgstr ""
 
+#: src/admin/screen.rs
+msgid "Back to {resource}"
+msgstr ""
+
+#: templates/index.html
 #: templates/run.html
 msgid "By"
 msgstr ""
@@ -30,15 +44,21 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+#: templates/match.html
+msgid "Check the file"
+msgstr ""
+
 #: src/admin/screen.rs
 msgid "Choose a file to import."
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
 #: templates/upload.html
 msgid "Comma"
 msgstr ""
 
+#: templates/index.html
 #: templates/upload.html
 msgid "Continue"
 msgstr ""
@@ -52,6 +72,14 @@ msgstr ""
 msgid "Created"
 msgstr ""
 
+#: templates/index.html
+msgid "Download a template with the right columns."
+msgstr ""
+
+#: templates/_run_status.html
+msgid "Download the refused rows"
+msgstr ""
+
 #: templates/match.html
 msgid "Existing records are found by"
 msgstr ""
@@ -61,7 +89,9 @@ msgstr ""
 msgid "Field"
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
+#: templates/run.html
 #: templates/upload.html
 msgid "File"
 msgstr ""
@@ -74,26 +104,30 @@ msgstr ""
 msgid "Finished"
 msgstr ""
 
-#: src/admin/mod.rs
-#: src/admin/screen.rs
-#: templates/index.html
-msgid "Import"
-msgstr ""
-
 #: src/admin/screen.rs
 msgid "Import into {resource}"
 msgstr ""
 
-#: src/admin/mod.rs
-msgid "Import records"
+#: templates/_run_status.html
+#: templates/match.html
+msgid "Import now"
 msgstr ""
 
 #: src/admin/screen.rs
 msgid "Import run {id}"
 msgstr ""
 
+#: templates/index.html
+#: templates/run.html
+msgid "Kind"
+msgstr ""
+
 #: src/admin/screen.rs
 msgid "Match at least one column to a field."
+msgstr ""
+
+#: templates/match.html
+msgid "Matched the way your last file with these columns was."
 msgstr ""
 
 #: templates/_run_status.html
@@ -105,15 +139,11 @@ msgid "No columns could be read from the file."
 msgstr ""
 
 #: templates/index.html
-msgid "No runs yet."
+msgid "No imports yet."
 msgstr ""
 
 #: templates/match.html
 msgid "Not imported"
-msgstr ""
-
-#: templates/index.html
-msgid "Nothing is registered for import."
 msgstr ""
 
 #: templates/match.html
@@ -132,18 +162,17 @@ msgstr ""
 msgid "Read again"
 msgstr ""
 
+#: templates/match.html
+msgid "Read the values as separated by"
+msgstr ""
+
 #: templates/index.html
-msgid "Recent runs"
+msgid "Recent imports"
 msgstr ""
 
 #: templates/_run_status.html
 #: templates/index.html
 msgid "Refused"
-msgstr ""
-
-#: templates/index.html
-#: templates/run.html
-msgid "Resource"
 msgstr ""
 
 #: templates/_run_status.html
@@ -162,6 +191,7 @@ msgstr ""
 msgid "Sample"
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
 #: templates/upload.html
 msgid "Semicolon"
@@ -170,10 +200,6 @@ msgstr ""
 #: templates/_run_status.html
 #: templates/index.html
 msgid "Skipped"
-msgstr ""
-
-#: templates/match.html
-msgid "Start the import"
 msgstr ""
 
 #: templates/index.html
@@ -186,6 +212,7 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
 #: templates/upload.html
 msgid "Tab"
@@ -196,7 +223,7 @@ msgid "The existing record could not be looked up."
 msgstr ""
 
 #: src/admin/screen.rs
-msgid "The field records are matched on must itself be matched to a column."
+msgid "The field records are found by must itself be matched to a column."
 msgstr ""
 
 #: src/admin/screen.rs
@@ -207,6 +234,7 @@ msgstr ""
 msgid "The file is larger than {limit} MB."
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
 #: templates/upload.html
 msgid "The first row holds the column titles"
@@ -225,9 +253,27 @@ msgstr ""
 msgid "Updated"
 msgstr ""
 
+#: templates/index.html
 #: templates/match.html
 #: templates/upload.html
 msgid "Values are separated by"
+msgstr ""
+
+#: templates/index.html
+#: templates/match.html
+msgid "Whatever the file uses"
+msgstr ""
+
+#: templates/_run_status.html
+msgid "Would create"
+msgstr ""
+
+#: templates/_run_status.html
+msgid "Would skip"
+msgstr ""
+
+#: templates/_run_status.html
+msgid "Would update"
 msgstr ""
 
 #: src/admin/screen.rs

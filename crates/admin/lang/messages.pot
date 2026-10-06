@@ -346,6 +346,10 @@ msgstr ""
 msgid "Forgot your password? Ask an administrator to reset it."
 msgstr ""
 
+#: templates/list.html
+msgid "Import"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Inherit"
 msgstr ""

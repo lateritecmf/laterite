@@ -929,6 +929,31 @@ pub(crate) async fn write(
     id: Option<&str>,
     actor: &Actor,
 ) -> Result<Record, SaveError> {
+    let (mut rec, op) = prepare(db, form, data, id).await?;
+    persist::save(
+        persist::SaveRequest {
+            db,
+            listeners: &form.listeners,
+            persister: form.persister.as_ref(),
+            actor,
+            op,
+            id,
+        },
+        &mut rec,
+    )
+    .await?;
+    Ok(rec)
+}
+
+/// The write up to the point of writing: the data validated and shaped into
+/// the record, with the operation it would be. What a check runs, and what a
+/// write runs first.
+async fn prepare(
+    db: &Db,
+    form: &PreparedForm,
+    data: &HashMap<String, String>,
+    id: Option<&str>,
+) -> Result<(Record, Op), SaveError> {
     if !form.config.idents_valid() {
         return Err(SaveError::Failed(format!(
             "form `{}` names an invalid entity or field identifier",
@@ -960,19 +985,7 @@ pub(crate) async fn write(
     if let Some(n) = id.and_then(|id| id.parse::<i64>().ok()) {
         rec.set_id(n);
     }
-    persist::save(
-        persist::SaveRequest {
-            db,
-            listeners: &form.listeners,
-            persister: form.persister.as_ref(),
-            actor,
-            op,
-            id,
-        },
-        &mut rec,
-    )
-    .await?;
-    Ok(rec)
+    Ok((rec, op))
 }
 
 /// The forms the resources mounted, keyed by each resource's path as its
@@ -1036,6 +1049,22 @@ impl FormHandle {
         load_values(&self.db, &self.form, &id.to_string())
             .await
             .map_err(|e| SaveError::Failed(e.to_string()))
+    }
+
+    /// What [`create`](Self::create) or [`update`](Self::update) would do with
+    /// `data`, with nothing written: the rules and the field conversions run,
+    /// the listeners and the persister do not. `id` names the record an edit
+    /// would change; `None` checks as a create.
+    pub async fn check(
+        &self,
+        id: Option<i64>,
+        data: HashMap<String, String>,
+    ) -> Result<(), SaveError> {
+        let data = gathered(&self.form, data);
+        let id = id.map(|id| id.to_string());
+        prepare(&self.db, &self.form, &data, id.as_deref())
+            .await
+            .map(|_| ())
     }
 
     /// Validates `data` as an edit of the record `id` and saves it. Every field

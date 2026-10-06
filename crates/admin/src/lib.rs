@@ -829,6 +829,34 @@ pub struct Resource {
     /// only for a read-only resource: a resource with a create/edit `form` must
     /// declare a permission, or boot aborts (see [`mount_resource`]).
     pub permission: Option<String>,
+    /// Whether records may be imported into this resource, and by whom. The
+    /// pages come from a module registering a [`routes::ResourceFeature`] keyed
+    /// `import`; a resource declaring this with none registered aborts boot.
+    pub import: Option<ImportConfig>,
+}
+
+/// What a resource declares when records may be imported into it: `import:
+/// true` in a descriptor file, or a map with the keys below.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ImportConfig {
+    /// The permission an operator needs to import. `None` asks for the
+    /// resource's own.
+    #[serde(default)]
+    pub permission: Option<String>,
+}
+
+impl ImportConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The permission an operator needs to import, when it is not the
+    /// resource's own.
+    pub fn permission(mut self, code: impl Into<String>) -> Self {
+        self.permission = Some(code.into());
+        self
+    }
 }
 
 /// A permission an operator can be granted: a dotted `code`, a human `label`,
@@ -979,7 +1007,15 @@ impl Resource {
             list,
             form: None,
             permission: None,
+            import: None,
         }
+    }
+
+    /// Lets records be imported into this resource, which needs a form. The
+    /// pages come from a registered import module.
+    pub fn import(mut self, import: ImportConfig) -> Self {
+        self.import = Some(import);
+        self
     }
 
     /// Adds the create/edit form. A resource with one must also declare a
@@ -1173,6 +1209,29 @@ pub fn router(
     // built from them agree.
     for resource in resources.iter_mut().chain(app_resources.iter_mut()) {
         prefix_resource(&admin_path, resource);
+    }
+    // A resource that may be imported into shows the way to its import pages. A
+    // write path, so it is gated: the key's permission, else the resource's,
+    // and a resource with neither aborts boot like an unguarded form.
+    for resource in app_resources.iter_mut() {
+        if let Some(import) = &resource.import {
+            let permission = import
+                .permission
+                .clone()
+                .or_else(|| resource.permission.clone())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "admin resource `{}` declares `import` but no permission; importing \
+                         writes records, so it must be gated",
+                        resource.base_path
+                    )
+                });
+            resource.list.import = Some(routes::feature_link(
+                &resource.base_path,
+                "import",
+                &permission,
+            ));
+        }
     }
 
     let mut settings = builtin_settings();
@@ -1391,6 +1450,58 @@ pub fn router(
         }
     }
     let forms: form::Forms = Arc::new(forms);
+    // The import pages under each resource that declared them, from the module
+    // registered for the `import` key. None registered is a boot failure naming
+    // the resource, the same answer as a field type nobody registered.
+    for resource in &resources {
+        let Some(link) = &resource.list.import else {
+            continue;
+        };
+        let key = resource
+            .base_path
+            .strip_prefix(admin_path.as_str())
+            .unwrap_or(&resource.base_path)
+            .to_string();
+        let prepared = forms.get(&key).unwrap_or_else(|| {
+            panic!(
+                "admin resource `{}` declares `import` but has no form to import through",
+                resource.base_path
+            )
+        });
+        let feature = state
+            .plugin_defined
+            .items::<routes::ResourceFeatureReg>()
+            .into_iter()
+            .find(|reg| reg.key == "import")
+            .unwrap_or_else(|| {
+                panic!(
+                    "admin resource `{}` declares `import`, but no module provides it; \
+                     register the import module",
+                    resource.base_path
+                )
+            });
+        let base = link.href.clone();
+        let ctx = routes::RouteCtx::new(
+            state.db.clone(),
+            &base,
+            &admin_path,
+            &state.origin,
+            state.plugin_defined.clone(),
+            state.auth.events().clone(),
+            forms.clone(),
+        );
+        let info = routes::ResourceInfo::new(
+            key,
+            resource.base_path.clone(),
+            resource.nav_label.clone(),
+            link.permission.clone(),
+            form::FormHandle::new(state.db.clone(), prepared.clone()),
+        );
+        protected = protected.merge(guard_with_permission(
+            Router::new().nest_service(&base, feature.feature.mount(&ctx, &info)),
+            &link.permission,
+        ));
+    }
     // A module's own screens: routes it wrote, mounted inside the protected tree
     // so they inherit the session, the permission guard, CSRF and the error pages.
     // Nested as a service, so the screen's router carries no framework state.
@@ -3212,6 +3323,7 @@ fn builtin_resources() -> Vec<Resource> {
             list: backend_users_list_config(),
             form: None,
             permission: Some("backend.manage_users".to_string()),
+            import: None,
         },
         Resource {
             base_path: "/roles".to_string(),
@@ -3221,6 +3333,7 @@ fn builtin_resources() -> Vec<Resource> {
             // `roles` module), mounted separately, not the generic form.
             form: None,
             permission: Some("backend.manage_roles".to_string()),
+            import: None,
         },
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
@@ -3512,6 +3625,7 @@ mod tests {
             list: backend_users_list_config(),
             form,
             permission: permission.map(str::to_string),
+            import: None,
         }
     }
 

@@ -186,7 +186,11 @@ fn to_csv(headers: &[String], rows: &[Vec<String>]) -> Result<String, csv::Error
         writer.write_record(row.iter().map(|cell| defuse(cell)))?;
     }
     let bytes = writer.into_inner().map_err(|e| e.into_error())?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // A byte-order mark first: a spreadsheet reads a CSV without one in its
+    // locale's legacy encoding, and every accented name comes out mangled.
+    let mut out = String::from("\u{feff}");
+    out.push_str(&String::from_utf8_lossy(&bytes));
+    Ok(out)
 }
 
 /// The rows as an array of objects keyed by column, which is what a consumer of
@@ -299,7 +303,7 @@ mod tests {
         // Header row plus every seeded user, ordered as the descriptor says.
         let lines: Vec<&str> = all.trim().lines().collect();
         // Headed by the labels a person reads, not the column names.
-        assert_eq!(lines[0], "Username,Superuser");
+        assert_eq!(lines[0], "\u{feff}Username,Superuser");
         assert_eq!(lines.len(), 4);
         assert!(
             lines[1].starts_with("ada"),
@@ -378,13 +382,13 @@ mod tests {
     #[test]
     fn a_header_is_defused_too() {
         let csv = to_csv(&["=BAD".to_string()], &[]).unwrap();
-        assert!(csv.starts_with("'=BAD"), "{csv}");
+        assert!(csv.starts_with("\u{feff}'=BAD"), "{csv}");
     }
 
     #[test]
     fn csv_quotes_and_escapes_every_awkward_value() {
         let out = to_csv(&headers(), &rows()).unwrap();
-        assert!(out.starts_with("username,superuser\n"));
+        assert!(out.starts_with("\u{feff}username,superuser\n"));
         assert!(out.contains("\"b, comma\""), "a comma is quoted: {out}");
         assert!(
             out.contains("\"say \"\"hi\"\"\""),

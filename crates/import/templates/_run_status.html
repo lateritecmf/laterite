@@ -1,10 +1,11 @@
 <div id="lat-import-run" class="lat-card"{% if let Some(url) = poll %} hx-get="{{ url }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if dry %}<p class="lat-note">{{ shell.t("A check: nothing was written. The counts say what an import would do.") }}</p>{% endif %}
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Status") }}</dt><dd><span class="lat-status {{ status_class }}">{{ status }}</span></dd></div>
     <div><dt>{{ shell.t("Rows read") }}</dt><dd>{{ run.processed }}</dd></div>
-    <div><dt>{{ shell.t("Created") }}</dt><dd>{{ run.created }}</dd></div>
-    <div><dt>{{ shell.t("Updated") }}</dt><dd>{{ run.updated }}</dd></div>
-    <div><dt>{{ shell.t("Skipped") }}</dt><dd>{{ run.skipped }}</dd></div>
+    <div><dt>{% if dry %}{{ shell.t("Would create") }}{% else %}{{ shell.t("Created") }}{% endif %}</dt><dd>{{ run.created }}</dd></div>
+    <div><dt>{% if dry %}{{ shell.t("Would update") }}{% else %}{{ shell.t("Updated") }}{% endif %}</dt><dd>{{ run.updated }}</dd></div>
+    <div><dt>{% if dry %}{{ shell.t("Would skip") }}{% else %}{{ shell.t("Skipped") }}{% endif %}</dt><dd>{{ run.skipped }}</dd></div>
     <div><dt>{{ shell.t("Refused") }}</dt><dd>{{ run.errors }}</dd></div>
     {% if let Some(at) = finished_at %}<div><dt>{{ shell.t("Finished") }}</dt><dd>{{ at }}</dd></div>{% endif %}
   </dl>
@@ -24,6 +25,17 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  {% endif %}
+  {% if import_action.is_some() || refused_href.is_some() %}
+  <div class="lat-actions">
+    {% if let Some(action) = import_action %}
+    <form method="post" action="{{ action }}">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Import now") }}</button>
+    </form>
+    {% endif %}
+    {% if let Some(href) = refused_href %}<a class="lat-btn lat-btn--secondary" href="{{ href }}">{{ shell.t("Download the refused rows") }}</a>{% endif %}
   </div>
   {% endif %}
 </div>

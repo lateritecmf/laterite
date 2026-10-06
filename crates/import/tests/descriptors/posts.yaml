@@ -2,6 +2,7 @@ entity: posts
 path: /posts
 title: Posts
 permission: acme.manage_posts
+import: true
 list:
   columns:
     code: {}

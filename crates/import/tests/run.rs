@@ -68,7 +68,7 @@ fn posts(db: &Db) -> FormHandle {
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
         Contributions {
-            resources: vec![resource!("tests/descriptors/posts.yaml")],
+            resources: vec![resource!("tests/descriptors/engine.yaml")],
             permissions: vec![Permission::new(
                 "acme.manage_posts",
                 t!("Manage posts"),
@@ -297,4 +297,70 @@ async fn a_file_that_cannot_be_read_fails_the_run() {
     assert_eq!(run.status, Status::Failed);
     assert!(run.failure.as_deref().unwrap_or("").contains("disk gone"));
     assert!(rows(&db).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_dry_run_reports_everything_and_writes_nothing() {
+    let (db, _guard) = test_db().await;
+    let form = posts(&db);
+    let spec = RunSpec::new("/posts", code_and_name()).dry_run(true);
+
+    let id = start(
+        &db,
+        form,
+        actor(),
+        spec,
+        csv("code,name\nlaunch,Launch\n,No code\n"),
+    )
+    .await
+    .unwrap();
+    let run = finished(&db, id).await;
+
+    assert_eq!(run.status, Status::Done);
+    assert_eq!((run.created, run.errors), (1, 1), "what an import would do");
+    assert!(run.spec.dry_run);
+    assert!(rows(&db).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_blank_cell_keeps_the_value_unless_told_to_clear() {
+    let (db, _guard) = test_db().await;
+    let form = posts(&db);
+    let mut first = HashMap::new();
+    first.insert("code".to_string(), "launch".to_string());
+    first.insert("name".to_string(), "Launch".to_string());
+    first.insert("note".to_string(), "kept".to_string());
+    form.create(first, &actor()).await.unwrap();
+    let matches = || {
+        vec![
+            Match::new(0, "code"),
+            Match::new(1, "name"),
+            Match::new(2, "note"),
+        ]
+    };
+    let file = "code,name,note\nlaunch,Relaunch,\n";
+
+    let keep = RunSpec::new("/posts", matches()).duplicates(Duplicates::update("code"));
+    let id = start(&db, form.clone(), actor(), keep, csv(file))
+        .await
+        .unwrap();
+    finished(&db, id).await;
+    assert_eq!(
+        rows(&db).await,
+        [(
+            "launch".to_string(),
+            "Relaunch".to_string(),
+            Some("kept".to_string())
+        )]
+    );
+
+    let clear = RunSpec::new("/posts", matches())
+        .duplicates(Duplicates::update("code"))
+        .keep_blank(false);
+    let id = start(&db, form, actor(), clear, csv(file)).await.unwrap();
+    finished(&db, id).await;
+    assert_eq!(
+        rows(&db).await,
+        [("launch".to_string(), "Relaunch".to_string(), None)]
+    );
 }

@@ -1,18 +1,18 @@
-//! The screen: a resource chosen, a file taken in, its columns matched, the run
-//! started and watched.
+//! The pages under a resource: a file taken in, its columns matched, a check
+//! or a run started, the report watched, the refused rows handed back.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use askama::Template;
 use futures::TryStreamExt;
 use laterite_admin::axum::extract::{Form, Path, Query, State};
+use laterite_admin::axum::http::header;
 use laterite_admin::axum::response::{Html, IntoResponse, Redirect, Response};
-use laterite_admin::axum::routing::get;
+use laterite_admin::axum::routing::{get, post};
 use laterite_admin::axum::{Extension, Router};
-use laterite_admin::form::FormHandle;
 use laterite_admin::html::Markup;
-use laterite_admin::routes::{RouteCtx, Screen};
+use laterite_admin::routes::{ResourceFeature, ResourceInfo, RouteCtx};
 use laterite_admin::{AdminError, FlashLevel, SessionHandle, Shell, VerifiedUpload};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::validation::Rule;
@@ -20,29 +20,19 @@ use laterite_core::{t, Actor, Db, Text};
 use laterite_media::{blob_path, ingest, record, stream_of, DiskReg, NewMedia, StorageDriver};
 use serde::Deserialize;
 
-use super::{ImportReg, DISK};
-use crate::file::{peek, PEEK_BYTES};
+use super::DISK;
+use crate::file::{peek, sniff_delimiter, PEEK_BYTES};
 use crate::run::{find, start, Duplicates, Match, Note, NoteKind, Run, RunError, RunSpec, Status};
 use crate::store;
 
-/// The largest file the screen takes in.
+/// The largest file the pages take in.
 const UPLOAD_LIMIT: u64 = 20 * 1024 * 1024;
 
-/// How many runs the screen lists.
+/// How many runs the index lists.
 const RECENT_RUNS: i64 = 20;
 
-/// The screen, registered by the module.
-pub(crate) struct ImportScreen;
-
-/// One resource the screen imports into, resolved at mount.
-struct Target {
-    /// The resource path without its leading slash, as it appears in URLs.
-    key: String,
-    resource: String,
-    label: Text,
-    permission: Option<String>,
-    form: FormHandle,
-}
+/// The feature the module registers for the `import` key.
+pub(crate) struct ImportFeature;
 
 /// What the handlers need after mount, cloned per request.
 #[derive(Clone)]
@@ -50,54 +40,27 @@ struct App {
     db: Db,
     base: Arc<str>,
     disk: Arc<dyn StorageDriver>,
-    targets: Arc<Vec<Target>>,
+    info: Arc<ResourceInfo>,
 }
 
 impl App {
     fn url(&self, relative: &str) -> String {
-        format!(
-            "{}/{}",
-            self.base.trim_end_matches('/'),
-            relative.trim_start_matches('/')
-        )
-    }
-
-    /// The target behind `key`, when there is one and `user` may use it.
-    fn target(&self, key: &str, user: &AuthenticatedUser) -> Result<&Target, AdminError> {
-        let target = self
-            .targets
-            .iter()
-            .find(|t| t.key == key)
-            .ok_or(AdminError::NotFound)?;
-        match &target.permission {
-            Some(code) if !user.permissions.allows(code) => Err(AdminError::Forbidden),
-            _ => Ok(target),
+        let base = self.base.trim_end_matches('/');
+        let relative = relative.trim_start_matches('/');
+        if relative.is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}/{relative}")
         }
     }
 
-    /// The targets `user` may use, as the index lists them.
-    fn allowed(&self, user: &AuthenticatedUser) -> Vec<&Target> {
-        self.targets
-            .iter()
-            .filter(|t| {
-                t.permission
-                    .as_deref()
-                    .is_none_or(|code| user.permissions.allows(code))
-            })
-            .collect()
-    }
-
-    fn label_of(&self, resource: &str, shell: &Shell) -> String {
-        self.targets
-            .iter()
-            .find(|t| t.resource == resource)
-            .map(|t| shell.tt(&t.label))
-            .unwrap_or_else(|| resource.to_string())
+    fn label(&self, shell: &Shell) -> String {
+        shell.tt(&self.info.label)
     }
 }
 
-impl Screen for ImportScreen {
-    fn mount(&self, ctx: &RouteCtx) -> Router {
+impl ResourceFeature for ImportFeature {
+    fn mount(&self, ctx: &RouteCtx, resource: &ResourceInfo) -> Router {
         let disk = ctx
             .contributions::<DiskReg>()
             .into_iter()
@@ -109,57 +72,41 @@ impl Screen for ImportScreen {
                      laterite_media::DiskReg with that name"
                 )
             });
-        let targets = ctx
-            .contributions::<ImportReg>()
-            .into_iter()
-            .map(|reg| Target {
-                key: reg.resource.trim_start_matches('/').to_string(),
-                resource: reg.resource.clone(),
-                label: reg.label.clone(),
-                permission: reg.permission.clone(),
-                form: ctx.form(&reg.resource).unwrap_or_else(|| {
-                    panic!(
-                        "import is registered for `{}`, which mounts no form",
-                        reg.resource
-                    )
-                }),
-            })
-            .collect();
         let app = App {
             db: ctx.db().clone(),
             base: Arc::from(ctx.base_path()),
             disk,
-            targets: Arc::new(targets),
+            info: Arc::new(resource.clone()),
         };
         Router::new()
-            .route("/", get(index))
-            .route("/upload/{*key}", get(upload_form).post(upload))
-            .route("/match/{media}/{*key}", get(match_form).post(start_run))
+            .route("/", get(index).post(upload))
+            .route("/template.csv", get(template))
+            .route("/{media}", get(match_form).post(start_run))
             .route("/runs/{id}", get(run_page))
             .route("/runs/{id}/status", get(run_status))
+            .route("/runs/{id}/import", post(import_now))
+            .route("/runs/{id}/refused.csv", get(refused_csv))
             .with_state(app)
     }
 }
 
-// The index: what may be imported into, and the latest runs.
+// The index: the upload form and this resource's runs.
 
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate<'a> {
     shell: &'a Shell,
-    targets: Vec<TargetRow>,
+    action: String,
+    template: String,
+    back: String,
+    back_label: String,
     runs: Vec<RunRow>,
-}
-
-struct TargetRow {
-    label: String,
-    href: String,
 }
 
 struct RunRow {
     id: i64,
     href: String,
-    resource: String,
+    kind: String,
     status: String,
     status_class: &'static str,
     created: i64,
@@ -167,80 +114,76 @@ struct RunRow {
     skipped: i64,
     errors: i64,
     started_at: String,
+    actor: String,
 }
 
-async fn index(
-    State(app): State<App>,
-    Extension(shell): Extension<Shell>,
-    Extension(user): Extension<AuthenticatedUser>,
-) -> Response {
-    let targets = app
-        .allowed(&user)
-        .into_iter()
-        .map(|t| TargetRow {
-            label: shell.tt(&t.label),
-            href: app.url(&format!("upload/{}", t.key)),
-        })
-        .collect();
-    let runs = match store::recent(&app.db, RECENT_RUNS).await {
+fn run_row(app: &App, shell: &Shell, run: &Run) -> RunRow {
+    RunRow {
+        id: run.id,
+        href: app.url(&format!("runs/{}", run.id)),
+        kind: kind_label(shell, run),
+        status: status_label(shell, run.status),
+        status_class: status_class(run.status),
+        created: run.created,
+        updated: run.updated,
+        skipped: run.skipped,
+        errors: run.errors,
+        started_at: shell.datetime(&run.started_at),
+        actor: run.actor_label.clone(),
+    }
+}
+
+async fn index(State(app): State<App>, Extension(shell): Extension<Shell>) -> Response {
+    let runs = match store::recent_for(&app.db, &app.info.path, RECENT_RUNS).await {
         Ok(runs) => runs,
         Err(e) => return AdminError::Internal(e.into()).into_response(),
     };
-    let runs = runs
-        .into_iter()
-        .map(|run| RunRow {
-            id: run.id,
-            href: app.url(&format!("runs/{}", run.id)),
-            resource: app.label_of(&run.resource, &shell),
-            status: status_label(&shell, run.status),
-            status_class: status_class(run.status),
-            created: run.created,
-            updated: run.updated,
-            skipped: run.skipped,
-            errors: run.errors,
-            started_at: shell.datetime(&run.started_at),
-        })
-        .collect();
+    let runs = runs.iter().map(|run| run_row(&app, &shell, run)).collect();
     page(
         &shell,
-        &t!("Import"),
+        &t!("Import into {resource}", resource = app.label(&shell)),
         &IndexTemplate {
             shell: &shell,
-            targets,
+            action: app.url(""),
+            template: app.url("template.csv"),
+            back: app.info.base_path.clone(),
+            back_label: shell.tt(&t!("Back to {resource}", resource = app.label(&shell))),
             runs,
         },
     )
 }
 
-// The upload: a file and how to read it.
-
-#[derive(Template)]
-#[template(path = "upload.html")]
-struct UploadTemplate<'a> {
-    shell: &'a Shell,
-    action: String,
-    back: String,
+/// A file with the form's fields as its column titles, to fill in.
+async fn template(State(app): State<App>) -> Response {
+    let names: Vec<&str> = app
+        .info
+        .form
+        .fields()
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    let body = format!("\u{feff}{}\r\n", names.join(","));
+    csv_download(
+        &format!(
+            "{}-template.csv",
+            app.info.path.trim_start_matches('/').replace('/', "-")
+        ),
+        body,
+    )
 }
 
-async fn upload_form(
-    State(app): State<App>,
-    Extension(shell): Extension<Shell>,
-    Extension(user): Extension<AuthenticatedUser>,
-    Path(key): Path<String>,
-) -> Response {
-    let target = match app.target(&key, &user) {
-        Ok(target) => target,
-        Err(e) => return e.into_response(),
-    };
-    page(
-        &shell,
-        &t!("Import into {resource}", resource = shell.tt(&target.label)),
-        &UploadTemplate {
-            shell: &shell,
-            action: app.url(&format!("upload/{}", target.key)),
-            back: app.url(""),
-        },
+fn csv_download(name: &str, body: String) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+        ],
+        body,
     )
+        .into_response()
 }
 
 /// How the file is read: carried from the upload to the matching step and on
@@ -249,7 +192,7 @@ async fn upload_form(
 struct Reading {
     #[serde(default = "titles_on")]
     titles: String,
-    #[serde(default = "comma")]
+    #[serde(default = "auto")]
     delimiter: String,
 }
 
@@ -257,8 +200,8 @@ fn titles_on() -> String {
     "1".to_string()
 }
 
-fn comma() -> String {
-    ",".to_string()
+fn auto() -> String {
+    "auto".to_string()
 }
 
 impl Reading {
@@ -266,11 +209,13 @@ impl Reading {
         self.titles == "1"
     }
 
-    fn delimiter_byte(&self) -> u8 {
+    /// The delimiter chosen, or the one the file's first line suggests.
+    fn delimiter_byte(&self, head: &[u8]) -> u8 {
         match self.delimiter.as_str() {
+            "," => b',',
             ";" => b';',
             "tab" => b'\t',
-            _ => b',',
+            _ => sniff_delimiter(head),
         }
     }
 
@@ -278,10 +223,11 @@ impl Reading {
         format!(
             "?titles={}&delimiter={}",
             if self.first_row_titles() { "1" } else { "0" },
-            match self.delimiter_byte() {
-                b';' => "%3B",
-                b'\t' => "tab",
-                _ => "%2C",
+            match self.delimiter.as_str() {
+                "," => "%2C",
+                ";" => "%3B",
+                "tab" => "tab",
+                _ => "auto",
             }
         )
     }
@@ -291,17 +237,12 @@ async fn upload(
     State(app): State<App>,
     Extension(session): Extension<SessionHandle>,
     Extension(user): Extension<AuthenticatedUser>,
-    Path(key): Path<String>,
     mut upload: VerifiedUpload,
 ) -> Response {
-    let target = match app.target(&key, &user) {
-        Ok(target) => target,
-        Err(e) => return e.into_response(),
-    };
-    let back = app.url(&format!("upload/{}", target.key));
+    let back = app.url("");
     let mut reading = Reading {
         titles: "0".to_string(),
-        delimiter: comma(),
+        delimiter: auto(),
     };
     let mut file: Option<(String, Vec<u8>)> = None;
     while let Ok(Some(mut field)) = upload.next_field().await {
@@ -360,12 +301,8 @@ async fn upload(
     )
     .await;
     match media {
-        Ok(id) => Redirect::to(&format!(
-            "{}{}",
-            app.url(&format!("match/{id}/{}", target.key)),
-            reading.query()
-        ))
-        .into_response(),
+        Ok(id) => Redirect::to(&format!("{}{}", app.url(&id.to_string()), reading.query()))
+            .into_response(),
         Err(e) => AdminError::Internal(e.into()).into_response(),
     }
 }
@@ -381,8 +318,13 @@ struct MatchTemplate<'a> {
     file_name: String,
     titles: bool,
     delimiter: String,
+    detected: String,
     columns: Vec<ColumnRow>,
     fields: Vec<FieldRow>,
+    key: String,
+    on_match: String,
+    keep_blank: bool,
+    remembered: bool,
     error: Option<String>,
 }
 
@@ -443,8 +385,10 @@ fn folded(s: &str) -> String {
         .collect()
 }
 
-fn field_rows(form: &FormHandle, shell: &Shell) -> Vec<FieldRow> {
-    form.fields()
+fn field_rows(app: &App, shell: &Shell) -> Vec<FieldRow> {
+    app.info
+        .form
+        .fields()
         .iter()
         .map(|f| FieldRow {
             name: f.name.clone(),
@@ -454,11 +398,92 @@ fn field_rows(form: &FormHandle, shell: &Shell) -> Vec<FieldRow> {
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
+/// What the matching step proposes: the operator's own choices on a refused
+/// submit, else the last run over a file with these titles, else the field
+/// whose name or label reads like each title.
+struct Proposal {
+    matches: HashMap<usize, String>,
+    key: String,
+    on_match: String,
+    keep_blank: bool,
+    remembered: bool,
+}
+
+async fn propose(
+    app: &App,
+    titles: &[String],
+    fields: &[FieldRow],
+    chosen: &HashMap<String, String>,
+) -> Proposal {
+    if !chosen.is_empty() {
+        let matches = chosen
+            .iter()
+            .filter_map(|(k, v)| {
+                k.strip_prefix("match_")
+                    .and_then(|i| i.parse().ok())
+                    .map(|i| (i, v.clone()))
+            })
+            .collect();
+        return Proposal {
+            matches,
+            key: chosen.get("key").cloned().unwrap_or_default(),
+            on_match: chosen
+                .get("on_match")
+                .cloned()
+                .unwrap_or_else(|| "skip".to_string()),
+            keep_blank: chosen.contains_key("keep_blank"),
+            remembered: false,
+        };
+    }
+    if !titles.is_empty() {
+        if let Ok(Some(last)) = store::last_for(&app.db, &app.info.path).await {
+            if last.spec.titles == titles {
+                return Proposal {
+                    matches: last
+                        .spec
+                        .matches
+                        .iter()
+                        .map(|m| (m.column, m.field.clone()))
+                        .collect(),
+                    key: last
+                        .spec
+                        .duplicates
+                        .as_ref()
+                        .map(|d| d.key.clone())
+                        .unwrap_or_default(),
+                    on_match: match last.spec.duplicates.as_ref().map(|d| d.on_match) {
+                        Some(crate::run::OnMatch::Update) => "update".to_string(),
+                        _ => "skip".to_string(),
+                    },
+                    keep_blank: last.spec.keep_blank,
+                    remembered: true,
+                };
+            }
+        }
+    }
+    let matches = titles
+        .iter()
+        .enumerate()
+        .filter_map(|(index, title)| {
+            let want = folded(title);
+            fields
+                .iter()
+                .find(|f| folded(&f.name) == want || folded(&f.label) == want)
+                .map(|f| (index, f.name.clone()))
+        })
+        .collect();
+    Proposal {
+        matches,
+        key: String::new(),
+        on_match: "skip".to_string(),
+        keep_blank: true,
+        remembered: false,
+    }
+}
+
 async fn render_match(
     app: &App,
     shell: &Shell,
-    target: &Target,
     record: &record::MediaRecord,
     reading: &Reading,
     chosen: &HashMap<String, String>,
@@ -468,52 +493,49 @@ async fn render_match(
         Ok(bytes) => bytes,
         Err(e) => return e.into_response(),
     };
-    let look = peek(&bytes, reading.delimiter_byte(), reading.first_row_titles());
-    let fields = field_rows(&target.form, shell);
+    let delimiter = reading.delimiter_byte(&bytes);
+    let look = peek(&bytes, delimiter, reading.first_row_titles());
+    let fields = field_rows(app, shell);
+    let proposal = propose(app, &look.titles, &fields, chosen).await;
     let columns = look
         .titles
         .iter()
         .enumerate()
-        .map(|(index, title)| {
-            let key = format!("match_{index}");
-            // A field already chosen stays chosen; otherwise the field whose name
-            // or label reads like the title is proposed.
-            let selected = chosen.get(&key).cloned().unwrap_or_else(|| {
-                let want = folded(title);
-                fields
-                    .iter()
-                    .find(|f| folded(&f.name) == want || folded(&f.label) == want)
-                    .map(|f| f.name.clone())
-                    .unwrap_or_default()
-            });
-            ColumnRow {
-                index,
-                title: title.clone(),
-                sample: look
-                    .samples
-                    .iter()
-                    .filter_map(|row| row.get(index))
-                    .filter(|v| !v.trim().is_empty())
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                selected,
-            }
+        .map(|(index, title)| ColumnRow {
+            index,
+            title: title.clone(),
+            sample: look
+                .samples
+                .iter()
+                .filter_map(|row| row.get(index))
+                .filter(|v| !v.trim().is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            selected: proposal.matches.get(&index).cloned().unwrap_or_default(),
         })
         .collect();
-    let action = app.url(&format!("match/{}/{}", record.id, target.key));
     page(
         shell,
-        &t!("Import into {resource}", resource = shell.tt(&target.label)),
+        &t!("Import into {resource}", resource = app.label(shell)),
         &MatchTemplate {
             shell,
-            action,
-            back: app.url(&format!("upload/{}", target.key)),
+            action: app.url(&record.id.to_string()),
+            back: app.url(""),
             file_name: record.original_name.clone(),
             titles: reading.first_row_titles(),
             delimiter: reading.delimiter.clone(),
+            detected: match delimiter {
+                b';' => shell.t("Semicolon"),
+                b'\t' => shell.t("Tab"),
+                _ => shell.t("Comma"),
+            },
             columns,
             fields,
+            key: proposal.key,
+            on_match: proposal.on_match,
+            keep_blank: proposal.keep_blank,
+            remembered: proposal.remembered,
             error,
         },
     )
@@ -523,59 +545,34 @@ async fn match_form(
     State(app): State<App>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
-    Path((media, key)): Path<(i64, String)>,
+    Path(media): Path<i64>,
     Query(reading): Query<Reading>,
 ) -> Response {
-    let target = match app.target(&key, &user) {
-        Ok(target) => target,
-        Err(e) => return e.into_response(),
-    };
     let record = match payload(&app, media, &user).await {
         Ok(record) => record,
         Err(e) => return e.into_response(),
     };
-    render_match(
-        &app,
-        &shell,
-        target,
-        &record,
-        &reading,
-        &HashMap::new(),
-        None,
-    )
-    .await
+    render_match(&app, &shell, &record, &reading, &HashMap::new(), None).await
 }
 
 async fn start_run(
     State(app): State<App>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
-    Path((media, key)): Path<(i64, String)>,
+    Path(media): Path<i64>,
     Form(data): Form<HashMap<String, String>>,
 ) -> Response {
-    let target = match app.target(&key, &user) {
-        Ok(target) => target,
-        Err(e) => return e.into_response(),
-    };
     let record = match payload(&app, media, &user).await {
         Ok(record) => record,
         Err(e) => return e.into_response(),
     };
     let reading = Reading {
         titles: data.get("titles").cloned().unwrap_or_else(titles_on),
-        delimiter: data.get("delimiter").cloned().unwrap_or_else(comma),
+        delimiter: data.get("delimiter").cloned().unwrap_or_else(auto),
     };
     let refused = |error: Text| {
         let message = shell.tt(&error);
-        render_match(
-            &app,
-            &shell,
-            target,
-            &record,
-            &reading,
-            &data,
-            Some(message),
-        )
+        render_match(&app, &shell, &record, &reading, &data, Some(message))
     };
 
     let mut matches = Vec::new();
@@ -590,7 +587,7 @@ async fn start_run(
     if matches.is_empty() {
         return refused(t!("Match at least one column to a field.")).await;
     }
-    let fields = field_rows(&target.form, &shell);
+    let fields = field_rows(&app, &shell);
     if let Some(missing) = fields
         .iter()
         .find(|f| f.required && !matches.iter().any(|m| m.field == f.name))
@@ -601,14 +598,23 @@ async fn start_run(
         ))
         .await;
     }
-    let mut spec = RunSpec::new(&target.resource, matches)
+    let head = match head_of(&app, &record).await {
+        Ok(head) => head,
+        Err(e) => return e.into_response(),
+    };
+    let delimiter = reading.delimiter_byte(&head);
+    let titles = peek(&head, delimiter, reading.first_row_titles()).titles;
+    let mut spec = RunSpec::new(&app.info.path, matches)
         .media(record.id)
         .first_row_titles(reading.first_row_titles())
-        .delimiter(reading.delimiter_byte());
+        .delimiter(delimiter)
+        .dry_run(data.get("action").map(String::as_str) != Some("import"))
+        .keep_blank(data.contains_key("keep_blank"))
+        .titles(titles);
     if let Some(key) = data.get("key").filter(|k| !k.is_empty()) {
         if !spec.matches.iter().any(|m| &m.field == key) {
             return refused(t!(
-                "The field records are matched on must itself be matched to a column."
+                "The field records are found by must itself be matched to a column."
             ))
             .await;
         }
@@ -617,23 +623,59 @@ async fn start_run(
             _ => Duplicates::skip(key),
         });
     }
+    launch(&app, &shell, &record, spec, &user).await
+}
+
+/// Starts `spec` over the stored file and sends the operator to its report.
+async fn launch(
+    app: &App,
+    shell: &Shell,
+    record: &record::MediaRecord,
+    spec: RunSpec,
+    user: &AuthenticatedUser,
+) -> Response {
     let source = match app.disk.get(&blob_path(&record.hash)).await {
         Ok(source) => source,
         Err(e) => return AdminError::Internal(e.into()).into_response(),
     };
     match start(
         &app.db,
-        target.form.clone(),
-        Actor::from(&user),
+        app.info.form.clone(),
+        Actor::from(user),
         spec,
         source,
     )
     .await
     {
         Ok(id) => Redirect::to(&app.url(&format!("runs/{id}"))).into_response(),
-        Err(RunError::Spec(reason)) => refused(Text::dynamic(reason)).await,
+        Err(RunError::Spec(reason)) => {
+            let _ = shell;
+            AdminError::Internal(anyhow::anyhow!(reason)).into_response()
+        }
         Err(e) => AdminError::Internal(e.into()).into_response(),
     }
+}
+
+/// Runs a checked file for real, with the matching the check used.
+async fn import_now(
+    State(app): State<App>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+) -> Response {
+    let run = match load_run(&app, id).await {
+        Ok(run) => run,
+        Err(e) => return e.into_response(),
+    };
+    let Some(media) = run.media_id else {
+        return AdminError::NotFound.into_response();
+    };
+    let record = match payload(&app, media, &user).await {
+        Ok(record) => record,
+        Err(e) => return e.into_response(),
+    };
+    let spec = run.spec.clone().dry_run(false);
+    launch(&app, &shell, &record, spec, &user).await
 }
 
 // The report.
@@ -642,7 +684,8 @@ async fn start_run(
 #[template(path = "run.html")]
 struct RunTemplate<'a> {
     shell: &'a Shell,
-    resource: String,
+    kind: String,
+    file_name: String,
     actor: String,
     started_at: String,
     status: Markup,
@@ -654,12 +697,17 @@ struct RunTemplate<'a> {
 struct StatusTemplate<'a> {
     shell: &'a Shell,
     poll: Option<String>,
+    dry: bool,
     status: String,
     status_class: &'static str,
     run: &'a Run,
     failure: Option<String>,
     finished_at: Option<String>,
     notes: Vec<NoteRow>,
+    /// The real run a finished check offers, while the file is still there.
+    import_action: Option<String>,
+    /// The refused rows as a file, once there are any.
+    refused_href: Option<String>,
 }
 
 struct NoteRow {
@@ -667,6 +715,14 @@ struct NoteRow {
     kind: String,
     field: String,
     message: String,
+}
+
+fn kind_label(shell: &Shell, run: &Run) -> String {
+    if run.spec.dry_run {
+        shell.t("Check")
+    } else {
+        shell.t("Import")
+    }
 }
 
 fn status_label(shell: &Shell, status: Status) -> String {
@@ -699,23 +755,37 @@ fn status_markup(app: &App, shell: &Shell, run: &Run) -> Result<Markup, askama::
             message: shell.tt(&n.message),
         })
         .collect();
+    let settled = run.status != Status::Running;
     Markup::from_template(&StatusTemplate {
         shell,
-        poll: (run.status == Status::Running).then(|| app.url(&format!("runs/{}/status", run.id))),
+        poll: (!settled).then(|| app.url(&format!("runs/{}/status", run.id))),
+        dry: run.spec.dry_run,
         status: status_label(shell, run.status),
         status_class: status_class(run.status),
         run,
         failure: run.failure.clone(),
         finished_at: run.finished_at.as_deref().map(|at| shell.datetime(at)),
         notes,
+        import_action: (settled
+            && run.spec.dry_run
+            && run.status == Status::Done
+            && run.media_id.is_some())
+        .then(|| app.url(&format!("runs/{}/import", run.id))),
+        refused_href: (settled && run.errors > 0 && run.media_id.is_some())
+            .then(|| app.url(&format!("runs/{}/refused.csv", run.id))),
     })
 }
 
 async fn load_run(app: &App, id: i64) -> Result<Run, AdminError> {
-    find(&app.db, id)
+    let run = find(&app.db, id)
         .await
         .map_err(|e| AdminError::Internal(e.into()))?
-        .ok_or(AdminError::NotFound)
+        .ok_or(AdminError::NotFound)?;
+    // Another resource's run is not this page's business.
+    if run.resource != app.info.path {
+        return Err(AdminError::NotFound);
+    }
+    Ok(run)
 }
 
 async fn run_page(
@@ -731,12 +801,22 @@ async fn run_page(
         Ok(status) => status,
         Err(e) => return AdminError::Internal(e.into()).into_response(),
     };
+    let file_name = match run.media_id {
+        Some(media) => record::find(&app.db, media)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.original_name)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
     page(
         &shell,
         &t!("Import run {id}", id = run.id),
         &RunTemplate {
             shell: &shell,
-            resource: app.label_of(&run.resource, &shell),
+            kind: kind_label(&shell, &run),
+            file_name,
             actor: run.actor_label.clone(),
             started_at: shell.datetime(&run.started_at),
             status,
@@ -758,6 +838,83 @@ async fn run_status(
         Ok(status) => Html(status.into_string()).into_response(),
         Err(e) => AdminError::Internal(e.into()).into_response(),
     }
+}
+
+/// The rows the run refused, as they were in the file, with a last column
+/// saying why, so they can be fixed and imported on their own.
+async fn refused_csv(
+    State(app): State<App>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+) -> Response {
+    let run = match load_run(&app, id).await {
+        Ok(run) => run,
+        Err(e) => return e.into_response(),
+    };
+    let Some(media) = run.media_id else {
+        return AdminError::NotFound.into_response();
+    };
+    let record = match payload(&app, media, &user).await {
+        Ok(record) => record,
+        Err(e) => return e.into_response(),
+    };
+    let bytes: Vec<u8> = match app.disk.get(&blob_path(&record.hash)).await {
+        Ok(stream) => match stream
+            .try_fold(Vec::new(), |mut all, chunk| async move {
+                all.extend_from_slice(&chunk);
+                Ok(all)
+            })
+            .await
+        {
+            Ok(bytes) => bytes,
+            Err(e) => return AdminError::Internal(e.into()).into_response(),
+        },
+        Err(e) => return AdminError::Internal(e.into()).into_response(),
+    };
+    let mut problems: HashMap<u64, Vec<String>> = HashMap::new();
+    for note in run.notes.iter().filter(|n| n.kind == NoteKind::Error) {
+        let message = match &note.field {
+            Some(field) => format!("{field}: {}", shell.tt(&note.message)),
+            None => shell.tt(&note.message),
+        };
+        problems.entry(note.row).or_default().push(message);
+    }
+    let wanted: BTreeSet<u64> = problems.keys().copied().collect();
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(run.spec.delimiter)
+        .from_writer(Vec::new());
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(run.spec.delimiter)
+        .has_headers(run.spec.first_row_titles)
+        .flexible(true)
+        .from_reader(bytes.as_slice());
+    if run.spec.first_row_titles {
+        if let Ok(headers) = reader.headers() {
+            let mut titles: Vec<String> = headers.iter().map(str::to_string).collect();
+            titles.push(shell.t("problem"));
+            let _ = writer.write_record(&titles);
+        }
+    }
+    for record in reader.records().flatten() {
+        let line = record.position().map(|p| p.line()).unwrap_or(0);
+        if !wanted.contains(&line) {
+            continue;
+        }
+        let mut cells: Vec<String> = record.iter().map(str::to_string).collect();
+        cells.push(
+            problems
+                .get(&line)
+                .map(|m| m.join("; "))
+                .unwrap_or_default(),
+        );
+        let _ = writer.write_record(&cells);
+    }
+    let body = writer
+        .into_inner()
+        .map(|b| format!("\u{feff}{}", String::from_utf8_lossy(&b)))
+        .unwrap_or_default();
+    csv_download(&format!("refused-{}.csv", run.id), body)
 }
 
 /// A template rendered into the chrome under `title`.

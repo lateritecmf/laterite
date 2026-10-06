@@ -14,11 +14,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `FormHandle::load(id)` returns a record's values as its edit form shows them.
 - `RouteCtx::form(path)` hands a screen a resource's form to write records
   through from code, with the submit's rules, listeners, persister and audit.
-- The import screen at `/admin/import`: a CSV uploaded, its columns matched to a
-  resource's fields, the run started and its report watched. `ImportReg` says
-  which resources; a `laterite_media::DiskReg` named `private` keeps the file.
+- A resource declaring `import: true` gets import pages under its path and an
+  Import button beside its export menu: a CSV in, columns matched (remembered
+  from the last file with the same titles), a check that writes nothing, then
+  the run, its live report, and the refused rows back as a file to fix.
 - `laterite_admin::Shell` is public: a contributed screen renders its own
-  templates inside the admin chrome with `Shell::page`.
+  templates inside the admin chrome with `Shell::page`. A module mounts routes
+  under a resource through `ResourceFeatureReg`.
+- `laterite_media::DiskReg` declares a named disk for modules that store files.
+- A CSV export starts with a byte-order mark, so a spreadsheet reads it as UTF-8.
 
 ### Fixed
 

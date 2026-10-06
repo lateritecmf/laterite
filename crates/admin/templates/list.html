@@ -3,10 +3,12 @@
 {% block content %}
 <div class="lat-toolbar">
   <h1>{{ title }}</h1>
-  {% if exportable %}
+  {% if exportable || import_href.is_some() %}
   {# Moving a whole resource in or out is the page's business, not the table's:
      it belongs beside the title, while the row below acts on rows. #}
   <div class="lat-toolbar__actions">
+    {% if let Some(href) = import_href %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ href }}">{{ shell.t("Import") }}</a>{% endif %}
+    {% if exportable %}
     <details class="lat-menu">
       <summary class="lat-btn lat-btn--secondary lat-btn--sm">{{ shell.t("Export") }}</summary>
       <div class="lat-menu__panel">
@@ -15,6 +17,7 @@
         <a href="{{ path }}/export?format=json{{ export_query }}">{{ shell.t("JSON") }}</a>
       </div>
     </details>
+    {% endif %}
   </div>
   {% endif %}
 </div>

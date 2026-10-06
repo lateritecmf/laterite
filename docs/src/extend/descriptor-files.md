@@ -50,6 +50,7 @@ Key | Description
 `id_field` | The primary key column. Default `id`.
 `list` | The list screen. Required.
 `form` | The create and edit screen. Optional.
+`import` | `true`, or `{ permission: ... }`, to let records be imported into the resource through the registered import module. Needs `form`. Optional.
 
 `entity`, `path` and `id_field` reach both screens.
 

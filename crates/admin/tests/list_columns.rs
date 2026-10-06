@@ -168,7 +168,7 @@ async fn a_gated_column_is_hidden_from_an_operator_without_the_permission() {
 
     let (_, csv) = page_at(app(db, list), "/admin/things/export?format=csv", &nobody).await;
     assert!(
-        csv.starts_with("Code\n") || csv.starts_with("Code\r\n"),
+        csv.starts_with("\u{feff}Code\n") || csv.starts_with("\u{feff}Code\r\n"),
         "export leaks nothing: {csv:?}"
     );
 }

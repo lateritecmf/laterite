@@ -18,6 +18,22 @@ pub(crate) const SAMPLE_ROWS: usize = 3;
 /// samples; a row cut off at the end shows as far as it was read.
 pub(crate) const PEEK_BYTES: usize = 64 * 1024;
 
+/// The delimiter the first line suggests: a semicolon or a tab when it carries
+/// more of them than commas, as a spreadsheet in a locale with a decimal comma
+/// writes, else a comma.
+pub(crate) fn sniff_delimiter(bytes: &[u8]) -> u8 {
+    let first = bytes.split(|b| *b == b'\n').next().unwrap_or_default();
+    let count = |d: u8| first.iter().filter(|b| **b == d).count();
+    let (comma, semi, tab) = (count(b','), count(b';'), count(b'\t'));
+    if semi > comma && semi >= tab {
+        b';'
+    } else if tab > comma {
+        b'\t'
+    } else {
+        b','
+    }
+}
+
 /// Reads the titles and the first rows out of `bytes`, which may end mid-row.
 pub(crate) fn peek(bytes: &[u8], delimiter: u8, titles: bool) -> Peek {
     let mut reader = csv::ReaderBuilder::new()
@@ -68,6 +84,14 @@ mod tests {
         let p = peek(b"a;b\nc;d;e\n", b';', false);
         assert_eq!(p.titles, ["Column 1", "Column 2", "Column 3"]);
         assert_eq!(p.samples.len(), 2);
+    }
+
+    #[test]
+    fn the_delimiter_is_read_off_the_first_line() {
+        assert_eq!(sniff_delimiter(b"code;name\nx;y\n"), b';');
+        assert_eq!(sniff_delimiter(b"code\tname\n"), b'\t');
+        assert_eq!(sniff_delimiter(b"code,name;x\n"), b',');
+        assert_eq!(sniff_delimiter(b"code\n"), b',');
     }
 
     #[test]

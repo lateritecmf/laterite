@@ -8,12 +8,12 @@
 //! polls, so a long file finishes whether or not the browser waits, and a
 //! refused row is a line in the report, never a stopped import.
 //!
-//! The screen at `/import` takes a file, shows its columns beside the form's
-//! fields with a match proposed for each, starts the run and shows the report
-//! as it fills. The application says which resources may be imported into with
-//! an [`ImportReg`], and which disk keeps the uploaded file with a
-//! `laterite_media::DiskReg` named `private`. From code, [`start`] and [`find`]
-//! do the same without the screen.
+//! A resource declaring `import: true` gets the pages under its own path: a
+//! file taken in, its columns shown beside the form's fields with a match
+//! proposed for each, a check that writes nothing, then the run and its report
+//! as it fills. The application keeps the uploaded file on the disk it
+//! registered as a `laterite_media::DiskReg` named `private`. From code,
+//! [`start`] and [`find`] do the same without the pages.
 
 pub mod admin;
 mod file;
@@ -22,7 +22,7 @@ pub mod run;
 pub mod schema;
 mod store;
 
-pub use admin::{ImportReg, DISK, PERMISSION};
+pub use admin::DISK;
 pub use run::{
     find, start, Duplicates, Match, Note, NoteKind, OnMatch, Run, RunError, RunSpec, Status,
 };
@@ -35,7 +35,8 @@ pub fn module() -> Box<dyn Module> {
     Box::new(ImportModule)
 }
 
-/// The `laterite.import` module: the run table, the screen and its permission.
+/// The `laterite.import` module: the run table and the pages a resource
+/// declaring `import` gets.
 pub struct ImportModule;
 
 impl Module for ImportModule {
@@ -49,11 +50,5 @@ impl Module for ImportModule {
 
     fn register(&self, registry: &mut Registry) {
         admin::contribute(registry);
-    }
-
-    /// The screen lives at `/import` under the panel, a path short enough to
-    /// type. A module claiming the same path aborts boot, as any clash does.
-    fn admin_base(&self) -> Option<&'static str> {
-        Some("/import")
     }
 }

@@ -737,6 +737,13 @@ impl ListFilter {
 
 /// A button a list offers in its toolbar, beside the built-in New.
 ///
+/// Where a list's Import button goes, and who sees it.
+#[derive(Clone, Debug)]
+pub(crate) struct ImportLink {
+    pub href: String,
+    pub permission: String,
+}
+
 /// A resource declares its own; the framework contributes New and the export
 /// menu the same way, so the toolbar is one list of buttons rather than a
 /// hardcoded bar with special cases.
@@ -1108,6 +1115,11 @@ pub struct ListConfig {
     /// Whether this resource offers an export. Off by default: exporting is a
     /// capability a resource opts into, not something every list should carry.
     pub exportable: bool,
+    /// The import pages mounted under this resource, when it declared
+    /// `import`; shown beside the export menu to an operator holding the
+    /// permission. Set by the router from the resource, never by a descriptor.
+    #[serde(skip)]
+    pub(crate) import: Option<ImportLink>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1260,6 +1272,7 @@ impl Default for ListConfig {
             filters: Vec::new(),
             deletable: false,
             exportable: false,
+            import: None,
             toolbar: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
@@ -1844,6 +1857,11 @@ async fn show(
                 filters: filter_views,
                 deletable: config.deletable,
                 exportable: config.exportable,
+                import_href: config
+                    .import
+                    .as_ref()
+                    .filter(|link| user.permissions.allows(&link.permission))
+                    .map(|link| link.href.clone()),
                 filtered: !active.is_empty() || !q.trim().is_empty(),
                 carry: carry.clone(),
             };
@@ -2011,6 +2029,9 @@ struct ListTemplate {
     /// Whether this resource offers an export, which puts the menu beside the
     /// title. Off leaves the title row bare.
     exportable: bool,
+    /// The import pages, when the resource declared them and this operator may
+    /// use them.
+    import_href: Option<String>,
     /// Every declared column, with the shown ones ticked, for the picker.
     pickers: Vec<ColumnChoice>,
     /// The toolbar buttons this operator may see.

@@ -2,14 +2,16 @@
   <form method="get" action="{{ action }}" hx-get="{{ action }}" hx-trigger="change" hx-target="#lat-import-match" hx-select="#lat-import-match" hx-swap="outerHTML" hx-push-url="true" data-lat-widget="form" data-lat-confirm-leave="off">
     <dl class="lat-facts">
       <div><dt>{{ shell.t("File") }}</dt><dd>{{ file_name }}</dd></div>
+      <div><dt>{{ shell.t("Values are separated by") }}</dt><dd>{{ detected }}</dd></div>
     </dl>
     <div class="lat-fields">
       <div class="lat-field">
         <label class="lat-check"><input type="hidden" name="titles" value="0"><input type="checkbox" name="titles" value="1"{% if titles %} checked{% endif %}> {{ shell.t("The first row holds the column titles") }}</label>
       </div>
       <div class="lat-field">
-        <label class="lat-field__label" for="delimiter">{{ shell.t("Values are separated by") }}</label>
+        <label class="lat-field__label" for="delimiter">{{ shell.t("Read the values as separated by") }}</label>
         <select class="lat-input lat-select" id="delimiter" name="delimiter">
+          <option value="auto"{% if delimiter == "auto" %} selected{% endif %}>{{ shell.t("Whatever the file uses") }}</option>
           <option value=","{% if delimiter == "," %} selected{% endif %}>{{ shell.t("Comma") }}</option>
           <option value=";"{% if delimiter == ";" %} selected{% endif %}>{{ shell.t("Semicolon") }}</option>
           <option value="tab"{% if delimiter == "tab" %} selected{% endif %}>{{ shell.t("Tab") }}</option>
@@ -25,6 +27,7 @@
     <input type="hidden" name="titles" value="{% if titles %}1{% else %}0{% endif %}">
     <input type="hidden" name="delimiter" value="{{ delimiter }}">
     {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+    {% if remembered %}<p class="lat-note">{{ shell.t("Matched the way your last file with these columns was.") }}</p>{% endif %}
     <div class="lat-tablewrap">
       <table class="lat-table">
         <thead><tr>
@@ -57,16 +60,20 @@
         <label class="lat-field__label" for="key">{{ shell.t("Existing records are found by") }}</label>
         <select class="lat-input lat-select" id="key" name="key">
           <option value="">{{ shell.t("Nothing: every row makes a new record") }}</option>
-          {% for f in fields %}<option value="{{ f.name }}">{{ f.label }}</option>{% endfor %}
+          {% for f in fields %}<option value="{{ f.name }}"{% if key == f.name %} selected{% endif %}>{{ f.label }}</option>{% endfor %}
         </select>
       </div>
       <div class="lat-field">
-        <label class="lat-check"><input type="radio" name="on_match" value="skip" checked> {{ shell.t("Pass over a row whose record exists") }}</label>
-        <label class="lat-check"><input type="radio" name="on_match" value="update"> {{ shell.t("Update the record from the row") }}</label>
+        <label class="lat-check"><input type="radio" name="on_match" value="skip"{% if on_match != "update" %} checked{% endif %}> {{ shell.t("Pass over a row whose record exists") }}</label>
+        <label class="lat-check"><input type="radio" name="on_match" value="update"{% if on_match == "update" %} checked{% endif %}> {{ shell.t("Update the record from the row") }}</label>
+      </div>
+      <div class="lat-field">
+        <label class="lat-check"><input type="checkbox" name="keep_blank" value="1"{% if keep_blank %} checked{% endif %}> {{ shell.t("A blank cell leaves the record's value as it is") }}</label>
       </div>
     </div>
     <div class="lat-actions">
-      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Start the import") }}</button>
+      <button class="lat-btn lat-btn--primary" type="submit" name="action" value="check">{{ shell.t("Check the file") }}</button>
+      <button class="lat-btn lat-btn--secondary" type="submit" name="action" value="import">{{ shell.t("Import now") }}</button>
       <a class="lat-btn lat-btn--ghost" href="{{ back }}">{{ shell.t("Back") }}</a>
     </div>
   </form>

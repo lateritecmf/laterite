@@ -126,3 +126,39 @@ registry.add(ModelListenerReg::all(Arc::new(AuditWriter)));
 
 An all-entities listener must not assume a column exists.
 `FormConfig::timestamps` opts one entity into the built-in `Timestamps`.
+
+## Mount a feature under a resource
+
+```rust
+use laterite_admin::axum::routing::get;
+use laterite_admin::axum::Router;
+use laterite_admin::routes::{ResourceFeature, ResourceFeatureReg, ResourceInfo, RouteCtx};
+
+struct Archive;
+
+impl ResourceFeature for Archive {
+    fn mount(&self, ctx: &RouteCtx, resource: &ResourceInfo) -> Router {
+        let form = resource.form.clone();
+        Router::new().route("/", get(move || async move { form.entity().to_string() }))
+    }
+}
+
+registry.add(ResourceFeatureReg::new("archive", Arc::new(Archive)));
+```
+
+```yaml
+# descriptors/products.yaml
+archive: true
+```
+
+Field | Meaning
+--- | ---
+`resource.path` | The resource's path as declared, relative to the admin root (`/products`).
+`resource.base_path` | Where its list mounted (`/admin/products`).
+`resource.label` | Its menu label.
+`resource.permission` | The permission the feature's routes are gated by.
+`resource.form` | Its form, to write records through.
+
+The routes mount at `{base_path}/{key}` behind the permission. A descriptor
+declaring a key nobody registered aborts boot naming the resource. The admin
+knows the `import` key; a new key needs the admin to carry it.

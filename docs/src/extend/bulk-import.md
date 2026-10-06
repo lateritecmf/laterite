@@ -16,31 +16,54 @@ Bootstrap::new("config")
     .serve()
 ```
 
-## Register what may be imported
+## Let a resource be imported into
+
+```yaml
+# descriptors/products.yaml
+import: true
+```
+
+```yaml
+import:
+  permission: acme.import_products
+```
 
 ```rust
-use laterite_import::ImportReg;
-use laterite_media::{DiskReg, LocalDisk};
+Resource::new("/products", "Products", list)
+    .form(form)
+    .permission("acme.manage_products")
+    .import(ImportConfig::new())
+```
 
+```rust
 fn register(&self, registry: &mut Registry) {
-    registry.add(ImportReg::new("/products", "Products").permission("acme.manage_products"));
     registry.add(DiskReg::new("private", Arc::new(LocalDisk::new("storage/private"))));
 }
 ```
 
-Registration | Does
+Key | Default | Does
+--- | --- | ---
+`import: true` | off | Mounts the pages at `/admin/products/import` and shows an Import button beside the list's export menu.
+`import.permission` | the resource's | The permission an operator needs to import.
+`DiskReg` named `private` | required | Where the uploaded file is kept, as a media record outside the library.
+
+A resource declaring `import` needs a form and a permission; the import module
+must be registered. Any of the three missing aborts boot naming the resource.
+
+## What the pages do
+
+Page | Does
 --- | ---
-`ImportReg::new(resource, label)` | Offers the resource at `resource` (its path as the descriptor declares it) on the screen under `label`. The resource must mount a form.
-`.permission(code)` | A permission the operator must hold besides `laterite.import.run`.
-`DiskReg::new("private", driver)` | The disk uploaded files are stored on. Required; a boot without one aborts naming it.
+`/import` | The upload form, a template with the form's fields as titles, and this resource's recent runs.
+`/import/{file}` | Each file column with a sample and the field proposed for it: the field whose name or label reads like the title, or the matching used the last time a file with these titles came in. The duplicates key and policy, and whether a blank cell keeps a record's value.
+Check the file | Every row through the rules and conversions with nothing written; the report says what an import would do.
+Import now | The run, one commit a row, polled every two seconds.
+`/import/runs/{id}` | The counts, every refused or skipped row by its line in the file, and `refused.csv`: those rows as they were, with the problem beside each, to fix and import on their own.
 
-The screen mounts at `/admin/import` under the **Import** menu entry and
-requires `laterite.import.run`. An operator picks a resource, uploads a CSV,
-sees each file column with a sample and the form field proposed for it, chooses
-how existing records are found, and starts the run. The report page shows the
-counts as they move and every refused or skipped row by its line in the file.
+The delimiter is read off the file's first line (comma, semicolon or tab) and can
+be set by hand. Files are read as UTF-8; a byte-order mark is accepted.
 
-## Start a run
+## Start a run from code
 
 ```rust
 use laterite_import::{start, Duplicates, Match, RunSpec};
@@ -62,13 +85,15 @@ Option | Default | Does
 `Match::new(column, field)` | | File column `column` (from 0) fills `field`. A column may fill several fields.
 `.duplicates(Duplicates::skip(key))` | none | A row whose `key` is already there is passed over and noted.
 `.duplicates(Duplicates::update(key))` | none | A row whose `key` is already there updates that record; fields the file does not carry keep their values.
+`.keep_blank(bool)` | `true` | On an update, a blank matched cell leaves the record's value as it is. `false` clears the field.
+`.dry_run(bool)` | `false` | Nothing is written; the counts say what an import would do.
 `.first_row_titles(bool)` | `true` | The first row names the columns and is passed over.
 `.delimiter(u8)` | `b','` | The byte between values.
+`.titles(vec)` | none | The file's titles, so a later file with the same titles is proposed this matching.
 `.media(id)` | none | The stored payload's record, kept on the run.
 
 `start` returns `RunError::Spec` for a match naming a field the form lacks, no
-matches, or a duplicates key no column feeds. Rows are read as UTF-8. A blank
-row is passed over.
+matches, or a duplicates key no column feeds. A blank row is passed over.
 
 ## Poll a run
 
@@ -85,9 +110,10 @@ match run.status {
 
 Field | Meaning
 --- | ---
-`status` | `Running`, `Done`, or `Failed` (the run itself stopped; `failure` says why).
-`processed`, `created`, `updated`, `skipped`, `errors` | Row counts.
+`status` | `Running`, `Done`, or `Failed` (the run itself stopped; `failure` says why). A run left running by a stopped process reads as failed.
+`processed`, `created`, `updated`, `skipped`, `errors` | Row counts. On a dry run, what an import would do.
 `notes` | One per message: `row` (the line in the file), `kind` (`Error` or `Skipped`), `field`, `message` (a `Text`, localized where it renders).
+`spec` | What ran, `dry_run` included.
 `resource`, `media_id`, `actor_label`, `started_at`, `finished_at` | What ran, as recorded.
 
 Each row goes through the form's rules, field types, listeners, persister and

@@ -34,6 +34,22 @@ pub struct RunSpec {
     pub first_row_titles: bool,
     /// The byte between values. Default `,`.
     pub delimiter: u8,
+    /// Run every row through the rules and conversions with nothing written,
+    /// so the report says what an import would do. Default `false`.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// On an update, a matched cell that is blank leaves the record's value
+    /// as it is. Default `true`; `false` clears the field.
+    #[serde(default = "yes")]
+    pub keep_blank: bool,
+    /// The file's column titles, kept so a later file with the same titles
+    /// is proposed the same matching.
+    #[serde(default)]
+    pub titles: Vec<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl RunSpec {
@@ -46,7 +62,28 @@ impl RunSpec {
             duplicates: None,
             first_row_titles: true,
             delimiter: b',',
+            dry_run: false,
+            keep_blank: true,
+            titles: Vec::new(),
         }
+    }
+
+    /// Run every row with nothing written; the report says what would happen.
+    pub fn dry_run(mut self, dry: bool) -> Self {
+        self.dry_run = dry;
+        self
+    }
+
+    /// Whether a blank matched cell leaves an updated record's value as it is.
+    pub fn keep_blank(mut self, keep: bool) -> Self {
+        self.keep_blank = keep;
+        self
+    }
+
+    /// The file's column titles, for a later file to be matched the same way.
+    pub fn titles(mut self, titles: Vec<String>) -> Self {
+        self.titles = titles;
+        self
     }
 
     /// The stored payload's media record.
@@ -200,6 +237,8 @@ pub struct Run {
     pub id: i64,
     pub resource: String,
     pub media_id: Option<i64>,
+    /// What it ran: the matches, the policy, and whether anything was written.
+    pub spec: RunSpec,
     pub actor_label: String,
     pub status: Status,
     /// Rows read, blank rows left out.
@@ -451,7 +490,8 @@ async fn write_row(
                     }
                     OnMatch::Update => {
                         // The file's columns over the record as it stands, so a
-                        // field the file does not carry keeps its value.
+                        // field the file does not carry keeps its value, and so
+                        // does one whose cell is blank when the spec says so.
                         let current = match form.load(id).await {
                             Ok(current) => current.unwrap_or_default(),
                             Err(e) => {
@@ -460,8 +500,18 @@ async fn write_row(
                             }
                         };
                         let mut merged = current;
-                        merged.extend(data);
-                        match form.update(id, merged, actor).await {
+                        for (field, value) in data {
+                            if spec.keep_blank && value.trim().is_empty() {
+                                continue;
+                            }
+                            merged.insert(field, value);
+                        }
+                        let outcome = if spec.dry_run {
+                            form.check(Some(id), merged).await
+                        } else {
+                            form.update(id, merged, actor).await
+                        };
+                        match outcome {
                             Ok(()) => counts.updated += 1,
                             Err(e) => refused(row, e, counts, notes),
                         }
@@ -471,8 +521,13 @@ async fn write_row(
             }
         }
     }
-    match form.create(data, actor).await {
-        Ok(_) => counts.created += 1,
+    let outcome = if spec.dry_run {
+        form.check(None, data).await
+    } else {
+        form.create(data, actor).await.map(|_| ())
+    };
+    match outcome {
+        Ok(()) => counts.created += 1,
         Err(e) => refused(row, e, counts, notes),
     }
 }

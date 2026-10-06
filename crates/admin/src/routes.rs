@@ -15,6 +15,7 @@ use axum::Router;
 use laterite_core::{Db, Events, Registry, Text};
 
 use crate::form::{FormHandle, Forms};
+use crate::list::ImportLink;
 
 /// What a contributed route is given at boot.
 ///
@@ -289,6 +290,78 @@ impl PublicRouteReg {
             path: path.into(),
             route,
         }
+    }
+}
+
+/// A feature a module mounts under every resource whose descriptor declares
+/// its key: the routes behind `import: true`, say.
+///
+/// The admin owns the key and the button; the module owns the routes. A
+/// descriptor declaring a key no module serves aborts boot naming it, so the
+/// admin never depends on the module.
+pub trait ResourceFeature: Send + Sync + 'static {
+    /// The routes, relative to `{resource}/{key}`, which is `ctx.base_path()`.
+    fn mount(&self, ctx: &RouteCtx, resource: &ResourceInfo) -> Router;
+}
+
+/// A registered feature, keyed by the descriptor key it serves. Mounted under
+/// every resource declaring that key, behind the key's permission or, when the
+/// key names none, the resource's.
+#[non_exhaustive]
+pub struct ResourceFeatureReg {
+    pub key: String,
+    pub feature: Arc<dyn ResourceFeature>,
+}
+
+impl ResourceFeatureReg {
+    pub fn new(key: impl Into<String>, feature: Arc<dyn ResourceFeature>) -> Self {
+        Self {
+            key: key.into(),
+            feature,
+        }
+    }
+}
+
+/// The resource a feature mounts under, as the feature sees it.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ResourceInfo {
+    /// The resource's path as its descriptor declares it, relative to the
+    /// admin root (`/products`).
+    pub path: String,
+    /// Where its list mounted (`/admin/products`).
+    pub base_path: String,
+    /// The resource's menu label.
+    pub label: Text,
+    /// The permission the feature's routes are gated by.
+    pub permission: String,
+    /// The resource's form, to write its records through.
+    pub form: FormHandle,
+}
+
+impl ResourceInfo {
+    pub(crate) fn new(
+        path: String,
+        base_path: String,
+        label: Text,
+        permission: String,
+        form: FormHandle,
+    ) -> Self {
+        Self {
+            path,
+            base_path,
+            label,
+            permission,
+            form,
+        }
+    }
+}
+
+/// The link a list shows to a feature mounted under it.
+pub(crate) fn feature_link(base_path: &str, key: &str, permission: &str) -> ImportLink {
+    ImportLink {
+        href: format!("{base_path}/{key}"),
+        permission: permission.to_string(),
     }
 }
 

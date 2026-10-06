@@ -131,6 +131,7 @@ fn select_runs() -> sea_query::SelectStatement {
             ImportRuns::MediaId,
             ImportRuns::ActorLabel,
             ImportRuns::Status,
+            ImportRuns::Spec,
             ImportRuns::Processed,
             ImportRuns::Created,
             ImportRuns::Updated,
@@ -148,10 +149,14 @@ fn select_runs() -> sea_query::SelectStatement {
 fn read_run(row: &sqlx::any::AnyRow) -> Result<Run, sqlx::Error> {
     let status = row.get_text("status")?;
     let notes: Vec<Note> = serde_json::from_str(&row.get_text("notes")?).unwrap_or_default();
+    let resource = row.get_text("resource")?;
+    let spec: RunSpec = serde_json::from_str(&row.get_text("spec")?)
+        .unwrap_or_else(|_| RunSpec::new(resource.clone(), Vec::new()));
     Ok(Run {
         id: row.get_int("id")?,
-        resource: row.get_text("resource")?,
+        resource,
         media_id: row.get_int_opt("media_id")?,
+        spec,
         actor_label: row.get_text("actor_label")?,
         status: Status::parse(&status).unwrap_or(Status::Failed),
         processed: row.get_int("processed")?,
@@ -182,11 +187,21 @@ pub(crate) async fn find(db: &Db, id: i64) -> Result<Option<Run>, sqlx::Error> {
         .transpose()
 }
 
-/// The latest `limit` runs, newest first.
-pub(crate) async fn recent(db: &Db, limit: i64) -> Result<Vec<Run>, sqlx::Error> {
+/// The latest run into `resource`, whatever its state.
+pub(crate) async fn last_for(db: &Db, resource: &str) -> Result<Option<Run>, sqlx::Error> {
+    Ok(recent_for(db, resource, 1).await?.into_iter().next())
+}
+
+/// The latest `limit` runs into `resource`, newest first.
+pub(crate) async fn recent_for(
+    db: &Db,
+    resource: &str,
+    limit: i64,
+) -> Result<Vec<Run>, sqlx::Error> {
     let (sql, values) = build(
         db.backend,
         select_runs()
+            .and_where(Expr::col(ImportRuns::Resource).eq(resource))
             .order_by(ImportRuns::Id, sea_query::Order::Desc)
             .limit(limit as u64)
             .to_owned(),

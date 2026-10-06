@@ -33,7 +33,7 @@ use serde::Deserialize;
 
 use crate::form::FormConfig;
 use crate::list::ListConfig;
-use crate::Resource;
+use crate::{ImportConfig, Resource};
 use laterite_core::Text;
 
 /// A resource as a descriptor file spells it.
@@ -55,6 +55,17 @@ struct ResourceFile {
     list: ListConfig,
     #[serde(default)]
     form: Option<FormConfig>,
+    /// `true`, or a map of [`ImportConfig`] keys. Absent or `false` means the
+    /// resource is not imported into.
+    #[serde(default)]
+    import: Option<ImportKey>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ImportKey {
+    Flag(bool),
+    Config(ImportConfig),
 }
 
 fn default_id_field() -> String {
@@ -171,6 +182,11 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
             }
         }
         resource = resource.form(form);
+    }
+    match file.import {
+        Some(ImportKey::Flag(true)) => resource = resource.import(ImportConfig::new()),
+        Some(ImportKey::Config(import)) => resource = resource.import(import),
+        Some(ImportKey::Flag(false)) | None => {}
     }
     Ok(resource)
 }
