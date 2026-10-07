@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-10-07
+
+Bulk import complete: a CSV through a resource's form, checked first, with a
+report and the refused rows back as a file.
+
 ### Added
 
 - New crate `laterite-import`: runs a CSV through a resource's form, detached,

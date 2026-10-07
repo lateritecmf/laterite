@@ -1,6 +1,6 @@
 [package]
 name = "laterite-import"
-version = "0.9.8"
+version = "0.9.9"
 description = "Laterite bulk import: a file's rows written through a resource's form, with a report"
 edition.workspace = true
 license.workspace = true
