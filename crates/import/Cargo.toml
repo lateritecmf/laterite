@@ -5,9 +5,6 @@ description = "Laterite bulk import: a file's rows written through a resource's 
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-# Not on crates.io yet: the first version goes up by hand once the slice it
-# belongs to is released, and this line goes with it.
-publish = false
 
 [dependencies]
 laterite-core = { workspace = true }
