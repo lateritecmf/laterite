@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
+laterite-media = { workspace = true }
 anyhow = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
@@ -18,6 +19,7 @@ blake3 = { workspace = true }
 ipnet = { workspace = true }
 chrono = { workspace = true }
 csv = { workspace = true }
+futures = { workspace = true }
 chrono-tz = { workspace = true }
 form_urlencoded = "1.2"
 listenfd = { workspace = true }
@@ -35,9 +37,9 @@ tower-http = { version = "0.7.1", features = ["catch-panic", "set-header"] }
 
 [features]
 default = []
-postgres = ["laterite-core/postgres", "laterite-auth/postgres"]
-mysql = ["laterite-core/mysql", "laterite-auth/mysql"]
-sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite"]
+postgres = ["laterite-core/postgres", "laterite-auth/postgres", "laterite-media/postgres"]
+mysql = ["laterite-core/mysql", "laterite-auth/mysql", "laterite-media/mysql"]
+sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite", "laterite-media/sqlite"]
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["testing"] }

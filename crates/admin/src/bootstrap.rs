@@ -461,6 +461,7 @@ impl Bootstrap {
             app_name: config.app.name.clone(),
             path: config.backend.path.clone(),
             origin: origin.clone(),
+            storage_dir: config.backend.storage.clone(),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad

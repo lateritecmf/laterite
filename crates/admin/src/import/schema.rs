@@ -16,14 +16,14 @@ pub enum ImportRuns {
     ActorLabel,
     /// `running`, `done` or `failed`.
     Status,
-    /// The [`RunSpec`](crate::RunSpec) as JSON, so a report can say what it ran.
+    /// The [`RunSpec`](crate::import::RunSpec) as JSON, so a report can say what it ran.
     Spec,
     Processed,
     Created,
     Updated,
     Skipped,
     Errors,
-    /// The [`Note`](crate::Note) list as JSON.
+    /// The [`Note`](crate::import::Note) list as JSON.
     Notes,
     /// Why the run itself stopped, when `status` is `failed`.
     Failure,

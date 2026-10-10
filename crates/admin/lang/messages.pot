@@ -6,8 +6,28 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "(optional)"
 msgstr ""
 
+#: templates/import/index.html
+msgid "A CSV file, read as UTF-8."
+msgstr ""
+
+#: templates/import/match.html
+msgid "A blank cell leaves the record's value as it is"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "A check: nothing was written. The counts say what an import would do."
+msgstr ""
+
+#: templates/import/match.html
+msgid "A field marked * must be matched."
+msgstr ""
+
 #: src/lib.rs
 msgid "A password needs at least {n} characters."
+msgstr ""
+
+#: src/import/run.rs
+msgid "A record with this {field} is already there."
 msgstr ""
 
 #: templates/users_form.html
@@ -82,8 +102,17 @@ msgstr ""
 
 #: templates/_roles_form_fields.html
 #: templates/form.html
+#: templates/import/match.html
 #: templates/roles_form.html
 msgid "Back"
+msgstr ""
+
+#: templates/import/run.html
+msgid "Back to import"
+msgstr ""
+
+#: src/import/pages.rs
+msgid "Back to {resource}"
 msgstr ""
 
 #: (descriptors)
@@ -109,6 +138,11 @@ msgstr ""
 msgid "Build sites. Ship solid."
 msgstr ""
 
+#: templates/import/index.html
+#: templates/import/run.html
+msgid "By"
+msgstr ""
+
 #: templates/list.html
 msgid "CSV"
 msgstr ""
@@ -130,8 +164,16 @@ msgstr ""
 msgid "Change your own password under Preferences."
 msgstr ""
 
+#: templates/import/match.html
+msgid "Check the file"
+msgstr ""
+
 #: src/settings/mod.rs
 msgid "Check the values and try again."
+msgstr ""
+
+#: src/import/pages.rs
+msgid "Choose a file to import."
 msgstr ""
 
 #: templates/settings_index.html
@@ -163,8 +205,17 @@ msgstr ""
 msgid "Colour mode"
 msgstr ""
 
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "Comma"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Confirm new password"
+msgstr ""
+
+#: templates/import/index.html
+msgid "Continue"
 msgstr ""
 
 #: src/lib.rs
@@ -192,6 +243,10 @@ msgstr ""
 msgid "Could not save. The code may already be in use."
 msgstr ""
 
+#: src/import/run.rs
+msgid "Could not save: {reason}"
+msgstr ""
+
 #: templates/users_new.html
 msgid "Create account"
 msgstr ""
@@ -204,6 +259,8 @@ msgstr ""
 msgid "Create the first administrator"
 msgstr ""
 
+#: templates/import/_run_status.html
+#: templates/import/index.html
 #: (descriptors)
 msgid "Created"
 msgstr ""
@@ -280,6 +337,14 @@ msgstr ""
 msgid "Displayed records: {shown} of {total}"
 msgstr ""
 
+#: templates/import/index.html
+msgid "Download a template with the right columns."
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Download the refused rows"
+msgstr ""
+
 #: src/field.rs
 #: templates/_roles_form_fields.html
 msgid "Duplicate"
@@ -320,6 +385,10 @@ msgstr ""
 msgid "Every other session was signed out."
 msgstr ""
 
+#: templates/import/match.html
+msgid "Existing records are found by"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Expires"
 msgstr ""
@@ -330,6 +399,25 @@ msgstr ""
 
 #: (descriptors)
 msgid "Failed"
+msgstr ""
+
+#: templates/import/_run_status.html
+#: templates/import/match.html
+msgid "Field"
+msgstr ""
+
+#: templates/import/index.html
+#: templates/import/match.html
+#: templates/import/run.html
+msgid "File"
+msgstr ""
+
+#: templates/import/match.html
+msgid "File column"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Finished"
 msgstr ""
 
 #: templates/setup.html
@@ -350,6 +438,19 @@ msgstr ""
 msgid "Import"
 msgstr ""
 
+#: src/import/pages.rs
+msgid "Import into {resource}"
+msgstr ""
+
+#: templates/import/_run_status.html
+#: templates/import/match.html
+msgid "Import now"
+msgstr ""
+
+#: src/import/pages.rs
+msgid "Import run {id}"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Inherit"
 msgstr ""
@@ -360,6 +461,11 @@ msgstr ""
 
 #: templates/list.html
 msgid "JSON"
+msgstr ""
+
+#: templates/import/index.html
+#: templates/import/run.html
+msgid "Kind"
 msgstr ""
 
 #: templates/preferences.html
@@ -424,8 +530,20 @@ msgstr ""
 msgid "Manage roles and their permissions."
 msgstr ""
 
+#: src/import/pages.rs
+msgid "Match at least one column to a field."
+msgstr ""
+
+#: templates/import/match.html
+msgid "Matched the way your last file with these columns was."
+msgstr ""
+
 #: templates/base.html
 msgid "Menu"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Message"
 msgstr ""
 
 #: src/field.rs
@@ -457,6 +575,14 @@ msgstr ""
 msgid "Next"
 msgstr ""
 
+#: templates/import/match.html
+msgid "No columns could be read from the file."
+msgstr ""
+
+#: templates/import/index.html
+msgid "No imports yet."
+msgstr ""
+
 #: templates/plugins.html
 msgid "No plugins installed."
 msgstr ""
@@ -477,6 +603,10 @@ msgstr ""
 msgid "Not found"
 msgstr ""
 
+#: templates/import/match.html
+msgid "Not imported"
+msgstr ""
+
 #: templates/preferences.html
 #: templates/users_form.html
 msgid "Not recorded"
@@ -484,6 +614,10 @@ msgstr ""
 
 #: src/checklist.rs
 msgid "Nothing matches."
+msgstr ""
+
+#: templates/import/match.html
+msgid "Nothing: every row makes a new record"
 msgstr ""
 
 #: templates/login.html
@@ -499,8 +633,16 @@ msgstr ""
 msgid "Operator"
 msgstr ""
 
+#: templates/import/_run_status.html
+msgid "Outcome"
+msgstr ""
+
 #: templates/_list_table.html
 msgid "Page {page} of {pages}"
+msgstr ""
+
+#: templates/import/match.html
+msgid "Pass over a row whose record exists"
 msgstr ""
 
 #: templates/login.html
@@ -575,6 +717,23 @@ msgstr ""
 msgid "Reactivate"
 msgstr ""
 
+#: templates/import/match.html
+msgid "Read again"
+msgstr ""
+
+#: templates/import/match.html
+msgid "Read the values as separated by"
+msgstr ""
+
+#: templates/import/index.html
+msgid "Recent imports"
+msgstr ""
+
+#: templates/import/_run_status.html
+#: templates/import/index.html
+msgid "Refused"
+msgstr ""
+
 #: src/field.rs
 msgid "Remove"
 msgstr ""
@@ -622,8 +781,24 @@ msgstr ""
 msgid "Roles"
 msgstr ""
 
+#: templates/import/_run_status.html
+msgid "Row"
+msgstr ""
+
 #: templates/list.html
 msgid "Rows per page"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Rows read"
+msgstr ""
+
+#: templates/import/index.html
+msgid "Run"
+msgstr ""
+
+#: templates/import/match.html
+msgid "Sample"
 msgstr ""
 
 #: templates/_form_fields.html
@@ -662,6 +837,11 @@ msgstr ""
 
 #: templates/_list_table.html
 msgid "Select record"
+msgstr ""
+
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "Semicolon"
 msgstr ""
 
 #: templates/setup.html
@@ -721,6 +901,11 @@ msgstr ""
 msgid "Signed-in devices"
 msgstr ""
 
+#: templates/import/_run_status.html
+#: templates/import/index.html
+msgid "Skipped"
+msgstr ""
+
 #: src/bulk.rs
 msgid "Some records could not be deleted."
 msgstr ""
@@ -733,6 +918,13 @@ msgstr ""
 msgid "Something went wrong. Please try again."
 msgstr ""
 
+#: templates/import/index.html
+#: templates/import/run.html
+msgid "Started"
+msgstr ""
+
+#: templates/import/_run_status.html
+#: templates/import/index.html
 #: templates/plugins.html
 #: templates/users_form.html
 msgid "Status"
@@ -752,6 +944,11 @@ msgstr ""
 
 #: (descriptors)
 msgid "System"
+msgstr ""
+
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "Tab"
 msgstr ""
 
 #: (descriptors)
@@ -810,8 +1007,29 @@ msgstr ""
 msgid "The application name shown across the admin."
 msgstr ""
 
+#: src/import/run.rs
+msgid "The existing record could not be looked up."
+msgstr ""
+
 #: src/export.rs
 msgid "The export could not be produced."
+msgstr ""
+
+#: src/import/pages.rs
+msgid "The field records are found by must itself be matched to a column."
+msgstr ""
+
+#: src/import/pages.rs
+msgid "The file could not be stored."
+msgstr ""
+
+#: src/import/pages.rs
+msgid "The file is larger than {limit} MB."
+msgstr ""
+
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "The first row holds the column titles"
 msgstr ""
 
 #: templates/_roles_form_fields.html
@@ -836,6 +1054,10 @@ msgstr ""
 
 #: src/users.rs
 msgid "The password could not be reset."
+msgstr ""
+
+#: src/import/run.rs
+msgid "The row could not be read: {reason}"
 msgstr ""
 
 #: src/error.rs
@@ -902,6 +1124,15 @@ msgstr ""
 msgid "Untitled"
 msgstr ""
 
+#: templates/import/match.html
+msgid "Update the record from the row"
+msgstr ""
+
+#: templates/import/_run_status.html
+#: templates/import/index.html
+msgid "Updated"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Use the deployment default"
 msgstr ""
@@ -926,6 +1157,11 @@ msgstr ""
 msgid "Users"
 msgstr ""
 
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "Values are separated by"
+msgstr ""
+
 #: templates/plugins.html
 msgid "Version"
 msgstr ""
@@ -946,8 +1182,25 @@ msgstr ""
 msgid "Welcome"
 msgstr ""
 
+#: templates/import/index.html
+#: templates/import/match.html
+msgid "Whatever the file uses"
+msgstr ""
+
 #: (descriptors)
 msgid "When"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Would create"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Would skip"
+msgstr ""
+
+#: templates/import/_run_status.html
+msgid "Would update"
 msgstr ""
 
 #: templates/users_form.html
@@ -980,6 +1233,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your session ended after a period of inactivity. Sign in again."
+msgstr ""
+
+#: src/import/pages.rs
+msgid "{field} must be matched to a column."
 msgstr ""
 
 #: src/checklist.rs

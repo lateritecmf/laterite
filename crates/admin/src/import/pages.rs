@@ -4,26 +4,28 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+use crate::html::Markup;
+use crate::routes::{ResourceFeature, ResourceInfo, RouteCtx};
+use crate::{AdminError, FlashLevel, SessionHandle, Shell, VerifiedUpload};
 use askama::Template;
+use axum::extract::{Form, Path, Query, State};
+use axum::http::header;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::routing::{get, post};
+use axum::{Extension, Router};
 use futures::TryStreamExt;
-use laterite_admin::axum::extract::{Form, Path, Query, State};
-use laterite_admin::axum::http::header;
-use laterite_admin::axum::response::{Html, IntoResponse, Redirect, Response};
-use laterite_admin::axum::routing::{get, post};
-use laterite_admin::axum::{Extension, Router};
-use laterite_admin::html::Markup;
-use laterite_admin::routes::{ResourceFeature, ResourceInfo, RouteCtx};
-use laterite_admin::{AdminError, FlashLevel, SessionHandle, Shell, VerifiedUpload};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::validation::Rule;
 use laterite_core::{t, Actor, Db, Text};
-use laterite_media::{blob_path, ingest, record, stream_of, DiskReg, NewMedia, StorageDriver};
+use laterite_media::{blob_path, ingest, record, stream_of, NewMedia, StorageDriver};
 use serde::Deserialize;
 
 use super::DISK;
-use crate::file::{peek, sniff_delimiter, PEEK_BYTES};
-use crate::run::{find, start, Duplicates, Match, Note, NoteKind, Run, RunError, RunSpec, Status};
-use crate::store;
+use crate::import::file::{peek, sniff_delimiter, PEEK_BYTES};
+use crate::import::run::{
+    find, start, Duplicates, Match, Note, NoteKind, Run, RunError, RunSpec, Status,
+};
+use crate::import::store;
 
 /// The largest file the pages take in.
 const UPLOAD_LIMIT: u64 = 20 * 1024 * 1024;
@@ -31,8 +33,12 @@ const UPLOAD_LIMIT: u64 = 20 * 1024 * 1024;
 /// How many runs the index lists.
 const RECENT_RUNS: i64 = 20;
 
-/// The feature the module registers for the `import` key.
-pub(crate) struct ImportFeature;
+/// The pages the router mounts under a resource declaring `import`.
+pub(crate) struct ImportFeature {
+    /// Where uploaded files are kept: the application's `private` disk, else the
+    /// default under the storage directory.
+    pub(crate) disk: Arc<dyn StorageDriver>,
+}
 
 /// What the handlers need after mount, cloned per request.
 #[derive(Clone)]
@@ -61,21 +67,10 @@ impl App {
 
 impl ResourceFeature for ImportFeature {
     fn mount(&self, ctx: &RouteCtx, resource: &ResourceInfo) -> Router {
-        let disk = ctx
-            .contributions::<DiskReg>()
-            .into_iter()
-            .find(|d| d.name == DISK)
-            .map(|d| d.driver.clone())
-            .unwrap_or_else(|| {
-                panic!(
-                    "laterite.import stores uploads on a disk named `{DISK}`; register a \
-                     laterite_media::DiskReg with that name"
-                )
-            });
         let app = App {
             db: ctx.db().clone(),
             base: Arc::from(ctx.base_path()),
-            disk,
+            disk: self.disk.clone(),
             info: Arc::new(resource.clone()),
         };
         Router::new()
@@ -93,7 +88,7 @@ impl ResourceFeature for ImportFeature {
 // The index: the upload form and this resource's runs.
 
 #[derive(Template)]
-#[template(path = "index.html")]
+#[template(path = "import/index.html")]
 struct IndexTemplate<'a> {
     shell: &'a Shell,
     action: String,
@@ -310,7 +305,7 @@ async fn upload(
 // The matching step.
 
 #[derive(Template)]
-#[template(path = "match.html")]
+#[template(path = "import/match.html")]
 struct MatchTemplate<'a> {
     shell: &'a Shell,
     action: String,
@@ -452,7 +447,7 @@ async fn propose(
                         .map(|d| d.key.clone())
                         .unwrap_or_default(),
                     on_match: match last.spec.duplicates.as_ref().map(|d| d.on_match) {
-                        Some(crate::run::OnMatch::Update) => "update".to_string(),
+                        Some(crate::import::run::OnMatch::Update) => "update".to_string(),
                         _ => "skip".to_string(),
                     },
                     keep_blank: last.spec.keep_blank,
@@ -681,7 +676,7 @@ async fn import_now(
 // The report.
 
 #[derive(Template)]
-#[template(path = "run.html")]
+#[template(path = "import/run.html")]
 struct RunTemplate<'a> {
     shell: &'a Shell,
     kind: String,
@@ -693,7 +688,7 @@ struct RunTemplate<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "_run_status.html")]
+#[template(path = "import/_run_status.html")]
 struct StatusTemplate<'a> {
     shell: &'a Shell,
     poll: Option<String>,

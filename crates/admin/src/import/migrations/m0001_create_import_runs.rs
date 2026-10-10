@@ -2,7 +2,7 @@
 
 use laterite_core::strata::*;
 
-use crate::schema::ImportRuns;
+use crate::import::schema::ImportRuns;
 
 pub struct Migration;
 

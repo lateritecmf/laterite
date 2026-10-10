@@ -27,6 +27,7 @@ pub mod form;
 pub mod html;
 pub mod http_cache;
 mod icons;
+pub mod import;
 pub(crate) mod keyed;
 pub mod list;
 pub mod persist;
@@ -283,6 +284,11 @@ pub struct AdminConfig {
     /// `app.url`; empty falls back to the request `Host` (dev only), so set it in
     /// production.
     pub origin: String,
+    /// The directory files the admin keeps are stored under, relative to the
+    /// working directory unless absolute (typically the configured
+    /// `backend.storage`). Uploaded import files go to `private` beneath it
+    /// when the application registers no disk of that name.
+    pub storage_dir: String,
 }
 
 impl Default for AdminConfig {
@@ -295,6 +301,7 @@ impl Default for AdminConfig {
             app_name: "Laterite".to_string(),
             path: "/admin".to_string(),
             origin: String::new(),
+            storage_dir: "storage".to_string(),
         }
     }
 }
@@ -830,8 +837,7 @@ pub struct Resource {
     /// declare a permission, or boot aborts (see [`mount_resource`]).
     pub permission: Option<String>,
     /// Whether records may be imported into this resource, and by whom. The
-    /// pages come from a module registering a [`routes::ResourceFeature`] keyed
-    /// `import`; a resource declaring this with none registered aborts boot.
+    /// pages mount under the resource's path; see [`import`].
     pub import: Option<ImportConfig>,
 }
 
@@ -1011,8 +1017,7 @@ impl Resource {
         }
     }
 
-    /// Lets records be imported into this resource, which needs a form. The
-    /// pages come from a registered import module.
+    /// Lets records be imported into this resource, which needs a form.
     pub fn import(mut self, import: ImportConfig) -> Self {
         self.import = Some(import);
         self
@@ -1120,6 +1125,8 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(laterite_auth::AuthModule),
         Box::new(settings::SettingsModule),
         Box::new(plugins::PluginsModule),
+        Box::new(laterite_media::MediaModule),
+        Box::new(import::ImportModule),
     ]
 }
 
@@ -1450,9 +1457,22 @@ pub fn router(
         }
     }
     let forms: form::Forms = Arc::new(forms);
-    // The import pages under each resource that declared them, from the module
-    // registered for the `import` key. None registered is a boot failure naming
-    // the resource, the same answer as a field type nobody registered.
+    // The import pages under each resource that declared them. Uploads go to
+    // the disk the application registered as `private`, else the default under
+    // the storage directory.
+    let private_disk: Arc<dyn laterite_media::StorageDriver> = state
+        .plugin_defined
+        .items::<laterite_media::DiskReg>()
+        .into_iter()
+        .find(|d| d.name == import::DISK)
+        .map(|d| d.driver.clone())
+        .unwrap_or_else(|| {
+            Arc::new(laterite_media::LocalDisk::new(format!(
+                "{}/{}",
+                config.storage_dir.trim_end_matches('/'),
+                import::DISK
+            )))
+        });
     for resource in &resources {
         let Some(link) = &resource.list.import else {
             continue;
@@ -1468,18 +1488,9 @@ pub fn router(
                 resource.base_path
             )
         });
-        let feature = state
-            .plugin_defined
-            .items::<routes::ResourceFeatureReg>()
-            .into_iter()
-            .find(|reg| reg.key == "import")
-            .unwrap_or_else(|| {
-                panic!(
-                    "admin resource `{}` declares `import`, but no module provides it; \
-                     register the import module",
-                    resource.base_path
-                )
-            });
+        let feature = import::ImportFeature {
+            disk: private_disk.clone(),
+        };
         let base = link.href.clone();
         let ctx = routes::RouteCtx::new(
             state.db.clone(),
@@ -1498,7 +1509,8 @@ pub fn router(
             form::FormHandle::new(state.db.clone(), prepared.clone()),
         );
         protected = protected.merge(guard_with_permission(
-            Router::new().nest_service(&base, feature.feature.mount(&ctx, &info)),
+            Router::new()
+                .nest_service(&base, routes::ResourceFeature::mount(&feature, &ctx, &info)),
             &link.permission,
         ));
     }

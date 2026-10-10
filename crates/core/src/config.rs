@@ -148,6 +148,10 @@ pub struct BackendConfig {
     /// every row, and filling it in for a network that is not a proxy lets anyone
     /// on it forge the address in the audit log.
     pub trusted_proxies: Vec<String>,
+    /// The directory files the admin keeps are stored under (default
+    /// `storage`), relative to the working directory unless absolute. Uploaded
+    /// import files go to `private` beneath it.
+    pub storage: String,
 }
 
 impl Default for BackendConfig {
@@ -158,6 +162,7 @@ impl Default for BackendConfig {
             paths: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
             trusted_proxies: Vec::new(),
+            storage: "storage".to_string(),
         }
     }
 }

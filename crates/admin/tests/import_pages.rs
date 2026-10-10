@@ -8,12 +8,12 @@ use std::time::Duration;
 use laterite_admin::axum::body::Body;
 use laterite_admin::axum::http::{header, Request, StatusCode};
 use laterite_admin::axum::Router;
+use laterite_admin::import::find;
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::query::{bind_values, build};
 use laterite_core::strata::*;
 use laterite_core::{t, CatalogStore, Db, MigrationSet, ModuleId, Registry};
-use laterite_import::find;
 use laterite_media::{DiskReg, LocalDisk};
 use sea_query::{Alias, Query};
 use tower::ServiceExt;
@@ -54,14 +54,12 @@ impl Migration for CreatePosts {
 
 async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     let mut sets = laterite_admin::builtin_migrations();
-    sets.push(laterite_media::module().migrations());
-    sets.push(laterite_import::module().migrations());
     sets.push(MigrationSet::new("acme.posts", vec![Box::new(CreatePosts)]));
     laterite_core::testing::connect_test(&sets).await
 }
 
-/// The admin with the posts resource (which declares `import: true`), the
-/// import module registered, and a private disk in `dir`.
+/// The admin with the posts resource (which declares `import: true`) and a
+/// private disk registered in `dir`.
 fn app(db: &Db, dir: &std::path::Path) -> Router {
     let mut registry = Registry::new();
     registry.set_owner(ModuleId::new("acme"));
@@ -69,15 +67,13 @@ fn app(db: &Db, dir: &std::path::Path) -> Router {
         "private",
         Arc::new(LocalDisk::new(dir.to_path_buf())),
     ));
-    registry.set_owner(ModuleId::new("laterite.import"));
-    laterite_import::module().register(&mut registry);
     let mut config = AdminConfig::default();
     config.origin = ORIGIN.to_string();
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
         Contributions {
-            resources: vec![resource!("tests/descriptors/posts.yaml")],
+            resources: vec![resource!("tests/descriptors/import_posts.yaml")],
             permissions: vec![Permission::new(
                 "acme.manage_posts",
                 t!("Manage posts"),
@@ -496,5 +492,42 @@ async fn a_missing_file_or_run_is_not_found_and_an_empty_upload_is_sent_back() {
     assert!(
         body.contains("Choose a file to import."),
         "the flash says why"
+    );
+}
+
+/// The admin with no disk registered: uploads go under the storage directory.
+fn app_with_storage(db: &Db, storage: &std::path::Path) -> Router {
+    let mut config = AdminConfig::default();
+    config.origin = ORIGIN.to_string();
+    config.storage_dir = storage.display().to_string();
+    router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![resource!("tests/descriptors/import_posts.yaml")],
+            permissions: vec![Permission::new(
+                "acme.manage_posts",
+                t!("Manage posts"),
+                t!("Acme"),
+            )],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    )
+}
+
+#[tokio::test]
+async fn without_a_registered_disk_uploads_go_under_the_storage_directory() {
+    let (db, _guard) = test_db().await;
+    let storage = tempfile::tempdir().unwrap();
+    let app = app_with_storage(&db, storage.path());
+    let session = session(&db).await;
+
+    let step = uploaded(&app, &session, "code,name\nlaunch,Launch\n").await;
+    assert!(step.starts_with(IMPORT), "{step}");
+    assert!(
+        storage.path().join("private").join("blobs").is_dir(),
+        "the file sits under storage/private"
     );
 }

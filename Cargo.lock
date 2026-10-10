@@ -1313,9 +1313,11 @@ dependencies = [
  "cookie",
  "csv",
  "form_urlencoded",
+ "futures",
  "ipnet",
  "laterite-auth",
  "laterite-core",
+ "laterite-media",
  "listenfd",
  "rand",
  "sea-query",
@@ -1395,30 +1397,6 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "laterite-import"
-version = "0.9.9"
-dependencies = [
- "anyhow",
- "askama",
- "chrono",
- "csv",
- "futures",
- "laterite-admin",
- "laterite-auth",
- "laterite-core",
- "laterite-media",
- "sea-query",
- "serde",
- "serde_json",
- "sqlx",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tower",
- "tracing",
 ]
 
 [[package]]

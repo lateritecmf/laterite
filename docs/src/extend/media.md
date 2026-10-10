@@ -1,17 +1,12 @@
 # Media and File Storage
 
 `laterite-media` stores files: hashed on arrival, one copy per identical bytes,
-each recorded as a row your tables point at. Optional.
+each recorded as a row your tables point at. Its table migrates with the admin;
+the crate is a dependency only for code that calls it.
 
 ```toml
 [dependencies]
 laterite-media = "0.9"
-```
-
-```rust
-Bootstrap::new("config")
-    .module(laterite_media::MediaModule)
-    .serve()
 ```
 
 Term | Meaning
@@ -85,7 +80,8 @@ Private | No public URL; streamed through the application.
 
 Each record stores its disk. Deduplication is per disk. A module that stores
 files reads the disks through `ctx.contributions::<DiskReg>()` and picks one by
-name; `laterite-import` expects `private`.
+name. The admin's import keeps uploads on `private`: the registered disk of that
+name, else `private` under `backend.storage`.
 
 ## Delete
 

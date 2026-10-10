@@ -1,20 +1,7 @@
 # Bulk Import
 
-`laterite-import` writes a file's rows through a resource's form, one commit a
-row, and keeps a report. Optional; the file itself is stored through
-`laterite-media`.
-
-```toml
-[dependencies]
-laterite-import = "0.9"
-```
-
-```rust
-Bootstrap::new("config")
-    .module(laterite_media::MediaModule)
-    .module(laterite_import::ImportModule)
-    .serve()
-```
+A resource's records imported from a CSV, each row written through the
+resource's form, one commit a row, with a report. Built into the admin.
 
 ## Let a resource be imported into
 
@@ -35,9 +22,14 @@ Resource::new("/products", "Products", list)
     .import(ImportConfig::new())
 ```
 
+```toml
+[backend]
+storage = "storage"
+```
+
 ```rust
 fn register(&self, registry: &mut Registry) {
-    registry.add(DiskReg::new("private", Arc::new(LocalDisk::new("storage/private"))));
+    registry.add(DiskReg::new("private", Arc::new(LocalDisk::new("/srv/acme/private"))));
 }
 ```
 
@@ -45,10 +37,11 @@ Key | Default | Does
 --- | --- | ---
 `import: true` | off | Mounts the pages at `/admin/products/import` and shows an Import button beside the list's export menu.
 `import.permission` | the resource's | The permission an operator needs to import.
-`DiskReg` named `private` | required | Where the uploaded file is kept, as a media record outside the library.
+`backend.storage` | `storage` | The directory the uploaded file is kept under, in `private`, as a media record outside the library.
+`DiskReg` named `private` | none | Keeps the file somewhere else instead.
 
-A resource declaring `import` needs a form and a permission; the import module
-must be registered. Any of the three missing aborts boot naming the resource.
+A resource declaring `import` needs a form and a permission; either missing
+aborts boot naming the resource.
 
 ## What the pages do
 
@@ -66,7 +59,7 @@ be set by hand. Files are read as UTF-8; a byte-order mark is accepted.
 ## Start a run from code
 
 ```rust
-use laterite_import::{start, Duplicates, Match, RunSpec};
+use laterite_admin::import::{start, Duplicates, Match, RunSpec};
 
 let products = ctx.form("/products").expect("the products resource");
 let spec = RunSpec::new("/products", vec![Match::new(0, "sku"), Match::new(1, "name")])
@@ -98,7 +91,7 @@ matches, or a duplicates key no column feeds. A blank row is passed over.
 ## Poll a run
 
 ```rust
-use laterite_import::{find, Status};
+use laterite_admin::import::{find, Status};
 
 let run = find(ctx.db(), id).await?.expect("a run");
 match run.status {

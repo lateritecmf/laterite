@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use laterite_admin::axum::Router;
 use laterite_admin::form::FormHandle;
+use laterite_admin::import::{find, start, Duplicates, Match, NoteKind, RunError, RunSpec, Status};
 use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{AuthConfig, AuthService};
 use laterite_core::query::{bind_values, build};
 use laterite_core::strata::*;
 use laterite_core::{t, Actor, AnyRowExt, CatalogStore, Db, MigrationSet};
-use laterite_import::{find, start, Duplicates, Match, NoteKind, RunError, RunSpec, Status};
 use laterite_media::{stream_of, ByteStream};
 use sea_query::{Alias, Query};
 
@@ -47,7 +47,6 @@ impl Migration for CreatePosts {
 
 async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     let mut sets = laterite_admin::builtin_migrations();
-    sets.push(laterite_import::module().migrations());
     sets.push(MigrationSet::new("acme.posts", vec![Box::new(CreatePosts)]));
     laterite_core::testing::connect_test(&sets).await
 }
@@ -68,7 +67,7 @@ fn posts(db: &Db) -> FormHandle {
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
         Contributions {
-            resources: vec![resource!("tests/descriptors/engine.yaml")],
+            resources: vec![resource!("tests/descriptors/import_engine.yaml")],
             permissions: vec![Permission::new(
                 "acme.manage_posts",
                 t!("Manage posts"),
@@ -124,7 +123,7 @@ async fn rows(db: &Db) -> Vec<(String, String, Option<String>)> {
 }
 
 /// Polls the run until it leaves `Running`.
-async fn finished(db: &Db, id: i64) -> laterite_import::Run {
+async fn finished(db: &Db, id: i64) -> laterite_admin::import::Run {
     for _ in 0..500 {
         let run = find(db, id).await.unwrap().expect("the run row");
         if run.status != Status::Running {

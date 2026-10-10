@@ -37,6 +37,7 @@ timezone = "UTC"                 # default display timezone, IANA name
 locale = "en"                    # default admin language
 path = "/admin"                  # where the admin mounts
 trusted_proxies = []             # CIDR ranges whose X-Forwarded-For is believed
+storage = "storage"              # where files the admin keeps are stored
 
 [backend.paths]
 "rainmill.location" = "/places"          # a whole module's screens
@@ -66,6 +67,7 @@ Key | Description
 `path` | URL path the admin mounts under.
 `trusted_proxies` | CIDR ranges. `X-Forwarded-For` is read only from a peer inside one; the client is the rightmost address not itself a trusted proxy. Empty records the peer address.
 `paths` | Remounts a module's screens, or one screen, at another path. Two claims on one path abort the boot.
+`storage` | The directory files the admin keeps are stored under, relative to the working directory unless absolute. Uploaded import files go to `private` beneath it.
 
 ### `[auth]`
 

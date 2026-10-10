@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- Import is part of `laterite-admin`: `import: true` on a resource needs no
+  other crate, module or disk; uploads go under `backend.storage`. The
+  `laterite-import` crate, never published, is gone.
+- `laterite-media`'s table migrates with the admin; registering its module is
+  no longer needed.
+
 ## [0.9.9] - 2026-10-07
 
 Bulk import complete: a CSV through a resource's form, checked first, with a

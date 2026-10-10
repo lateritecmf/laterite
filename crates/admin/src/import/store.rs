@@ -5,8 +5,8 @@ use laterite_core::query::{bind_values, build, insert_returning_id};
 use laterite_core::{Actor, AnyRowExt, Db};
 use sea_query::{Expr, Query};
 
-use crate::run::{Counts, Note, Run, RunSpec, Status};
-use crate::schema::ImportRuns;
+use crate::import::run::{Counts, Note, Run, RunSpec, Status};
+use crate::import::schema::ImportRuns;
 
 fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
