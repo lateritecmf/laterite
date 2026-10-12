@@ -1120,6 +1120,10 @@ pub struct ListConfig {
     /// permission. Set by the router from the resource, never by a descriptor.
     #[serde(skip)]
     pub(crate) import: Option<ImportLink>,
+    /// A fixed condition every query carries: the column and the value it must
+    /// equal. Set per request by a relation section, never by a descriptor.
+    #[serde(skip)]
+    pub(crate) scope: Option<(String, String)>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1273,6 +1277,7 @@ impl Default for ListConfig {
             deletable: false,
             exportable: false,
             import: None,
+            scope: None,
             toolbar: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
@@ -1284,7 +1289,7 @@ impl Default for ListConfig {
 }
 
 /// Query-string parameters for a list view.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ListParams {
     page: Option<i64>,
     sort: Option<String>,
@@ -1508,6 +1513,7 @@ pub(crate) async fn query(
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
         || !config.filters.iter().all(|f| valid_ident(&f.field))
+        || !config.scope.iter().all(|(col, _)| valid_ident(col))
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
@@ -1542,6 +1548,13 @@ pub(crate) async fn query(
         if let Some(cond) = filter_condition(req.filters) {
             select.cond_where(cond);
         }
+        if let Some((col, value)) = &config.scope {
+            select.and_where(
+                Expr::col(Alias::new(col))
+                    .cast_as(Alias::new(text_cast(db.backend)))
+                    .eq(value.clone()),
+            );
+        }
         build(db.backend, select)
     };
     let raw = bind_values(sqlx::query(&sql), values)
@@ -1559,6 +1572,13 @@ pub(crate) async fn query(
         }
         if let Some(cond) = filter_condition(req.filters) {
             count.cond_where(cond);
+        }
+        if let Some((col, value)) = &config.scope {
+            count.and_where(
+                Expr::col(Alias::new(col))
+                    .cast_as(Alias::new(text_cast(db.backend)))
+                    .eq(value.clone()),
+            );
         }
         build(db.backend, count)
     };
@@ -1683,6 +1703,31 @@ async fn show(
     shell: crate::Shell,
     headers: &axum::http::HeaderMap,
 ) -> Response {
+    match build_page(state, config, path, params, raw, user, shell).await {
+        // An htmx request gets the list region alone, which replaces itself in
+        // place; anything else gets the whole page, so sorting and paging still
+        // work as ordinary links with scripting off.
+        Some(page_view) => {
+            if crate::form::is_htmx(headers) {
+                render(fragment_of(page_view, "lat-list", None))
+            } else {
+                render(page_view)
+            }
+        }
+        None => render_error(),
+    }
+}
+
+/// The list page as a template, or `None` when the query failed.
+async fn build_page(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    params: ListParams,
+    raw: &HashMap<String, String>,
+    user: &laterite_auth::AuthenticatedUser,
+    shell: crate::Shell,
+) -> Option<ListTemplate> {
     // The operator's chosen columns narrow the descriptor once, here, so
     // everything downstream (the query, the headers, sorting, searching) works
     // from one list: what is shown is what is queried.
@@ -1714,8 +1759,9 @@ async fn show(
     for f in &active {
         carry.push_str(&format!("&{}={}", f.filter.param(), urlencode(&f.raw)));
     }
-    match query(&state.db, config, &req).await {
-        Ok(result) => {
+    let result = query(&state.db, config, &req).await.ok()?;
+    {
+        {
             let total_pages = ((result.total + per_page - 1) / per_page).max(1);
             let date_loc = date_locale(shell.locale());
             // Each column's labels, localized once for the page.
@@ -1864,34 +1910,57 @@ async fn show(
                     .map(|link| link.href.clone()),
                 filtered: !active.is_empty() || !q.trim().is_empty(),
                 carry: carry.clone(),
+                region: "lat-list".to_string(),
+                delete_path: None,
             };
-            // An htmx request gets the list region alone, which replaces itself in
-            // place; anything else gets the whole page, so sorting and paging still
-            // work as ordinary links with scripting off.
-            if crate::form::is_htmx(headers) {
-                render(ListFragment {
-                    shell: page_view.shell,
-                    columns: page_view.columns,
-                    rows: page_view.rows,
-                    shown: page_view.shown,
-                    page: page_view.page,
-                    total: page_view.total,
-                    total_pages: page_view.total_pages,
-                    edit_base: page_view.edit_base,
-                    row_link: page_view.row_link,
-                    sort: page_view.sort,
-                    dir: page_view.dir,
-                    carry: page_view.carry,
-                    filtered: page_view.filtered,
-                    deletable: page_view.deletable,
-                    no_records_message: page_view.no_records_message,
-                })
-            } else {
-                render(page_view)
-            }
+            Some(page_view)
         }
-        Err(_) => render_error(),
     }
+}
+
+/// The list region alone, cut out of a built page.
+fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<String>) -> ListFragment {
+    ListFragment {
+        shell: page.shell,
+        columns: page.columns,
+        rows: page.rows,
+        shown: page.shown,
+        page: page.page,
+        total: page.total,
+        total_pages: page.total_pages,
+        edit_base: page.edit_base,
+        row_link: page.row_link,
+        sort: page.sort,
+        dir: page.dir,
+        carry: page.carry,
+        filtered: page.filtered,
+        deletable: page.deletable,
+        no_records_message: page.no_records_message,
+        path: page.path,
+        region: region.to_string(),
+        delete_path,
+    }
+}
+
+/// A list rendered as a region for another page to hold: a relation section on
+/// a form. The query, sorting, paging and search work from `path`, and a
+/// per-row delete posts to `delete_path` when there is one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn fragment(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    params: ListParams,
+    raw: &HashMap<String, String>,
+    user: &laterite_auth::AuthenticatedUser,
+    shell: crate::Shell,
+    region: &str,
+    delete_path: Option<String>,
+) -> Result<crate::html::Markup, ()> {
+    let page = build_page(state, config, path, params, raw, user, shell)
+        .await
+        .ok_or(())?;
+    crate::html::Markup::from_template(&fragment_of(page, region, delete_path)).map_err(|_| ())
 }
 
 /// Stores which columns this operator wants on this list.
@@ -2047,6 +2116,10 @@ struct ListTemplate {
     filtered: bool,
     /// The query-string pairs a sort or pager link must carry.
     carry: String,
+    /// The list region's element id; a page's own list is `lat-list`.
+    region: String,
+    /// A per-row delete, for a list with no action bar; a page's list has the bar.
+    delete_path: Option<String>,
 }
 
 /// One rendered filter control.
@@ -2157,6 +2230,14 @@ struct ListFragment {
     filtered: bool,
     deletable: bool,
     no_records_message: Option<String>,
+    /// The list's own path, so sort and pager links stay right when the
+    /// fragment sits inside another page.
+    path: String,
+    /// The region's element id: `lat-list` for a page's list, one of its own
+    /// for a section inside a form.
+    region: String,
+    /// A per-row delete, posted here, for a list with no action bar of its own.
+    delete_path: Option<String>,
 }
 
 #[cfg(test)]
@@ -2942,8 +3023,12 @@ mod tests {
         let html = get(params(Some("username")), axum::http::HeaderMap::new()).await;
         assert!(html.contains("<body"), "lists still work without htmx");
         assert!(html.contains(r#"id="lat-list""#));
-        // The links work without scripting, so they carry a real href.
-        assert!(html.contains(r#"href="?sort=username"#));
+        // The links work without scripting, so they carry a real href, built
+        // on the list's own path so they hold inside another page too.
+        assert!(
+            html.contains(r#"?sort=username"#) && html.contains(r#"href="/admin/"#),
+            "{html}"
+        );
     }
 
     #[tokio::test]

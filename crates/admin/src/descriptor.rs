@@ -33,6 +33,7 @@ use serde::Deserialize;
 
 use crate::form::FormConfig;
 use crate::list::ListConfig;
+use crate::relation::RelationConfig;
 use crate::{ImportConfig, Resource};
 use laterite_core::Text;
 
@@ -59,6 +60,9 @@ struct ResourceFile {
     /// resource is not imported into.
     #[serde(default)]
     import: Option<ImportKey>,
+    /// Related records, keyed by relation name; see `RelationConfig`.
+    #[serde(default, deserialize_with = "crate::keyed::deserialize")]
+    relations: Vec<RelationConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +192,25 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         Some(ImportKey::Config(import)) => resource = resource.import(import),
         Some(ImportKey::Flag(false)) | None => {}
     }
+    for mut relation in file.relations {
+        check_type_keys(&relation.list, Some(&relation.form)).map_err(|message| {
+            DescriptorError {
+                source: source.to_string(),
+                message: format!("relation `{}`: {message}", relation.name),
+            }
+        })?;
+        for column in &mut relation.list.columns {
+            if column.label.source().is_empty() {
+                column.label = humanize(&column.field);
+            }
+        }
+        for field in &mut relation.form.fields {
+            if field.label.source().is_empty() {
+                field.label = humanize(&field.name);
+            }
+        }
+        resource = resource.relation(relation);
+    }
     Ok(resource)
 }
 
@@ -221,7 +244,7 @@ macro_rules! resource {
 
 /// `created_at` reads as "Created at" when a file names no label. Still a
 /// `Text`, so it localizes and `lat i18n extract` finds it like any other.
-fn humanize(name: &str) -> Text {
+pub(crate) fn humanize(name: &str) -> Text {
     let mut out = String::with_capacity(name.len());
     for (i, part) in name.split(['_', '-']).enumerate() {
         if part.is_empty() {

@@ -70,6 +70,9 @@ pub struct FormField {
     pub break_row: bool,
     /// Follows another field as it is typed, until this one is edited.
     pub preset: Option<Preset>,
+    /// Submitted but never shown: a plain hidden input carrying its value. The
+    /// foreign key of a related record's form is one.
+    pub hidden: bool,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
 }
@@ -393,6 +396,7 @@ impl Default for FormConfig {
             focus: FormFocus::default(),
             persist: None,
             timestamps: false,
+            done_path: None,
         }
     }
 }
@@ -432,6 +436,7 @@ impl<'de> Deserialize<'de> for FormField {
                         "break" => field.break_row = map.next_value()?,
                         "preset" => field.preset = map.next_value()?,
                         "trigger" => field.trigger = map.next_value()?,
+                        "hidden" => field.hidden = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -468,6 +473,9 @@ impl Serialize for FormField {
         if let Some(preset) = &self.preset {
             map.serialize_entry("preset", preset)?;
         }
+        if self.hidden {
+            map.serialize_entry("hidden", &true)?;
+        }
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
@@ -501,6 +509,7 @@ impl FormField {
             break_row: false,
             preset: None,
             trigger: None,
+            hidden: false,
         }
     }
 
@@ -695,6 +704,11 @@ pub struct FormConfig {
     /// the columns have to exist on this entity's table.
     #[serde(default)]
     pub timestamps: bool,
+    /// Where a save and a cancel return to, when it is not the list under
+    /// `base_path`: a related record's form returns to its parent. Set by the
+    /// router, never by a descriptor.
+    #[serde(skip)]
+    pub(crate) done_path: Option<String>,
 }
 
 impl FormConfig {
@@ -720,6 +734,7 @@ impl FormConfig {
             fields,
             persist: None,
             timestamps: false,
+            done_path: None,
         }
     }
 
@@ -760,18 +775,23 @@ impl FormConfig {
 /// Handlers carry this so option resolution and intrinsic-rule merging happen a
 /// single time (not per render), and a malformed option or unregistered type
 /// aborts boot rather than degrading silently to plain text.
+#[derive(Clone)]
 pub(crate) struct PreparedForm {
-    config: FormConfig,
+    pub(crate) config: FormConfig,
     /// Parallel to `config.fields`.
     fields: Vec<PreparedField>,
     /// The write handler: the named persister, or the built-in default.
     persister: Arc<dyn Persister>,
     /// Listeners for this form's entity, in registration order.
     listeners: Vec<Arc<dyn ModelListener>>,
+    /// Offer "Save and continue editing" beside Save: a resource with relation
+    /// sections wants to land on the edit page, where the sections are.
+    pub(crate) stay: bool,
 }
 
 /// One field's boot-resolved state: its typed options and its merged rules (the
 /// type's intrinsic rules ahead of the descriptor's own).
+#[derive(Clone)]
 struct PreparedField {
     /// Resolved once at boot, so the save and load hooks need no lookup.
     field_type: Arc<dyn crate::field::FieldType>,
@@ -780,6 +800,11 @@ struct PreparedField {
 }
 
 impl PreparedForm {
+    /// The write handler this form resolved to.
+    pub(crate) fn persister(&self) -> Arc<dyn Persister> {
+        self.persister.clone()
+    }
+
     /// Resolves every field against the registry. Returns the offending field
     /// and reason (for a boot abort) when a type is unregistered or rejects its
     /// options.
@@ -856,6 +881,7 @@ impl PreparedForm {
             fields,
             persister,
             listeners,
+            stay: false,
         })
     }
 }
@@ -1101,8 +1127,13 @@ fn has_required(rules: &[Rule]) -> bool {
 }
 
 /// Renders an empty create form.
-pub(crate) fn new_form(state: &AdminState, form: &PreparedForm, shell: crate::Shell) -> Response {
-    render(build(
+pub(crate) fn new_form(
+    state: &AdminState,
+    form: &PreparedForm,
+    shell: crate::Shell,
+    pending: Vec<String>,
+) -> Response {
+    let mut page = build(
         state,
         form,
         &format!("{}/new", form.config.base_path),
@@ -1110,7 +1141,23 @@ pub(crate) fn new_form(state: &AdminState, form: &PreparedForm, shell: crate::Sh
         &HashMap::new(),
         &ErrorBag::default(),
         &shell,
-    ))
+    );
+    page.pending = pending;
+    render(page)
+}
+
+/// Where a save goes: the edit page when the operator asked to stay, else the
+/// form's done path or its list.
+fn after_save(form: &PreparedForm, data: &HashMap<String, String>, id: Option<i64>) -> String {
+    let stay = data.get("then").map(String::as_str) == Some("stay");
+    match (stay, id) {
+        (true, Some(id)) => format!("{}/{}/edit", form.config.base_path, id),
+        _ => form
+            .config
+            .done_path
+            .clone()
+            .unwrap_or_else(|| form.config.base_path.clone()),
+    }
 }
 
 /// Persists a new record, then redirects to the list. Re-renders with per-field
@@ -1129,14 +1176,19 @@ pub(crate) async fn create(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
-    let data = gathered(form, data);
+    let mut data = gathered(form, data);
+    let then = data.remove("then");
     let actor = Actor::from(user);
     match write(&state.db, form, &data, None, &actor).await {
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
-        Ok(_) => {
+        Ok(rec) => {
             session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
-            saved_response(htmx, &form.config.base_path)
+            let mut choice = HashMap::new();
+            if let Some(then) = then {
+                choice.insert("then".to_string(), then);
+            }
+            saved_response(htmx, &after_save(form, &choice, rec.id()))
         }
         // A refused submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
@@ -1164,6 +1216,7 @@ pub(crate) async fn edit_form(
     form: &PreparedForm,
     id: String,
     shell: crate::Shell,
+    sections: Vec<RelationSection>,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
@@ -1174,7 +1227,7 @@ pub(crate) async fn edit_form(
         Err(_) => return render_error(),
     };
 
-    render(build(
+    let mut page = build(
         state,
         form,
         &format!("{}/{}/edit", form.config.base_path, id),
@@ -1182,7 +1235,9 @@ pub(crate) async fn edit_form(
         &values,
         &ErrorBag::default(),
         &shell,
-    ))
+    );
+    page.sections = sections;
+    render(page)
 }
 
 /// The stored record `id` as control values: each column back through its
@@ -1254,12 +1309,17 @@ pub(crate) async fn update(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
-    let data = gathered(form, data);
+    let mut data = gathered(form, data);
+    let then = data.remove("then");
     let actor = Actor::from(user);
     match write(&state.db, form, &data, Some(&id), &actor).await {
         Ok(_) => {
             session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
-            saved_response(htmx, &form.config.base_path)
+            let mut choice = HashMap::new();
+            if let Some(then) = then {
+                choice.insert("then".to_string(), then);
+            }
+            saved_response(htmx, &after_save(form, &choice, id.parse().ok()))
         }
         // A refused submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
@@ -1303,6 +1363,7 @@ fn invalid_response(
             cancel_path: page.cancel_path,
             error: page.error,
             fields: page.fields,
+            stay: page.stay,
             enter_off: page.enter_off,
             refused: page.refused,
             leave_off: page.leave_off,
@@ -1363,17 +1424,26 @@ fn build(
             };
             // The type is registered (prepare validated it); the lookup here is
             // only to render.
-            let control = match state.field_types.get(&f.field_type) {
-                Some(ft) => {
-                    let scope = OverrideScope {
-                        surface: Surface::Field,
-                        view_key: &f.field_type,
-                        resource: Some(&form.config.base_path),
-                        field: Some(&f.name),
-                    };
-                    render_field(ft.as_ref(), state.overrides.as_ref(), &scope, &cx).into_string()
+            let control = if f.hidden {
+                format!(
+                    r#"<input type="hidden" name="{}" value="{}">"#,
+                    escape_attr(&f.name),
+                    escape_attr(values.get(&f.name).map(String::as_str).unwrap_or_default())
+                )
+            } else {
+                match state.field_types.get(&f.field_type) {
+                    Some(ft) => {
+                        let scope = OverrideScope {
+                            surface: Surface::Field,
+                            view_key: &f.field_type,
+                            resource: Some(&form.config.base_path),
+                            field: Some(&f.name),
+                        };
+                        render_field(ft.as_ref(), state.overrides.as_ref(), &scope, &cx)
+                            .into_string()
+                    }
+                    None => String::new(),
                 }
-                None => String::new(),
             };
             FieldView {
                 id: f.name.clone(),
@@ -1383,6 +1453,7 @@ fn build(
                 enter: f.enter.attribute(),
                 layout: layout_classes(f.span, f.break_row),
                 attrs: behaviour_attrs(f),
+                hidden: f.hidden,
                 // Localize each per-field message through the request translator.
                 errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
@@ -1414,9 +1485,16 @@ fn build(
         shell,
         title: shell_title,
         action: action.to_string(),
-        cancel_path: form.config.base_path.clone(),
+        cancel_path: form
+            .config
+            .done_path
+            .clone()
+            .unwrap_or_else(|| form.config.base_path.clone()),
         error,
         fields,
+        stay: form.stay,
+        sections: Vec::new(),
+        pending: Vec::new(),
         enter_off: form.config.enter == EnterPolicy::Off,
         refused,
         leave_off: !form.config.confirm_leave,
@@ -1445,6 +1523,23 @@ struct FieldView {
     layout: String,
     /// The wrapper's preset and trigger attributes, each led by a space.
     attrs: String,
+    /// A hidden input with no chrome around it.
+    hidden: bool,
+}
+
+/// One relation on an edit page: its heading, its New link and the list region.
+pub(crate) struct RelationSection {
+    pub title: String,
+    pub new_href: Option<String>,
+    pub new_label: String,
+    pub html: crate::html::Markup,
+}
+
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Just the form element, for an HTMX submit that failed validation: the
@@ -1457,6 +1552,7 @@ struct FormFragment {
     cancel_path: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+    stay: bool,
     /// Enter never submits this form.
     enter_off: bool,
     /// The form holds a submission that was not saved.
@@ -1476,6 +1572,12 @@ struct FormTemplate {
     cancel_path: String,
     error: Option<String>,
     fields: Vec<FieldView>,
+    /// Offer "Save and continue editing".
+    stay: bool,
+    /// The related records, one section each, on an edit page.
+    sections: Vec<RelationSection>,
+    /// The relations a create page cannot show yet, by section title.
+    pending: Vec<String>,
     /// Enter never submits this form.
     enter_off: bool,
     /// The form holds a submission that was not saved.
@@ -1544,6 +1646,7 @@ mod tests {
             ],
             persist: None,
             timestamps: false,
+            done_path: None,
         };
         PreparedForm::prepare(
             config,
@@ -1821,6 +1924,7 @@ mod tests {
                 ],
                 persist: None,
                 timestamps: false,
+                done_path: None,
             },
             &st.field_types,
             &PersisterRegistry::new(),
@@ -1868,6 +1972,7 @@ mod tests {
             fields: vec![FormField::of("place", "Place", "no.such.type")],
             persist: None,
             timestamps: false,
+            done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
             config,
@@ -1897,6 +2002,7 @@ mod tests {
             ],
             persist: None,
             timestamps: false,
+            done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
             config,
@@ -1972,6 +2078,7 @@ mod tests {
             ],
             persist: Some(persister.to_string()),
             timestamps: false,
+            done_path: None,
         }
     }
 
@@ -2069,6 +2176,7 @@ mod timestamp_tests {
             ],
             persist: None,
             timestamps: on,
+            done_path: None,
         }
     }
 
@@ -2159,6 +2267,7 @@ mod htmx_tests {
                 ],
                 persist: None,
                 timestamps: false,
+                done_path: None,
             },
             &st.field_types,
             &PersisterRegistry::new(),

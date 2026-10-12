@@ -43,7 +43,7 @@ impl FieldValue {
 /// Per-type options, resolved once at boot from the descriptor's options blob
 /// into a typed value cached for rendering (the text field resolves its input
 /// variant, select its option list; textarea carries none).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ResolvedOptions(Option<Arc<dyn Any + Send + Sync>>);
 
 impl ResolvedOptions {

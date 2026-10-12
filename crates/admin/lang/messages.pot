@@ -103,6 +103,7 @@ msgstr ""
 #: templates/_roles_form_fields.html
 #: templates/form.html
 #: templates/import/match.html
+#: templates/relation_section.html
 #: templates/roles_form.html
 msgid "Back"
 msgstr ""
@@ -293,6 +294,7 @@ msgstr ""
 msgid "Deactivated"
 msgstr ""
 
+#: templates/_list_table.html
 #: templates/list.html
 msgid "Delete"
 msgstr ""
@@ -301,7 +303,12 @@ msgstr ""
 msgid "Delete the selected records? This cannot be undone."
 msgstr ""
 
+#: templates/_list_table.html
+msgid "Delete this record?"
+msgstr ""
+
 #: src/bulk.rs
+#: src/relation.rs
 msgid "Deleted {n} record."
 msgid_plural "Deleted {n} records."
 msgstr[0] ""
@@ -571,6 +578,10 @@ msgstr ""
 msgid "New password"
 msgstr ""
 
+#: src/relation.rs
+msgid "New {label}"
+msgstr ""
+
 #: templates/_list_table.html
 msgid "Next"
 msgstr ""
@@ -809,6 +820,14 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
+#: templates/_form_fields.html
+msgid "Save and continue editing"
+msgstr ""
+
+#: templates/form.html
+msgid "Save first, then add"
+msgstr ""
+
 #: src/form.rs
 msgid "Saved."
 msgstr ""
@@ -907,6 +926,7 @@ msgid "Skipped"
 msgstr ""
 
 #: src/bulk.rs
+#: src/relation.rs
 msgid "Some records could not be deleted."
 msgstr ""
 

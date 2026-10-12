@@ -1176,7 +1176,7 @@ window.lat.widget('reveal', function (btn) {
   function target(e) {
     var row = e.target.closest ? e.target.closest('tr[data-lat-href]') : null;
     if (!row) return null;
-    if (e.target.closest('a, button, input, select, textarea, label, [data-lat-widget]')) return null;
+    if (e.target.closest('a, button, input, select, textarea, label, form, [data-lat-widget]')) return null;
     return row;
   }
   function open(url, newTab) {

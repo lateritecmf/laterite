@@ -17,6 +17,7 @@ A repeater row | Moves up and down, copies into a new row beneath it, and is rem
 A refused save | The form returns with its errors, values kept (a repeater's rows and a checklist's ticks included), and the cursor in the first field it refused. | `focus: off`.
 A new record | Opens with the cursor in its first field. | `focus: off`.
 Leaving with changes unsaved | Asks first, with the cursor on Stay. Typing and undoing it is not a change. | `confirm_leave: false`.
+Save and continue editing | Offered beside Save on a resource with relations; the save lands on the edit page. A create page names the sections it will have. | Declare no relations.
 A field with a `max_length` rule | The control holds the limit, and a count appears once four fifths of it are used. | `counter: true` or `false`.
 A textarea | As tall as its text, from `rows` up to most of the window. | `grow: false`.
 A password field | A button shows what was typed. Sending the form hides it again. | `reveal: false`.

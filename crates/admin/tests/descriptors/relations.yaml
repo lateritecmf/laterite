@@ -1,0 +1,23 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Post
+  fields:
+    code: { rules: [required] }
+    name: { rules: [required] }
+relations:
+  comments:
+    label: Comment
+    entity: comments
+    foreign_key: post_id
+    list:
+      columns:
+        body: {}
+    form:
+      fields:
+        body: { rules: [required] }

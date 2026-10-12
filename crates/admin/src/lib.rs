@@ -33,6 +33,7 @@ pub mod list;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
+pub mod relation;
 mod roles;
 mod routemap;
 pub mod routes;
@@ -839,6 +840,9 @@ pub struct Resource {
     /// Whether records may be imported into this resource, and by whom. The
     /// pages mount under the resource's path; see [`import`].
     pub import: Option<ImportConfig>,
+    /// Other entities' records that belong to each of this resource's records,
+    /// each a section on the edit page. See [`relation::RelationConfig`].
+    pub relations: Vec<relation::RelationConfig>,
 }
 
 /// What a resource declares when records may be imported into it: `import:
@@ -1014,7 +1018,14 @@ impl Resource {
             form: None,
             permission: None,
             import: None,
+            relations: Vec::new(),
         }
+    }
+
+    /// Adds a section of related records to the edit page. Needs a form.
+    pub fn relation(mut self, relation: relation::RelationConfig) -> Self {
+        self.relations.push(relation);
+        self
     }
 
     /// Lets records be imported into this resource, which needs a form.
@@ -2123,22 +2134,56 @@ fn mount_resource(
             );
     }
 
+    // Relations, each resolved once here: its child form prepared, its routes
+    // under `{base}/{id}/{name}`, its section on the parent's edit page.
+    if !resource.relations.is_empty() && resource.form.is_none() {
+        panic!(
+            "admin resource `{}` declares relations but has no form to show them on",
+            resource.base_path
+        );
+    }
+    let mut relations: Vec<Arc<relation::PreparedRelation>> = Vec::new();
+    for rel in &resource.relations {
+        let prepared = relation::PreparedRelation::prepare(
+            resource,
+            rel.clone(),
+            field_types,
+            column_types,
+            permission_codes,
+            persisters,
+            listeners,
+        )
+        .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
+        relations.push(Arc::new(prepared));
+    }
+    let relations = Arc::new(relations);
+
     let mut prepared_form = None;
     if let Some(form_cfg) = resource.form.clone() {
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
-        let prepared = Arc::new(
+        let mut prepared =
             form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
-                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
-        );
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
+        // Sections live on the edit page, so a form with them offers to stay there.
+        prepared.stay = !relations.is_empty();
+        let prepared = Arc::new(prepared);
         prepared_form = Some(prepared.clone());
         let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
+        let relations_for_new = relations.clone();
         router = router.route(
             &format!("{base}/new"),
             get(
                 move |State(state): State<AdminState>, Extension(shell): Extension<Shell>| {
                     let pf = new_pf.clone();
-                    async move { form::new_form(&state, &pf, shell) }
+                    let relations = relations_for_new.clone();
+                    async move {
+                        let pending = relations
+                            .iter()
+                            .map(|r| shell.tt(&r.config.title))
+                            .collect();
+                        form::new_form(&state, &pf, shell, pending)
+                    }
                 },
             )
             .post(
@@ -2157,14 +2202,25 @@ fn mount_resource(
         );
 
         let (edit_pf, update_pf) = (prepared.clone(), prepared.clone());
+        let relations_for_edit = relations.clone();
         router = router.route(
             &format!("{base}/{{id}}/edit"),
             get(
                 move |State(state): State<AdminState>,
                       Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
                       Path(id): Path<String>| {
                     let pf = edit_pf.clone();
-                    async move { form::edit_form(&state, &pf, id, shell).await }
+                    let relations = relations_for_edit.clone();
+                    async move {
+                        let mut sections = Vec::new();
+                        for rel in relations.iter() {
+                            if let Some(section) = rel.section(&state, &id, &user, &shell).await {
+                                sections.push(section);
+                            }
+                        }
+                        form::edit_form(&state, &pf, id, shell, sections).await
+                    }
                 },
             )
             .post(
@@ -2182,6 +2238,102 @@ fn mount_resource(
                 },
             ),
         );
+    }
+
+    for rel in relations.iter() {
+        let name = rel.config.name.clone();
+        let mut routes: Router<AdminState> = Router::new();
+        let r = rel.clone();
+        routes =
+            routes.route(
+                &format!("{base}/{{id}}/{name}"),
+                get(
+                    move |state: State<AdminState>,
+                          shell: Extension<Shell>,
+                          user: Extension<AuthenticatedUser>,
+                          id: Path<String>,
+                          params: Query<list::ListParams>,
+                          raw: Query<HashMap<String, String>>,
+                          headers: axum::http::HeaderMap| {
+                        let r = r.clone();
+                        async move {
+                            relation::index(state, shell, user, id, params, raw, headers, r).await
+                        }
+                    },
+                ),
+            );
+        let (r_new, r_create) = (rel.clone(), rel.clone());
+        routes = routes.route(
+            &format!("{base}/{{id}}/{name}/new"),
+            get(
+                move |state: State<AdminState>, shell: Extension<Shell>, id: Path<String>| {
+                    let r = r_new.clone();
+                    async move { relation::new_form(state, shell, id, r).await }
+                },
+            )
+            .post(
+                move |state: State<AdminState>,
+                      shell: Extension<Shell>,
+                      user: Extension<AuthenticatedUser>,
+                      session: Extension<session::SessionHandle>,
+                      id: Path<String>,
+                      headers: axum::http::HeaderMap,
+                      data: Form<HashMap<String, String>>| {
+                    let r = r_create.clone();
+                    async move {
+                        relation::create(state, shell, user, session, id, headers, data, r).await
+                    }
+                },
+            ),
+        );
+        let (r_edit, r_update) = (rel.clone(), rel.clone());
+        routes = routes.route(
+            &format!("{base}/{{id}}/{name}/{{child}}/edit"),
+            get(
+                move |state: State<AdminState>,
+                      shell: Extension<Shell>,
+                      ids: Path<(String, String)>| {
+                    let r = r_edit.clone();
+                    async move { relation::edit_form(state, shell, ids, r).await }
+                },
+            )
+            .post(
+                move |state: State<AdminState>,
+                      shell: Extension<Shell>,
+                      user: Extension<AuthenticatedUser>,
+                      session: Extension<session::SessionHandle>,
+                      ids: Path<(String, String)>,
+                      headers: axum::http::HeaderMap,
+                      data: Form<HashMap<String, String>>| {
+                    let r = r_update.clone();
+                    async move {
+                        relation::update(state, shell, user, session, ids, headers, data, r).await
+                    }
+                },
+            ),
+        );
+        let r_delete = rel.clone();
+        routes = routes.route(
+            &format!("{base}/{{id}}/{name}/delete"),
+            post(
+                move |state: State<AdminState>,
+                      shell: Extension<Shell>,
+                      user: Extension<AuthenticatedUser>,
+                      session: Extension<session::SessionHandle>,
+                      id: Path<String>,
+                      headers: axum::http::HeaderMap,
+                      pairs: Form<Vec<(String, String)>>| {
+                    let r = r_delete.clone();
+                    async move {
+                        relation::delete(state, shell, user, session, id, headers, pairs, r).await
+                    }
+                },
+            ),
+        );
+        if let Some(permission) = &rel.config.permission {
+            routes = guard_with_permission(routes, permission);
+        }
+        router = router.merge(routes);
     }
 
     // Gate every route the resource mounts on its permission.
@@ -3336,6 +3488,7 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_users".to_string()),
             import: None,
+            relations: Vec::new(),
         },
         Resource {
             base_path: "/roles".to_string(),
@@ -3346,6 +3499,7 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_roles".to_string()),
             import: None,
+            relations: Vec::new(),
         },
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
@@ -3627,6 +3781,7 @@ mod tests {
             fields: vec![],
             persist: None,
             timestamps: false,
+            done_path: None,
         }
     }
 
@@ -3638,6 +3793,7 @@ mod tests {
             form,
             permission: permission.map(str::to_string),
             import: None,
+            relations: Vec::new(),
         }
     }
 

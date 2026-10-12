@@ -22,6 +22,7 @@
 - [Localization](extend/localization.md)
 - [Screens and Routes](extend/screens-and-routes.md)
 - [Descriptor Files](extend/descriptor-files.md)
+- [Related Records](extend/relations.md)
 - [Admin Interactivity](extend/admin-interactivity.md)
 - [Search and Matching](extend/search.md)
 - [Extending Fields, Writes and Lifecycles](extend/seams.md)
