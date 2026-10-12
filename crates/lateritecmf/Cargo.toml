@@ -1,0 +1,23 @@
+[package]
+name = "lateritecmf"
+version = "0.9.9"
+description = "Laterite CMF: the one crate an application depends on, re-exporting the framework with its driver features"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not on crates.io yet: the first version goes up by hand once the crates it
+# re-exports are released at this version, and this line goes with it.
+publish = false
+
+[dependencies]
+laterite-core = { workspace = true }
+laterite-auth = { workspace = true }
+laterite-admin = { workspace = true }
+laterite-media = { workspace = true }
+laterite-web = { workspace = true }
+
+[features]
+default = []
+postgres = ["laterite-admin/postgres"]
+mysql = ["laterite-admin/mysql"]
+sqlite = ["laterite-admin/sqlite"]

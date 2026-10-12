@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `lateritecmf`, the one crate an application depends on: it re-exports the
+  family as `lateritecmf::{core, auth, admin, media, web}`, forwards the driver
+  features and carries a prelude.
+
 ### Changed
 
 - Import is part of `laterite-admin`: `import: true` on a resource needs no

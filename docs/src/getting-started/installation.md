@@ -61,10 +61,17 @@ acme/
 
 `src/main.rs`:
 
+```toml
+[dependencies]
+lateritecmf = { version = "0.9", features = ["postgres"] }
+```
+
 ```rust
+use lateritecmf::prelude::*;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    laterite_admin::Bootstrap::new("config")
+    Bootstrap::new("config")
         .module(migrations::AppModule)
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
         .serve()
@@ -75,15 +82,16 @@ async fn main() -> anyhow::Result<()> {
 `src/migrations/mod.rs` defines the application's module:
 
 ```rust
-impl laterite_core::Module for AppModule {
-    fn id(&self) -> laterite_core::ModuleId {
-        laterite_core::ModuleId::new(MODULE_ID)
+use lateritecmf::prelude::*;
+
+impl Module for AppModule {
+    fn id(&self) -> ModuleId {
+        ModuleId::new(MODULE_ID)
     }
-    fn migrations(&self) -> laterite_core::MigrationSet {
+    fn migrations(&self) -> MigrationSet {
         migrations()
     }
-    fn register(&self, registry: &mut laterite_core::Registry) {
-        use laterite_admin::AdminRegistry;
+    fn register(&self, registry: &mut Registry) {
         // registry.add_resource(..);
         // registry.add_permission(..);
         // registry.add_settings(..);

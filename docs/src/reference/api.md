@@ -8,6 +8,7 @@ cargo doc --workspace --no-deps --open
 
 Crate | Published
 --- | ---
+`lateritecmf` | <https://docs.rs/lateritecmf>
 `laterite-core` | <https://docs.rs/laterite-core>
 `laterite-auth` | <https://docs.rs/laterite-auth>
 `laterite-admin` | <https://docs.rs/laterite-admin>

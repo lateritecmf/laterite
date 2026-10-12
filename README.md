@@ -64,9 +64,12 @@ The full suite runs against all three on every push (the badges above).
 
 | Crate | What it is |
 | --- | --- |
-| `laterite-core` | kernel: config, errors, the `Db` handle, the migration engine, the query layer |
-| `laterite-auth` | backend users, Argon2id credentials, sessions, and permissions |
-| `laterite-admin` | the Axum admin router, descriptor screens, settings, and session middleware |
+| `lateritecmf` | the one crate an application depends on: re-exports the family and forwards the driver features |
+| `laterite-core` | the platform library: config, errors, the `Db` handle, migrations, the query and record layers, events, localization |
+| `laterite-auth` | operators, Argon2id credentials, sessions, permissions, the audit table |
+| `laterite-admin` | the Axum admin router: descriptor screens, import and export, settings, plugins, session middleware |
+| `laterite-media` | file storage: drivers, ingest, media records |
+| `laterite-web` | the public web layer: static site generation, page metadata, sitemaps |
 | `laterite-cli` | `lat`, the command-line tool |
 
 Each crate builds, lints, and tests standalone.

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/macros", "crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/media", "crates/web"]
+members = ["crates/macros", "crates/core", "crates/auth", "crates/cli", "crates/admin", "crates/media", "crates/web", "crates/lateritecmf"]
 
 [workspace.package]
 edition = "2021"
@@ -16,6 +16,7 @@ laterite-macros = { path = "crates/macros", version = "0.9.9" }
 laterite-auth = { path = "crates/auth", version = "0.9.9" }
 laterite-admin = { path = "crates/admin", version = "0.9.9" }
 laterite-web = { path = "crates/web", version = "0.9.9" }
+lateritecmf = { path = "crates/lateritecmf", version = "0.9.9" }
 anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"
