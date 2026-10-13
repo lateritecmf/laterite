@@ -4,7 +4,10 @@
 //! A section is the list engine scoped to the parent, with its own New, Edit
 //! and Delete; a related record's form is the form engine mounted under the
 //! parent's path, its foreign key forced from the URL rather than trusted from
-//! the client. Nothing binds before the parent exists: a create page names the
+//! the client. A many-to-many relation lists the records a pivot table joins
+//! to the parent: Attach picks one and writes the pivot row, Edit changes
+//! what the pivot row carries, Remove deletes the pivot row and leaves the
+//! record. Nothing binds before the parent exists: a create page names the
 //! sections it will have, and "Save and continue editing" lands on them.
 
 use std::collections::HashMap;
@@ -26,8 +29,9 @@ use crate::list::{self, ListConfig, ListParams};
 use crate::session::{FlashLevel, SessionHandle};
 use crate::{not_found, render_error, AdminState, Shell};
 
-/// One relation a resource declares: the rows of `entity` whose `foreign_key`
-/// holds a parent record's id, listed and edited on the parent's edit page.
+/// One relation a resource declares, listed and edited on the parent's edit
+/// page: rows of `entity` whose `foreign_key` holds the parent's id (has-many),
+/// or rows of `entity` a `pivot` table joins to the parent (many-to-many).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
@@ -39,21 +43,74 @@ pub struct RelationConfig {
     /// The section heading, plural (`Variants`). Defaults to the name,
     /// humanized.
     pub title: Text,
-    /// One related record, singular (`Variant`), for the New button and the
-    /// child form's title.
+    /// One related record, singular (`Variant`), for the New or Attach button
+    /// and the child form's title.
     pub label: Text,
     /// The related table.
     pub entity: String,
-    /// The column on the related table holding the parent's id.
-    pub foreign_key: String,
+    /// Has-many: the column on the related table holding the parent's id.
+    pub foreign_key: Option<String>,
+    /// Many-to-many: the table joining the parent to the related table.
+    pub pivot: Option<PivotConfig>,
     /// The section's list over the related table.
     pub list: ListConfig,
-    /// The related record's form. The foreign key is written by the framework;
-    /// a field of that name here is kept hidden.
+    /// Has-many: the related record's form; the foreign key is written by the
+    /// framework, and a field of that name here is kept hidden. Many-to-many:
+    /// the fields kept on the pivot row, asked for on Attach and editable from
+    /// the section; none means a membership carries nothing of its own.
     pub form: FormConfig,
     /// A permission the operator must hold for the section and its pages,
     /// besides the parent's. `None` asks for the parent's alone.
     pub permission: Option<String>,
+}
+
+/// The table joining a many-to-many relation's two sides, one row per
+/// membership.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct PivotConfig {
+    /// The pivot table.
+    pub table: String,
+    /// The column holding the parent's id.
+    pub parent_key: String,
+    /// The column holding the related record's id.
+    pub related_key: String,
+    /// The picker source offering records to attach: a registered
+    /// [`PickerSourceReg`](crate::picker::PickerSourceReg) name.
+    pub source: String,
+    /// The pivot row's id column. Default `id`.
+    pub id_field: String,
+}
+
+impl PivotConfig {
+    /// A pivot table, with records to attach chosen from `source`.
+    pub fn new(
+        table: impl Into<String>,
+        parent_key: impl Into<String>,
+        related_key: impl Into<String>,
+        source: impl Into<String>,
+    ) -> Self {
+        Self {
+            table: table.into(),
+            parent_key: parent_key.into(),
+            related_key: related_key.into(),
+            source: source.into(),
+            id_field: "id".to_string(),
+        }
+    }
+
+    /// The pivot row's id column.
+    pub fn id_field(mut self, id_field: impl Into<String>) -> Self {
+        self.id_field = id_field.into();
+        self
+    }
+}
+
+impl Default for PivotConfig {
+    fn default() -> Self {
+        Self::new("", "", "", "")
+    }
 }
 
 impl RelationConfig {
@@ -73,11 +130,43 @@ impl RelationConfig {
             name,
             label: label.into(),
             entity: entity.into(),
-            foreign_key: foreign_key.into(),
+            foreign_key: Some(foreign_key.into()),
+            pivot: None,
             list,
             form,
             permission: None,
         }
+    }
+
+    /// A many-to-many relation: rows of `entity` that `pivot` joins to the
+    /// parent, listed by `list`. Fields kept on the pivot row go on [`form`].
+    ///
+    /// [`form`]: RelationConfig::form
+    pub fn belongs_to_many(
+        name: impl Into<String>,
+        label: impl Into<Text>,
+        entity: impl Into<String>,
+        pivot: PivotConfig,
+        list: ListConfig,
+    ) -> Self {
+        let name = name.into();
+        Self {
+            title: crate::descriptor::humanize(&name),
+            name,
+            label: label.into(),
+            entity: entity.into(),
+            foreign_key: None,
+            pivot: Some(pivot),
+            list,
+            form: FormConfig::default(),
+            permission: None,
+        }
+    }
+
+    /// The fields kept on a many-to-many relation's pivot row.
+    pub fn form(mut self, form: FormConfig) -> Self {
+        self.form = form;
+        self
     }
 
     /// The section heading.
@@ -95,7 +184,17 @@ impl RelationConfig {
 
 impl Default for RelationConfig {
     fn default() -> Self {
-        Self::has_many("", "", "", "", ListConfig::default(), FormConfig::default())
+        Self {
+            name: String::new(),
+            title: Text::from(""),
+            label: Text::from(""),
+            entity: String::new(),
+            foreign_key: None,
+            pivot: None,
+            list: ListConfig::default(),
+            form: FormConfig::default(),
+            permission: None,
+        }
     }
 }
 
@@ -114,16 +213,43 @@ impl crate::keyed::Keyed for RelationConfig {
 /// The names a relation may not take: the parent's own routes under `{id}`.
 pub(crate) const RESERVED: [&str; 6] = ["new", "edit", "delete", "import", "export", "columns"];
 
-/// A relation resolved at boot: its child form prepared, its delete context
-/// built, ready to be scoped to a parent per request.
+/// How a relation's rows are tied to the parent.
+enum Kind {
+    HasMany {
+        foreign_key: String,
+    },
+    ManyToMany {
+        pivot: PivotConfig,
+        /// The Attach form: the pivot fields plus a picker for the record.
+        attach: Arc<PreparedForm>,
+    },
+}
+
+/// A relation resolved at boot: its forms prepared, its delete context built,
+/// ready to be scoped to a parent per request.
 pub(crate) struct PreparedRelation {
     pub config: RelationConfig,
     /// The parent's path under the admin mount (`/admin/products`).
     pub parent_base: String,
     pub parent_entity: String,
     pub parent_id_field: String,
+    kind: Kind,
+    /// Has-many: the child form. Many-to-many: the pivot row's form.
     form: Arc<PreparedForm>,
     bulk: Arc<BulkContext>,
+}
+
+/// Keeps a field of this name out of sight: a declared one is hidden, an
+/// undeclared one is added hidden so the submission carries it.
+fn hide(form: &mut FormConfig, name: &str) {
+    match form.fields.iter_mut().find(|f| f.name == name) {
+        Some(field) => field.hidden = true,
+        None => {
+            let mut field = form::FormField::text(name, name.to_string());
+            field.hidden = true;
+            form.fields.push(field);
+        }
+    }
 }
 
 impl PreparedRelation {
@@ -136,63 +262,90 @@ impl PreparedRelation {
         persisters: &crate::persist::PersisterRegistry,
         listeners: &[laterite_core::ModelListenerReg],
     ) -> Result<Self, String> {
+        let name = config.name.clone();
+        let fail = |message: String| format!("relation `{name}`: {message}");
         if !crate::sql::valid_ident(&config.name) || RESERVED.contains(&config.name.as_str()) {
-            return Err(format!(
-                "relation `{}` has a name the parent's own routes use",
-                config.name
-            ));
-        }
-        if !crate::sql::valid_ident(&config.foreign_key) {
-            return Err(format!(
-                "relation `{}` names an invalid foreign key",
-                config.name
-            ));
+            return Err(fail("the name is one the parent's own routes use".into()));
         }
         config.list.entity = config.entity.clone();
-        config.form.entity = config.entity.clone();
-        config.form.id_field = config.list.id_field.clone();
+        list::check(&config.list, column_types, permission_codes).map_err(fail)?;
         if config.form.title.source().is_empty() {
             config.form.title = config.label.clone();
         }
-        // The foreign key is the framework's to write: a declared field of that
-        // name stays in the form but never shows, and an undeclared one is added
-        // hidden so the submission carries it.
-        match config
-            .form
-            .fields
-            .iter_mut()
-            .find(|f| f.name == config.foreign_key)
-        {
-            Some(field) => field.hidden = true,
-            None => {
-                let mut field =
-                    form::FormField::text(&config.foreign_key, config.foreign_key.clone());
-                field.hidden = true;
-                config.form.fields.push(field);
+        let prepare = |form: FormConfig| {
+            PreparedForm::prepare(form, field_types, persisters, listeners).map_err(fail)
+        };
+        let (kind, form) = match (config.foreign_key.clone(), config.pivot.clone()) {
+            (Some(foreign_key), None) => {
+                if !crate::sql::valid_ident(&foreign_key) {
+                    return Err(fail("the foreign key is not a valid identifier".into()));
+                }
+                config.form.entity = config.entity.clone();
+                config.form.id_field = config.list.id_field.clone();
+                // The foreign key is the framework's to write.
+                hide(&mut config.form, &foreign_key);
+                (Kind::HasMany { foreign_key }, prepare(config.form.clone())?)
             }
-        }
-        list::check(&config.list, column_types, permission_codes)
-            .map_err(|e| format!("relation `{}`: {e}", config.name))?;
-        let prepared =
-            PreparedForm::prepare(config.form.clone(), field_types, persisters, listeners)
-                .map_err(|e| format!("relation `{}`: {e}", config.name))?;
-        let persister = prepared.persister();
+            (None, Some(pivot)) => {
+                if ![
+                    &pivot.table,
+                    &pivot.parent_key,
+                    &pivot.related_key,
+                    &pivot.id_field,
+                ]
+                .iter()
+                .all(|ident| crate::sql::valid_ident(ident))
+                {
+                    return Err(fail("the pivot names an invalid identifier".into()));
+                }
+                if pivot.source.is_empty() {
+                    return Err(fail("the pivot names no picker source".into()));
+                }
+                config.form.entity = pivot.table.clone();
+                config.form.id_field = pivot.id_field.clone();
+                hide(&mut config.form, &pivot.parent_key);
+                // Attach asks which record, through the picker; afterwards the
+                // membership is fixed and the form hides it.
+                let mut attach = config.form.clone();
+                if !attach.fields.iter().any(|f| f.name == pivot.related_key) {
+                    attach.fields.insert(
+                        0,
+                        form::FormField::reference(
+                            &pivot.related_key,
+                            config.label.clone(),
+                            &pivot.source,
+                        )
+                        .required(),
+                    );
+                }
+                hide(&mut config.form, &pivot.related_key);
+                let attach = Arc::new(prepare(attach)?);
+                (
+                    Kind::ManyToMany { pivot, attach },
+                    prepare(config.form.clone())?,
+                )
+            }
+            _ => return Err(fail("declare exactly one of foreign_key and pivot".into())),
+        };
+        let persister = form.persister();
+        let entity = form.config.entity.clone();
         let bulk = Arc::new(BulkContext {
             base_path: String::new(),
-            entity: config.entity.clone(),
-            persister,
             listeners: listeners
                 .iter()
-                .filter(|reg| reg.matches(&config.entity))
+                .filter(|reg| reg.matches(&entity))
                 .map(|reg| reg.listener.clone())
                 .collect(),
+            entity,
+            persister,
         });
         Ok(Self {
             parent_base: parent.base_path.clone(),
             parent_entity: parent.list.entity.clone(),
             parent_id_field: parent.list.id_field.clone(),
             config,
-            form: Arc::new(prepared),
+            kind,
+            form: Arc::new(form),
             bulk,
         })
     }
@@ -207,46 +360,179 @@ impl PreparedRelation {
         format!("{}/{}/edit", self.parent_base, parent_id)
     }
 
-    /// The child form mounted under this parent.
-    fn form_for(&self, parent_id: &str) -> Arc<PreparedForm> {
-        let mut form = (*self.form).clone();
+    /// A form mounted under this parent.
+    fn rebase(&self, form: &PreparedForm, parent_id: &str) -> Arc<PreparedForm> {
+        let mut form = form.clone();
         form.config.base_path = self.path(parent_id);
         form.config.done_path = Some(self.parent_edit(parent_id));
         Arc::new(form)
     }
 
+    /// The form behind New (has-many) or Attach (many-to-many).
+    fn new_form_for(&self, parent_id: &str) -> Arc<PreparedForm> {
+        match &self.kind {
+            Kind::HasMany { .. } => self.rebase(&self.form, parent_id),
+            Kind::ManyToMany { attach, .. } => self.rebase(attach, parent_id),
+        }
+    }
+
+    /// The form behind a row's Edit.
+    fn form_for(&self, parent_id: &str) -> Arc<PreparedForm> {
+        self.rebase(&self.form, parent_id)
+    }
+
     /// The section's list scoped to this parent.
     fn list_for(&self, parent_id: &str) -> ListConfig {
         let mut list = self.config.list.clone();
-        list.edit_base = Some(self.path(parent_id));
-        list.creatable = true;
-        list.scope = Some((self.config.foreign_key.clone(), parent_id.to_string()));
         list.remember = false;
+        match &self.kind {
+            Kind::HasMany { foreign_key } => {
+                list.edit_base = Some(self.path(parent_id));
+                list.creatable = true;
+                list.scope = Some(list::Scope::Column {
+                    column: foreign_key.clone(),
+                    value: parent_id.to_string(),
+                });
+            }
+            Kind::ManyToMany { pivot, .. } => {
+                // A membership with nothing of its own has nothing to edit.
+                list.edit_base =
+                    (!self.config.form.fields.is_empty()).then(|| self.path(parent_id));
+                list.creatable = false;
+                list.scope = Some(list::Scope::Pivot {
+                    table: pivot.table.clone(),
+                    parent_key: pivot.parent_key.clone(),
+                    related_key: pivot.related_key.clone(),
+                    id_field: pivot.id_field.clone(),
+                    value: parent_id.to_string(),
+                });
+            }
+        }
         list
+    }
+
+    /// The per-row action: Delete for a record, Remove for a membership.
+    fn row_action(&self, path: &str, shell: &Shell) -> list::RowAction {
+        let (label, confirm) = match &self.kind {
+            Kind::HasMany { .. } => (t!("Delete"), t!("Delete this record?")),
+            Kind::ManyToMany { .. } => (t!("Remove"), t!("Remove this record?")),
+        };
+        list::RowAction {
+            path: format!("{path}/delete"),
+            label: shell.tt(&label),
+            confirm: shell.tt(&confirm),
+        }
+    }
+
+    /// The New or Attach button's label.
+    fn new_label(&self, shell: &Shell) -> String {
+        let label = shell.tt(&self.config.label);
+        match &self.kind {
+            Kind::HasMany { .. } => shell.tt(&t!("New {label}", label = label)),
+            Kind::ManyToMany { .. } => shell.tt(&t!("Attach {label}", label = label)),
+        }
+    }
+
+    /// Whether one row of `table` has every column equal to its value.
+    async fn exists(
+        &self,
+        db: &Db,
+        table: &str,
+        pairs: &[(&str, &str)],
+    ) -> Result<bool, sqlx::Error> {
+        let (sql, values) = {
+            let cast = text_cast(db.backend);
+            let mut select = Sql::select();
+            select.expr(Expr::val(1).count()).from(Alias::new(table));
+            for (column, value) in pairs {
+                select.and_where(
+                    Expr::col(Alias::new(*column))
+                        .cast_as(Alias::new(cast))
+                        .eq(value.to_string()),
+                );
+            }
+            build(db.backend, select)
+        };
+        let (n,): (i64,) = laterite_core::query::bind_values_as(sqlx::query_as(&sql), values)
+            .fetch_one(&db.pool)
+            .await?;
+        Ok(n > 0)
     }
 
     /// Whether the parent record exists; a child page under a parent that does
     /// not is a 404, never a write with a dangling key.
     async fn parent_exists(&self, db: &Db, parent_id: &str) -> Result<bool, sqlx::Error> {
+        self.exists(
+            db,
+            &self.parent_entity,
+            &[(&self.parent_id_field, parent_id)],
+        )
+        .await
+    }
+
+    /// Whether `child_id` is this parent's: a has-many's related record, or a
+    /// many-to-many's pivot row. A child page under the wrong parent is a 404,
+    /// so an id cannot be walked across parents.
+    async fn owned(&self, db: &Db, parent_id: &str, child_id: &str) -> Result<bool, sqlx::Error> {
+        match &self.kind {
+            Kind::HasMany { foreign_key } => {
+                self.exists(
+                    db,
+                    &self.config.entity,
+                    &[
+                        (&self.config.list.id_field, child_id),
+                        (foreign_key, parent_id),
+                    ],
+                )
+                .await
+            }
+            Kind::ManyToMany { pivot, .. } => {
+                self.exists(
+                    db,
+                    &pivot.table,
+                    &[(&pivot.id_field, child_id), (&pivot.parent_key, parent_id)],
+                )
+                .await
+            }
+        }
+    }
+
+    /// The related record a pivot row names, when the row is this parent's.
+    async fn pivot_related(
+        &self,
+        db: &Db,
+        pivot: &PivotConfig,
+        parent_id: &str,
+        child_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let (sql, values) = {
             let cast = text_cast(db.backend);
             build(
                 db.backend,
                 Sql::select()
-                    .expr(Expr::col(Alias::new(&self.parent_id_field)).count())
-                    .from(Alias::new(&self.parent_entity))
+                    .expr_as(
+                        Expr::col(Alias::new(&pivot.related_key)).cast_as(Alias::new(cast)),
+                        Alias::new("related"),
+                    )
+                    .from(Alias::new(&pivot.table))
                     .and_where(
-                        Expr::col(Alias::new(&self.parent_id_field))
+                        Expr::col(Alias::new(&pivot.id_field))
+                            .cast_as(Alias::new(cast))
+                            .eq(child_id.to_string()),
+                    )
+                    .and_where(
+                        Expr::col(Alias::new(&pivot.parent_key))
                             .cast_as(Alias::new(cast))
                             .eq(parent_id.to_string()),
                     )
                     .to_owned(),
             )
         };
-        let (n,): (i64,) = laterite_core::query::bind_values_as(sqlx::query_as(&sql), values)
-            .fetch_one(&db.pool)
-            .await?;
-        Ok(n > 0)
+        let row: Option<(String,)> =
+            laterite_core::query::bind_values_as(sqlx::query_as(&sql), values)
+                .fetch_optional(&db.pool)
+                .await?;
+        Ok(row.map(|(related,)| related))
     }
 
     /// The section as the parent's edit page shows it: page one, unsorted.
@@ -272,14 +558,14 @@ impl PreparedRelation {
             user,
             shell.clone(),
             &format!("lat-rel-{}", self.config.name),
-            Some(format!("{path}/delete")),
+            Some(self.row_action(&path, shell)),
         )
         .await
         .ok()?;
         Some(RelationSection {
             title: shell.tt(&self.config.title),
             new_href: Some(format!("{path}/new")),
-            new_label: shell.tt(&t!("New {label}", label = shell.tt(&self.config.label))),
+            new_label: self.new_label(shell),
             html,
         })
     }
@@ -312,7 +598,7 @@ pub(crate) async fn index(
         &user,
         shell.clone(),
         &format!("lat-rel-{}", rel.config.name),
-        Some(format!("{path}/delete")),
+        Some(rel.row_action(&path, &shell)),
     )
     .await
     {
@@ -328,7 +614,7 @@ pub(crate) async fn index(
         shell: &shell,
         back: rel.parent_edit(&parent_id),
         new_href: format!("{path}/new"),
-        new_label: shell.tt(&t!("New {label}", label = shell.tt(&rel.config.label))),
+        new_label: rel.new_label(&shell),
         html,
     };
     match crate::html::Markup::from_template(&page) {
@@ -359,7 +645,7 @@ pub(crate) async fn new_form(
         Ok(false) => return not_found(),
         Err(_) => return render_error(),
     }
-    form::new_form(&state, &rel.form_for(&parent_id), shell, Vec::new())
+    form::new_form(&state, &rel.new_form_for(&parent_id), shell, Vec::new())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -379,10 +665,52 @@ pub(crate) async fn create(
         Err(_) => return render_error(),
     }
     // The parent is the URL's, whatever the submission said.
-    data.insert(rel.config.foreign_key.clone(), parent_id.clone());
+    match &rel.kind {
+        Kind::HasMany { foreign_key } => {
+            data.insert(foreign_key.clone(), parent_id.clone());
+        }
+        Kind::ManyToMany { pivot, .. } => {
+            data.insert(pivot.parent_key.clone(), parent_id.clone());
+            // A blank is the form's to refuse, as a required field.
+            let related = data
+                .get(&pivot.related_key)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty());
+            if let Some(related) = related {
+                let present = rel
+                    .exists(
+                        &state.db,
+                        &rel.config.entity,
+                        &[(&rel.config.list.id_field, &related)],
+                    )
+                    .await;
+                let attached = rel
+                    .exists(
+                        &state.db,
+                        &pivot.table,
+                        &[
+                            (&pivot.parent_key, &parent_id),
+                            (&pivot.related_key, &related),
+                        ],
+                    )
+                    .await;
+                let refusal = match (present, attached) {
+                    (Ok(false), _) => Some(t!("There is no such record to attach.")),
+                    (_, Ok(true)) => Some(t!("That record is already attached.")),
+                    (Err(_), _) | (_, Err(_)) => return render_error(),
+                    _ => None,
+                };
+                if let Some(message) = refusal {
+                    session.push_flash(FlashLevel::Error, message);
+                    let back = format!("{}/new", rel.path(&parent_id));
+                    return form::saved_response(form::is_htmx(&headers), &back);
+                }
+            }
+        }
+    }
     form::create(
         &state,
-        &rel.form_for(&parent_id),
+        &rel.new_form_for(&parent_id),
         data,
         shell,
         &user,
@@ -398,7 +726,7 @@ pub(crate) async fn edit_form(
     Path((parent_id, child_id)): Path<(String, String)>,
     rel: Arc<PreparedRelation>,
 ) -> Response {
-    match rel.belongs(&state.db, &parent_id, &child_id).await {
+    match rel.owned(&state.db, &parent_id, &child_id).await {
         Ok(true) => {}
         Ok(false) => return not_found(),
         Err(_) => return render_error(),
@@ -424,12 +752,31 @@ pub(crate) async fn update(
     Form(mut data): Form<HashMap<String, String>>,
     rel: Arc<PreparedRelation>,
 ) -> Response {
-    match rel.belongs(&state.db, &parent_id, &child_id).await {
-        Ok(true) => {}
-        Ok(false) => return not_found(),
-        Err(_) => return render_error(),
+    // The parent is the URL's and the membership is the row's, whatever the
+    // submission said.
+    match &rel.kind {
+        Kind::HasMany { foreign_key } => {
+            match rel.owned(&state.db, &parent_id, &child_id).await {
+                Ok(true) => {}
+                Ok(false) => return not_found(),
+                Err(_) => return render_error(),
+            }
+            data.insert(foreign_key.clone(), parent_id.clone());
+        }
+        Kind::ManyToMany { pivot, .. } => {
+            match rel
+                .pivot_related(&state.db, pivot, &parent_id, &child_id)
+                .await
+            {
+                Ok(Some(related)) => {
+                    data.insert(pivot.related_key.clone(), related);
+                }
+                Ok(None) => return not_found(),
+                Err(_) => return render_error(),
+            }
+            data.insert(pivot.parent_key.clone(), parent_id.clone());
+        }
     }
-    data.insert(rel.config.foreign_key.clone(), parent_id.clone());
     form::update(
         &state,
         &rel.form_for(&parent_id),
@@ -443,7 +790,8 @@ pub(crate) async fn update(
     .await
 }
 
-/// Removes the selected related records, then shows the section again.
+/// Removes the selected rows (a has-many's records, a many-to-many's
+/// memberships), then shows the parent page again.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn delete(
     State(state): State<AdminState>,
@@ -463,7 +811,7 @@ pub(crate) async fn delete(
         .collect();
     let mut owned = Vec::new();
     for id in &ids {
-        match rel.belongs(&state.db, &parent_id, id).await {
+        match rel.owned(&state.db, &parent_id, id).await {
             Ok(true) => owned.push(id.clone()),
             Ok(false) => {}
             Err(_) => return render_error(),
@@ -472,14 +820,16 @@ pub(crate) async fn delete(
     let actor = Actor::from(&user);
     let outcome = bulk::delete_selected(&state, &rel.bulk, &owned, &actor).await;
     if outcome.deleted > 0 {
-        session.push_flash(
-            FlashLevel::Success,
-            laterite_core::tn!(
-                "Deleted {n} record.",
-                "Deleted {n} records.",
-                n = outcome.deleted as i64
-            ),
-        );
+        let n = outcome.deleted as i64;
+        let message = match &rel.kind {
+            Kind::HasMany { .. } => {
+                laterite_core::tn!("Deleted {n} record.", "Deleted {n} records.", n = n)
+            }
+            Kind::ManyToMany { .. } => {
+                laterite_core::tn!("Removed {n} record.", "Removed {n} records.", n = n)
+            }
+        };
+        session.push_flash(FlashLevel::Success, message);
     }
     for message in outcome.refused {
         session.push_flash(FlashLevel::Error, message);
@@ -490,35 +840,4 @@ pub(crate) async fn delete(
     // Back to the parent page whole, so the flash saying what happened shows.
     let _ = shell;
     form::saved_response(form::is_htmx(&headers), &rel.parent_edit(&parent_id))
-}
-
-impl PreparedRelation {
-    /// Whether `child_id` is a related record of `parent_id`: a child page
-    /// under the wrong parent is a 404, so an id cannot be walked across parents.
-    async fn belongs(&self, db: &Db, parent_id: &str, child_id: &str) -> Result<bool, sqlx::Error> {
-        let (sql, values) = {
-            let cast = text_cast(db.backend);
-            build(
-                db.backend,
-                Sql::select()
-                    .expr(Expr::col(Alias::new(&self.config.list.id_field)).count())
-                    .from(Alias::new(&self.config.entity))
-                    .and_where(
-                        Expr::col(Alias::new(&self.config.list.id_field))
-                            .cast_as(Alias::new(cast))
-                            .eq(child_id.to_string()),
-                    )
-                    .and_where(
-                        Expr::col(Alias::new(&self.config.foreign_key))
-                            .cast_as(Alias::new(cast))
-                            .eq(parent_id.to_string()),
-                    )
-                    .to_owned(),
-            )
-        };
-        let (n,): (i64,) = laterite_core::query::bind_values_as(sqlx::query_as(&sql), values)
-            .fetch_one(&db.pool)
-            .await?;
-        Ok(n > 0)
-    }
 }

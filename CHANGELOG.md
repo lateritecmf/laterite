@@ -9,8 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
-- `relations` on a resource: another entity's records that belong to each of its
-  own, as a section on the edit page with New, Edit and Delete under the parent.
+- `relations` on a resource: has-many (New, Edit, Delete) and many-to-many through
+  a pivot table (Attach from the picker, pivot fields, Remove), as edit-page sections.
 - "Save and continue editing" beside Save on a resource with relations.
 - `lateritecmf`, the one crate an application depends on: it re-exports the
   family as `lateritecmf::{core, auth, admin, media, web}`, forwards the driver

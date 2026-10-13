@@ -21,3 +21,17 @@ relations:
     form:
       fields:
         body: { rules: [required] }
+  tags:
+    label: Tag
+    entity: tags
+    pivot:
+      table: post_tags
+      parent_key: post_id
+      related_key: tag_id
+      source: acme.tags
+    list:
+      columns:
+        name: {}
+    form:
+      fields:
+        note: {}

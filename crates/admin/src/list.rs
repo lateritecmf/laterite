@@ -17,8 +17,8 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 use laterite_core::query::{bind_values, bind_values_as, build, text_cast};
 use laterite_core::search::SearchProfile;
-use laterite_core::{AnyRowExt, Db, Text};
-use sea_query::{Alias, Expr, Order, Query};
+use laterite_core::{AnyRowExt, Db, DbBackend, Text};
+use sea_query::{Alias, Expr, Order, Query, SimpleExpr};
 use serde::{Deserialize, Serialize};
 
 use crate::field::{OverrideResolver, OverrideScope, Surface};
@@ -1120,10 +1120,10 @@ pub struct ListConfig {
     /// permission. Set by the router from the resource, never by a descriptor.
     #[serde(skip)]
     pub(crate) import: Option<ImportLink>,
-    /// A fixed condition every query carries: the column and the value it must
-    /// equal. Set per request by a relation section, never by a descriptor.
+    /// A fixed condition every query carries. Set per request by a relation
+    /// section, never by a descriptor.
     #[serde(skip)]
-    pub(crate) scope: Option<(String, String)>,
+    pub(crate) scope: Option<Scope>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1498,6 +1498,108 @@ fn search_condition(config: &ListConfig, q: &str) -> Option<sea_query::Condition
     matched.then_some(any)
 }
 
+/// What narrows a list to one parent record's rows: a relation section sets
+/// it per request.
+#[derive(Clone, Debug)]
+pub(crate) enum Scope {
+    /// Rows whose `column` equals `value`: a has-many's foreign key.
+    Column { column: String, value: String },
+    /// Rows a pivot table joins to the parent: those whose id appears as
+    /// `related_key` on a pivot row whose `parent_key` equals `value`. Each row
+    /// is then identified by its pivot row's `id_field`, so the section's
+    /// links and removals name the membership, never the record.
+    Pivot {
+        table: String,
+        parent_key: String,
+        related_key: String,
+        id_field: String,
+        value: String,
+    },
+}
+
+impl Scope {
+    fn idents_valid(&self) -> bool {
+        match self {
+            Scope::Column { column, .. } => valid_ident(column),
+            Scope::Pivot {
+                table,
+                parent_key,
+                related_key,
+                id_field,
+                ..
+            } => {
+                valid_ident(table)
+                    && valid_ident(parent_key)
+                    && valid_ident(related_key)
+                    && valid_ident(id_field)
+            }
+        }
+    }
+
+    /// The condition every query and count carries.
+    fn condition(&self, backend: DbBackend, entity_id: &str) -> SimpleExpr {
+        let cast = Alias::new(text_cast(backend));
+        match self {
+            Scope::Column { column, value } => Expr::col(Alias::new(column))
+                .cast_as(cast)
+                .eq(value.clone()),
+            Scope::Pivot {
+                table,
+                parent_key,
+                related_key,
+                value,
+                ..
+            } => Expr::col(Alias::new(entity_id)).in_subquery(
+                Query::select()
+                    .column(Alias::new(related_key))
+                    .from(Alias::new(table))
+                    .and_where(
+                        Expr::col(Alias::new(parent_key))
+                            .cast_as(cast)
+                            .eq(value.clone()),
+                    )
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// The expression identifying each row, when the scope changes it: the
+    /// pivot row's id, found by a scalar subquery on the entity's own id.
+    fn row_id(&self, backend: DbBackend, entity: &str, entity_id: &str) -> Option<SimpleExpr> {
+        match self {
+            Scope::Column { .. } => None,
+            Scope::Pivot {
+                table,
+                parent_key,
+                related_key,
+                id_field,
+                value,
+            } => {
+                let pivot = Alias::new("lat_pivot");
+                Some(SimpleExpr::SubQuery(
+                    None,
+                    Box::new(
+                        Query::select()
+                            .column((pivot.clone(), Alias::new(id_field)))
+                            .from_as(Alias::new(table), pivot.clone())
+                            .and_where(
+                                Expr::col((pivot.clone(), Alias::new(related_key)))
+                                    .equals((Alias::new(entity), Alias::new(entity_id))),
+                            )
+                            .and_where(
+                                Expr::col((pivot, Alias::new(parent_key)))
+                                    .cast_as(Alias::new(text_cast(backend)))
+                                    .eq(value.clone()),
+                            )
+                            .to_owned()
+                            .into_sub_query_statement(),
+                    ),
+                ))
+            }
+        }
+    }
+}
+
 /// Runs the list query for a config, returning display-ready rows and the total.
 /// Built with `sea-query` and dynamic identifiers (`Alias`), and every selected
 /// column is cast to text so a value of any type reads back uniformly as a
@@ -1513,7 +1615,7 @@ pub(crate) async fn query(
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
         || !config.filters.iter().all(|f| valid_ident(&f.field))
-        || !config.scope.iter().all(|(col, _)| valid_ident(col))
+        || !config.scope.iter().all(Scope::idents_valid)
     {
         anyhow::bail!("invalid identifier in list config for '{}'", config.entity);
     }
@@ -1533,9 +1635,14 @@ pub(crate) async fn query(
                 Alias::new(&column.field),
             );
         }
+        let row_id = config
+            .scope
+            .as_ref()
+            .and_then(|scope| scope.row_id(db.backend, &config.entity, &config.id_field))
+            .unwrap_or_else(|| Expr::col(Alias::new(&config.id_field)).into());
         select
             .expr_as(
-                Expr::col(Alias::new(&config.id_field)).cast_as(Alias::new(text_cast(db.backend))),
+                row_id.cast_as(Alias::new(text_cast(db.backend))),
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
@@ -1548,12 +1655,8 @@ pub(crate) async fn query(
         if let Some(cond) = filter_condition(req.filters) {
             select.cond_where(cond);
         }
-        if let Some((col, value)) = &config.scope {
-            select.and_where(
-                Expr::col(Alias::new(col))
-                    .cast_as(Alias::new(text_cast(db.backend)))
-                    .eq(value.clone()),
-            );
+        if let Some(scope) = &config.scope {
+            select.and_where(scope.condition(db.backend, &config.id_field));
         }
         build(db.backend, select)
     };
@@ -1573,12 +1676,8 @@ pub(crate) async fn query(
         if let Some(cond) = filter_condition(req.filters) {
             count.cond_where(cond);
         }
-        if let Some((col, value)) = &config.scope {
-            count.and_where(
-                Expr::col(Alias::new(col))
-                    .cast_as(Alias::new(text_cast(db.backend)))
-                    .eq(value.clone()),
-            );
+        if let Some(scope) = &config.scope {
+            count.and_where(scope.condition(db.backend, &config.id_field));
         }
         build(db.backend, count)
     };
@@ -1918,8 +2017,17 @@ async fn build_page(
     }
 }
 
+/// A per-row action posted with the row's id, for a list with no action bar of
+/// its own: a section's Delete, or a membership's Remove.
+#[derive(Clone, Debug)]
+pub(crate) struct RowAction {
+    pub path: String,
+    pub label: String,
+    pub confirm: String,
+}
+
 /// The list region alone, cut out of a built page.
-fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<String>) -> ListFragment {
+fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>) -> ListFragment {
     ListFragment {
         shell: page.shell,
         columns: page.columns,
@@ -1955,7 +2063,7 @@ pub(crate) async fn fragment(
     user: &laterite_auth::AuthenticatedUser,
     shell: crate::Shell,
     region: &str,
-    delete_path: Option<String>,
+    delete_path: Option<RowAction>,
 ) -> Result<crate::html::Markup, ()> {
     let page = build_page(state, config, path, params, raw, user, shell)
         .await
@@ -2118,8 +2226,8 @@ struct ListTemplate {
     carry: String,
     /// The list region's element id; a page's own list is `lat-list`.
     region: String,
-    /// A per-row delete, for a list with no action bar; a page's list has the bar.
-    delete_path: Option<String>,
+    /// A per-row action, for a list with no action bar; a page's list has the bar.
+    delete_path: Option<RowAction>,
 }
 
 /// One rendered filter control.
@@ -2236,8 +2344,9 @@ struct ListFragment {
     /// The region's element id: `lat-list` for a page's list, one of its own
     /// for a section inside a form.
     region: String,
-    /// A per-row delete, posted here, for a list with no action bar of its own.
-    delete_path: Option<String>,
+    /// A per-row action, posted with the row's id, for a list with no action
+    /// bar of its own.
+    delete_path: Option<RowAction>,
 }
 
 #[cfg(test)]
