@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- The list page's filter triggers were unparsable for htmx (a syntax error on
+  every list); a filter change now swaps the table in place as intended.
+
 ## [0.9.11] - 2026-10-13
 
 Relations on Postgres: a foreign key and a picker's choice are stored as numbers.
