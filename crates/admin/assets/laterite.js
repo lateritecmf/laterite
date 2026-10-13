@@ -1206,3 +1206,77 @@ window.lat.widget('reveal', function (btn) {
   });
 })();
 
+// Reorder: a list in its own order carries a grip on every row. Dragging a
+// row drops it before or after another and posts the move; the arrows beside
+// the grip are the keyboard path and post the same way. The island sits on
+// the header cell, outside the rows, so a row click stays the row's. After
+// the region swaps back in, focus returns to the arrow that was pressed.
+(function () {
+  var pending = null;
+  window.lat.widget('reorder', function (th) {
+    var table = th.closest('table');
+    var path = th.getAttribute('data-reorder-path');
+    var region = th.getAttribute('data-reorder-region');
+    if (!table || !path || !window.htmx) return;
+    var dragging = null;
+    function rows() { return Array.prototype.slice.call(table.querySelectorAll('tbody tr[data-lat-id]')); }
+    function clear() {
+      rows().forEach(function (r) { r.classList.remove('is-drop-before', 'is-drop-after'); });
+    }
+    function post(values) {
+      values._csrf = th.getAttribute('data-reorder-csrf');
+      values.page = th.getAttribute('data-reorder-page');
+      window.htmx.ajax('POST', path, { target: '#' + region, swap: 'outerHTML', values: values });
+    }
+    table.addEventListener('dragstart', function (e) {
+      var grip = e.target.closest ? e.target.closest('.lat-grip') : null;
+      var row = grip && grip.closest('tr[data-lat-id]');
+      if (!row) return;
+      dragging = row;
+      row.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.getAttribute('data-lat-id'));
+    });
+    table.addEventListener('dragover', function (e) {
+      if (!dragging) return;
+      var row = e.target.closest ? e.target.closest('tr[data-lat-id]') : null;
+      if (!row || row === dragging) return;
+      e.preventDefault();
+      var box = row.getBoundingClientRect();
+      var before = e.clientY < box.top + box.height / 2;
+      clear();
+      row.classList.add(before ? 'is-drop-before' : 'is-drop-after');
+    });
+    table.addEventListener('drop', function (e) {
+      if (!dragging) return;
+      var row = e.target.closest ? e.target.closest('tr[data-lat-id]') : null;
+      e.preventDefault();
+      if (row && row !== dragging) {
+        var before = row.classList.contains('is-drop-before');
+        var values = { id: dragging.getAttribute('data-lat-id') };
+        values[before ? 'before' : 'after'] = row.getAttribute('data-lat-id');
+        post(values);
+      }
+      clear();
+    });
+    table.addEventListener('dragend', function () {
+      if (dragging) dragging.classList.remove('is-dragging');
+      dragging = null;
+      clear();
+    });
+    // Remember which arrow was pressed, to focus it again after the swap.
+    table.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!form.classList.contains('lat-grip__moves')) return;
+      var button = form.querySelector('.lat-grip__move:focus') || e.submitter;
+      var row = form.closest('tr[data-lat-id]');
+      if (button && row) pending = { id: row.getAttribute('data-lat-id'), move: button.value };
+    });
+    if (pending) {
+      var row = table.querySelector('tr[data-lat-id="' + pending.id + '"]');
+      var button = row && row.querySelector('.lat-grip__move[value="' + pending.move + '"]');
+      pending = null;
+      if (button) (button.disabled ? button.form.querySelector('.lat-grip__move:not(:disabled)') : button).focus();
+    }
+  });
+})();

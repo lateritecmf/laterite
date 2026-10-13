@@ -1002,6 +1002,14 @@ pub(crate) fn check(
     column_types: &ColumnRegistry,
     permission_codes: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
+    if let Some(reorder) = &config.reorder {
+        if !valid_ident(&reorder.column) {
+            return Err(format!(
+                "reorder names an invalid column `{}`",
+                reorder.column
+            ));
+        }
+    }
     for col in &config.columns {
         if column_types.get(&col.column_type).is_none() {
             return Err(format!(
@@ -1075,6 +1083,47 @@ impl SearchConfig {
     }
 }
 
+/// The order rows keep of their own, held in an integer column (not null,
+/// default `0`). Keys are spaced by a thousand so a move rewrites one row; a
+/// move into a closed gap renumbers the list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct ReorderConfig {
+    /// The integer column holding each row's position. Default `sort_order`.
+    pub column: String,
+}
+
+impl Default for ReorderConfig {
+    fn default() -> Self {
+        Self {
+            column: "sort_order".to_string(),
+        }
+    }
+}
+
+/// `reorder: true` takes the default column; `reorder: { column: position }`
+/// names one; `false` or absent is off.
+fn deserialize_reorder<'de, D>(deserializer: D) -> Result<Option<ReorderConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Key {
+        Flag(bool),
+        Config(ReorderConfig),
+    }
+    Ok(match Option::<Key>::deserialize(deserializer)? {
+        Some(Key::Flag(true)) => Some(ReorderConfig::default()),
+        Some(Key::Flag(false)) | None => None,
+        Some(Key::Config(config)) => Some(config),
+    })
+}
+
+/// The spacing between keys after a renumber, and the step past either end.
+const REORDER_STEP: i64 = 1000;
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 ///
@@ -1124,6 +1173,10 @@ pub struct ListConfig {
     /// section, never by a descriptor.
     #[serde(skip)]
     pub(crate) scope: Option<Scope>,
+    /// Rows kept in an order of their own, held in an integer column. Off by
+    /// default; `reorder: true` in a file orders by `sort_order`.
+    #[serde(deserialize_with = "deserialize_reorder")]
+    pub reorder: Option<ReorderConfig>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1221,6 +1274,15 @@ impl ListConfig {
         self
     }
 
+    /// Keeps the rows in an order of their own, held in `column`: the list
+    /// opens in that order with a grip and Move up / Move down on every row.
+    pub fn reorder(mut self, column: impl Into<String>) -> Self {
+        self.reorder = Some(ReorderConfig {
+            column: column.into(),
+        });
+        self
+    }
+
     pub fn toolbar(mut self, buttons: Vec<ToolbarButton>) -> Self {
         self.toolbar = buttons;
         self
@@ -1278,6 +1340,7 @@ impl Default for ListConfig {
             exportable: false,
             import: None,
             scope: None,
+            reorder: None,
             toolbar: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
@@ -1306,19 +1369,29 @@ pub(crate) fn resolve_sort(
     sort: Option<&str>,
     dir: Option<&str>,
 ) -> (String, SortDir) {
+    let (natural, natural_dir) = natural_order(config);
     let by = match sort.filter(|s| config.columns.iter().any(|c| c.field == *s && c.sortable)) {
         Some(field) => field.to_string(),
-        None => config.order_by.clone(),
+        None => natural.to_string(),
     };
     let dir = match dir {
         Some("asc") => SortDir::Asc,
         Some("desc") => SortDir::Desc,
         // No explicit direction: the configured one for the configured column, so
         // a list ordered newest-first stays that way until a header is clicked.
-        _ if by == config.order_by => config.order_dir,
+        _ if by == natural => natural_dir,
         _ => SortDir::Asc,
     };
     (by, dir)
+}
+
+/// The order a list opens in: its own column ascending when rows keep an
+/// order, else the descriptor's `order_by`.
+fn natural_order(config: &ListConfig) -> (&str, SortDir) {
+    match &config.reorder {
+        Some(reorder) => (&reorder.column, SortDir::Asc),
+        None => (&config.order_by, config.order_dir),
+    }
 }
 
 /// One rendered row: its id (for edit links) and its display cells.
@@ -1646,7 +1719,12 @@ pub(crate) async fn query(
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
-            .order_by(Alias::new(req.order_by), dir)
+            .order_by(Alias::new(req.order_by), dir);
+        // Ties fall back to the id, so paging and reordering see one order.
+        if req.order_by != config.id_field {
+            select.order_by(Alias::new(&config.id_field), Order::Asc);
+        }
+        select
             .limit(req.per_page.unwrap_or(config.per_page).max(0) as u64)
             .offset(req.offset.max(0) as u64);
         if let Some(cond) = search_condition(config, req.q) {
@@ -1841,6 +1919,21 @@ async fn build_page(
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
     let active = resolve_filters(config, raw);
+    // The grip only makes sense over the list's own order, whole: a sorted,
+    // searched or filtered view moves nothing.
+    let reorder = config
+        .reorder
+        .as_ref()
+        .filter(|r| {
+            order_by == r.column
+                && order_dir == SortDir::Asc
+                && q.trim().is_empty()
+                && active.is_empty()
+        })
+        .map(|_| ReorderView {
+            path: format!("{path}/reorder"),
+            page,
+        });
     let req = ListQuery {
         offset,
         order_by: &order_by,
@@ -2011,6 +2104,7 @@ async fn build_page(
                 carry: carry.clone(),
                 region: "lat-list".to_string(),
                 delete_path: None,
+                reorder,
             };
             Some(page_view)
         }
@@ -2024,6 +2118,246 @@ pub(crate) struct RowAction {
     pub path: String,
     pub label: String,
     pub confirm: String,
+}
+
+/// What the grip and Move buttons post to, and the page to come back to.
+#[derive(Clone, Debug)]
+pub(crate) struct ReorderView {
+    pub path: String,
+    pub page: i64,
+}
+
+/// One row's id and its position key, in the list's own order.
+async fn ordered_keys(
+    db: &Db,
+    config: &ListConfig,
+    column: &str,
+) -> anyhow::Result<Vec<(String, i64)>> {
+    let (sql, values) = {
+        let cast = Alias::new(text_cast(db.backend));
+        let mut select = Query::select();
+        select
+            .expr_as(
+                Expr::col(Alias::new(&config.id_field)).cast_as(cast.clone()),
+                Alias::new(ID_ALIAS),
+            )
+            .expr_as(
+                Expr::col(Alias::new(column)).cast_as(cast),
+                Alias::new("lat_key"),
+            )
+            .from(Alias::new(&config.entity))
+            .order_by(Alias::new(column), Order::Asc)
+            .order_by(Alias::new(&config.id_field), Order::Asc);
+        if let Some(scope) = &config.scope {
+            select.and_where(scope.condition(db.backend, &config.id_field));
+        }
+        build(db.backend, select)
+    };
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let key = get_text(row, "lat_key").trim().parse().unwrap_or(0);
+            (get_text(row, ID_ALIAS), key)
+        })
+        .collect())
+}
+
+/// Writes new position keys, all in one transaction.
+async fn write_keys(
+    db: &Db,
+    config: &ListConfig,
+    column: &str,
+    changes: &[(String, i64)],
+) -> anyhow::Result<()> {
+    let mut tx = db.pool.begin().await?;
+    for (id, key) in changes {
+        let (sql, values) = build(
+            db.backend,
+            Query::update()
+                .table(Alias::new(&config.entity))
+                .value(Alias::new(column), *key)
+                .and_where(
+                    Expr::col(Alias::new(&config.id_field))
+                        .cast_as(Alias::new(text_cast(db.backend)))
+                        .eq(id.clone()),
+                )
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Where a row goes: one step either way, or beside a named row.
+enum Move {
+    Up,
+    Down,
+    Before(String),
+    After(String),
+}
+
+/// The keys to write so that `id` lands at `target` in `order`: the moved
+/// row's alone when a gap holds it, every row's when the list renumbers.
+fn placement(order: &[(String, i64)], id: &str, target: usize) -> Vec<(String, i64)> {
+    let mut ids: Vec<&str> = order.iter().map(|(i, _)| i.as_str()).collect();
+    let from = match ids.iter().position(|i| *i == id) {
+        Some(from) => from,
+        None => return Vec::new(),
+    };
+    ids.remove(from);
+    let target = target.min(ids.len());
+    ids.insert(target, id);
+    let key_of = |i: &str| {
+        order
+            .iter()
+            .find(|(o, _)| o == i)
+            .map(|(_, k)| *k)
+            .unwrap_or(0)
+    };
+    let prev = target.checked_sub(1).map(|i| key_of(ids[i]));
+    let next = ids.get(target + 1).map(|i| key_of(i));
+    let key = match (prev, next) {
+        (Some(a), Some(b)) if b - a >= 2 => Some(a + (b - a) / 2),
+        (Some(a), None) => Some(a + REORDER_STEP),
+        (None, Some(b)) => Some(b - REORDER_STEP),
+        (None, None) => Some(key_of(id)),
+        _ => None,
+    };
+    match key {
+        Some(key) => vec![(id.to_string(), key)],
+        None => ids
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.to_string(), (i as i64 + 1) * REORDER_STEP))
+            .filter(|(row, key)| key_of(row) != *key)
+            .collect(),
+    }
+}
+
+/// Handles a posted move: `id` with `move=up|down`, `before=<id>` or
+/// `after=<id>`, and the `page` to show again. An htmx request gets the list
+/// region back; a plain one returns to that page of the list.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn reorder_handler(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    region: &str,
+    row_action: Option<RowAction>,
+    user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
+    pairs: &[(String, String)],
+) -> Response {
+    let Some(reorder) = &config.reorder else {
+        return crate::not_found();
+    };
+    let field = |name: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let page = field("page")
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    let fatal = 'apply: {
+        let (Some(id), Some(mv)) = (
+            field("id"),
+            match (field("move").as_deref(), field("before"), field("after")) {
+                (Some("up"), _, _) => Some(Move::Up),
+                (Some("down"), _, _) => Some(Move::Down),
+                (_, Some(before), _) => Some(Move::Before(before)),
+                (_, _, Some(after)) => Some(Move::After(after)),
+                _ => None,
+            },
+        ) else {
+            break 'apply false;
+        };
+        let order = match ordered_keys(&state.db, config, &reorder.column).await {
+            Ok(order) => order,
+            Err(e) => {
+                tracing::error!(entity = %config.entity, error = %e, "reorder read failed");
+                break 'apply true;
+            }
+        };
+        let position = |needle: &str| order.iter().position(|(i, _)| i == needle);
+        let Some(from) = position(&id) else {
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                laterite_core::t!("That record is no longer in the list."),
+            );
+            break 'apply false;
+        };
+        let target = match mv {
+            Move::Up => from.saturating_sub(1),
+            Move::Down => from + 1,
+            Move::Before(other) => match position(&other) {
+                Some(p) if p > from => p - 1,
+                Some(p) => p,
+                None => from,
+            },
+            Move::After(other) => match position(&other) {
+                Some(p) if p > from => p,
+                Some(p) => p + 1,
+                None => from,
+            },
+        };
+        let changes = placement(&order, &id, target);
+        if changes.is_empty() {
+            break 'apply false;
+        }
+        if let Err(e) = write_keys(&state.db, config, &reorder.column, &changes).await {
+            tracing::error!(entity = %config.entity, error = %e, "reorder write failed");
+            break 'apply true;
+        }
+        crate::audit::record(
+            state,
+            user,
+            &format!("{}.reorder", config.entity),
+            Some(&config.entity),
+            Some(&id),
+            None,
+            Some(&format!("position {}", target.min(order.len() - 1) + 1)),
+        )
+        .await;
+        false
+    };
+    if fatal {
+        return render_error();
+    }
+    if crate::form::is_htmx(headers) {
+        let params = ListParams {
+            page: Some(page),
+            ..Default::default()
+        };
+        return match fragment(
+            state,
+            config,
+            path,
+            params,
+            &HashMap::new(),
+            user,
+            shell,
+            region,
+            row_action,
+        )
+        .await
+        {
+            Ok(html) => axum::response::Html(html.into_string()).into_response(),
+            Err(()) => render_error(),
+        };
+    }
+    axum::response::Redirect::to(&format!("{path}?page={page}")).into_response()
 }
 
 /// The list region alone, cut out of a built page.
@@ -2047,6 +2381,7 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         path: page.path,
         region: region.to_string(),
         delete_path,
+        reorder: page.reorder,
     }
 }
 
@@ -2228,6 +2563,8 @@ struct ListTemplate {
     region: String,
     /// A per-row action, for a list with no action bar; a page's list has the bar.
     delete_path: Option<RowAction>,
+    /// The grip and Move buttons, when the list is in its own order.
+    reorder: Option<ReorderView>,
 }
 
 /// One rendered filter control.
@@ -2347,6 +2684,8 @@ struct ListFragment {
     /// A per-row action, posted with the row's id, for a list with no action
     /// bar of its own.
     delete_path: Option<RowAction>,
+    /// The grip and Move buttons, when the list is in its own order.
+    reorder: Option<ReorderView>,
 }
 
 #[cfg(test)]

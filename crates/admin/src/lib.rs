@@ -2134,6 +2134,31 @@ fn mount_resource(
             );
     }
 
+    if resource.list.reorder.is_some() {
+        let (cfg, list_path) = (resource.list.clone(), base.clone());
+        router = router.route(
+            &format!("{base}/reorder"),
+            post(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
+                      headers: axum::http::HeaderMap,
+                      Form(pairs): Form<Vec<(String, String)>>| {
+                    let cfg = cfg.clone();
+                    let path = list_path.clone();
+                    async move {
+                        list::reorder_handler(
+                            &state, &cfg, &path, "lat-list", None, &user, &session, shell,
+                            &headers, &pairs,
+                        )
+                        .await
+                    }
+                },
+            ),
+        );
+    }
+
     // Relations, each resolved once here: its child form prepared, its routes
     // under `{base}/{id}/{name}`, its section on the parent's edit page.
     if !resource.relations.is_empty() && resource.form.is_none() {
@@ -2330,6 +2355,27 @@ fn mount_resource(
                 },
             ),
         );
+        if rel.reorderable() {
+            let r_reorder = rel.clone();
+            routes = routes.route(
+                &format!("{base}/{{id}}/{name}/reorder"),
+                post(
+                    move |state: State<AdminState>,
+                          shell: Extension<Shell>,
+                          user: Extension<AuthenticatedUser>,
+                          session: Extension<session::SessionHandle>,
+                          id: Path<String>,
+                          headers: axum::http::HeaderMap,
+                          pairs: Form<Vec<(String, String)>>| {
+                        let r = r_reorder.clone();
+                        async move {
+                            relation::reorder(state, shell, user, session, id, headers, pairs, r)
+                                .await
+                        }
+                    },
+                ),
+            );
+        }
         if let Some(permission) = &rel.config.permission {
             routes = guard_with_permission(routes, permission);
         }

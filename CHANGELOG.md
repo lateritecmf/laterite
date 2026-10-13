@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `relations` on a resource: has-many (New, Edit, Delete) and many-to-many through
   a pivot table (Attach from the picker, pivot fields, Remove), as edit-page sections.
 - "Save and continue editing" beside Save on a resource with relations.
+- `reorder` on a list: rows kept in an order of their own, dragged by a grip or
+  moved by arrows, with sparse keys so a move rewrites one row.
 - `lateritecmf`, the one crate an application depends on: it re-exports the
   family as `lateritecmf::{core, auth, admin, media, web}`, forwards the driver
   features and carries a prelude.

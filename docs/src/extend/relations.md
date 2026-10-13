@@ -100,6 +100,7 @@ Path | Does
 `/products/7/variants/new` | Has-many: a new related record. Many-to-many: Attach, a record from the picker with the pivot fields. Saves return to the parent.
 `/products/7/variants/3/edit` | Has-many: the related record `3`. Many-to-many: pivot row `3`'s fields. Only under its own parent.
 `/products/7/variants/delete` | Has-many: deletes the selected records through the related entity's listeners and persister. Many-to-many: deletes the selected pivot rows the same way; the records stay.
+`/products/7/variants/reorder` | Has-many with `reorder` on its `list`: moves one record within the parent's section.
 
 A relation needs a form on the parent. A relation's name is a path segment and
 cannot be `new`, `edit`, `delete`, `import`, `export` or `columns`. A create

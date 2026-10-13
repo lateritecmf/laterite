@@ -395,6 +395,9 @@ impl PreparedRelation {
                 });
             }
             Kind::ManyToMany { pivot, .. } => {
+                // The order would be the pivot's to hold, and the list is not
+                // over the pivot.
+                list.reorder = None;
                 // A membership with nothing of its own has nothing to edit.
                 list.edit_base =
                     (!self.config.form.fields.is_empty()).then(|| self.path(parent_id));
@@ -409,6 +412,12 @@ impl PreparedRelation {
             }
         }
         list
+    }
+
+    /// Whether the section's rows keep an order of their own: a has-many
+    /// whose list declares `reorder`.
+    pub(crate) fn reorderable(&self) -> bool {
+        matches!(self.kind, Kind::HasMany { .. }) && self.config.list.reorder.is_some()
     }
 
     /// The per-row action: Delete for a record, Remove for a membership.
@@ -786,6 +795,40 @@ pub(crate) async fn update(
         &user,
         &session,
         &headers,
+    )
+    .await
+}
+
+/// Moves one related record within its parent's section.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn reorder(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<SessionHandle>,
+    Path(parent_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Form(pairs): Form<Vec<(String, String)>>,
+    rel: Arc<PreparedRelation>,
+) -> Response {
+    match rel.parent_exists(&state.db, &parent_id).await {
+        Ok(true) => {}
+        Ok(false) => return not_found(),
+        Err(_) => return render_error(),
+    }
+    let path = rel.path(&parent_id);
+    let row_action = Some(rel.row_action(&path, &shell));
+    list::reorder_handler(
+        &state,
+        &rel.list_for(&parent_id),
+        &path,
+        &format!("lat-rel-{}", rel.config.name),
+        row_action,
+        &user,
+        &session,
+        shell,
+        &headers,
+        &pairs,
     )
     .await
 }

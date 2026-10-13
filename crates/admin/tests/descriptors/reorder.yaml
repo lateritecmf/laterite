@@ -1,0 +1,12 @@
+entity: steps
+path: /steps
+title: Steps
+permission: acme.manage_steps
+list:
+  reorder: true
+  columns:
+    title: {}
+form:
+  title: Step
+  fields:
+    title: { rules: [required] }
