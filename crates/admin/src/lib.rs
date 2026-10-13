@@ -103,6 +103,8 @@ pub trait AdminRegistry {
     fn add_public_route(&mut self, route: routes::PublicRouteReg);
     /// Adds a menu entry or section. See [`nav::NavItem`].
     fn add_nav(&mut self, item: nav::NavItem);
+    /// Changes another module's resource before it mounts. See [`ResourceHook`].
+    fn add_resource_hook(&mut self, hook: ResourceHook);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -127,11 +129,49 @@ impl AdminRegistry for laterite_core::Registry {
     fn add_nav(&mut self, item: nav::NavItem) {
         self.add(item);
     }
+    fn add_resource_hook(&mut self, hook: ResourceHook) {
+        self.add(hook);
+    }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
     }
     fn add_field_type(&mut self, field_type: field::FieldTypeReg) {
         self.add(field_type);
+    }
+}
+
+/// A change to another module's resource, applied at boot before the resource
+/// mounts: the hook receives the resource as declared and returns it changed,
+/// so a module adds a column, a field, a relation or a menu placement to a
+/// screen it does not own. The target is the resource's path as it mounts
+/// (`/posts`; a plugin's under its module base, `/acme/blog/posts`). A target
+/// nobody declared aborts boot. Hooks run in module order.
+#[derive(Clone)]
+pub struct ResourceHook {
+    pub target: String,
+    apply: Arc<dyn Fn(Resource) -> Resource + Send + Sync>,
+}
+
+impl ResourceHook {
+    pub fn new(
+        target: impl Into<String>,
+        apply: impl Fn(Resource) -> Resource + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            apply: Arc::new(apply),
+        }
+    }
+
+    /// Applies the hook to `resource`.
+    pub fn apply(&self, resource: Resource) -> Resource {
+        (self.apply)(resource)
+    }
+}
+
+impl std::fmt::Debug for ResourceHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ResourceHook({})", self.target)
     }
 }
 
@@ -1234,6 +1274,9 @@ pub struct Contributions {
     /// Menu entries and sections beyond what resources and screens add for
     /// themselves. See [`nav::NavItem`].
     pub nav: Vec<nav::NavItem>,
+    /// Changes to other modules' resources, applied before they mount. See
+    /// [`ResourceHook`].
+    pub resource_hooks: Vec<ResourceHook>,
     /// Everything the framework itself does not consume: the contribution types
     /// modules define for each other. Kept whole so a contributed route can read
     /// them through [`routes::RouteCtx::contributions`], which is what makes a
@@ -1261,12 +1304,34 @@ pub fn router(
         screens: app_screens,
         public_routes: app_public,
         nav: app_nav,
+        resource_hooks,
         plugin_defined,
     } = contributions;
     let admin_path = normalize_path(&config.path);
 
     let mut resources = builtin_resources();
     let mut app_resources = app_resources;
+    // Another module's changes to a resource, before anything reads it. A hook
+    // naming no resource is a wiring bug, so it aborts boot.
+    for hook in resource_hooks {
+        let found = resources
+            .iter_mut()
+            .chain(app_resources.iter_mut())
+            .find(|r| r.base_path == hook.target);
+        match found {
+            Some(resource) => {
+                let changed = hook.apply(std::mem::replace(
+                    resource,
+                    Resource::new("", "", list::ListConfig::default()),
+                ));
+                *resource = changed;
+            }
+            None => panic!(
+                "a resource hook targets `{}`, which no module declared",
+                hook.target
+            ),
+        }
+    }
     // Descriptor paths are authored relative to the admin root; resolve them to
     // full paths under the configured mount so routes, the menu, and every link
     // built from them agree.

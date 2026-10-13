@@ -8,6 +8,7 @@ Scope | Seam
 One field on a form | A field type
 One entity's storage shape | A persister
 Any record, cross-cutting | A listener
+Another module's screen | A resource hook
 
 ## Write a field type
 
@@ -162,3 +163,20 @@ Field | Meaning
 The routes mount at `{base_path}/{key}` behind the permission. A descriptor
 declaring a key nobody registered aborts boot naming the resource. The admin
 knows the `import` key; a new key needs the admin to carry it.
+
+## Change another module's resource
+
+```rust
+registry.add_resource_hook(ResourceHook::new("/acme/blog/posts", |mut resource| {
+    resource.list.columns.push(ListColumn::new("reviewed", "Reviewed").boolean());
+    resource
+        .relation(RelationConfig::has_many("notes", "Note", "post_notes", "post_id", notes_list, notes_form))
+        .menu(Placement::new().under("acme.content"))
+}));
+```
+
+Key | Does
+--- | ---
+`target` | The resource's path as it mounts: `/posts` for an application's, `/acme/blog/posts` for a plugin's under its module base. One nobody declared aborts boot.
+The closure | Takes the resource as declared, returns it changed. Anything the builders set: columns, fields, relations, import, the palette source, the menu placement.
+Order | Hooks run in module order, before the resource mounts, so every hook sees the previous one's result.

@@ -22,6 +22,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   for a resource with `palette: <picker source>`, its records, opened at their edit page.
 - A request log: every URL the admin could not serve, counted, under Settings
   › System for `backend.view_request_log`; it keeps its most recent two thousand rows.
+- `ResourceHook`: a module changes another module's resource before it mounts,
+  adding a column, a field, a relation or a placement to a screen it does not own.
 
 ### Fixed
 
