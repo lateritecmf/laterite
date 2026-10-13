@@ -51,6 +51,7 @@ A column | Sortable, visible. | `sortable: false`, `invisible: true`.
 Export | Off. | `exportable: true`.
 Deleting rows | Off. | `deletable: true`; it asks before it deletes.
 Rows in an order of their own | Off. | `reorder: true` keeps the order in `sort_order`; `reorder: { column: position }` names the column. An integer column, not null, default 0. The list opens in that order with a grip to drag and Move up / Move down on every row; a sorted, searched or filtered view shows neither. A has-many section's `list` takes the same key.
+Rows as a tree | Off. | `tree: true` reads the parent from `parent_id`; `tree: { parent_key: folder_id, source: acme.folders }` names the column and a picker source. The list opens on the rows with no parent; a row with children expands in place, or opens them as a page with scripting off. With a `source`, every row offers "Move to", which picks the new parent from it or leaves it empty for the top level, and a record never moves under itself. With `reorder` too, a move stays among one parent's children.
 A row | Opens its record on a click or Enter, when the list has a form. A modified or middle click opens a new tab. | `row_click: none`.
 Row boxes | Shift and a click ticks or clears the range from the last box clicked. | None.
 Returning to a list | The sort, search and filters used last come back, for the session. Clearing them forgets them. | `remember: false`.
@@ -62,6 +63,7 @@ list:
   per_page_options: [25, 50, 100]
   exportable: true
   reorder: { column: position }
+  tree: { source: acme.pages }
   row_click: none
   remember: false
   columns:

@@ -389,9 +389,11 @@ impl PreparedRelation {
             Kind::HasMany { foreign_key } => {
                 list.edit_base = Some(self.path(parent_id));
                 list.creatable = true;
+                // A section is one parent's rows, never a tree of its own.
+                list.tree = None;
                 list.scope = Some(list::Scope::Column {
                     column: foreign_key.clone(),
-                    value: parent_id.to_string(),
+                    value: Some(parent_id.to_string()),
                 });
             }
             Kind::ManyToMany { pivot, .. } => {

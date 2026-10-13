@@ -1223,10 +1223,33 @@ window.lat.widget('reveal', function (btn) {
     function clear() {
       rows().forEach(function (r) { r.classList.remove('is-drop-before', 'is-drop-after'); });
     }
-    function post(values) {
+    // Under a tree, a child's siblings come back as rows: the old ones go
+    // and the response lands after the parent, which stays expanded.
+    function siblings(row) {
+      var parent = row.getAttribute('data-lat-parent');
+      if (!parent) return null;
+      var parentRow = table.querySelector('tr[data-lat-id="' + parent + '"]');
+      if (!parentRow) return null;
+      var depth = +parentRow.getAttribute('data-lat-depth') || 0;
+      var next = parentRow.nextElementSibling;
+      while (next && (+next.getAttribute('data-lat-depth') || 0) > depth) {
+        var gone = next;
+        next = next.nextElementSibling;
+        gone.remove();
+      }
+      return parentRow;
+    }
+    function post(values, row) {
       values._csrf = th.getAttribute('data-reorder-csrf');
       values.page = th.getAttribute('data-reorder-page');
-      window.htmx.ajax('POST', path, { target: '#' + region, swap: 'outerHTML', values: values });
+      values.parent = row.getAttribute('data-lat-parent') || '';
+      values.depth = row.getAttribute('data-lat-depth') || '';
+      var parentRow = siblings(row);
+      if (parentRow) {
+        window.htmx.ajax('POST', path, { target: parentRow, swap: 'afterend', values: values });
+      } else {
+        window.htmx.ajax('POST', path, { target: '#' + region, swap: 'outerHTML', values: values });
+      }
     }
     table.addEventListener('dragstart', function (e) {
       var grip = e.target.closest ? e.target.closest('.lat-grip') : null;
@@ -1251,11 +1274,11 @@ window.lat.widget('reveal', function (btn) {
       if (!dragging) return;
       var row = e.target.closest ? e.target.closest('tr[data-lat-id]') : null;
       e.preventDefault();
-      if (row && row !== dragging) {
+      if (row && row !== dragging && row.getAttribute('data-lat-parent') === dragging.getAttribute('data-lat-parent')) {
         var before = row.classList.contains('is-drop-before');
         var values = { id: dragging.getAttribute('data-lat-id') };
         values[before ? 'before' : 'after'] = row.getAttribute('data-lat-id');
-        post(values);
+        post(values, dragging);
       }
       clear();
     });
@@ -1264,13 +1287,19 @@ window.lat.widget('reveal', function (btn) {
       dragging = null;
       clear();
     });
-    // Remember which arrow was pressed, to focus it again after the swap.
+    // Remember which arrow was pressed, to focus it again after the swap. An
+    // arrow under a tree parent posts through the island, so the response
+    // replaces the siblings rather than the whole region.
     table.addEventListener('submit', function (e) {
       var form = e.target;
       if (!form.classList.contains('lat-grip__moves')) return;
       var button = form.querySelector('.lat-grip__move:focus') || e.submitter;
       var row = form.closest('tr[data-lat-id]');
       if (button && row) pending = { id: row.getAttribute('data-lat-id'), move: button.value };
+      if (row && row.getAttribute('data-lat-parent') && button) {
+        e.preventDefault();
+        post({ id: row.getAttribute('data-lat-id'), move: button.value }, row);
+      }
     });
     if (pending) {
       var row = table.querySelector('tr[data-lat-id="' + pending.id + '"]');
@@ -1278,5 +1307,38 @@ window.lat.widget('reveal', function (btn) {
       pending = null;
       if (button) (button.disabled ? button.form.querySelector('.lat-grip__move:not(:disabled)') : button).focus();
     }
+  });
+})();
+
+// Tree: a row with children carries a toggle that loads them in place; the
+// same toggle takes them out again. The toggle is a link, so with scripting
+// off it opens the children as a page of their own. The island sits on the
+// first header cell, outside the rows, so a row click stays the row's.
+(function () {
+  window.lat.widget('tree', function (th) {
+    var table = th.closest('table');
+    if (!table || !window.htmx) return;
+    table.addEventListener('click', function (e) {
+      var toggle = e.target.closest ? e.target.closest('.lat-tree__toggle') : null;
+      if (!toggle || !table.contains(toggle)) return;
+      e.preventDefault();
+      var row = toggle.closest('tr[data-lat-id]');
+      if (!row) return;
+      var depth = +row.getAttribute('data-lat-depth') || 0;
+      if (toggle.getAttribute('aria-expanded') === 'true') {
+        var next = row.nextElementSibling;
+        while (next && (+next.getAttribute('data-lat-depth') || 0) > depth) {
+          var gone = next;
+          next = next.nextElementSibling;
+          gone.remove();
+        }
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.classList.remove('is-expanded');
+        return;
+      }
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.classList.add('is-expanded');
+      window.htmx.ajax('GET', toggle.getAttribute('href'), { source: toggle, target: row, swap: 'afterend' });
+    });
   });
 })();

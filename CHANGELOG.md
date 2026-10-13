@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - "Save and continue editing" beside Save on a resource with relations.
 - `reorder` on a list: rows kept in an order of their own, dragged by a grip or
   moved by arrows, with sparse keys so a move rewrites one row.
+- `tree` on a list: rows shown as a tree on their parent column, children
+  loading in place, and "Move to" through `Persister::move_to` (default writes the column).
 - `lateritecmf`, the one crate an application depends on: it re-exports the
   family as `lateritecmf::{core, auth, admin, media, web}`, forwards the driver
   features and carries a prelude.

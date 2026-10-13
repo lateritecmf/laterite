@@ -1345,6 +1345,43 @@ pub(crate) async fn update(
 /// replaces the form in place; anything else gets the whole page, so the admin
 /// still works with scripting off.
 #[allow(clippy::too_many_arguments)]
+/// A form page posting to `action`, holding `values`: the shape another screen
+/// borrows when it edits one thing a record owns, such as its tree parent.
+pub(crate) fn page(
+    state: &AdminState,
+    form: &PreparedForm,
+    action: &str,
+    values: &HashMap<String, String>,
+    shell: &crate::Shell,
+) -> Response {
+    render(build(
+        state,
+        form,
+        action,
+        None,
+        values,
+        &ErrorBag::default(),
+        shell,
+    ))
+}
+
+/// The 422 for a submission the list's own checks refused, shaped like a
+/// failed save: the form again with the messages against their fields.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refused(
+    htmx: bool,
+    state: &AdminState,
+    form: &PreparedForm,
+    action: &str,
+    error: Option<Text>,
+    values: &HashMap<String, String>,
+    bag: &ErrorBag,
+    shell: &crate::Shell,
+) -> Response {
+    invalid_response(htmx, state, form, action, error, values, bag, shell)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn invalid_response(
     htmx: bool,
     state: &AdminState,

@@ -616,3 +616,8 @@ tr.is-dragging{opacity:.4}
 tr.is-drop-before td{box-shadow:inset 0 2px 0 var(--accent)}
 tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.lat-tree__toggle,.lat-tree__leaf{display:inline-block;width:18px;height:18px;margin-right:4px;vertical-align:middle;text-align:center;line-height:18px;border-radius:3px;color:var(--text-muted);text-decoration:none;font-size:11px}
+.lat-tree__toggle::before{content:"\25B6"}
+.lat-tree__toggle.is-expanded::before{content:"\25BC"}
+.lat-tree__toggle:hover{background:var(--accent-quiet);color:var(--accent)}
+.lat-tree__crumbs{margin-bottom:8px}

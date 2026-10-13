@@ -18,6 +18,7 @@ use laterite_core::{t, Actor, AttrValue, Db, ModelListener, Op, Record, SaveCx, 
 use sea_query::{Alias, Expr, Query, SimpleExpr};
 
 use crate::form::FormConfig;
+use crate::sql::valid_ident;
 
 /// Why a persist failed.
 #[derive(Debug)]
@@ -61,6 +62,40 @@ pub trait Persister: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Puts the record under another parent, on the pipeline's transaction:
+    /// what a tree list's "Move to" calls. The default writes the parent
+    /// column; a persister keeping more than that column in step (a path, a
+    /// closure table) overrides it.
+    async fn move_to(&self, cx: &mut SaveCx<'_>, mv: &MoveTo<'_>) -> Result<(), SaveError> {
+        if !(valid_ident(mv.entity) && valid_ident(mv.id_field) && valid_ident(mv.parent_key)) {
+            return Err(SaveError::Failed("invalid identifier".to_string()));
+        }
+        let backend = cx.backend();
+        let (sql, values) = to_sql(
+            backend,
+            Query::update()
+                .table(Alias::new(mv.entity))
+                .value(
+                    Alias::new(mv.parent_key),
+                    match mv.parent.and_then(|p| p.parse::<i64>().ok()) {
+                        Some(parent) => SimpleExpr::from(parent),
+                        None => SimpleExpr::Keyword(sea_query::Keyword::Null),
+                    },
+                )
+                .and_where(
+                    Expr::col(Alias::new(mv.id_field))
+                        .cast_as(Alias::new(text_cast(backend)))
+                        .eq(mv.id.to_string()),
+                )
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(cx.conn())
+            .await
+            .map_err(|e| SaveError::Failed(e.to_string()))?;
+        Ok(())
+    }
+
     /// Removes the record with primary key `id`, on the pipeline's transaction.
     ///
     /// The default refuses. A persister that writes through more than one table
@@ -72,6 +107,20 @@ pub trait Persister: Send + Sync + 'static {
             "Deleting this kind of record is not supported."
         )))
     }
+}
+
+/// A move under another parent, as [`Persister::move_to`] receives it.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct MoveTo<'a> {
+    pub entity: &'a str,
+    pub id_field: &'a str,
+    /// The record moving.
+    pub id: &'a str,
+    /// The column holding the parent id.
+    pub parent_key: &'a str,
+    /// The new parent's id, or `None` for the top level.
+    pub parent: Option<&'a str>,
 }
 
 /// Binds one attribute for the storage layer.

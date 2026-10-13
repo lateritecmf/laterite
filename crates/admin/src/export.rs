@@ -101,6 +101,7 @@ pub(crate) async fn handle(
             q,
             filters: &filters,
             per_page: Some(PAGE),
+            children_of: None,
         };
         let page = match list::query(&state.db, &config, &req).await {
             Ok(page) => page,

@@ -2134,6 +2134,63 @@ fn mount_resource(
             );
     }
 
+    // A tree with a picker source offers "Move to": the one-field form over
+    // the parent column, writing through the resource's own persister.
+    if let Some(source) = resource.list.tree.as_ref().and_then(|t| t.source.clone()) {
+        let tree = resource.list.tree.clone().unwrap_or_default();
+        let mut move_cfg = form::FormConfig::new(
+            resource.list.entity.clone(),
+            laterite_core::t!("Move to"),
+            base.clone(),
+            resource.list.id_field.clone(),
+            vec![form::FormField::reference(
+                &tree.parent_key,
+                laterite_core::t!("New parent"),
+                &source,
+            )
+            .help(laterite_core::t!("Leave empty for the top level."))],
+        );
+        if let Some(persist) = resource.form.as_ref().and_then(|f| f.persist.clone()) {
+            move_cfg = move_cfg.persist(persist);
+        }
+        move_cfg.done_path = Some(base.clone());
+        let move_form = Arc::new(
+            form::PreparedForm::prepare(move_cfg, field_types, persisters, listeners)
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path)),
+        );
+        let (cfg, list_path) = (resource.list.clone(), base.clone());
+        let (form_get, form_post) = (move_form.clone(), move_form);
+        let (cfg_post, path_post) = (cfg.clone(), list_path.clone());
+        router = router.route(
+            &format!("{base}/{{id}}/move"),
+            get(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Path(id): Path<String>| {
+                    let (cfg, path, pf) = (cfg.clone(), list_path.clone(), form_get.clone());
+                    async move { list::move_form(&state, &cfg, &pf, &path, &id, shell).await }
+                },
+            )
+            .post(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
+                      Path(id): Path<String>,
+                      headers: axum::http::HeaderMap,
+                      Form(data): Form<HashMap<String, String>>| {
+                    let (cfg, path, pf) = (cfg_post.clone(), path_post.clone(), form_post.clone());
+                    async move {
+                        list::move_record(
+                            &state, &cfg, &pf, &path, &id, &user, &session, shell, &headers, data,
+                        )
+                        .await
+                    }
+                },
+            ),
+        );
+    }
+
     if resource.list.reorder.is_some() {
         let (cfg, list_path) = (resource.list.clone(), base.clone());
         router = router.route(

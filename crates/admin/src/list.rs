@@ -1002,6 +1002,14 @@ pub(crate) fn check(
     column_types: &ColumnRegistry,
     permission_codes: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
+    if let Some(tree) = &config.tree {
+        if !valid_ident(&tree.parent_key) {
+            return Err(format!(
+                "tree names an invalid parent column `{}`",
+                tree.parent_key
+            ));
+        }
+    }
     if let Some(reorder) = &config.reorder {
         if !valid_ident(&reorder.column) {
             return Err(format!(
@@ -1124,6 +1132,66 @@ where
 /// The spacing between keys after a renumber, and the step past either end.
 const REORDER_STEP: i64 = 1000;
 
+/// Rows that form a tree through a parent column (adjacency): the list opens
+/// on the rows with no parent, each row with children expands in place, and
+/// a row can be moved under another parent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct TreeConfig {
+    /// The column holding a row's parent id, null at the top level. Default
+    /// `parent_id`.
+    pub parent_key: String,
+    /// A registered picker source over this entity. When set, every row
+    /// offers "Move to", which picks the new parent from it; empty means the
+    /// top level.
+    pub source: Option<String>,
+}
+
+impl TreeConfig {
+    /// A tree on `parent_key`.
+    pub fn new(parent_key: impl Into<String>) -> Self {
+        Self {
+            parent_key: parent_key.into(),
+            source: None,
+        }
+    }
+
+    /// Offers "Move to" on every row, picking the new parent from `source`.
+    pub fn move_to(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+}
+
+impl Default for TreeConfig {
+    fn default() -> Self {
+        Self::new("parent_id")
+    }
+}
+
+/// `tree: true` takes the default parent column; `tree: { parent_key, source }`
+/// names them; `false` or absent is off.
+fn deserialize_tree<'de, D>(deserializer: D) -> Result<Option<TreeConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Key {
+        Flag(bool),
+        Config(TreeConfig),
+    }
+    Ok(match Option::<Key>::deserialize(deserializer)? {
+        Some(Key::Flag(true)) => Some(TreeConfig::default()),
+        Some(Key::Flag(false)) | None => None,
+        Some(Key::Config(config)) => Some(config),
+    })
+}
+
+/// Children shown under one parent in a single request.
+const TREE_CHILDREN_LIMIT: i64 = 1000;
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 ///
@@ -1177,6 +1245,10 @@ pub struct ListConfig {
     /// default; `reorder: true` in a file orders by `sort_order`.
     #[serde(deserialize_with = "deserialize_reorder")]
     pub reorder: Option<ReorderConfig>,
+    /// Rows shown as a tree on their own parent column. Off by default;
+    /// `tree: true` in a file reads `parent_id`.
+    #[serde(deserialize_with = "deserialize_tree")]
+    pub tree: Option<TreeConfig>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1274,6 +1346,13 @@ impl ListConfig {
         self
     }
 
+    /// Shows the rows as a tree on their parent column: the list opens on the
+    /// top level, and a row with children expands in place.
+    pub fn tree(mut self, tree: TreeConfig) -> Self {
+        self.tree = Some(tree);
+        self
+    }
+
     /// Keeps the rows in an order of their own, held in `column`: the list
     /// opens in that order with a grip and Move up / Move down on every row.
     pub fn reorder(mut self, column: impl Into<String>) -> Self {
@@ -1341,6 +1420,7 @@ impl Default for ListConfig {
             import: None,
             scope: None,
             reorder: None,
+            tree: None,
             toolbar: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
@@ -1358,6 +1438,10 @@ pub struct ListParams {
     sort: Option<String>,
     dir: Option<String>,
     q: Option<String>,
+    /// A tree's parent to show the children of; absent is the top level.
+    parent: Option<String>,
+    /// How deep those children sit, for their indent.
+    depth: Option<i64>,
 }
 
 /// The ordering a request resolves to: the submitted `sort` when it names a
@@ -1398,6 +1482,8 @@ fn natural_order(config: &ListConfig) -> (&str, SortDir) {
 pub struct RowView {
     pub id: String,
     pub cells: Vec<String>,
+    /// How many rows name this one as parent, when the query asked.
+    pub children: i64,
 }
 
 /// One rendered cell and the class its column's alignment gives it.
@@ -1410,6 +1496,11 @@ pub struct CellView {
 pub struct RenderedRow {
     pub id: String,
     pub cells: Vec<CellView>,
+    /// The tree position: how deep the row sits, and where its children load
+    /// from when it has any.
+    pub depth: i64,
+    pub indent: String,
+    pub toggle: Option<String>,
 }
 
 /// Display-ready rows plus the total row count for the pager.
@@ -1429,6 +1520,8 @@ pub(crate) struct ListQuery<'a> {
     /// Rows per round trip. `None` uses the descriptor's page size; the export
     /// reads larger pages because it is building a file, not a screen.
     pub per_page: Option<i64>,
+    /// A tree's parent column: each row then carries how many rows name it.
+    pub children_of: Option<&'a str>,
 }
 
 /// A filter the request actually selected: the declared filter and its accepted
@@ -1575,8 +1668,12 @@ fn search_condition(config: &ListConfig, q: &str) -> Option<sea_query::Condition
 /// it per request.
 #[derive(Clone, Debug)]
 pub(crate) enum Scope {
-    /// Rows whose `column` equals `value`: a has-many's foreign key.
-    Column { column: String, value: String },
+    /// Rows whose `column` equals `value`, or is null when there is none: a
+    /// has-many's foreign key, a tree's parent column.
+    Column {
+        column: String,
+        value: Option<String>,
+    },
     /// Rows a pivot table joins to the parent: those whose id appears as
     /// `related_key` on a pivot row whose `parent_key` equals `value`. Each row
     /// is then identified by its pivot row's `id_field`, so the section's
@@ -1613,9 +1710,16 @@ impl Scope {
     fn condition(&self, backend: DbBackend, entity_id: &str) -> SimpleExpr {
         let cast = Alias::new(text_cast(backend));
         match self {
-            Scope::Column { column, value } => Expr::col(Alias::new(column))
+            Scope::Column {
+                column,
+                value: Some(value),
+            } => Expr::col(Alias::new(column))
                 .cast_as(cast)
                 .eq(value.clone()),
+            Scope::Column {
+                column,
+                value: None,
+            } => Expr::col(Alias::new(column)).is_null(),
             Scope::Pivot {
                 table,
                 parent_key,
@@ -1720,6 +1824,29 @@ pub(crate) async fn query(
             )
             .from(Alias::new(&config.entity))
             .order_by(Alias::new(req.order_by), dir);
+        if let Some(parent_key) = req.children_of {
+            let child = Alias::new("lat_child");
+            select.expr_as(
+                SimpleExpr::SubQuery(
+                    None,
+                    Box::new(
+                        Query::select()
+                            .expr(Expr::col((child.clone(), Alias::new(&config.id_field))).count())
+                            .from_as(Alias::new(&config.entity), child.clone())
+                            .and_where(
+                                Expr::col((child, Alias::new(parent_key))).equals((
+                                    Alias::new(&config.entity),
+                                    Alias::new(&config.id_field),
+                                )),
+                            )
+                            .to_owned()
+                            .into_sub_query_statement(),
+                    ),
+                )
+                .cast_as(Alias::new(text_cast(db.backend))),
+                Alias::new("lat_children"),
+            );
+        }
         // Ties fall back to the id, so paging and reordering see one order.
         if req.order_by != config.id_field {
             select.order_by(Alias::new(&config.id_field), Order::Asc);
@@ -1773,6 +1900,10 @@ pub(crate) async fn query(
                 .iter()
                 .map(|c| get_text(row, &c.field))
                 .collect(),
+            children: match req.children_of {
+                Some(_) => get_text(row, "lat_children").trim().parse().unwrap_or(0),
+                None => 0,
+            },
         })
         .collect();
     Ok(ListPage { rows, total })
@@ -1815,7 +1946,8 @@ fn query_to_remember(
 ) -> Option<String> {
     let mut parts = Vec::new();
     let (by, dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
-    if by != config.order_by || dir != config.order_dir {
+    let (natural, natural_dir) = natural_order(config);
+    if by != natural || dir != natural_dir {
         let dir = match dir {
             SortDir::Asc => "asc",
             SortDir::Desc => "desc",
@@ -1880,12 +2012,16 @@ async fn show(
     shell: crate::Shell,
     headers: &axum::http::HeaderMap,
 ) -> Response {
+    let children = params.parent.is_some();
     match build_page(state, config, path, params, raw, user, shell).await {
         // An htmx request gets the list region alone, which replaces itself in
         // place; anything else gets the whole page, so sorting and paging still
-        // work as ordinary links with scripting off.
+        // work as ordinary links with scripting off. A tree row expanding asks
+        // for its children and gets the rows alone.
         Some(page_view) => {
-            if crate::form::is_htmx(headers) {
+            if crate::form::is_htmx(headers) && children && page_view.tree.is_some() {
+                render(rows_of(page_view, "lat-list", None))
+            } else if crate::form::is_htmx(headers) {
                 render(fragment_of(page_view, "lat-list", None))
             } else {
                 render(page_view)
@@ -1915,25 +2051,59 @@ async fn build_page(
 
     let page = params.page.unwrap_or(1).max(1);
     let per_page = stored_per_page(state, config, path, user).await;
-    let offset = (page - 1) * per_page;
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
     let active = resolve_filters(config, raw);
-    // The grip only makes sense over the list's own order, whole: a sorted,
-    // searched or filtered view moves nothing.
+    // The list's own order, whole: what the grip and the tree both need. A
+    // sorted, searched or filtered view is a flat result.
+    let (natural, natural_dir) = natural_order(config);
+    let own_order =
+        order_by == natural && order_dir == natural_dir && q.trim().is_empty() && active.is_empty();
     let reorder = config
         .reorder
         .as_ref()
-        .filter(|r| {
-            order_by == r.column
-                && order_dir == SortDir::Asc
-                && q.trim().is_empty()
-                && active.is_empty()
-        })
+        .filter(|_| own_order)
         .map(|_| ReorderView {
             path: format!("{path}/reorder"),
             page,
+            parent: params.parent.clone().unwrap_or_default(),
         });
+    // In structure the query is scoped to one parent's children: the top
+    // level by default, or the parent asked for.
+    let structure = config.tree.as_ref().filter(|_| own_order);
+    let scoped;
+    let config = match structure {
+        Some(tree) => {
+            let mut c = config.clone();
+            c.scope = Some(Scope::Column {
+                column: tree.parent_key.clone(),
+                value: params.parent.clone(),
+            });
+            scoped = c;
+            &scoped
+        }
+        None => config,
+    };
+    let under_parent = structure.is_some() && params.parent.is_some();
+    let depth = if under_parent {
+        params.depth.unwrap_or(1).max(1)
+    } else {
+        0
+    };
+    // A parent's children show together, since they expand in place.
+    let per_page = if under_parent {
+        TREE_CHILDREN_LIMIT
+    } else {
+        per_page
+    };
+    let offset = (page - 1) * per_page;
+    let tree = structure.map(|t| TreeView {
+        move_path: t.source.as_ref().map(|_| path.to_string()),
+    });
+    let crumbs = match (structure, &params.parent) {
+        (Some(t), Some(parent)) => crumbs(&state.db, config, t, parent, path).await,
+        _ => Vec::new(),
+    };
     let req = ListQuery {
         offset,
         order_by: &order_by,
@@ -1941,6 +2111,7 @@ async fn build_page(
         q: q.trim(),
         filters: &active,
         per_page: Some(per_page),
+        children_of: structure.map(|t| t.parent_key.as_str()),
     };
     // Everything a sort or pager link must preserve, as raw `&k=v` pairs. Askama
     // escapes it into the href, so the ampersands are correct in the markup.
@@ -1973,6 +2144,10 @@ async fn build_page(
                 .rows
                 .into_iter()
                 .map(|row| RenderedRow {
+                    depth,
+                    indent: format!("{}px", 16 + depth * 18),
+                    toggle: (structure.is_some() && row.children > 0)
+                        .then(|| format!("{path}?parent={}&depth={}", row.id, depth + 1)),
                     id: row.id,
                     cells: row
                         .cells
@@ -2105,6 +2280,8 @@ async fn build_page(
                 region: "lat-list".to_string(),
                 delete_path: None,
                 reorder,
+                tree,
+                crumbs,
             };
             Some(page_view)
         }
@@ -2125,6 +2302,99 @@ pub(crate) struct RowAction {
 pub(crate) struct ReorderView {
     pub path: String,
     pub page: i64,
+    /// The tree parent the rows sit under, empty at the top level, so a move
+    /// stays among siblings.
+    pub parent: String,
+}
+
+/// The tree's row furniture.
+#[derive(Clone, Debug)]
+pub(crate) struct TreeView {
+    /// The list path, when rows offer "Move to"; the link is `{path}/{id}/move`.
+    pub move_path: Option<String>,
+}
+
+/// One step of the way down to a parent.
+pub(crate) struct Crumb {
+    pub label: String,
+    pub href: String,
+}
+
+/// The way down to `parent`: the top level, then each ancestor by its first
+/// column, nearest last.
+async fn crumbs(
+    db: &Db,
+    config: &ListConfig,
+    tree: &TreeConfig,
+    parent: &str,
+    path: &str,
+) -> Vec<Crumb> {
+    let mut trail = Vec::new();
+    let mut current = Some(parent.to_string());
+    // A cycle in the data would otherwise walk forever.
+    for _ in 0..64 {
+        let Some(id) = current.take() else { break };
+        match parent_row(db, config, tree, &id).await {
+            Ok(Some((label, above))) => {
+                trail.push(Crumb {
+                    label,
+                    href: format!("{path}?parent={id}"),
+                });
+                current = above;
+            }
+            _ => break,
+        }
+    }
+    trail.push(Crumb {
+        label: String::new(),
+        href: path.to_string(),
+    });
+    trail.reverse();
+    trail
+}
+
+/// A row's label (its first column) and its parent, or `None` when there is
+/// no such row.
+async fn parent_row(
+    db: &Db,
+    config: &ListConfig,
+    tree: &TreeConfig,
+    id: &str,
+) -> anyhow::Result<Option<(String, Option<String>)>> {
+    let label_col = config
+        .columns
+        .first()
+        .map(|c| c.field.as_str())
+        .unwrap_or(&config.id_field);
+    let (sql, values) = {
+        let cast = Alias::new(text_cast(db.backend));
+        build(
+            db.backend,
+            Query::select()
+                .expr_as(
+                    Expr::col(Alias::new(label_col)).cast_as(cast.clone()),
+                    Alias::new("lat_label"),
+                )
+                .expr_as(
+                    Expr::col(Alias::new(&tree.parent_key)).cast_as(cast.clone()),
+                    Alias::new("lat_parent"),
+                )
+                .from(Alias::new(&config.entity))
+                .and_where(
+                    Expr::col(Alias::new(&config.id_field))
+                        .cast_as(cast)
+                        .eq(id.to_string()),
+                )
+                .to_owned(),
+        )
+    };
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(row.map(|row| {
+        let above = row.get_text("lat_parent").ok().filter(|p| !p.is_empty());
+        (get_text(&row, "lat_label"), above)
+    }))
 }
 
 /// One row's id and its position key, in the list's own order.
@@ -2270,6 +2540,21 @@ pub(crate) async fn reorder_handler(
         .and_then(|p| p.parse().ok())
         .unwrap_or(1)
         .max(1);
+    // Under a tree the move stays among one parent's children.
+    let parent = field("parent");
+    let scoped;
+    let config = match &config.tree {
+        Some(tree) => {
+            let mut c = config.clone();
+            c.scope = Some(Scope::Column {
+                column: tree.parent_key.clone(),
+                value: parent.clone(),
+            });
+            scoped = c;
+            &scoped
+        }
+        None => config,
+    };
     let fatal = 'apply: {
         let (Some(id), Some(mv)) = (
             field("id"),
@@ -2338,26 +2623,189 @@ pub(crate) async fn reorder_handler(
     if crate::form::is_htmx(headers) {
         let params = ListParams {
             page: Some(page),
+            parent: parent.clone(),
+            depth: field("depth").and_then(|d| d.parse().ok()),
             ..Default::default()
         };
-        return match fragment(
-            state,
-            config,
-            path,
-            params,
-            &HashMap::new(),
-            user,
-            shell,
-            region,
-            row_action,
-        )
-        .await
-        {
-            Ok(html) => axum::response::Html(html.into_string()).into_response(),
-            Err(()) => render_error(),
+        let Some(view) =
+            build_page(state, config, path, params, &HashMap::new(), user, shell).await
+        else {
+            return render_error();
+        };
+        return if parent.is_some() && view.tree.is_some() {
+            render(rows_of(view, region, row_action))
+        } else {
+            render(fragment_of(view, region, row_action))
         };
     }
-    axum::response::Redirect::to(&format!("{path}?page={page}")).into_response()
+    let back = match parent {
+        Some(parent) => format!("{path}?parent={parent}&page={page}"),
+        None => format!("{path}?page={page}"),
+    };
+    axum::response::Redirect::to(&back).into_response()
+}
+
+/// The "Move to" page: the row's parent, chosen from the tree's picker.
+pub(crate) async fn move_form(
+    state: &AdminState,
+    config: &ListConfig,
+    form: &crate::form::PreparedForm,
+    path: &str,
+    id: &str,
+    shell: crate::Shell,
+) -> Response {
+    let Some(tree) = &config.tree else {
+        return crate::not_found();
+    };
+    let current = match parent_row(&state.db, config, tree, id).await {
+        Ok(Some((_, parent))) => parent.unwrap_or_default(),
+        Ok(None) => return crate::not_found(),
+        Err(_) => return render_error(),
+    };
+    let mut values = HashMap::new();
+    values.insert(tree.parent_key.clone(), current);
+    let action = format!("{path}/{id}/move");
+    crate::form::page(state, form, &action, &values, &shell)
+}
+
+/// Moves a row under the chosen parent (none for the top level), refusing a
+/// parent that is the row itself or sits beneath it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn move_record(
+    state: &AdminState,
+    config: &ListConfig,
+    form: &crate::form::PreparedForm,
+    path: &str,
+    id: &str,
+    user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
+    data: HashMap<String, String>,
+) -> Response {
+    let Some(tree) = &config.tree else {
+        return crate::not_found();
+    };
+    match parent_row(&state.db, config, tree, id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return crate::not_found(),
+        Err(_) => return render_error(),
+    }
+    let action = format!("{path}/{id}/move");
+    let chosen = data
+        .get(&tree.parent_key)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let mut bag = laterite_core::validation::ErrorBag::default();
+    if let Some(parent) = &chosen {
+        // Walk up from the chosen parent: reaching the row itself would close
+        // a loop, and a parent that is not there is no parent.
+        let mut current = Some(parent.clone());
+        let mut steps = 0;
+        while let Some(at) = current.take() {
+            if at == id {
+                bag.add(
+                    &tree.parent_key,
+                    laterite_core::t!("A record cannot be moved under itself."),
+                );
+                break;
+            }
+            match parent_row(&state.db, config, tree, &at).await {
+                Ok(Some((_, above))) => current = above,
+                Ok(None) => {
+                    bag.add(
+                        &tree.parent_key,
+                        laterite_core::t!("There is no such record."),
+                    );
+                    break;
+                }
+                Err(_) => return render_error(),
+            }
+            steps += 1;
+            if steps > 64 {
+                break;
+            }
+        }
+    }
+    let htmx = crate::form::is_htmx(headers);
+    if !bag.is_empty() {
+        return crate::form::refused(htmx, state, form, &action, None, &data, &bag, &shell);
+    }
+    let actor = laterite_core::Actor::from(user);
+    let outcome = async {
+        let mut tx = state
+            .db
+            .pool
+            .begin()
+            .await
+            .map_err(|e| MoveFailure::Failed(e.to_string()))?;
+        let mut cx = laterite_core::SaveCx::new(state.db.backend, &mut tx, actor);
+        let request = crate::persist::MoveTo {
+            entity: &config.entity,
+            id_field: &config.id_field,
+            id,
+            parent_key: &tree.parent_key,
+            parent: chosen.as_deref(),
+        };
+        form.persister()
+            .move_to(&mut cx, &request)
+            .await
+            .map_err(|e| match e {
+                crate::persist::SaveError::Invalid(bag) => MoveFailure::Refused(bag),
+                crate::persist::SaveError::Failed(m) => MoveFailure::Failed(m),
+            })?;
+        tx.commit()
+            .await
+            .map_err(|e| MoveFailure::Failed(e.to_string()))
+    }
+    .await;
+    match outcome {
+        Ok(()) => {
+            crate::audit::record(
+                state,
+                user,
+                &format!("{}.move", config.entity),
+                Some(&config.entity),
+                Some(id),
+                None,
+                Some(&match &chosen {
+                    Some(parent) => format!("under {parent}"),
+                    None => "top level".to_string(),
+                }),
+            )
+            .await;
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                laterite_core::t!("Moved."),
+            );
+            let back = match chosen {
+                Some(parent) => format!("{path}?parent={parent}"),
+                None => path.to_string(),
+            };
+            crate::form::saved_response(htmx, &back)
+        }
+        Err(MoveFailure::Refused(bag)) => {
+            crate::form::refused(htmx, state, form, &action, None, &data, &bag, &shell)
+        }
+        Err(MoveFailure::Failed(m)) => {
+            tracing::error!(entity = %config.entity, id, error = %m, "move failed");
+            crate::form::refused(
+                htmx,
+                state,
+                form,
+                &action,
+                Some(laterite_core::t!("Could not move. Try again.")),
+                &data,
+                &bag,
+                &shell,
+            )
+        }
+    }
+}
+
+enum MoveFailure {
+    Refused(laterite_core::validation::ErrorBag),
+    Failed(String),
 }
 
 /// The list region alone, cut out of a built page.
@@ -2382,6 +2830,24 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         region: region.to_string(),
         delete_path,
         reorder: page.reorder,
+        tree: page.tree,
+    }
+}
+
+/// The rows alone, cut out of a built page.
+fn rows_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>) -> RowsFragment {
+    RowsFragment {
+        shell: page.shell,
+        rows: page.rows,
+        page: page.page,
+        total_pages: page.total_pages,
+        edit_base: page.edit_base,
+        row_link: page.row_link,
+        deletable: page.deletable,
+        region: region.to_string(),
+        delete_path,
+        reorder: page.reorder,
+        tree: page.tree,
     }
 }
 
@@ -2565,6 +3031,10 @@ struct ListTemplate {
     delete_path: Option<RowAction>,
     /// The grip and Move buttons, when the list is in its own order.
     reorder: Option<ReorderView>,
+    /// The tree, when the list shows one: the toggles and the Move to link.
+    tree: Option<TreeView>,
+    /// The way down to the parent whose children a page shows.
+    crumbs: Vec<Crumb>,
 }
 
 /// One rendered filter control.
@@ -2686,6 +3156,24 @@ struct ListFragment {
     delete_path: Option<RowAction>,
     /// The grip and Move buttons, when the list is in its own order.
     reorder: Option<ReorderView>,
+    tree: Option<TreeView>,
+}
+
+/// A parent's children alone, for a tree row that expands in place.
+#[derive(Template)]
+#[template(path = "_list_rows.html")]
+struct RowsFragment {
+    shell: crate::Shell,
+    rows: Vec<RenderedRow>,
+    page: i64,
+    total_pages: i64,
+    edit_base: Option<String>,
+    row_link: bool,
+    deletable: bool,
+    region: String,
+    delete_path: Option<RowAction>,
+    reorder: Option<ReorderView>,
+    tree: Option<TreeView>,
 }
 
 #[cfg(test)]
@@ -3013,6 +3501,8 @@ mod tests {
             sort: sort.map(|s| s.to_string()),
             dir: Some("asc".to_string()),
             q: None,
+            parent: None,
+            depth: None,
         }
     }
 
@@ -3025,6 +3515,7 @@ mod tests {
             q: "",
             filters: &[],
             per_page: None,
+            children_of: None,
         }
     }
 
@@ -3036,6 +3527,7 @@ mod tests {
             q,
             filters: &[],
             per_page: None,
+            children_of: None,
         }
     }
 
@@ -3146,6 +3638,7 @@ mod tests {
             q: "",
             filters: &active,
             per_page: None,
+            children_of: None,
         };
         query(db, c, &req).await.unwrap().total
     }
@@ -3246,6 +3739,8 @@ mod tests {
                     sort: None,
                     dir: None,
                     q,
+                    parent: None,
+                    depth: None,
                 };
                 let resp = handle(
                     &state,

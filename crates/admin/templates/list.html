@@ -116,5 +116,8 @@
   {% include "_csrf.html" %}
 </form>
 {% endif %}
+{% if !crumbs.is_empty() %}
+<nav class="lat-breadcrumb lat-tree__crumbs">{% for c in crumbs %}{% if !loop.first %} <span aria-hidden="true">&rsaquo;</span> {% endif %}<a href="{{ c.href }}">{% if c.label.is_empty() %}{{ shell.t("All") }}{% else %}{{ c.label }}{% endif %}</a>{% endfor %}</nav>
+{% endif %}
 {% include "_list_table.html" %}
 {% endblock %}

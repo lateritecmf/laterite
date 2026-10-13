@@ -1,0 +1,13 @@
+entity: places
+path: /places
+title: Places
+permission: acme.manage_places
+list:
+  tree: { source: acme.places }
+  reorder: true
+  columns:
+    name: {}
+form:
+  title: Place
+  fields:
+    name: { rules: [required] }
