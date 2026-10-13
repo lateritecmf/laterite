@@ -107,7 +107,7 @@ async fn a_row_opens_its_record_and_a_code_shows_its_label() {
 
     let (_, _, plain) = get(&db, &token, "/admin/plain").await;
     assert!(!plain.contains("data-lat-href"), "row_click: none: {plain}");
-    assert!(plain.contains("/edit\">"), "the Edit link stays");
+    assert!(plain.contains("/edit\" title="), "the Edit link stays");
 }
 
 #[tokio::test]

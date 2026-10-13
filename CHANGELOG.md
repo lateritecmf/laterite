@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - A relation's foreign key and a `reference` field's choice were written as text,
   which Postgres refuses for a bigint column; both are stored as numbers now.
+- The main pane keeps its width when its content grows past the fold: the
+  scrollbar's space is reserved. Row actions are one group of matching buttons.
 
 ## [0.9.10] - 2026-10-13
 

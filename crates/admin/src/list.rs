@@ -2337,6 +2337,8 @@ pub(crate) struct RowAction {
     pub path: String,
     pub label: String,
     pub confirm: String,
+    /// The glyph on the button; the label is its name for assistive tech.
+    pub icon: &'static str,
 }
 
 /// What the grip and Move buttons post to, and the page to come back to.

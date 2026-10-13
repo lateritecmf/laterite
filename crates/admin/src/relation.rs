@@ -431,14 +431,15 @@ impl PreparedRelation {
 
     /// The per-row action: Delete for a record, Remove for a membership.
     fn row_action(&self, path: &str, shell: &Shell) -> list::RowAction {
-        let (label, confirm) = match &self.kind {
-            Kind::HasMany { .. } => (t!("Delete"), t!("Delete this record?")),
-            Kind::ManyToMany { .. } => (t!("Remove"), t!("Remove this record?")),
+        let (label, confirm, icon) = match &self.kind {
+            Kind::HasMany { .. } => (t!("Delete"), t!("Delete this record?"), "trash-2"),
+            Kind::ManyToMany { .. } => (t!("Remove"), t!("Remove this record?"), "unlink"),
         };
         list::RowAction {
             path: format!("{path}/delete"),
             label: shell.tt(&label),
             confirm: shell.tt(&confirm),
+            icon,
         }
     }
 

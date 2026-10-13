@@ -544,7 +544,7 @@ async fn a_record_is_attached_through_the_picker_and_listed_only_under_its_paren
         "{body}"
     );
     assert!(
-        body.contains(">Remove<"),
+        body.contains(r#"aria-label="Remove""#),
         "a membership is removed, not deleted"
     );
     let (_, _, body) = send(&app, get("/admin/posts/2/edit", &session)).await;

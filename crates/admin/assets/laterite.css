@@ -115,7 +115,7 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 /* App shell */
 .lat-app{min-height:100vh;display:flex;flex-direction:column;background:var(--surface-page)}
 .lat-body{flex:1;display:flex;min-height:0}
-.lat-main{flex:1;min-width:0;overflow-y:auto}
+.lat-main{flex:1;min-width:0;overflow-y:auto;scrollbar-gutter:stable}
 .lat-page{padding:var(--page-gutter)}
 
 /* Top navigation */
@@ -410,6 +410,11 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-col--center{text-align:center}
 .lat-col--right{text-align:right}
 .lat-table__actions{text-align:right;white-space:nowrap}
+.lat-rowactions{display:inline-flex;align-items:center;justify-content:flex-end;gap:2px}
+.lat-rowactions>form{display:inline-flex;margin:0}
+.lat-rowactions .lat-btn--icon{width:28px;height:28px;border-radius:6px}
+.lat-rowactions .lat-btn--icon:hover{background:var(--accent-quiet);color:var(--accent)}
+.lat-rowactions__edit{color:var(--accent)}
 .lat-table__empty{padding:28px 16px;text-align:center;color:var(--text-muted)}
 
 /* List footer + pager */
