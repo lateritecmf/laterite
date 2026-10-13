@@ -890,6 +890,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
     vec![
         Arc::new(TextField::new(inputs)),
         Arc::new(TextareaField),
+        Arc::new(IdField),
         Arc::new(RepeaterField),
         Arc::new(SelectField),
         Arc::new(ChecklistField),
@@ -2200,7 +2201,78 @@ impl RefPickerField {
     }
 }
 
+/// A record id held as a number: a relation's foreign key, or a plain key
+/// column with no picker. Hidden on a relation's form, a hidden input
+/// otherwise; stored as an integer, so a bigint column takes it on every
+/// backend, and blank stores null.
+pub(crate) struct IdField;
+
+impl FieldType for IdField {
+    fn view_key(&self) -> &'static str {
+        "id"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
+    }
+    fn resolve_options(
+        &self,
+        _raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        Ok(ResolvedOptions::new(()))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        FieldVm {
+            view_key: "id".to_string(),
+            name: cx.name.to_string(),
+            id: cx.id.to_string(),
+            label: cx.label.to_string(),
+            required: cx.required,
+            value: cx.value.clone(),
+            data: serde_json::Value::Null,
+        }
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        Markup::from_override(format!(
+            r#"<input type="hidden" name="{}" value="{}">"#,
+            crate::form::escape_attr(&vm.name),
+            crate::form::escape_attr(vm.value.as_text())
+        ))
+    }
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(field.value().map(id_attr))
+    }
+}
+
+/// An id as the storage layer wants it: a number, or null for a blank. A
+/// value that is not a number is kept as text so the database says so.
+fn id_attr(value: &str) -> AttrValue {
+    let value = value.trim();
+    if value.is_empty() {
+        AttrValue::Null
+    } else if let Ok(id) = value.parse::<i64>() {
+        AttrValue::Int(id)
+    } else {
+        AttrValue::Text(value.to_string())
+    }
+}
+
 impl FieldType for RefPickerField {
+    /// The chosen record's id, as a number: a bigint column takes it on every
+    /// backend, and a cleared picker stores null.
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(field.value().map(id_attr))
+    }
     fn view_key(&self) -> &'static str {
         "reference"
     }
@@ -2267,6 +2339,14 @@ impl FieldType for RefPickerField {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_id_is_stored_as_a_number_or_null() {
+        assert!(matches!(id_attr("7"), AttrValue::Int(7)));
+        assert!(matches!(id_attr(" 12 "), AttrValue::Int(12)));
+        assert!(matches!(id_attr(""), AttrValue::Null));
+        assert!(matches!(id_attr("x1"), AttrValue::Text(t) if t == "x1"));
+    }
 
     /// A translator with no catalogs, so every string resolves to its source:
     /// what a test wants unless it is testing translation itself.

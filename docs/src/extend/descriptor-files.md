@@ -90,7 +90,8 @@ Type | Keys
 `select` | `options`: a list of `{ value, label }`; `search`
 `radio` | `options`
 `checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
-`reference` | `source`
+`reference` | `source`. The chosen id is stored as a number.
+`id` | None. A record id held as a number, as a hidden input; a relation's foreign key is one.
 `repeater` | `fields`, `min_items`, `max_items`, `display`, `summary_field`, `reorder`, `duplicate`
 `password` | `reveal`
 `switch`, `date` | None

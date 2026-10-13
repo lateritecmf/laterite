@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `id`, a field type for a record id held as a number: a hidden foreign key or a
+  plain key column with no picker.
+
+### Fixed
+
+- A relation's foreign key and a `reference` field's choice were written as text,
+  which Postgres refuses for a bigint column; both are stored as numbers now.
+
 ## [0.9.10] - 2026-10-13
 
 Relations and structure complete: related records on the edit page, lists kept

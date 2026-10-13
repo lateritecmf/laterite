@@ -239,13 +239,20 @@ pub(crate) struct PreparedRelation {
     bulk: Arc<BulkContext>,
 }
 
-/// Keeps a field of this name out of sight: a declared one is hidden, an
-/// undeclared one is added hidden so the submission carries it.
+/// Keeps a key field of this name out of sight: a declared one is hidden, an
+/// undeclared one is added hidden so the submission carries it. Either way it
+/// is stored as an id (a number), which a bigint column takes on every
+/// backend; a declared text field is retyped, any other type is kept.
 fn hide(form: &mut FormConfig, name: &str) {
     match form.fields.iter_mut().find(|f| f.name == name) {
-        Some(field) => field.hidden = true,
+        Some(field) => {
+            field.hidden = true;
+            if field.field_type == "text" {
+                field.field_type = "id".to_string();
+            }
+        }
         None => {
-            let mut field = form::FormField::text(name, name.to_string());
+            let mut field = form::FormField::of(name, name.to_string(), "id");
             field.hidden = true;
             form.fields.push(field);
         }
