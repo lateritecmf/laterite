@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-10-13
+
+Relations on Postgres: a foreign key and a picker's choice are stored as numbers.
+
 ### Added
 
 - `id`, a field type for a record id held as a number: a hidden foreign key or a
