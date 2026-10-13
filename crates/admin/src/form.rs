@@ -1625,9 +1625,8 @@ struct FieldView {
 
 /// One relation on an edit page: its heading, its New link and the list region.
 pub(crate) struct RelationSection {
-    pub title: String,
-    pub new_href: Option<String>,
-    pub new_label: String,
+    /// The section's toolbar: its title and the New or Attach button.
+    pub toolbar: crate::html::Markup,
     pub html: crate::html::Markup,
 }
 

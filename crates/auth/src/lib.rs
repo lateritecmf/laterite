@@ -47,9 +47,29 @@ pub use store::{RevokeReason, SessionEnd};
 /// The `laterite.auth` module: the framework's backend-user auth tables.
 pub struct AuthModule;
 
+#[laterite_core::strata::async_trait]
 impl laterite_core::Module for AuthModule {
     fn id(&self) -> laterite_core::ModuleId {
         laterite_core::ModuleId::new(MODULE_ID)
+    }
+    /// Sweeps expired sessions and stay-signed-in credentials, so a boot
+    /// starts from tables holding only what a request could still use.
+    async fn boot(&self, cx: &laterite_core::BootCx<'_>) -> laterite_core::CoreResult<()> {
+        let now = chrono::Utc::now();
+        let sessions = store::delete_expired_sessions(cx.db, now)
+            .await
+            .map_err(|e| laterite_core::CoreError::Internal(e.to_string()))?;
+        let tokens = store::delete_expired_remember_tokens(cx.db, now)
+            .await
+            .map_err(|e| laterite_core::CoreError::Internal(e.to_string()))?;
+        if sessions + tokens > 0 {
+            tracing::info!(
+                sessions,
+                remember_tokens = tokens,
+                "purged expired credentials"
+            );
+        }
+        Ok(())
     }
     fn migrations(&self) -> laterite_core::MigrationSet {
         migrations()

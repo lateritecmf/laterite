@@ -24,6 +24,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   › System for `backend.view_request_log`; it keeps its most recent two thousand rows.
 - `ResourceHook`: a module changes another module's resource before it mounts,
   adding a column, a field, a relation or a placement to a screen it does not own.
+- `Module::boot`: runs once after every module has migrated and registered, with
+  the database and the registry; the auth module's first sweep of expired sessions is one.
+- `laterite_admin::ui`: typed buttons, toolbars, badges and cards for a screen that
+  composes a page by hand, rendered through the shell.
 
 ### Fixed
 

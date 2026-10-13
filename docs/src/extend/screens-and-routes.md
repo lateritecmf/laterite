@@ -93,6 +93,27 @@ The admin's stylesheet is already on the page: `lat-card`, `lat-table`,
 `SessionHandle` extension carries `push_flash`; an `AdminError` renders the
 styled 404, 403 or 500.
 
+## Compose chrome
+
+```rust
+use laterite_admin::ui::{Badge, Button, Card, Toolbar};
+
+let body = Toolbar::new("Reports")
+    .button(Button::link("New report", format!("{}/reports/new", ctx.admin_path())).primary())
+    .button(Button::post("Rebuild", format!("{}/reports/rebuild", ctx.admin_path())).confirm("Rebuild every report?"))
+    .render(&shell);
+let card = Card::new(Markup::from_override(table_html)).render();
+let state = Badge::new("Stale").render(&shell);
+```
+
+Element | Builders | Renders
+--- | --- | ---
+`Button::link(label, href)` | `.primary()`, `.danger()`, `.ghost()`, `.small()`, `.icon(name)` | A link styled as a button.
+`Button::post(label, action)` | The same, and `.confirm(question)` | A form that posts with the request token, asking first when `confirm` is set.
+`Toolbar::new(title)`, `Toolbar::section(title)` | `.button(..)` | A page or section heading with its buttons on the right.
+`Badge::new(label)` | | A small label.
+`Card::new(markup)` | | The panel's framed block around what it is given.
+
 ## Choose where it mounts
 
 ```rust

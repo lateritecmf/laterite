@@ -345,6 +345,35 @@ impl Bootstrap {
         // Resolve where each module's screens mount before any route is built,
         // so a namespace, a declared base and a deployment override all land in
         // one place and a clash is caught below.
+        // Every module has migrated and registered: now each boots, in the same
+        // order, seeing the whole registry. A plugin whose boot fails is
+        // quarantined like one whose migration failed; anything else aborts.
+        for module in &active {
+            let mid = module.id();
+            let id = mid.as_str();
+            if failed.contains_key(id) {
+                continue;
+            }
+            let cx = laterite_core::BootCx {
+                db: &db,
+                registry: &contributions,
+            };
+            match module.boot(&cx).await {
+                Ok(()) => {}
+                Err(e) if !plugin_ids.contains(id) => return Err(e.into()),
+                Err(e) => {
+                    let reason = format!("boot failed: {e}");
+                    eprintln!("Plugin '{id}' quarantined: {reason}");
+                    crate::plugins::quarantine(&db, id, &reason, &fingerprint).await?;
+                    contributions.purge_owner(mid);
+                    failed.insert(id.to_string(), reason);
+                }
+            }
+        }
+        let active: Vec<&dyn Module> = active
+            .into_iter()
+            .filter(|m| !failed.contains_key(m.id().as_str()))
+            .collect();
         let bases: HashMap<String, Option<&'static str>> = active
             .iter()
             .map(|m| (m.id().to_string(), m.admin_base()))
@@ -450,9 +479,9 @@ impl Bootstrap {
         let events = bus.build()?;
 
         let auth = AuthService::new(db.clone(), config.auth.clone()).with_events(events.clone());
-        // Expired sessions and stay-signed-in credentials are swept at boot and
-        // then hourly, so the tables hold only what a request could still use.
-        purge_expired(&auth).await;
+        // Expired sessions and stay-signed-in credentials are swept hourly (the
+        // auth module's boot did the first sweep), so the tables hold only what
+        // a request could still use.
         tokio::spawn(purge_hourly(auth.clone()));
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let admin_config = AdminConfig {

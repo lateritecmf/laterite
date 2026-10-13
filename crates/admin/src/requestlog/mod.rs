@@ -16,12 +16,21 @@ use sea_query::{Expr, Order, Query};
 /// The log's module: its table migrates with the admin's.
 pub struct RequestLogModule;
 
+#[laterite_core::strata::async_trait]
 impl Module for RequestLogModule {
     fn id(&self) -> ModuleId {
         ModuleId::new(migrations::MODULE_ID)
     }
     fn migrations(&self) -> MigrationSet {
         migrations::migrations()
+    }
+    /// Trims the log to its cap, so a table that grew under an older cap
+    /// starts within bounds.
+    async fn boot(&self, cx: &laterite_core::BootCx<'_>) -> laterite_core::CoreResult<()> {
+        let mut tx = cx.db.pool.begin().await?;
+        trim(cx.db, &mut tx).await?;
+        tx.commit().await?;
+        Ok(())
     }
 }
 

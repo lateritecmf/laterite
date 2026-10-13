@@ -582,9 +582,11 @@ impl PreparedRelation {
         .await
         .ok()?;
         Some(RelationSection {
-            title: shell.tt(&self.config.title),
-            new_href: Some(format!("{path}/new")),
-            new_label: self.new_label(shell),
+            toolbar: crate::ui::Toolbar::section(self.config.title.clone())
+                .button(
+                    crate::ui::Button::link(self.new_label(shell), format!("{path}/new")).small(),
+                )
+                .render(shell),
             html,
         })
     }
@@ -632,8 +634,9 @@ pub(crate) async fn index(
     let page = SectionPage {
         shell: &shell,
         back: rel.parent_edit(&parent_id),
-        new_href: format!("{path}/new"),
-        new_label: rel.new_label(&shell),
+        toolbar: crate::ui::Toolbar::default()
+            .button(crate::ui::Button::link(rel.new_label(&shell), format!("{path}/new")).small())
+            .render(&shell),
         html,
     };
     match crate::html::Markup::from_template(&page) {
@@ -648,8 +651,7 @@ pub(crate) async fn index(
 struct SectionPage<'a> {
     shell: &'a Shell,
     back: String,
-    new_href: String,
-    new_label: String,
+    toolbar: crate::html::Markup,
     html: crate::html::Markup,
 }
 

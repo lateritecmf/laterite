@@ -43,6 +43,7 @@ pub mod routes;
 mod session;
 pub mod settings;
 mod sql;
+pub mod ui;
 mod upload;
 mod users;
 

@@ -96,12 +96,20 @@ impl Module for AppModule {
         // registry.add_permission(..);
         // registry.add_settings(..);
     }
+    async fn boot(&self, cx: &BootCx<'_>) -> CoreResult<()> {
+        // A sweep, a seed or a check, with cx.db and cx.registry.
+        Ok(())
+    }
 }
 ```
 
-`register` contributes resources, [settings models](../extend/settings.md) and
-[permissions](../extend/permissions.md). `Bootstrap::extend` merges the
-application's own routes onto the admin router.
+Method | Runs | Does
+--- | --- | ---
+`migrations` | Before `register`, in dependency order. | Applies the module's own migrations.
+`register` | Once every module has migrated. | Contributes resources, [settings models](../extend/settings.md), [permissions](../extend/permissions.md), menu entries, hooks.
+`boot` | Once every module has registered, before anything is served. | Anything that needs the database and the whole registry. An error aborts the boot; a plugin's error quarantines the plugin.
+
+`Bootstrap::extend` merges the application's own routes onto the admin router.
 
 ## Set the brand
 

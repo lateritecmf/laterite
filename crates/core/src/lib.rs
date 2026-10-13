@@ -37,7 +37,7 @@ pub use i18n::{
 pub use laterite_macros::{t, tn, tp};
 pub use listeners::Timestamps;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
-pub use module::{Capability, Module, ModuleId, ModuleRegistry};
+pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
 pub use record::{
     Actor, AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record, SaveCx, SavedCx,

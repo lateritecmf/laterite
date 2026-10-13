@@ -8,9 +8,19 @@
 
 use std::collections::HashMap;
 
+use crate::db::Db;
 use crate::error::{CoreError, CoreResult};
 use crate::migration::MigrationSet;
 use crate::registry::Registry;
+use crate::strata::async_trait;
+
+/// What a module's [`boot`](Module::boot) sees: the database with every
+/// module's migrations applied, and the contributions every module has
+/// registered, to read.
+pub struct BootCx<'a> {
+    pub db: &'a Db,
+    pub registry: &'a Registry,
+}
 
 /// A module's stable identity: a lowercase `vendor.package` code (e.g.
 /// `ModuleId::new("acme.blog")`), declared once and never changed. A newtype so an
@@ -49,6 +59,7 @@ impl Capability {
 }
 
 /// A registerable unit: a framework crate or an application feature/plugin.
+#[async_trait]
 pub trait Module: Send + Sync + 'static {
     /// Stable identity, a lowercase `vendor.package` code. Namespaces this
     /// module's applied-migration history and is the target of other modules'
@@ -89,6 +100,14 @@ pub trait Module: Send + Sync + 'static {
     /// contributes nothing.
     fn register(&self, registry: &mut Registry) {
         let _ = registry;
+    }
+    /// Runs once at boot, after every module's migrations have applied and
+    /// every module has registered, before anything is served: the place for
+    /// a sweep, a seed, or a check that needs the database. An error aborts
+    /// the boot; for a plugin it quarantines the plugin instead. Default: nothing.
+    async fn boot(&self, cx: &BootCx<'_>) -> CoreResult<()> {
+        let _ = cx;
+        Ok(())
     }
 
     /// Where this module's admin screens mount, relative to the admin root.

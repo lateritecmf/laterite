@@ -10,10 +10,7 @@
 <p class="lat-note">{{ shell.t("Save first, then add") }} {% for p in pending %}{% if !loop.first %}, {% endif %}{{ p }}{% endfor %}.</p>
 {% endif %}
 {% for s in sections %}
-<div class="lat-toolbar lat-toolbar--section">
-  <h2>{{ s.title }}</h2>
-  {% if let Some(href) = s.new_href %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ href }}">{{ s.new_label }}</a></div>{% endif %}
-</div>
+{{ s.toolbar|safe }}
 <div class="lat-card">
   {{ s.html|safe }}
 </div>
