@@ -22,6 +22,7 @@
 - [Localization](extend/localization.md)
 - [Screens and Routes](extend/screens-and-routes.md)
 - [Navigation](extend/navigation.md)
+- [Request Log](extend/request-log.md)
 - [Descriptor Files](extend/descriptor-files.md)
 - [Related Records](extend/relations.md)
 - [Admin Interactivity](extend/admin-interactivity.md)

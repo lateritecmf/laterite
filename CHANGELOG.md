@@ -20,11 +20,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Breadcrumbs on a section's pages and on settings pages, derived from the menu.
 - A command palette (the search button, Ctrl+K): menu entries, settings and,
   for a resource with `palette: <picker source>`, its records, opened at their edit page.
+- A request log: every URL the admin could not serve, counted, under Settings
+  › System for `backend.view_request_log`; it keeps its most recent two thousand rows.
 
 ### Fixed
 
 - Deleting rows from a list returned to a doubled path (`/admin/admin/...`), a 404;
   it returns to the list.
+- The setup screen's first sign-in now records the client's address and agent
+  like every other sign-in.
 - The list page's filter triggers were unparsable for htmx (a syntax error on
   every list); a filter change now swaps the table in place as intended.
 

@@ -36,6 +36,7 @@ pub mod persist;
 pub mod picker;
 pub mod plugins;
 pub mod relation;
+pub(crate) mod requestlog;
 mod roles;
 mod routemap;
 pub mod routes;
@@ -1126,6 +1127,11 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
         Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
         Permission::new("backend.view_access_log", "View the access log", "Backend"),
+        Permission::new(
+            "backend.view_request_log",
+            "View the request log",
+            "Backend",
+        ),
     ]
 }
 
@@ -1169,6 +1175,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
     vec![
         Box::new(laterite_auth::AuthModule),
         Box::new(settings::SettingsModule),
+        Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
         Box::new(import::ImportModule),
@@ -1822,7 +1829,18 @@ pub fn router(
 }
 
 /// Fallback for unmatched admin URLs: a styled 404.
-async fn not_found_fallback() -> AdminError {
+/// The styled 404, counted in the request log first.
+async fn not_found_fallback(
+    State(state): State<AdminState>,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> AdminError {
+    requestlog::record(&state.db, method.as_str(), uri.path(), 404).await;
+    AdminError::NotFound
+}
+
+/// The styled 404 for a nested public route, which carries no admin state.
+async fn not_found_plain() -> AdminError {
     AdminError::NotFound
 }
 
@@ -1877,10 +1895,7 @@ fn mount_public(
         // request *below* a public route (`/robots.txt/anything`) escapes into
         // axum's bodyless 404 instead of the deployment's styled error page.
         // Pinned by a test, because it is a behaviour rather than a guarantee.
-        router = router.nest_service(
-            &reg.path,
-            reg.route.mount(&ctx).fallback(not_found_fallback),
-        );
+        router = router.nest_service(&reg.path, reg.route.mount(&ctx).fallback(not_found_plain));
     }
     router
 }
@@ -3147,6 +3162,7 @@ async fn setup_submit(
     State(state): State<AdminState>,
     jar: CookieJar,
     headers: HeaderMap,
+    client: Option<Extension<RequestContext>>,
     Form(form): Form<SetupForm>,
 ) -> Response {
     // Setup only ever creates the first operator; once one exists it is closed.
@@ -3243,7 +3259,11 @@ async fn setup_submit(
     // Sign the new administrator straight in through the normal login path.
     match state
         .auth
-        .authenticate(username, &form.password, &RequestContext::default())
+        .authenticate(
+            username,
+            &form.password,
+            &client.map(|c| c.0).unwrap_or_default(),
+        )
         .await
     {
         Ok(session) => {
@@ -3816,6 +3836,7 @@ fn builtin_resources() -> Vec<Resource> {
         },
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
+        resource!("descriptors/request-log.yaml"),
     ]
 }
 
@@ -3860,6 +3881,13 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("log-in")
             .permission("backend.view_access_log")
             .link("/access-log"),
+        settings::SettingsItem::new("backend.request_log", "Request Log", Vec::new())
+            .description("Review the URLs the panel could not serve.")
+            .category("System")
+            .order(31)
+            .icon("unlink")
+            .permission("backend.view_request_log")
+            .link("/request-log"),
     ]
 }
 

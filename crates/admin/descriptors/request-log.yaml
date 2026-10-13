@@ -1,0 +1,29 @@
+# Every URL the admin could not serve, counted: a broken link or a probing
+# client shows as one row. Rows may be cleared; the log keeps the most recent
+# two thousand on its own.
+entity: backend_request_log
+path: /request-log
+title: Request Log
+permission: backend.view_request_log
+list:
+  order_by: last_seen
+  order_dir: desc
+  per_page: 50
+  per_page_options: [25, 50, 100]
+  exportable: true
+  deletable: true
+  search: { prompt: Search by path }
+  columns:
+    last_seen:  { label: Last seen, type: datetime }
+    method:     { label: Method }
+    path:       { label: Path, searchable: true }
+    status:     { label: Status }
+    count:      { label: Hits }
+    first_seen: { label: First seen, type: datetime, invisible: true }
+  filters:
+    method:
+      type: select
+      options:
+        - { value: GET, label: GET }
+        - { value: POST, label: POST }
+    path: { label: Path, type: text }
