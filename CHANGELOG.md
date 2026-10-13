@@ -15,6 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   they may open; a section's entries show in the context sidebar.
 - `after` and `before` on a menu placement or item: sits beside that sibling
   whatever the orders say, so two modules never fight over a number.
+- An operator drags the top bar's tabs into their own order, kept with their
+  preferences; "Reset the menu order" on Preferences restores the default.
 
 ### Fixed
 

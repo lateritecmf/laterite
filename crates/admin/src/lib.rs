@@ -436,6 +436,7 @@ impl Shell {
         let nav = nav
             .iter()
             .map(|n| NavView {
+                key: n.item.key.clone(),
                 label: i18n.t(&n.item.label),
                 path: nav::tab_path(n).unwrap_or_default().to_string(),
                 active: active_nav == Some(n.item.key.as_str()),
@@ -631,11 +632,13 @@ fn settings_context(
 /// settings categories inside the settings context, else the active section's
 /// entries). The auth guard runs this once per request and hands all three to
 /// the [`Shell`].
+#[allow(clippy::too_many_arguments)]
 fn resolve_nav_context(
     nav: &nav::NavTree,
     items: &[settings::SettingsItem],
     admin_path: &str,
     perms: &PermissionSet,
+    own_order: Option<&str>,
     path: &str,
     tr: &Translator,
     icons: icons::Icons<'_>,
@@ -644,7 +647,10 @@ fn resolve_nav_context(
     Vec<settings::CategoryView>,
     Option<String>,
 ) {
-    let visible_nav = nav.visible(&|code| perms.allows(code));
+    let mut visible_nav = nav.visible(&|code| perms.allows(code));
+    if let Some(order) = own_order {
+        nav::apply_order(&mut visible_nav, order);
+    }
     let visible = visible_settings(items, perms);
     let (in_context, active) = settings_context(&visible, admin_path, path);
     if in_context {
@@ -1633,6 +1639,10 @@ pub fn router(
         .route(
             &format!("{admin_path}/preferences/password"),
             post(password_update),
+        )
+        .route(
+            &format!("{admin_path}/preferences/menu"),
+            post(menu_order_update),
         )
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
@@ -2697,11 +2707,17 @@ async fn require_auth(
     // A clone kept past `next` (the shell's copy moves into the request) to localize
     // an error response the handler renders English (the `ErrorMeta` seam).
     let translator = i18n.clone();
+    // The operator's own order for the top bar, when they dragged one.
+    let own_order =
+        laterite_auth::store::user_preference(&state.db, user.user.id, nav::ORDER_PREFERENCE)
+            .await
+            .unwrap_or_default();
     let (visible_nav, sidebar, active_nav) = resolve_nav_context(
         &state.nav,
         &state.settings,
         &state.admin_path,
         &user.permissions,
+        own_order.as_deref(),
         &path,
         &i18n,
         icons::Icons::new(&state.icons, &state.sprite_url),
@@ -3346,6 +3362,60 @@ async fn session_revoke(
 }
 
 /// Ends every session but this one, and drops every stay-signed-in credential.
+#[derive(Deserialize)]
+struct MenuOrderForm {
+    #[serde(default)]
+    order: String,
+}
+
+/// Keeps the operator's own order for the top bar (`order`: the tabs' keys,
+/// comma-separated), or clears it when the order is blank. The drag island
+/// posts it and takes the empty reply; the Reset button on Preferences posts
+/// a blank and comes back to the page.
+async fn menu_order_update(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    headers: axum::http::HeaderMap,
+    Form(form): Form<MenuOrderForm>,
+) -> Response {
+    let order: Vec<&str> = form
+        .order
+        .split(',')
+        .map(str::trim)
+        .filter(|k| !k.is_empty() && k.len() <= 200)
+        .take(100)
+        .collect();
+    let result = if order.is_empty() {
+        laterite_auth::store::clear_user_preference(&state.db, user.user.id, nav::ORDER_PREFERENCE)
+            .await
+    } else {
+        laterite_auth::store::set_user_preference(
+            &state.db,
+            user.user.id,
+            nav::ORDER_PREFERENCE,
+            &order.join(","),
+        )
+        .await
+    };
+    if let Err(e) = result {
+        tracing::error!(error = %e, "storing the menu order failed");
+        return render_error();
+    }
+    if form::is_htmx(&headers) || headers.get("x-requested-with").is_some() {
+        return axum::http::StatusCode::NO_CONTENT.into_response();
+    }
+    session.push_flash(
+        FlashLevel::Success,
+        if order.is_empty() {
+            t!("The menu is back in its default order.")
+        } else {
+            t!("Saved.")
+        },
+    );
+    Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
+}
+
 async fn session_revoke_others(
     State(state): State<AdminState>,
     Extension(user): Extension<AuthenticatedUser>,
@@ -3915,6 +3985,8 @@ struct LocaleOption {
 
 #[derive(Clone)]
 struct NavView {
+    /// The item's key, which the operator's own order names.
+    key: String,
     label: String,
     path: String,
     active: bool,
@@ -4358,6 +4430,7 @@ mod tests {
                 &items,
                 "/admin",
                 &superuser,
+                None,
                 path,
                 &tr,
                 icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),

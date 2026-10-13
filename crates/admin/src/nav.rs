@@ -324,6 +324,47 @@ fn anchor(nodes: &mut Vec<NavNode>) -> Result<(), String> {
     Ok(())
 }
 
+/// The preference key holding an operator's own order for the top bar.
+pub(crate) const ORDER_PREFERENCE: &str = "menu.order";
+
+/// Puts the top-level nodes in the operator's own order: the keys in `order`
+/// (comma-separated) first, as listed, then the rest as they were. Dashboard
+/// stays first and Settings last whatever the order says, and a key that is
+/// no tab is ignored, so a stale preference never hides anything.
+pub(crate) fn apply_order(nodes: &mut Vec<NavNode>, order: &str) {
+    let wanted: Vec<&str> = order
+        .split(',')
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let fixed = |key: &str| key == "dashboard" || key == "settings";
+    let mut rest: Vec<NavNode> = std::mem::take(nodes);
+    let mut ordered: Vec<NavNode> = Vec::with_capacity(rest.len());
+    for key in wanted {
+        if fixed(key) {
+            continue;
+        }
+        if let Some(at) = rest.iter().position(|n| n.item.key == key) {
+            ordered.push(rest.remove(at));
+        }
+    }
+    let mut tail: Vec<NavNode> = Vec::new();
+    for node in rest {
+        if node.item.key == "dashboard" {
+            ordered.insert(0, node);
+        } else if node.item.key == "settings" {
+            tail.push(node);
+        } else {
+            ordered.push(node);
+        }
+    }
+    ordered.extend(tail);
+    *nodes = ordered;
+}
+
 /// The path a top-level node's tab leads to: its own, or its first entry's.
 pub(crate) fn tab_path(node: &NavNode) -> Option<&str> {
     node.item
@@ -476,6 +517,22 @@ mod tests {
         assert!(
             NavTree::build(lost, "/admin").is_err(),
             "an anchor must be a sibling"
+        );
+    }
+
+    #[test]
+    fn an_operators_order_moves_tabs_but_never_the_ends() {
+        let tree = NavTree::build(items(), "/admin").unwrap();
+        let mut visible = tree.visible(&|_| true);
+        apply_order(&mut visible, "settings,acme.shop,gone,dashboard");
+        let keys: Vec<&str> = visible.iter().map(|n| n.item.key.as_str()).collect();
+        assert_eq!(keys, ["dashboard", "acme.shop", "content", "settings"]);
+        apply_order(&mut visible, "");
+        let keys: Vec<&str> = visible.iter().map(|n| n.item.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["dashboard", "acme.shop", "content", "settings"],
+            "blank changes nothing"
         );
     }
 

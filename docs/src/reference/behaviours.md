@@ -87,6 +87,7 @@ Where | Default | Change it
 --- | --- | ---
 A new password | At least 8 characters. | `[auth.password_policy] min_length`.
 A generated password | Temporary: every screen leads to Preferences until it is replaced. | `lat admin create` without `--generate` sets a password that is kept.
+The top bar's order | The registry's order. An operator drags the tabs into their own, kept with their preferences. | "Reset the menu order" on Preferences.
 Failed sign-ins | 5 for a username from one address, 20 from one address, in 15 minutes. | `[auth] max_failures`, `max_failures_per_address`, `failure_window_secs`.
 A session | Ends after 2 hours idle, or 12 hours. | `[auth] session_idle_timeout_secs`, `session_absolute_timeout_secs`.
 Expired sessions | Removed at boot and hourly. | None; `lat admin purge` runs it on demand.

@@ -140,10 +140,7 @@ async fn get(app: &Router, path: &str, session: &str) -> (StatusCode, String) {
 
 /// The top bar's labels, in order.
 fn tabs(html: &str) -> Vec<String> {
-    let nav = html
-        .split("<nav class=\"lat-topnav__nav\">")
-        .nth(1)
-        .unwrap_or("");
+    let nav = html.split("class=\"lat-topnav__nav\"").nth(1).unwrap_or("");
     let nav = nav.split("</nav>").next().unwrap_or("");
     nav.split("lat-topnav__section")
         .skip(1)
@@ -211,5 +208,62 @@ async fn a_section_lists_its_entries_in_the_sidebar_and_marks_the_tab() {
     assert!(
         !html.contains("lat-sidebar__item"),
         "a plain entry has no sidebar: {html}"
+    );
+}
+
+fn post(path: &str, session: &str, body: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("cookie", format!("{SESSION_COOKIE}={session}"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", "tok-123")
+        .header("x-requested-with", "fetch")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    svc.set_session_data(&root, r#"{"v":1,"csrf":"tok-123"}"#)
+        .await
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/admin/preferences/menu",
+            &root,
+            "order=resource:/orders,acme.content,settings,dashboard",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert_eq!(
+        tabs(&html),
+        ["Dashboard", "Orders", "Content", "Settings"],
+        "the operator's order, with the ends fixed: {html}"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(post("/admin/preferences/menu", &root, "order="))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert_eq!(tabs(&html), ["Dashboard", "Content", "Orders", "Settings"]);
+
+    let (_, html) = get(&app, "/admin/preferences", &root).await;
+    assert!(
+        html.contains("Reset the menu order")
+            && html.contains(r#"action="/admin/preferences/menu""#),
+        "the reset lives on Preferences: {html}"
     );
 }

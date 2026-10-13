@@ -1348,3 +1348,51 @@ window.lat.widget('reveal', function (btn) {
 // stylesheet hides the button on a ready cell; the button's own display rule
 // would beat the hidden attribute.
 window.lat.widget('cell', function () {});
+
+// Menu order: the top bar's tabs drag into the order the operator wants, and
+// the order is kept with their preferences, so it follows them. Dashboard and
+// Settings stay put; the others move among themselves.
+window.lat.widget('menu-order', function (nav) {
+  var post = nav.getAttribute('data-menu-post');
+  if (!post) return;
+  var dragging = null;
+  function tabs() { return Array.prototype.slice.call(nav.querySelectorAll('[data-lat-key]')); }
+  function clear() { tabs().forEach(function (t) { t.classList.remove('is-drop-before', 'is-drop-after'); }); }
+  nav.addEventListener('dragstart', function (e) {
+    var tab = e.target.closest ? e.target.closest('[draggable="true"]') : null;
+    if (!tab) return;
+    dragging = tab;
+    tab.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tab.getAttribute('data-lat-key'));
+  });
+  nav.addEventListener('dragover', function (e) {
+    if (!dragging) return;
+    var tab = e.target.closest ? e.target.closest('[draggable="true"]') : null;
+    if (!tab || tab === dragging) return;
+    e.preventDefault();
+    var box = tab.getBoundingClientRect();
+    clear();
+    tab.classList.add(e.clientX < box.left + box.width / 2 ? 'is-drop-before' : 'is-drop-after');
+  });
+  nav.addEventListener('drop', function (e) {
+    if (!dragging) return;
+    var tab = e.target.closest ? e.target.closest('[draggable="true"]') : null;
+    e.preventDefault();
+    if (tab && tab !== dragging) {
+      tab.insertAdjacentElement(tab.classList.contains('is-drop-before') ? 'beforebegin' : 'afterend', dragging);
+      var order = tabs().map(function (t) { return t.getAttribute('data-lat-key'); }).join(',');
+      var body = new URLSearchParams();
+      body.set('_csrf', nav.getAttribute('data-menu-csrf') || '');
+      body.set('order', order);
+      fetch(post, { method: 'POST', body: body, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+        .catch(function () { window.lat.flash && window.lat.flash('The menu order could not be saved.', 'error'); });
+    }
+    clear();
+  });
+  nav.addEventListener('dragend', function () {
+    if (dragging) dragging.classList.remove('is-dragging');
+    dragging = null;
+    clear();
+  });
+});

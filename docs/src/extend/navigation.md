@@ -40,4 +40,5 @@ Behaviour | Does
 Permission | A resource's entry carries the resource's permission, a screen's its own. An operator sees only the entries they may open; a section with none left is gone.
 Sidebar | On a section's pages, its entries show in the context sidebar with the current one marked.
 Dashboard and Settings | Always first and last.
+The operator's own order | Dragging the tabs in the top bar keeps that order with the operator's preferences, on every device; "Reset the menu order" on Preferences restores the default. Dashboard and Settings stay put.
 Keys | A duplicate key, `under` naming a key nobody declared, or `after` and `before` naming no sibling, aborts boot.

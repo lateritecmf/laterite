@@ -99,4 +99,15 @@
   </div>
 </form>
 {% endif %}
+<div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Menu") }}</h2></div>
+<div class="lat-card lat-card--form">
+  <p class="lat-note">{{ shell.t("Drag the tabs in the top bar into the order you want; it follows you to every device.") }}</p>
+  <form method="post" action="{{ shell.base }}/preferences/menu">
+    {% include "_csrf.html" %}
+    <input type="hidden" name="order" value="">
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Reset the menu order") }}</button>
+    </div>
+  </form>
+</div>
 {% endblock %}
