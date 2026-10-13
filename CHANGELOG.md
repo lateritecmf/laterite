@@ -23,6 +23,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- Deleting rows from a list returned to a doubled path (`/admin/admin/...`), a 404;
+  it returns to the list.
 - The list page's filter triggers were unparsable for htmx (a syntax error on
   every list); a filter change now swaps the table in place as intended.
 

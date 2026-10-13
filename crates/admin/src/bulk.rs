@@ -93,7 +93,8 @@ pub(crate) async fn delete_handler(
     Form(pairs): Form<Vec<(String, String)>>,
 ) -> Response {
     let ids = selected(&pairs);
-    let back = format!("{}{}", state.admin_path, ctx.base_path);
+    // The base path is already under the admin mount.
+    let back = ctx.base_path.clone();
     if ids.is_empty() {
         session.push_flash(FlashLevel::Error, t!("Select a record first."));
         return crate::form::saved_response(crate::form::is_htmx(&headers), &back);
