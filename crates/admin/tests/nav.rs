@@ -204,10 +204,21 @@ async fn a_section_lists_its_entries_in_the_sidebar_and_marks_the_tab() {
         "the section's tab is the active one"
     );
 
+    assert!(
+        html.contains(r#"<nav class="lat-breadcrumb""#)
+            && html.contains(r#"href="/admin/pages">Content</a>"#)
+            && html.contains(r#"href="/admin/posts">Posts</a>"#),
+        "the way here: the section, then the entry: {html}"
+    );
+
     let (_, html) = get(&app, "/admin/orders", &root).await;
     assert!(
         !html.contains("lat-sidebar__item"),
         "a plain entry has no sidebar: {html}"
+    );
+    assert!(
+        !html.contains(r#"<nav class="lat-breadcrumb""#),
+        "and a one-step way is not shown"
     );
 }
 

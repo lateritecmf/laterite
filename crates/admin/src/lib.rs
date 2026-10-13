@@ -346,6 +346,9 @@ pub struct Shell {
     /// from the path (see [`resolve_nav_context`]). Empty means no sidebar.
     /// `base.html` renders it, so any screen in a settings context shows it.
     sidebar: Vec<settings::CategoryView>,
+    /// The way to this page: the active tab, then the active sidebar entry.
+    /// Rendered only when there are two, so a tab's own page shows none.
+    crumbs: Vec<CrumbView>,
     /// The icon set, for chrome that renders one outside a nav entry.
     pub(crate) icon_set: Arc<laterite_core::icons::IconSet>,
     /// Where the sprite lives, so chrome can reference a glyph rather than
@@ -433,7 +436,7 @@ impl Shell {
                 text: i18n.t(&f.text),
             })
             .collect();
-        let nav = nav
+        let nav: Vec<NavView> = nav
             .iter()
             .map(|n| NavView {
                 key: n.item.key.clone(),
@@ -443,6 +446,24 @@ impl Shell {
                 icon: icons::svg(&icon_set, &sprite_url, n.item.icon.as_deref()),
             })
             .collect();
+        let mut crumbs: Vec<CrumbView> = nav
+            .iter()
+            .filter(|n: &&NavView| n.active)
+            .map(|n| CrumbView {
+                label: n.label.clone(),
+                href: n.path.clone(),
+            })
+            .collect();
+        if let Some(entry) = sidebar
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .find(|i| i.active)
+        {
+            crumbs.push(CrumbView {
+                label: entry.label.clone(),
+                href: entry.path.clone(),
+            });
+        }
         Shell {
             asset_urls,
             icon_set,
@@ -451,6 +472,7 @@ impl Shell {
             base: base.to_string(),
             brand,
             nav,
+            crumbs,
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
@@ -580,6 +602,7 @@ impl Shell {
             tz: Tz::UTC,
             i18n: Translator::new("en"),
             sidebar: Vec::new(),
+            crumbs: Vec::new(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
             assets: Vec::new(),
@@ -3981,6 +4004,13 @@ struct LocaleOption {
     /// The language's own name, shown untranslated.
     name: String,
     selected: bool,
+}
+
+/// One step of the way to the current page.
+#[derive(Clone)]
+struct CrumbView {
+    label: String,
+    href: String,
 }
 
 #[derive(Clone)]

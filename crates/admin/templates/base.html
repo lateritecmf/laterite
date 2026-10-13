@@ -78,6 +78,9 @@
     {% endif %}
     <main class="lat-main">
       <div class="lat-page">
+        {% if shell.crumbs.len() > 1 %}
+        <nav class="lat-breadcrumb" aria-label='{{ shell.t("You are here") }}'>{% for c in shell.crumbs %}{% if !loop.first %}<span aria-hidden="true">&rsaquo;</span>{% endif %}<a href="{{ c.href }}">{{ c.label }}</a>{% endfor %}</nav>
+        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </main>
