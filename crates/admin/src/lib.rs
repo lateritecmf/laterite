@@ -31,6 +31,7 @@ pub mod import;
 pub(crate) mod keyed;
 pub mod list;
 pub mod nav;
+pub(crate) mod palette;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
@@ -195,6 +196,9 @@ pub(crate) struct AdminState {
     /// The reference-picker source registry: resolves a picker field's `source`
     /// key to the domain service its endpoints call. See [`picker`].
     pickers: Arc<picker::PickerRegistry>,
+    /// The resources whose records the command palette finds, each through
+    /// the picker source it named. See [`palette`].
+    palette: Arc<Vec<palette::RecordSource>>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -227,6 +231,7 @@ impl AdminState {
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
+            palette: Arc::new(Vec::new()),
             overrides: Arc::new(field::NoOverrides),
         }
     }
@@ -848,6 +853,9 @@ pub struct Resource {
     /// Whether records may be imported into this resource, and by whom. The
     /// pages mount under the resource's path; see [`import`].
     pub import: Option<ImportConfig>,
+    /// The picker source the command palette finds this resource's records
+    /// through, leading to their edit pages. `None` keeps them out of it.
+    pub palette: Option<String>,
     /// Other entities' records that belong to each of this resource's records,
     /// each a section on the edit page. See [`relation::RelationConfig`].
     pub relations: Vec<relation::RelationConfig>,
@@ -1029,9 +1037,17 @@ impl Resource {
             form: None,
             permission: None,
             import: None,
+            palette: None,
             relations: Vec::new(),
             menu: nav::Placement::default(),
         }
+    }
+
+    /// Lets the command palette find this resource's records through the
+    /// picker source named, opening each at its edit page.
+    pub fn palette(mut self, source: impl Into<String>) -> Self {
+        self.palette = Some(source.into());
+        self
     }
 
     /// Where the menu entry sits. See [`nav::Placement`].
@@ -1348,6 +1364,19 @@ pub fn router(
     }
     let nav =
         nav::NavTree::build(nav_items, &admin_path).unwrap_or_else(|e| panic!("admin menu: {e}"));
+    // The palette's record sources: a resource that named its picker source.
+    // The source itself is checked against the registry below, once it exists.
+    let palette_sources: Vec<palette::RecordSource> = app_resources
+        .iter()
+        .filter_map(|r| {
+            r.palette.as_ref().map(|source| palette::RecordSource {
+                label: r.nav_label.clone(),
+                source: source.clone(),
+                base_path: r.base_path.clone(),
+                permission: r.permission.clone(),
+            })
+        })
+        .collect();
     resources.extend(app_resources);
 
     let app_name = if config.app_name.trim().is_empty() {
@@ -1372,6 +1401,14 @@ pub fn router(
     // The reference field validates its `source` against the picker registry at
     // boot, so build the field registry here (over the arg-free built-ins) with
     // the picker field added and the registry injected.
+    for source in &palette_sources {
+        if !pickers.contains_key(&source.source) {
+            panic!(
+                "admin resource `{}` names palette source `{}`, which no module registered",
+                source.base_path, source.source
+            );
+        }
+    }
     let pickers = Arc::new(pickers);
     let mut field_types = field::builtin_registry();
     field_types.insert(
@@ -1498,6 +1535,7 @@ pub fn router(
         assets: Arc::new(assets),
         asset_urls: asset_urls_arc.clone(),
         pickers,
+        palette: Arc::new(palette_sources),
         overrides: Arc::new(field::NoOverrides),
     };
 
@@ -1667,6 +1705,7 @@ pub fn router(
             &format!("{admin_path}/preferences/menu"),
             post(menu_order_update),
         )
+        .route(&format!("{admin_path}/palette"), get(palette::palette))
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
             post(session_revoke),
@@ -3758,6 +3797,7 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_users".to_string()),
             import: None,
+            palette: None,
             relations: Vec::new(),
             menu: nav::Placement::default(),
         },
@@ -3770,6 +3810,7 @@ fn builtin_resources() -> Vec<Resource> {
             form: None,
             permission: Some("backend.manage_roles".to_string()),
             import: None,
+            palette: None,
             relations: Vec::new(),
             menu: nav::Placement::default(),
         },
@@ -4074,6 +4115,7 @@ mod tests {
             form,
             permission: permission.map(str::to_string),
             import: None,
+            palette: None,
             relations: Vec::new(),
             menu: nav::Placement::default(),
         }
@@ -4375,6 +4417,7 @@ mod tests {
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
+            palette: Arc::new(Vec::new()),
             overrides: Arc::new(field::NoOverrides),
         };
 

@@ -6,6 +6,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use laterite_admin::nav::NavItem;
+use laterite_admin::picker::{PickerSourceReg, TableSource};
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::strata::*;
@@ -71,6 +72,10 @@ fn app(db: &Db) -> Router {
             nav: vec![NavItem::section("acme.content", "Content")
                 .icon("folder")
                 .order(10)],
+            picker_sources: vec![PickerSourceReg::new(
+                "acme.posttitles",
+                Arc::new(TableSource::new("posts", "id", "title")),
+            )],
             permissions: vec![
                 Permission::new("acme.posts", t!("Posts"), t!("Acme")),
                 Permission::new("acme.pages", t!("Pages"), t!("Acme")),
@@ -276,5 +281,104 @@ async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
         html.contains("Reset the menu order")
             && html.contains(r#"action="/admin/preferences/menu""#),
         "the reset lives on Preferences: {html}"
+    );
+}
+
+async fn a_post(db: &Db, title: &str) {
+    let (sql, values) = laterite_core::query::build(
+        db.backend,
+        sea_query::Query::insert()
+            .into_table(Alias::new("posts"))
+            .columns([Alias::new("title")])
+            .values_panic([title.into()])
+            .to_owned(),
+    );
+    laterite_core::query::bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+}
+
+async fn get_json(app: &Router, path: &str, session: &str) -> (StatusCode, serde_json::Value) {
+    let req = Request::builder()
+        .uri(path)
+        .header("cookie", format!("{SESSION_COOKIE}={session}"))
+        .header("x-requested-with", "fetch")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_default())
+}
+
+fn labels(found: &serde_json::Value, kind: &str) -> Vec<String> {
+    found["items"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|i| i["kind"] == kind)
+                .filter_map(|i| i["label"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn the_palette_finds_pages_settings_and_records_the_operator_may_open() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, writer) = sessions(&db).await;
+    a_post(&db, "Launch post").await;
+    a_post(&db, "Other").await;
+
+    let (status, found) = get_json(&app, "/admin/palette?q=po", &root).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(labels(&found, "page"), ["Posts"], "{found}");
+    assert_eq!(labels(&found, "record"), ["Launch post"], "{found}");
+    let hit = &found["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "record")
+        .unwrap()
+        .clone();
+    assert_eq!(hit["href"], "/admin/posts/1/edit");
+    assert_eq!(hit["hint"], "Posts");
+
+    let (_, found) = get_json(&app, "/admin/palette?q=", &root).await;
+    assert!(
+        labels(&found, "page").contains(&"Orders".to_string()),
+        "{found}"
+    );
+    assert!(
+        labels(&found, "record").is_empty(),
+        "a blank query lists pages alone"
+    );
+    assert!(
+        !labels(&found, "setting").is_empty(),
+        "settings are found too: {found}"
+    );
+
+    let (_, found) = get_json(&app, "/admin/palette?q=o", &writer).await;
+    assert!(
+        !labels(&found, "page").contains(&"Orders".to_string()),
+        "no Orders without its permission: {found}"
+    );
+    assert_eq!(
+        labels(&found, "record"),
+        ["Launch post", "Other"],
+        "{found}"
+    );
+
+    let (status, html) = get(&app, "/admin/palette?q=launch", &root).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains(r#"href="/admin/posts/1/edit""#)
+            && html.contains(r#"name="q" value="launch""#),
+        "the same finder as a page: {html}"
     );
 }

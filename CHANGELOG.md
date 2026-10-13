@@ -18,6 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - An operator drags the top bar's tabs into their own order, kept with their
   preferences; "Reset the menu order" on Preferences restores the default.
 - Breadcrumbs on a section's pages and on settings pages, derived from the menu.
+- A command palette (the search button, Ctrl+K): menu entries, settings and,
+  for a resource with `palette: <picker source>`, its records, opened at their edit page.
 
 ### Fixed
 

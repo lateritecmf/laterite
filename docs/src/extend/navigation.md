@@ -43,3 +43,24 @@ Breadcrumbs | On a section's pages and on settings pages: the tab, then the entr
 Dashboard and Settings | Always first and last.
 The operator's own order | Dragging the tabs in the top bar keeps that order with the operator's preferences, on every device; "Reset the menu order" on Preferences restores the default. Dashboard and Settings stay put.
 Keys | A duplicate key, `under` naming a key nobody declared, or `after` and `before` naming no sibling, aborts boot.
+
+## Command palette
+
+```yaml
+# descriptors/posts.yaml
+palette: acme.posttitles
+```
+
+```rust
+Resource::new("/posts", "Posts", list).palette("acme.posttitles")
+```
+
+Key | Does
+--- | ---
+`palette` | A registered picker source. The palette finds this resource's records through it and opens each at its edit page. Absent keeps the records out.
+
+Behaviour | Does
+--- | ---
+Opening | The search button in the top bar, or Ctrl+K (Cmd+K). Without scripting the button is `/palette`, the same finder as a page.
+Finding | Menu entries and settings the operator may open, by a case-insensitive substring; then records from every resource with a `palette` source, up to eight each. A blank query lists the pages alone.
+Keys | Up and Down move, Enter goes, Escape closes.

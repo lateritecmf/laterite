@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Go to") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar"><h1>{{ shell.t("Go to") }}</h1></div>
+<div class="lat-card lat-card--form">
+  <form method="get" action="{{ shell.base }}/palette" data-lat-enter-scope>
+    <label class="lat-field">
+      <span class="lat-field__label">{{ shell.t("A page, a setting or a record") }}</span>
+      <input class="lat-input" type="search" name="q" value="{{ q }}" autofocus>
+    </label>
+    <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Find") }}</button></div>
+  </form>
+</div>
+{% if !items.is_empty() %}
+<div class="lat-card">
+  <ul class="lat-palette__list lat-palette__list--page">
+    {% for hit in items %}<li><a class="lat-palette__hit" href="{{ hit.href }}"><span class="lat-palette__label">{{ hit.label }}</span>{% if !hit.hint.is_empty() %}<span class="lat-palette__hint">{{ hit.hint }}</span>{% endif %}</a></li>{% endfor %}
+  </ul>
+</div>
+{% else if !q.is_empty() %}
+<p class="lat-note">{{ shell.t("Nothing matches.") }}</p>
+{% endif %}
+{% endblock %}

@@ -60,6 +60,9 @@ struct ResourceFile {
     /// resource is not imported into.
     #[serde(default)]
     import: Option<ImportKey>,
+    /// The picker source the command palette finds records through.
+    #[serde(default)]
+    palette: Option<String>,
     /// Related records, keyed by relation name; see `RelationConfig`.
     #[serde(default, deserialize_with = "crate::keyed::deserialize")]
     relations: Vec<RelationConfig>,
@@ -196,6 +199,9 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         Some(ImportKey::Flag(false)) | None => {}
     }
     resource = resource.menu(file.menu);
+    if let Some(source) = file.palette {
+        resource = resource.palette(source);
+    }
     for mut relation in file.relations {
         check_type_keys(&relation.list, Some(&relation.form)).map_err(|message| {
             DescriptorError {

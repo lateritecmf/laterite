@@ -1396,3 +1396,107 @@ window.lat.widget('menu-order', function (nav) {
     clear();
   });
 });
+
+// Command palette: one box that finds a page, a setting or a record and goes
+// there. The search button opens it, as does Ctrl+K (Cmd+K on a Mac); the
+// arrows move, Enter goes, Escape closes. Without scripting the button is a
+// link to the same finder as a page.
+window.lat.widget('palette', function (button) {
+  var url = button.getAttribute('data-palette-url');
+  if (!url) return;
+  var overlay = document.createElement('div');
+  overlay.className = 'lat-palette';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML =
+    '<div class="lat-palette__backdrop" data-palette-close></div>' +
+    '<div class="lat-palette__panel">' +
+    '<input class="lat-palette__input" type="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list">' +
+    '<ul class="lat-palette__list" role="listbox"></ul>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var input = overlay.querySelector('input');
+  var list = overlay.querySelector('ul');
+  input.placeholder = button.getAttribute('data-palette-placeholder') || '';
+  var active = -1;
+  var timer = null;
+  var latest = 0;
+  function items() { return Array.prototype.slice.call(list.querySelectorAll('.lat-palette__hit')); }
+  function mark(index) {
+    var all = items();
+    if (!all.length) { active = -1; return; }
+    active = (index + all.length) % all.length;
+    all.forEach(function (a, i) { a.classList.toggle('is-active', i === active); });
+    all[active].scrollIntoView({ block: 'nearest' });
+  }
+  function show(found) {
+    list.innerHTML = '';
+    if (!found.length) {
+      var empty = document.createElement('li');
+      empty.className = 'lat-palette__empty';
+      empty.textContent = button.getAttribute('data-palette-empty') || '';
+      list.appendChild(empty);
+      active = -1;
+      return;
+    }
+    found.forEach(function (hit) {
+      var li = document.createElement('li');
+      var a = document.createElement('a');
+      a.className = 'lat-palette__hit';
+      a.href = hit.href;
+      a.setAttribute('role', 'option');
+      var label = document.createElement('span');
+      label.className = 'lat-palette__label';
+      label.textContent = hit.label;
+      a.appendChild(label);
+      if (hit.hint) {
+        var hint = document.createElement('span');
+        hint.className = 'lat-palette__hint';
+        hint.textContent = hit.hint;
+        a.appendChild(hint);
+      }
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    mark(0);
+  }
+  function search() {
+    var seq = ++latest;
+    fetch(url + '?q=' + encodeURIComponent(input.value), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (seq === latest) show(data.items || []); })
+      .catch(function () { if (seq === latest) show([]); });
+  }
+  function open() {
+    overlay.classList.add('is-open');
+    input.value = '';
+    input.focus();
+    search();
+  }
+  function close() {
+    overlay.classList.remove('is-open');
+    button.focus();
+  }
+  button.addEventListener('click', function (e) { e.preventDefault(); open(); });
+  overlay.addEventListener('click', function (e) {
+    if (e.target.closest('[data-palette-close]')) close();
+  });
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(search, 150);
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); mark(active + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); mark(active - 1); }
+    else if (e.key === 'Enter') {
+      var all = items();
+      if (active >= 0 && all[active]) { e.preventDefault(); window.location.href = all[active].href; }
+    } else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      if (overlay.classList.contains('is-open')) close(); else open();
+    }
+  });
+});
