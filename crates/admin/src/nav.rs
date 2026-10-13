@@ -32,6 +32,10 @@ pub struct NavItem {
     pub permission: Option<String>,
     /// Sorts among siblings, lowest first; equal orders sort by label.
     pub order: i32,
+    /// Sits right after the sibling with this key, whatever the orders say.
+    pub after: Option<String>,
+    /// Sits right before the sibling with this key, whatever the orders say.
+    pub before: Option<String>,
     /// The key of the item this sits under; `None` is the top bar.
     pub under: Option<String>,
 }
@@ -46,6 +50,8 @@ impl NavItem {
             icon: None,
             permission: None,
             order: 0,
+            after: None,
+            before: None,
             under: None,
         }
     }
@@ -59,6 +65,8 @@ impl NavItem {
             icon: None,
             permission: None,
             order: 0,
+            after: None,
+            before: None,
             under: None,
         }
     }
@@ -83,6 +91,18 @@ impl NavItem {
         self.under = Some(section.into());
         self
     }
+
+    /// Sits right after the sibling with this key.
+    pub fn after(mut self, key: impl Into<String>) -> Self {
+        self.after = Some(key.into());
+        self
+    }
+
+    /// Sits right before the sibling with this key.
+    pub fn before(mut self, key: impl Into<String>) -> Self {
+        self.before = Some(key.into());
+        self
+    }
 }
 
 impl Default for NavItem {
@@ -101,6 +121,11 @@ pub struct Placement {
     pub under: Option<String>,
     pub icon: Option<String>,
     pub order: i32,
+    /// Sits right after the sibling with this key (a resource's key is
+    /// `resource:` and its path, a screen's `screen:` and its path).
+    pub after: Option<String>,
+    /// Sits right before the sibling with this key.
+    pub before: Option<String>,
     /// Mounted and reachable by link, with no menu entry.
     pub hidden: bool,
 }
@@ -132,9 +157,21 @@ impl Placement {
         self.order = order;
         self
     }
+
+    /// Sits right after the sibling with this key.
+    pub fn after(mut self, key: impl Into<String>) -> Self {
+        self.after = Some(key.into());
+        self
+    }
+
+    /// Sits right before the sibling with this key.
+    pub fn before(mut self, key: impl Into<String>) -> Self {
+        self.before = Some(key.into());
+        self
+    }
 }
 
-/// `menu: false` hides; `menu: { under, icon, order }` places.
+/// `menu: false` hides; `menu: { under, icon, order, after, before }` places.
 pub(crate) fn deserialize_placement<'de, D>(deserializer: D) -> Result<Placement, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -215,8 +252,10 @@ impl NavTree {
                 .then_with(|| a.item.label.source().cmp(b.item.label.source()))
         };
         top.sort_by(by_order);
+        anchor(&mut top)?;
         for node in &mut top {
             node.children.sort_by(by_order);
+            anchor(&mut node.children)?;
         }
         Ok(Self { top })
     }
@@ -249,6 +288,40 @@ impl NavTree {
             })
             .collect()
     }
+}
+
+/// Moves each anchored sibling next to its anchor, in order of appearance,
+/// so `after: acme.posts` holds whatever the orders say. An anchor that is
+/// no sibling is refused.
+fn anchor(nodes: &mut Vec<NavNode>) -> Result<(), String> {
+    let keys: Vec<String> = nodes.iter().map(|n| n.item.key.clone()).collect();
+    for key in keys {
+        let at = nodes.iter().position(|n| n.item.key == key).unwrap_or(0);
+        let (anchor_key, after) = match (&nodes[at].item.after, &nodes[at].item.before) {
+            (Some(a), _) => (a.clone(), true),
+            (None, Some(b)) => (b.clone(), false),
+            (None, None) => continue,
+        };
+        let target = nodes
+            .iter()
+            .position(|n| n.item.key == anchor_key)
+            .ok_or_else(|| {
+                format!(
+                    "menu item `{key}` is placed {} `{anchor_key}`, which is no sibling of it",
+                    if after { "after" } else { "before" }
+                )
+            })?;
+        if target == at {
+            return Err(format!("menu item `{key}` is placed next to itself"));
+        }
+        let node = nodes.remove(at);
+        let target = nodes
+            .iter()
+            .position(|n| n.item.key == anchor_key)
+            .unwrap_or(0);
+        nodes.insert(if after { target + 1 } else { target }, node);
+    }
+    Ok(())
 }
 
 /// The path a top-level node's tab leads to: its own, or its first entry's.
@@ -369,6 +442,41 @@ mod tests {
             Some("/admin/pages")
         );
         assert_eq!(tab_path(content), Some("/admin/pages"));
+    }
+
+    #[test]
+    fn an_anchor_holds_whatever_the_orders_say() {
+        let mut items = items();
+        items.push(
+            NavItem::new("acme.help", "Help", "/help")
+                .order(0)
+                .after("acme.shop"),
+        );
+        items.push(
+            NavItem::new("acme.tags", "Tags", "/tags")
+                .under("content")
+                .order(99)
+                .before("acme.pages"),
+        );
+        let tree = NavTree::build(items, "/admin").unwrap();
+        let keys: Vec<&str> = tree.top.iter().map(|n| n.item.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["dashboard", "content", "acme.shop", "acme.help", "settings"]
+        );
+        let entries: Vec<&str> = tree.top[1]
+            .children
+            .iter()
+            .map(|n| n.item.key.as_str())
+            .collect();
+        assert_eq!(entries, ["acme.tags", "acme.pages", "acme.posts"]);
+
+        let mut lost = self::items();
+        lost.push(NavItem::new("acme.help", "Help", "/help").after("acme.pages"));
+        assert!(
+            NavTree::build(lost, "/admin").is_err(),
+            "an anchor must be a sibling"
+        );
     }
 
     #[test]

@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `ScreenReg::menu`, and `NavItem` sections and entries contributed by a module.
   Every entry carries its target's permission, so an operator sees only what
   they may open; a section's entries show in the context sidebar.
+- `after` and `before` on a menu placement or item: sits beside that sibling
+  whatever the orders say, so two modules never fight over a number.
 
 ### Fixed
 

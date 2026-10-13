@@ -1293,6 +1293,8 @@ pub fn router(
         item.icon = resource.menu.icon.clone();
         item.permission = resource.permission.clone();
         item.under = resource.menu.under.clone();
+        item.after = resource.menu.after.clone();
+        item.before = resource.menu.before.clone();
         nav_items.push(item);
     }
     for reg in &app_screens {
@@ -1311,6 +1313,8 @@ pub fn router(
         .order(reg.menu.order);
         item.icon = reg.menu.icon.clone();
         item.under = reg.menu.under.clone();
+        item.after = reg.menu.after.clone();
+        item.before = reg.menu.before.clone();
         nav_items.push(item);
     }
     let nav =
