@@ -526,6 +526,17 @@ pub(crate) struct CategoryView {
     pub(crate) items: Vec<ItemView>,
 }
 
+impl CategoryView {
+    /// One group of entries, as a menu section renders in the sidebar.
+    pub(crate) fn new(name: String, items: Vec<ItemView>) -> Self {
+        Self {
+            name,
+            min_order: 0,
+            items,
+        }
+    }
+}
+
 /// One item in the context sidebar.
 #[derive(Clone)]
 pub(crate) struct ItemView {

@@ -63,6 +63,9 @@ struct ResourceFile {
     /// Related records, keyed by relation name; see `RelationConfig`.
     #[serde(default, deserialize_with = "crate::keyed::deserialize")]
     relations: Vec<RelationConfig>,
+    /// Where the menu entry sits, or `false` for none; see `nav::Placement`.
+    #[serde(default, deserialize_with = "crate::nav::deserialize_placement")]
+    menu: crate::nav::Placement,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,6 +195,7 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         Some(ImportKey::Config(import)) => resource = resource.import(import),
         Some(ImportKey::Flag(false)) | None => {}
     }
+    resource = resource.menu(file.menu);
     for mut relation in file.relations {
         check_type_keys(&relation.list, Some(&relation.form)).map_err(|message| {
             DescriptorError {

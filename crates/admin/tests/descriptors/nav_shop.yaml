@@ -1,0 +1,8 @@
+entity: orders
+path: /orders
+title: Orders
+permission: acme.orders
+menu: { icon: map, order: 20 }
+list:
+  columns:
+    code: {}

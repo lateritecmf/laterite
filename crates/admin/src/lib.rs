@@ -30,6 +30,7 @@ mod icons;
 pub mod import;
 pub(crate) mod keyed;
 pub mod list;
+pub mod nav;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
@@ -98,6 +99,8 @@ pub trait AdminRegistry {
     /// Mounts a route outside the admin, at a literal path: robots.txt, a
     /// sitemap, a feed, a webhook receiver.
     fn add_public_route(&mut self, route: routes::PublicRouteReg);
+    /// Adds a menu entry or section. See [`nav::NavItem`].
+    fn add_nav(&mut self, item: nav::NavItem);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -118,6 +121,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_public_route(&mut self, route: routes::PublicRouteReg) {
         self.add(route);
+    }
+    fn add_nav(&mut self, item: nav::NavItem) {
+        self.add(item);
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -142,7 +148,7 @@ pub(crate) const ICON_SPRITE: &str = "icons.svg";
 pub(crate) struct AdminState {
     auth: AuthService,
     db: Db,
-    nav: Arc<Vec<NavLink>>,
+    nav: Arc<nav::NavTree>,
     settings: Arc<Vec<settings::SettingsItem>>,
     permissions: Arc<Vec<Permission>>,
     /// The URL path the panel is mounted under, without a trailing slash (e.g.
@@ -201,7 +207,7 @@ impl AdminState {
         Self {
             auth,
             db,
-            nav: Arc::new(Vec::new()),
+            nav: Arc::new(nav::NavTree::default()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
@@ -307,15 +313,6 @@ impl Default for AdminConfig {
     }
 }
 
-#[derive(Clone)]
-struct NavLink {
-    label: Text,
-    path: String,
-    /// An icon name (a Lucide subset, see [`icons`]), or `None` for a text-only
-    /// tab. The built-in Dashboard and Settings entries set one.
-    icon: Option<&'static str>,
-}
-
 /// The chrome shared by every authenticated page: the top-nav links and the
 /// signed-in operator. Built once by the auth guard and injected into request
 /// extensions, so page handlers render inside the same shell without each
@@ -407,7 +404,7 @@ impl Shell {
     fn new(
         base: &str,
         brand: String,
-        nav: &[NavLink],
+        nav: &[nav::NavNode],
         user: &AuthenticatedUser,
         default_tz: Tz,
         sidebar: Vec<settings::CategoryView>,
@@ -439,13 +436,10 @@ impl Shell {
         let nav = nav
             .iter()
             .map(|n| NavView {
-                label: i18n.t(&n.label),
-                path: n.path.clone(),
-                active: active_nav == Some(n.path.as_str()),
-                icon: n
-                    .icon
-                    .map(|name| icons::svg(&icon_set, &sprite_url, Some(name)))
-                    .unwrap_or_default(),
+                label: i18n.t(&n.item.label),
+                path: nav::tab_path(n).unwrap_or_default().to_string(),
+                active: active_nav == Some(n.item.key.as_str()),
+                icon: icons::svg(&icon_set, &sprite_url, n.item.icon.as_deref()),
             })
             .collect();
         Shell {
@@ -632,52 +626,37 @@ fn settings_context(
     (linked.is_some(), linked)
 }
 
-/// The top-nav item to highlight for `path`. A screen in the settings context
-/// lights the Settings tab (so a linked resource such as the users list keeps
-/// Settings active); otherwise a section owns its own path subtree and stays
-/// active across its sub-pages, with the longest matching prefix winning. The
-/// `/admin` root is every path's ancestor, so it lights the Dashboard tab only
-/// on an exact match: a screen belonging to no section (Preferences, say) lights
-/// nothing rather than falling back to Dashboard.
-fn active_nav_path(
-    nav: &[NavLink],
-    admin_path: &str,
-    in_settings_context: bool,
-    path: &str,
-) -> Option<String> {
-    if in_settings_context {
-        return Some(format!("{admin_path}/settings"));
-    }
-    nav.iter()
-        .filter(|n| {
-            path == n.path || (n.path != admin_path && path.starts_with(&format!("{}/", n.path)))
-        })
-        .max_by_key(|n| n.path.len())
-        .map(|n| n.path.clone())
-}
-
-/// Resolves the per-request navigation context from the descriptors: the
-/// settings sidebar (empty when the screen sits outside any settings context)
-/// and the top-nav item to highlight. The auth guard runs this once per request
-/// and hands both to the [`Shell`].
+/// Resolves the per-request navigation context: the menu as this operator sees
+/// it, the key of the tab `path` falls under, and the context sidebar (the
+/// settings categories inside the settings context, else the active section's
+/// entries). The auth guard runs this once per request and hands all three to
+/// the [`Shell`].
 fn resolve_nav_context(
-    nav: &[NavLink],
+    nav: &nav::NavTree,
     items: &[settings::SettingsItem],
     admin_path: &str,
     perms: &PermissionSet,
     path: &str,
     tr: &Translator,
     icons: icons::Icons<'_>,
-) -> (Vec<settings::CategoryView>, Option<String>) {
+) -> (
+    Vec<nav::NavNode>,
+    Vec<settings::CategoryView>,
+    Option<String>,
+) {
+    let visible_nav = nav.visible(&|code| perms.allows(code));
     let visible = visible_settings(items, perms);
     let (in_context, active) = settings_context(&visible, admin_path, path);
-    let sidebar = if in_context {
-        settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr, icons)
-    } else {
-        Vec::new()
-    };
-    let active_nav = active_nav_path(nav, admin_path, in_context, path);
-    (sidebar, active_nav)
+    if in_context {
+        let sidebar = settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr, icons);
+        return (visible_nav, sidebar, Some("settings".to_string()));
+    }
+    let active_top = nav::active_top(&visible_nav, admin_path, path);
+    let sidebar = active_top
+        .map(|node| nav::section_sidebar(node, admin_path, path, tr, icons))
+        .unwrap_or_default();
+    let active_key = active_top.map(|node| node.item.key.clone());
+    (visible_nav, sidebar, active_key)
 }
 
 /// Resolves the timezone an operator's timestamps render in: their own
@@ -843,6 +822,9 @@ pub struct Resource {
     /// Other entities' records that belong to each of this resource's records,
     /// each a section on the edit page. See [`relation::RelationConfig`].
     pub relations: Vec<relation::RelationConfig>,
+    /// Where the menu entry sits: under a section, with an icon, at a
+    /// position; or out of the menu. See [`nav::Placement`].
+    pub menu: nav::Placement,
 }
 
 /// What a resource declares when records may be imported into it: `import:
@@ -1019,7 +1001,14 @@ impl Resource {
             permission: None,
             import: None,
             relations: Vec::new(),
+            menu: nav::Placement::default(),
         }
+    }
+
+    /// Where the menu entry sits. See [`nav::Placement`].
+    pub fn menu(mut self, placement: nav::Placement) -> Self {
+        self.menu = placement;
+        self
     }
 
     /// Adds a section of related records to the edit page. Needs a form.
@@ -1190,6 +1179,9 @@ pub struct Contributions {
     pub screens: Vec<routes::ScreenReg>,
     /// Routes mounted outside the admin, at literal paths.
     pub public_routes: Vec<routes::PublicRouteReg>,
+    /// Menu entries and sections beyond what resources and screens add for
+    /// themselves. See [`nav::NavItem`].
+    pub nav: Vec<nav::NavItem>,
     /// Everything the framework itself does not consume: the contribution types
     /// modules define for each other. Kept whole so a contributed route can read
     /// them through [`routes::RouteCtx::contributions`], which is what makes a
@@ -1216,6 +1208,7 @@ pub fn router(
         icons: app_icons,
         screens: app_screens,
         public_routes: app_public,
+        nav: app_nav,
         plugin_defined,
     } = contributions;
     let admin_path = normalize_path(&config.path);
@@ -1268,37 +1261,60 @@ pub fn router(
     let permission_codes: std::collections::HashSet<String> =
         permissions.iter().map(|p| p.code.clone()).collect();
 
-    // Main menu (top nav): Dashboard, the application's own sections, then
-    // Settings. Built-in Users and Roles are settings items (see the settings
-    // menu), not main-menu tabs.
-    let mut nav = vec![NavLink {
-        label: "Dashboard".into(),
-        path: admin_path.clone(),
-        icon: Some("layout-dashboard"),
-    }];
+    // The menu: Dashboard first and Settings last, the application's sections
+    // and entries between, each entry carrying its target's permission so the
+    // tree filters itself per operator. Built-in Users and Roles are settings
+    // items (see the settings menu), not tabs. A resource's path is under the
+    // admin mount already; a contributed item's and a screen's are not.
+    let mut nav_items = vec![
+        nav::NavItem::new("dashboard", "Dashboard", "")
+            .icon("layout-dashboard")
+            .order(i32::MIN),
+        nav::NavItem::new("settings", "Settings", "/settings")
+            .icon("settings")
+            .order(i32::MAX),
+    ];
+    nav_items.extend(app_nav);
     for resource in &app_resources {
-        nav.push(NavLink {
-            label: resource.nav_label.clone(),
-            path: resource.base_path.clone(),
-            icon: None,
-        });
-    }
-    // A screen that asked for a menu entry sits beside the resources, before
-    // Settings. One without a label mounts silently, reached by a link elsewhere.
-    for reg in &app_screens {
-        if let Some(label) = &reg.nav_label {
-            nav.push(NavLink {
-                label: label.clone(),
-                path: format!("{admin_path}{}", reg.base_path),
-                icon: None,
-            });
+        if resource.menu.hidden {
+            continue;
         }
+        let unprefixed = resource
+            .base_path
+            .strip_prefix(admin_path.as_str())
+            .unwrap_or(&resource.base_path)
+            .to_string();
+        let mut item = nav::NavItem::new(
+            format!("resource:{unprefixed}"),
+            resource.nav_label.clone(),
+            unprefixed,
+        )
+        .order(resource.menu.order);
+        item.icon = resource.menu.icon.clone();
+        item.permission = resource.permission.clone();
+        item.under = resource.menu.under.clone();
+        nav_items.push(item);
     }
-    nav.push(NavLink {
-        label: "Settings".into(),
-        path: format!("{admin_path}/settings"),
-        icon: Some("settings"),
-    });
+    for reg in &app_screens {
+        let Some(label) = &reg.nav_label else {
+            continue;
+        };
+        if reg.menu.hidden {
+            continue;
+        }
+        let mut item = nav::NavItem::new(
+            format!("screen:{}", reg.base_path),
+            label.clone(),
+            reg.base_path.clone(),
+        )
+        .permission(reg.permission.clone())
+        .order(reg.menu.order);
+        item.icon = reg.menu.icon.clone();
+        item.under = reg.menu.under.clone();
+        nav_items.push(item);
+    }
+    let nav =
+        nav::NavTree::build(nav_items, &admin_path).unwrap_or_else(|e| panic!("admin menu: {e}"));
     resources.extend(app_resources);
 
     let app_name = if config.app_name.trim().is_empty() {
@@ -1389,8 +1405,16 @@ pub fn router(
             item.icon.as_deref(),
         );
     }
-    for link in &nav {
-        icons::require(&icon_set, &format!("menu entry `{}`", link.path), link.icon);
+    for node in nav
+        .top
+        .iter()
+        .flat_map(|n| std::iter::once(n).chain(n.children.iter()))
+    {
+        icons::require(
+            &icon_set,
+            &format!("menu entry `{}`", node.item.key),
+            node.item.icon.as_deref(),
+        );
     }
 
     // The column-type registry: the built-ins, plus whatever the modules
@@ -2669,7 +2693,7 @@ async fn require_auth(
     // A clone kept past `next` (the shell's copy moves into the request) to localize
     // an error response the handler renders English (the `ErrorMeta` seam).
     let translator = i18n.clone();
-    let (sidebar, active_nav) = resolve_nav_context(
+    let (visible_nav, sidebar, active_nav) = resolve_nav_context(
         &state.nav,
         &state.settings,
         &state.admin_path,
@@ -2682,7 +2706,7 @@ async fn require_auth(
     let shell = Shell::new(
         &state.admin_path,
         brand,
-        &state.nav,
+        &visible_nav,
         &user,
         state.timezone,
         sidebar,
@@ -3638,6 +3662,7 @@ fn builtin_resources() -> Vec<Resource> {
             permission: Some("backend.manage_users".to_string()),
             import: None,
             relations: Vec::new(),
+            menu: nav::Placement::default(),
         },
         Resource {
             base_path: "/roles".to_string(),
@@ -3649,6 +3674,7 @@ fn builtin_resources() -> Vec<Resource> {
             permission: Some("backend.manage_roles".to_string()),
             import: None,
             relations: Vec::new(),
+            menu: nav::Placement::default(),
         },
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
@@ -3943,6 +3969,7 @@ mod tests {
             permission: permission.map(str::to_string),
             import: None,
             relations: Vec::new(),
+            menu: nav::Placement::default(),
         }
     }
 
@@ -4222,7 +4249,7 @@ mod tests {
         let state = AdminState {
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),
-            nav: Arc::new(Vec::new()),
+            nav: Arc::new(nav::NavTree::default()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
@@ -4320,9 +4347,10 @@ mod tests {
         let items = builtin_settings();
         let superuser = PermissionSet::new(true, Vec::<String>::new());
         let tr = Translator::new("en");
+        let tree = nav::NavTree::default();
         let sidebar = |path: &str| {
             resolve_nav_context(
-                &[],
+                &tree,
                 &items,
                 "/admin",
                 &superuser,
@@ -4330,7 +4358,7 @@ mod tests {
                 &tr,
                 icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
             )
-            .0
+            .1
         };
         let active_path = |path: &str| -> Option<String> {
             sidebar(path)
@@ -4363,59 +4391,6 @@ mod tests {
         assert_eq!(active_path("/admin/settings/laterite/brand"), None);
         // The dashboard is not a settings context, so it has no sidebar.
         assert!(sidebar("/admin").is_empty());
-    }
-
-    #[test]
-    fn active_nav_lights_the_right_tab() {
-        let nav = vec![
-            NavLink {
-                label: "Dashboard".into(),
-                path: "/admin".to_string(),
-                icon: Some("layout-dashboard"),
-            },
-            NavLink {
-                label: "Pages".into(),
-                path: "/admin/pages".to_string(),
-                icon: None,
-            },
-            NavLink {
-                label: "Settings".into(),
-                path: "/admin/settings".to_string(),
-                icon: Some("settings"),
-            },
-        ];
-
-        // Dashboard lights only on an exact match, never as a prefix of deeper paths.
-        assert_eq!(
-            active_nav_path(&nav, "/admin", false, "/admin").as_deref(),
-            Some("/admin")
-        );
-        // A section keeps its own tab active across its sub-pages.
-        assert_eq!(
-            active_nav_path(&nav, "/admin", false, "/admin/pages/7/edit").as_deref(),
-            Some("/admin/pages")
-        );
-        // A sibling section that merely shares a prefix does not steal the tab.
-        assert_eq!(
-            active_nav_path(&nav, "/admin", false, "/admin/pages-archive"),
-            None
-        );
-        // A screen under no section (reached from the user menu) lights nothing,
-        // rather than the root falling back to Dashboard.
-        assert_eq!(
-            active_nav_path(&nav, "/admin", false, "/admin/preferences"),
-            None
-        );
-        // The settings context lights Settings, including for a linked resource
-        // whose path lives outside /admin/settings.
-        assert_eq!(
-            active_nav_path(&nav, "/admin", true, "/admin/users").as_deref(),
-            Some("/admin/settings")
-        );
-        assert_eq!(
-            active_nav_path(&nav, "/admin", true, "/admin/settings").as_deref(),
-            Some("/admin/settings")
-        );
     }
 }
 

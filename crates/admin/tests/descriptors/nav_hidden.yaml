@@ -1,0 +1,8 @@
+entity: drafts
+path: /drafts
+title: Drafts
+permission: acme.posts
+menu: false
+list:
+  columns:
+    title: {}

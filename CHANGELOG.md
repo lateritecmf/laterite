@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A menu registry: `menu: { under, icon, order }` (or `false`) on a resource,
+  `ScreenReg::menu`, and `NavItem` sections and entries contributed by a module.
+  Every entry carries its target's permission, so an operator sees only what
+  they may open; a section's entries show in the context sidebar.
+
 ### Fixed
 
 - The list page's filter triggers were unparsable for htmx (a syntax error on

@@ -234,6 +234,8 @@ pub struct ScreenReg {
     pub base_path: String,
     /// Menu label, localized at render. `None` mounts it without a nav entry.
     pub nav_label: Option<Text>,
+    /// Where the entry sits: under a section, with an icon, at a position.
+    pub menu: crate::nav::Placement,
     /// The permission every route under this screen requires. Required, because
     /// an unguarded screen exposes whatever it serves to any signed-in operator.
     pub permission: String,
@@ -249,6 +251,7 @@ impl ScreenReg {
         Self {
             base_path: base_path.into(),
             nav_label: None,
+            menu: crate::nav::Placement::default(),
             permission: permission.into(),
             screen,
         }
@@ -257,6 +260,12 @@ impl ScreenReg {
     /// Shows this screen in the menu under `label`.
     pub fn in_menu(mut self, label: impl Into<Text>) -> Self {
         self.nav_label = Some(label.into());
+        self
+    }
+
+    /// Where the menu entry sits. See [`Placement`](crate::nav::Placement).
+    pub fn menu(mut self, placement: crate::nav::Placement) -> Self {
+        self.menu = placement;
         self
     }
 }

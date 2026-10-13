@@ -1,0 +1,8 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.posts
+menu: { under: acme.content, icon: file-text, order: 2 }
+list:
+  columns:
+    title: {}

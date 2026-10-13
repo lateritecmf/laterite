@@ -436,6 +436,7 @@ impl Bootstrap {
         let listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
+        let nav = contributions.take::<crate::nav::NavItem>();
         // Owned, so each icon is namespaced to the module that contributed it.
         let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
@@ -499,6 +500,7 @@ impl Bootstrap {
             auth,
             db.clone(),
             crate::Contributions {
+                nav,
                 resources,
                 settings,
                 permissions,

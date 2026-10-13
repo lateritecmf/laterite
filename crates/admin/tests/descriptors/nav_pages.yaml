@@ -1,0 +1,8 @@
+entity: pages
+path: /pages
+title: Pages
+permission: acme.pages
+menu: { under: acme.content, order: 1 }
+list:
+  columns:
+    title: {}
