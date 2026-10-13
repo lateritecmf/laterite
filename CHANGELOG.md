@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-10-13
+
+Relations and structure complete: related records on the edit page, lists kept
+in their own order, tree lists, and cells edited in the row. Plus `lateritecmf`.
+
 ### Added
 
 - `relations` on a resource: has-many (New, Edit, Delete) and many-to-many through

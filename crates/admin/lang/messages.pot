@@ -26,6 +26,10 @@ msgstr ""
 msgid "A password needs at least {n} characters."
 msgstr ""
 
+#: src/list.rs
+msgid "A record cannot be moved under itself."
+msgstr ""
+
 #: src/import/run.rs
 msgid "A record with this {field} is already there."
 msgstr ""
@@ -68,6 +72,10 @@ msgstr ""
 msgid "Administrators"
 msgstr ""
 
+#: templates/list.html
+msgid "All"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Allow"
 msgstr ""
@@ -94,6 +102,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "At least {n} characters. Every other device is signed out."
+msgstr ""
+
+#: src/relation.rs
+msgid "Attach {label}"
 msgstr ""
 
 #: (descriptors)
@@ -229,7 +241,15 @@ msgid "Could not create the account. The username or email may already be taken.
 msgstr ""
 
 #: src/list.rs
+msgid "Could not move. Try again."
+msgstr ""
+
+#: src/list.rs
 msgid "Could not save your list setup."
+msgstr ""
+
+#: src/list.rs
+msgid "Could not save."
 msgstr ""
 
 #: src/form.rs
@@ -294,7 +314,7 @@ msgstr ""
 msgid "Deactivated"
 msgstr ""
 
-#: templates/_list_table.html
+#: src/relation.rs
 #: templates/list.html
 msgid "Delete"
 msgstr ""
@@ -303,7 +323,7 @@ msgstr ""
 msgid "Delete the selected records? This cannot be undone."
 msgstr ""
 
-#: templates/_list_table.html
+#: src/relation.rs
 msgid "Delete this record?"
 msgstr ""
 
@@ -352,12 +372,16 @@ msgstr ""
 msgid "Download the refused rows"
 msgstr ""
 
+#: templates/_list_rows.html
+msgid "Drag to reorder"
+msgstr ""
+
 #: src/field.rs
 #: templates/_roles_form_fields.html
 msgid "Duplicate"
 msgstr ""
 
-#: templates/_list_table.html
+#: templates/_list_rows.html
 msgid "Edit"
 msgstr ""
 
@@ -394,6 +418,10 @@ msgstr ""
 
 #: templates/import/match.html
 msgid "Existing records are found by"
+msgstr ""
+
+#: templates/_list_rows.html
+msgid "Expand"
 msgstr ""
 
 #: templates/preferences.html
@@ -554,11 +582,25 @@ msgid "Message"
 msgstr ""
 
 #: src/field.rs
+#: templates/_list_rows.html
 msgid "Move down"
 msgstr ""
 
+#: src/lib.rs
+msgid "Move to"
+msgstr ""
+
+#: templates/_list_rows.html
+msgid "Move to…"
+msgstr ""
+
 #: src/field.rs
+#: templates/_list_rows.html
 msgid "Move up"
+msgstr ""
+
+#: src/list.rs
+msgid "Moved."
 msgstr ""
 
 #: templates/_roles_form_fields.html
@@ -642,6 +684,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Operator"
+msgstr ""
+
+#: templates/_list_table.html
+msgid "Order"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -746,8 +792,19 @@ msgid "Refused"
 msgstr ""
 
 #: src/field.rs
+#: src/relation.rs
 msgid "Remove"
 msgstr ""
+
+#: src/relation.rs
+msgid "Remove this record?"
+msgstr ""
+
+#: src/relation.rs
+msgid "Removed {n} record."
+msgid_plural "Removed {n} records."
+msgstr[0] ""
+msgstr[1] ""
 
 #: src/error.rs
 msgid "Request blocked"
@@ -829,6 +886,7 @@ msgid "Save first, then add"
 msgstr ""
 
 #: src/form.rs
+#: src/list.rs
 msgid "Saved."
 msgstr ""
 
@@ -854,7 +912,7 @@ msgstr ""
 msgid "Select none"
 msgstr ""
 
-#: templates/_list_table.html
+#: templates/_list_rows.html
 msgid "Select record"
 msgstr ""
 
@@ -1007,6 +1065,14 @@ msgstr ""
 msgid "That is too many records to export at once. Narrow the list and try again."
 msgstr ""
 
+#: src/relation.rs
+msgid "That record is already attached."
+msgstr ""
+
+#: src/list.rs
+msgid "That record is no longer in the list."
+msgstr ""
+
 #: src/lib.rs
 msgid "That session could not be signed out."
 msgstr ""
@@ -1086,6 +1152,14 @@ msgstr ""
 
 #: src/error.rs
 msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: src/relation.rs
+msgid "There is no such record to attach."
+msgstr ""
+
+#: src/list.rs
+msgid "There is no such record."
 msgstr ""
 
 #: templates/users_form.html

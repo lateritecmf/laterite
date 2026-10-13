@@ -1,6 +1,6 @@
 [package]
 name = "laterite-core"
-version = "0.9.9"
+version = "0.9.10"
 description = "Laterite CMF application kernel: config, errors, database, migrations, modules"
 edition.workspace = true
 license.workspace = true
