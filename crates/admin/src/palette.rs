@@ -91,7 +91,7 @@ pub(crate) async fn find(
         }
     }
     for item in state.settings.iter() {
-        if !item.permission.as_deref().is_none_or(allows) {
+        if item.per_operator || !item.permission.as_deref().is_none_or(allows) {
             continue;
         }
         let label = shell.tt(&item.label);

@@ -721,7 +721,11 @@ fn resolve_nav_context(
     if let Some(order) = own_order {
         nav::apply_order(&mut visible_nav, order);
     }
-    let visible = visible_settings(items, perms);
+    // A per-operator item lives on the Preferences page, not in Settings.
+    let visible: Vec<settings::SettingsItem> = visible_settings(items, perms)
+        .into_iter()
+        .filter(|i| !i.per_operator)
+        .collect();
     let (in_context, active) = settings_context(&visible, admin_path, path);
     if in_context {
         let sidebar = settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr, icons);
@@ -3441,7 +3445,7 @@ async fn settings_edit(
         .iter()
         .find(|item| item.code == code && item.link.is_none())
     {
-        Some(item) => settings::edit_form(&state, item, shell).await,
+        Some(item) => settings::edit_form(&state, item, shell, &user).await,
         None => not_found(),
     }
 }
@@ -3472,6 +3476,15 @@ async fn preferences_form(
     jar: CookieJar,
 ) -> Response {
     let account = account_security(&state, &user, &shell, &jar).await;
+    let items: Vec<PreferenceLink> = visible_settings(&state.settings, &user.permissions)
+        .into_iter()
+        .filter(|i| i.per_operator)
+        .map(|i| PreferenceLink {
+            label: shell.tt(&i.label),
+            description: shell.tt(&i.description),
+            href: i.path(&state.admin_path),
+        })
+        .collect();
     render(preferences_view(
         &shell,
         &user,
@@ -3480,7 +3493,15 @@ async fn preferences_form(
         &offered_locales(&state.catalogs),
         account,
         state.auth.password_policy().min_length,
+        items,
     ))
+}
+
+/// A module's per-operator settings item, linked from the Preferences page.
+struct PreferenceLink {
+    label: String,
+    description: String,
+    href: String,
 }
 
 #[derive(Deserialize)]
@@ -3756,6 +3777,7 @@ async fn preferences_update(
 /// Builds the Preferences view. `shell.tz` is the timezone currently in force
 /// (the operator's preference or the default); the operator's stored preference
 /// selects the matching option, or the inherit option when unset.
+#[allow(clippy::too_many_arguments)]
 fn preferences_view(
     shell: &Shell,
     user: &AuthenticatedUser,
@@ -3764,6 +3786,7 @@ fn preferences_view(
     offered: &[String],
     account: AccountSecurity,
     min_password: usize,
+    items: Vec<PreferenceLink>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
@@ -3796,6 +3819,7 @@ fn preferences_view(
         password_changed: account.password_changed,
         must_change: account.must_change,
         min_password: min_password as i64,
+        items,
     }
 }
 
@@ -3878,7 +3902,7 @@ fn builtin_resources() -> Vec<Resource> {
     vec![
         Resource {
             base_path: "/users".to_string(),
-            nav_label: "Backend Users".into(),
+            nav_label: "Administrators".into(),
             list: backend_users_list_config(),
             form: None,
             permission: Some("backend.manage_users".to_string()),
@@ -3960,7 +3984,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
 fn backend_users_list_config() -> list::ListConfig {
     list::ListConfig {
         entity: "backend_users".to_string(),
-        title: "Backend Users".into(),
+        title: "Administrators".into(),
         columns: vec![
             list::ListColumn::new("username", "Username"),
             list::ListColumn::new("email", "Email"),
@@ -4112,6 +4136,8 @@ struct PreferencesTemplate {
     must_change: bool,
     /// The shortest password accepted, for the form's help and `minlength`.
     min_password: i64,
+    /// Modules' per-operator settings, each a page of its own.
+    items: Vec<PreferenceLink>,
 }
 
 /// One of the account's live sessions, formatted for the page.
@@ -4558,6 +4584,7 @@ mod tests {
             link: None,
             fields: Vec::new(),
             route: None,
+            per_operator: false,
         }
     }
 

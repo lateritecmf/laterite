@@ -93,6 +93,44 @@ FormField::text("slug", "Slug").preset("title", PresetShape::Slug)
 FormField::date("send_at", "Send date").trigger(Trigger::new("show", "is_delayed", "checked"))
 ```
 
+## Keep a value per operator
+
+```rust
+use laterite_admin::settings::{load_for, save_for, PreferencesModel, SettingsItem};
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Desk {
+    #[serde(default)]
+    pub greeting: String,
+    #[serde(default)]
+    pub compact: bool,
+}
+
+impl PreferencesModel for Desk {
+    const CODE: &'static str = "acme.desk";
+}
+
+registry.add_settings(
+    SettingsItem::new("acme.desk", "My desk", vec![
+        FormField::text("greeting", "Greeting"),
+        FormField::switch("compact", "Compact rows"),
+    ])
+    .description("How the desk greets you.")
+    .per_operator(),
+);
+
+let desk: Desk = load_for(&db, user.user.id).await?;
+save_for(&db, user.user.id, &Desk { compact: true, ..desk }).await?;
+```
+
+Item | Does
+--- | ---
+`PreferencesModel` | The same shape as `SettingsModel`; `CODE` is the storage key, kept with each operator's preferences.
+`.per_operator()` | Stores the item once per operator and lists it on their Preferences page, under More, at `/preferences/<code>`. The permission still applies; the category is not used.
+`load_for`, `save_for` | One operator's model, or the default when they have none; a write for one operator.
+`get_for`, `set_for` | The same, as raw JSON.
+Audit | A deployment setting's save is audited; an operator's own preference is not.
+
 ## Link a screen into the settings menu
 
 ```rust

@@ -162,3 +162,67 @@ mod tests {
         );
     }
 }
+
+/// The key the operator's own value for a settings code is kept under in
+/// their preferences.
+pub(crate) fn preference_key(code: &str) -> String {
+    format!("preferences.{code}")
+}
+
+/// A typed per-operator counterpart of [`SettingsModel`]: the same shape,
+/// stored once per operator among their preferences rather than once per
+/// deployment. `CODE` is the storage key, namespaced to the module.
+pub trait PreferencesModel: Serialize + DeserializeOwned + Default {
+    const CODE: &'static str;
+}
+
+/// What reading or writing an operator's own value can fail on.
+#[derive(Debug, thiserror::Error)]
+pub enum PreferencesError {
+    #[error("preference storage error")]
+    Storage(#[from] laterite_auth::AuthError),
+    #[error("preference serialization error")]
+    Serde(#[from] serde_json::Error),
+}
+
+/// One operator's stored model, or the default when they have none.
+pub async fn load_for<T: PreferencesModel>(db: &Db, user_id: i64) -> Result<T, PreferencesError> {
+    match get_for(db, user_id, T::CODE).await? {
+        Some(value) => Ok(serde_json::from_value(value)?),
+        None => Ok(T::default()),
+    }
+}
+
+/// Stores one operator's model.
+pub async fn save_for<T: PreferencesModel>(
+    db: &Db,
+    user_id: i64,
+    model: &T,
+) -> Result<(), PreferencesError> {
+    set_for(db, user_id, T::CODE, &serde_json::to_value(model)?).await
+}
+
+/// One operator's raw value for `code`.
+pub async fn get_for(
+    db: &Db,
+    user_id: i64,
+    code: &str,
+) -> Result<Option<serde_json::Value>, PreferencesError> {
+    let stored = laterite_auth::store::user_preference(db, user_id, &preference_key(code)).await?;
+    match stored {
+        Some(text) => Ok(Some(serde_json::from_str(&text)?)),
+        None => Ok(None),
+    }
+}
+
+/// Stores one operator's raw value for `code`.
+pub async fn set_for(
+    db: &Db,
+    user_id: i64,
+    code: &str,
+    value: &serde_json::Value,
+) -> Result<(), PreferencesError> {
+    let json = serde_json::to_string(value)?;
+    laterite_auth::store::set_user_preference(db, user_id, &preference_key(code), &json).await?;
+    Ok(())
+}

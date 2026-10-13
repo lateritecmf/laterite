@@ -1,7 +1,7 @@
 # Operators
 
 An operator is a person who signs in to the admin. Accounts are managed under
-**Settings → Users → Backend Users**, gated by `backend.manage_users`.
+**Settings → Users → Administrators**, gated by `backend.manage_users`.
 
 ## From the panel
 

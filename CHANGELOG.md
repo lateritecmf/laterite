@@ -28,6 +28,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   the database and the registry; the auth module's first sweep of expired sessions is one.
 - `laterite_admin::ui`: typed buttons, toolbars, badges and cards for a screen that
   composes a page by hand, rendered through the shell.
+- `PreferencesModel` and `SettingsItem::per_operator`: a settings model stored
+  once per operator and edited from their Preferences page, with `load_for` and `save_for`.
+
+### Changed
+
+- The backend users screen is titled "Administrators", as its settings entry
+  always was.
 
 ### Fixed
 

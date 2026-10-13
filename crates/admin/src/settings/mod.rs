@@ -18,7 +18,10 @@ pub mod store;
 
 pub use brand::BrandSetting;
 pub use migrations::{migrations, MODULE_ID};
-pub use store::{get, load, save, set, SettingsError, SettingsModel};
+pub use store::{
+    get, get_for, load, load_for, save, save_for, set, set_for, PreferencesError, PreferencesModel,
+    SettingsError, SettingsModel,
+};
 
 /// The `laterite.settings` module: the framework's settings store table.
 pub struct SettingsModule;
@@ -91,6 +94,9 @@ pub struct SettingsItem {
     /// Where this screen mounts, relative to the admin root, resolved at boot
     /// from the contributing module's namespace. `None` until then.
     pub(crate) route: Option<String>,
+    /// Stored once per operator, among their preferences, and edited from
+    /// the Preferences page rather than Settings. See [`store::PreferencesModel`].
+    pub per_operator: bool,
 }
 
 /// The longest a settings description may be: two lines of the context sidebar,
@@ -119,7 +125,15 @@ impl SettingsItem {
             link: None,
             fields,
             route: None,
+            per_operator: false,
         }
+    }
+
+    /// Keeps a value per operator, edited from their Preferences page. The
+    /// permission still applies; the category is not used.
+    pub fn per_operator(mut self) -> Self {
+        self.per_operator = true;
+        self
     }
 
     /// The sentence under the item's name in the index and sidebar.
@@ -212,6 +226,7 @@ impl SettingsItem {
     pub(crate) fn route(&self) -> String {
         match &self.route {
             Some(route) => route.clone(),
+            None if self.per_operator => format!("/preferences/{}", self.code.replace('.', "/")),
             None => format!("/settings/{}", self.code.replace('.', "/")),
         }
     }
@@ -239,10 +254,11 @@ pub(crate) async fn edit_form(
     state: &AdminState,
     item: &SettingsItem,
     shell: crate::Shell,
+    user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
-    let mut stored = match store::get(&state.db, &item.code).await {
-        Ok(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
-        Err(_) => return render_error(),
+    let mut stored = match stored_value(state, item, user).await {
+        Some(value) => value.unwrap_or_else(|| Value::Object(Map::new())),
+        None => return render_error(),
     };
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
@@ -271,9 +287,8 @@ pub(crate) async fn update(
     let value = match collect(item, &state.field_types, &data) {
         Ok(value) => value,
         Err(message) => {
-            let stored = store::get(&state.db, &item.code)
+            let stored = stored_value(state, item, user)
                 .await
-                .ok()
                 .flatten()
                 .unwrap_or(Value::Null);
             return render(build(
@@ -286,32 +301,49 @@ pub(crate) async fn update(
             ));
         }
     };
-    match store::set(&state.db, &item.code, &value).await {
-        Ok(()) => {
+    let written = if item.per_operator {
+        store::set_for(&state.db, user.user.id, &item.code, &value)
+            .await
+            .is_ok()
+    } else {
+        store::set(&state.db, &item.code, &value).await.is_ok()
+    };
+    match written {
+        true => {
             // The brand is cached for display; a save to it must invalidate the
             // cache so the next page reflects the new name.
             if item.code == brand::BrandSetting::CODE {
                 state.invalidate_brand();
             }
             // The stored value can hold secrets, so the audit records which
-            // settings model changed, not the new contents.
-            crate::audit::record(
-                state,
-                user,
-                "backend.settings.update",
-                Some("settings"),
-                Some(item.code.as_str()),
-                None,
-                None,
-            )
-            .await;
-            session.push_flash(crate::session::FlashLevel::Success, t!("Settings saved."));
+            // settings model changed, not the new contents. An operator's own
+            // preference is theirs alone and goes unrecorded, like their timezone.
+            if !item.per_operator {
+                crate::audit::record(
+                    state,
+                    user,
+                    "backend.settings.update",
+                    Some("settings"),
+                    Some(item.code.as_str()),
+                    None,
+                    None,
+                )
+                .await;
+            }
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                if item.per_operator {
+                    t!("Preferences saved.")
+                } else {
+                    t!("Settings saved.")
+                },
+            );
             // Back to the screen that was saved, not the index. Saving is not
             // leaving: an operator adjusting one setting usually adjusts the
             // next, and being thrown back to the menu loses their place.
             Redirect::to(&item.path(&state.admin_path)).into_response()
         }
-        Err(_) => render(build(
+        false => render(build(
             item,
             &state.field_types,
             state.overrides.as_ref(),
@@ -319,6 +351,22 @@ pub(crate) async fn update(
             &value,
             &shell,
         )),
+    }
+}
+
+/// The item's stored value: the deployment's, or this operator's own for a
+/// per-operator item. `None` when the read failed.
+async fn stored_value(
+    state: &AdminState,
+    item: &SettingsItem,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Option<Option<Value>> {
+    if item.per_operator {
+        store::get_for(&state.db, user.user.id, &item.code)
+            .await
+            .ok()
+    } else {
+        store::get(&state.db, &item.code).await.ok()
     }
 }
 
@@ -624,6 +672,7 @@ mod field_system_tests {
             link: None,
             fields,
             route: None,
+            per_operator: false,
         }
     }
 
@@ -772,6 +821,7 @@ mod tests {
                 FormField::text("retention_days", "Retention (days)"),
             ],
             route: None,
+            per_operator: false,
         }
     }
 
@@ -811,6 +861,7 @@ mod tests {
                 link: None,
                 fields: vec![],
                 route: None,
+                per_operator: false,
             },
             SettingsItem {
                 code: "a".into(),
@@ -825,6 +876,7 @@ mod tests {
                 link: None,
                 fields: vec![],
                 route: None,
+                per_operator: false,
             },
             SettingsItem {
                 code: "l".into(),
@@ -839,6 +891,7 @@ mod tests {
                 link: None,
                 fields: vec![],
                 route: None,
+                per_operator: false,
             },
         ];
         let groups = sidebar_groups(
@@ -943,7 +996,7 @@ mod tests {
         let st = state(db);
         // No stored value yet: the form still renders (fields fall back to defaults).
         let it = item();
-        let resp = edit_form(&st, &it, crate::Shell::test()).await;
+        let resp = edit_form(&st, &it, crate::Shell::test(), &crate::audit::test_actor()).await;
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
     }
 }
