@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   moved by arrows, with sparse keys so a move rewrites one row.
 - `tree` on a list: rows shown as a tree on their parent column, children
   loading in place, and "Move to" through `Persister::move_to` (default writes the column).
+- `editable: true` on a list column: the cell is the form field's control,
+  saved on change through the form's rules, persister and listeners.
 - `lateritecmf`, the one crate an application depends on: it re-exports the
   family as `lateritecmf::{core, auth, admin, media, web}`, forwards the driver
   features and carries a prelude.

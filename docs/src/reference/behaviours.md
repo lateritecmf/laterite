@@ -47,7 +47,8 @@ Where | Default | Change it
 --- | --- | ---
 Search | Asks as you type. | `search: { on_enter: true }`; `search: { enabled: false }`.
 Columns and page size | Each operator's choice is remembered. | `per_page` sets the size; `per_page_options` offers a choice of sizes.
-A column | Sortable, visible. | `sortable: false`, `invisible: true`.
+A column | Sortable, visible, read-only. | `sortable: false`, `invisible: true`, `editable: true`.
+A cell with `editable: true` | The form field's control, saved on change through the form's rules, persister and listeners; a refused value shows its message under the control. With scripting off, a Save button. The column's field must be on the resource's form. | None.
 Export | Off. | `exportable: true`.
 Deleting rows | Off. | `deletable: true`; it asks before it deletes.
 Rows in an order of their own | Off. | `reorder: true` keeps the order in `sort_order`; `reorder: { column: position }` names the column. An integer column, not null, default 0. The list opens in that order with a grip to drag and Move up / Move down on every row; a sorted, searched or filtered view shows neither. A has-many section's `list` takes the same key.
@@ -67,6 +68,7 @@ list:
   row_click: none
   remember: false
   columns:
+    title: { editable: true }
     status: { labels: [{ value: pub, label: Published }, { value: dr, label: Draft }] }
 ```
 

@@ -1342,3 +1342,9 @@ window.lat.widget('reveal', function (btn) {
     });
   });
 })();
+
+// Editable cell: the form saves itself on change, so the Save button is for
+// a page without scripting. Starting the island marks the form ready, and the
+// stylesheet hides the button on a ready cell; the button's own display rule
+// would beat the hidden attribute.
+window.lat.widget('cell', function () {});

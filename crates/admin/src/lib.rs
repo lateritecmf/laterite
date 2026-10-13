@@ -2019,7 +2019,29 @@ fn mount_resource(
     }
     let base = resource.base_path.clone();
     let list_path = base.clone();
-    let list_cfg = resource.list.clone();
+    let mut list_cfg = resource.list.clone();
+    // Editable cells write through the resource's form, prepared here for
+    // them: a column that edits a field the form lacks aborts boot.
+    if resource.list.columns.iter().any(|c| c.editable) {
+        let Some(form_cfg) = resource.form.clone() else {
+            panic!(
+                "admin resource `{}` has an editable column but no form to edit through",
+                resource.base_path
+            );
+        };
+        for column in resource.list.columns.iter().filter(|c| c.editable) {
+            if !form_cfg.fields.iter().any(|f| f.name == column.field) {
+                panic!(
+                    "admin resource `{}`: column `{}` is editable but the form has no such field",
+                    resource.base_path, column.field
+                );
+            }
+        }
+        let prepared = form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
+            .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
+        list_cfg.editor = Some(list::Editor(Arc::new(prepared)));
+    }
+    let cell_cfg = list_cfg.clone();
     let mut router = Router::new().route(
         &base,
         get(
@@ -2051,6 +2073,30 @@ fn mount_resource(
             },
         ),
     );
+
+    if cell_cfg.editor.is_some() {
+        let (cfg, list_path) = (cell_cfg, base.clone());
+        router = router.route(
+            &format!("{base}/{{id}}/cell"),
+            post(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>,
+                      Path(id): Path<String>,
+                      headers: axum::http::HeaderMap,
+                      Form(data): Form<HashMap<String, String>>| {
+                    let (cfg, path) = (cfg.clone(), list_path.clone());
+                    async move {
+                        list::cell_handler(
+                            &state, &cfg, &path, &id, &user, &session, shell, &headers, data,
+                        )
+                        .await
+                    }
+                },
+            ),
+        );
+    }
 
     // Not registered at all when the resource has not opted in, so the capability
     // cannot be reached by guessing the URL.

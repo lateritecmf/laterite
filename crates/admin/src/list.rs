@@ -103,6 +103,9 @@ pub struct ListColumn {
     /// What a stored value reads as: `login_success` shown as "Signed in". A
     /// value with no label shows as stored.
     pub labels: Vec<ValueLabel>,
+    /// The cell is the form field's control, saved on change: a column whose
+    /// field is on the resource's form. Off by default.
+    pub editable: bool,
 }
 
 impl ListColumn {
@@ -119,12 +122,19 @@ impl ListColumn {
             searchable: None,
             options: serde_json::Value::Null,
             labels: Vec::new(),
+            editable: false,
         }
     }
 
     /// What each stored value reads as. A value not listed shows as stored.
     pub fn labels(mut self, labels: Vec<ValueLabel>) -> Self {
         self.labels = labels;
+        self
+    }
+
+    /// Edits the cell in the row through the form field of the same name.
+    pub fn editable(mut self) -> Self {
+        self.editable = true;
         self
     }
 
@@ -524,6 +534,7 @@ impl<'de> Deserialize<'de> for ListColumn {
                         "permission" => column.permission = map.next_value()?,
                         "searchable" => column.searchable = map.next_value()?,
                         "labels" => column.labels = map.next_value()?,
+                        "editable" => column.editable = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -548,6 +559,7 @@ impl Serialize for ListColumn {
         map.serialize_entry("label", &self.label)?;
         map.serialize_entry("type", &self.column_type)?;
         map.serialize_entry("sortable", &self.sortable)?;
+        map.serialize_entry("editable", &self.editable)?;
         map.serialize_entry("invisible", &self.invisible)?;
         map.serialize_entry("width", &self.width)?;
         map.serialize_entry("align", &self.align)?;
@@ -1192,6 +1204,16 @@ where
 /// Children shown under one parent in a single request.
 const TREE_CHILDREN_LIMIT: i64 = 1000;
 
+/// The form an editable cell writes through.
+#[derive(Clone)]
+pub(crate) struct Editor(pub Arc<crate::form::PreparedForm>);
+
+impl std::fmt::Debug for Editor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Editor")
+    }
+}
+
 /// A list view descriptor: which table, which columns, default ordering, page
 /// size, and (optionally) where per-row edit links point.
 ///
@@ -1249,6 +1271,10 @@ pub struct ListConfig {
     /// `tree: true` in a file reads `parent_id`.
     #[serde(deserialize_with = "deserialize_tree")]
     pub tree: Option<TreeConfig>,
+    /// The resource's form, prepared, behind the editable cells. Set by the
+    /// router, never by a descriptor.
+    #[serde(skip)]
+    pub(crate) editor: Option<Editor>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
     pub search: SearchConfig,
@@ -1421,6 +1447,7 @@ impl Default for ListConfig {
             scope: None,
             reorder: None,
             tree: None,
+            editor: None,
             toolbar: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
@@ -2148,7 +2175,7 @@ async fn build_page(
                     indent: format!("{}px", 16 + depth * 18),
                     toggle: (structure.is_some() && row.children > 0)
                         .then(|| format!("{path}?parent={}&depth={}", row.id, depth + 1)),
-                    id: row.id,
+                    id: row.id.clone(),
                     cells: row
                         .cells
                         .iter()
@@ -2165,17 +2192,22 @@ async fn build_page(
                                 resource: Some(&config.entity),
                                 field: Some(&col.field),
                             };
-                            let html = match state.column_types.get(&col.column_type) {
-                                Some(ct) => render_cell(
-                                    ct.as_ref(),
-                                    state.overrides.as_ref(),
-                                    &scope,
-                                    &cx,
-                                    labels.as_ref(),
-                                )
-                                .into_string(),
-                                // Unreachable: `check` refused the type at boot.
-                                None => String::new(),
+                            let html = match (&config.editor, col.editable) {
+                                (Some(editor), true) => cell_markup(
+                                    state, &editor.0, path, &row.id, &col.field, raw, &shell, None,
+                                ),
+                                _ => match state.column_types.get(&col.column_type) {
+                                    Some(ct) => render_cell(
+                                        ct.as_ref(),
+                                        state.overrides.as_ref(),
+                                        &scope,
+                                        &cx,
+                                        labels.as_ref(),
+                                    )
+                                    .into_string(),
+                                    // Unreachable: `check` refused the type at boot.
+                                    None => String::new(),
+                                },
                             };
                             CellView {
                                 html,
@@ -2185,11 +2217,21 @@ async fn build_page(
                         .collect(),
                 })
                 .collect();
+            let editable_assets: Vec<&'static str> = match &config.editor {
+                Some(editor) => config
+                    .columns
+                    .iter()
+                    .filter(|c| c.editable)
+                    .flat_map(|c| editor.0.field_assets(&c.field))
+                    .collect(),
+                None => Vec::new(),
+            };
             let keys: Vec<&str> = config
                 .columns
                 .iter()
                 .filter_map(|c| state.column_types.get(&c.column_type).map(|ct| ct.assets()))
                 .flatten()
+                .chain(editable_assets)
                 .collect();
             let mut shell = shell;
             shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
@@ -2806,6 +2848,149 @@ pub(crate) async fn move_record(
 enum MoveFailure {
     Refused(laterite_core::validation::ErrorBag),
     Failed(String),
+}
+
+/// An editable cell: the field's control in a form of its own that saves on
+/// change, with a Save button for a page without scripting. A refused value
+/// comes back with its message beneath the control.
+#[allow(clippy::too_many_arguments)]
+fn cell_markup(
+    state: &AdminState,
+    form: &crate::form::PreparedForm,
+    path: &str,
+    id: &str,
+    field: &str,
+    value: &str,
+    shell: &crate::Shell,
+    error: Option<&str>,
+) -> String {
+    let dom_id = format!("cell-{id}-{field}");
+    let control = form
+        .control(state, field, &dom_id, value, shell)
+        .unwrap_or_default();
+    let action = format!("{path}/{id}/cell");
+    let mut html = format!(
+        r#"<form class="lat-cell{}" method="post" action="{action}" hx-post="{action}" hx-trigger="change, submit" hx-target="this" hx-swap="outerHTML" data-lat-widget="cell" data-lat-enter-scope><input type="hidden" name="_csrf" value="{}"><input type="hidden" name="field" value="{}">{control}<button class="lat-btn lat-btn--ghost lat-btn--sm lat-cell__save" type="submit">{}</button>"#,
+        if error.is_some() { " is-invalid" } else { "" },
+        crate::form::escape_attr(&shell.csrf_token),
+        crate::form::escape_attr(field),
+        shell.tt(&laterite_core::t!("Save")),
+    );
+    if let Some(message) = error {
+        html.push_str(&format!(
+            r#"<span class="lat-cell__error">{}</span>"#,
+            crate::form::escape_attr(message)
+        ));
+    }
+    html.push_str("</form>");
+    html
+}
+
+/// Saves one cell: the row as it stands with the submitted field over it, written
+/// through the form's rules, persister and listeners. An htmx request gets the
+/// cell back, holding the stored value or the refusal; a plain one returns to
+/// the list with a flash.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn cell_handler(
+    state: &AdminState,
+    config: &ListConfig,
+    path: &str,
+    id: &str,
+    user: &laterite_auth::AuthenticatedUser,
+    session: &crate::session::SessionHandle,
+    shell: crate::Shell,
+    headers: &axum::http::HeaderMap,
+    mut data: HashMap<String, String>,
+) -> Response {
+    let Some(editor) = &config.editor else {
+        return crate::not_found();
+    };
+    let form = &editor.0;
+    let Some(field) = data.remove("field") else {
+        return crate::not_found();
+    };
+    data.remove("_csrf");
+    if !config
+        .columns
+        .iter()
+        .any(|c| c.editable && c.field == field)
+        || !form.has_field(&field)
+    {
+        return crate::not_found();
+    }
+    let htmx = crate::form::is_htmx(headers);
+    let back = path.to_string();
+    let current = match crate::form::load_values(&state.db, form, id).await {
+        Ok(Some(values)) => values,
+        Ok(None) => return crate::not_found(),
+        Err(_) => return render_error(),
+    };
+    // The row as stored, with the submission over it. The edited field is
+    // taken from the submission alone, so a control that posts nothing when
+    // cleared (a switch) clears it rather than keeping the stored value.
+    let submitted = data.get(&field).cloned().unwrap_or_default();
+    let mut merged = current.clone();
+    merged.remove(&field);
+    for (key, value) in data {
+        merged.insert(key, value);
+    }
+    let merged = crate::form::gathered(form, merged);
+    let actor = laterite_core::Actor::from(user);
+    match crate::form::write(&state.db, form, &merged, Some(id), &actor).await {
+        Ok(_) => {
+            if htmx {
+                let stored = crate::form::load_values(&state.db, form, id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|values| values.get(&field).cloned())
+                    .unwrap_or(submitted);
+                let html = cell_markup(state, form, path, id, &field, &stored, &shell, None);
+                return axum::response::Html(html).into_response();
+            }
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                laterite_core::t!("Saved."),
+            );
+            crate::form::saved_response(false, &back)
+        }
+        Err(crate::persist::SaveError::Invalid(bag)) => {
+            let message = bag
+                .messages(&field)
+                .first()
+                .map(|m| shell.tt(m))
+                .or_else(|| {
+                    bag.iter()
+                        .next()
+                        .and_then(|(_, m)| m.first())
+                        .map(|m| shell.tt(m))
+                })
+                .unwrap_or_else(|| shell.tt(&laterite_core::t!("Could not save.")));
+            if htmx {
+                let html = cell_markup(
+                    state,
+                    form,
+                    path,
+                    id,
+                    &field,
+                    &submitted,
+                    &shell,
+                    Some(&message),
+                );
+                return (
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    axum::response::Html(html),
+                )
+                    .into_response();
+            }
+            session.push_flash(crate::session::FlashLevel::Error, Text::dynamic(message));
+            crate::form::saved_response(false, &back)
+        }
+        Err(crate::persist::SaveError::Failed(m)) => {
+            tracing::error!(entity = %config.entity, id, field, error = %m, "cell save failed");
+            render_error()
+        }
+    }
 }
 
 /// The list region alone, cut out of a built page.

@@ -805,6 +805,62 @@ impl PreparedForm {
         self.persister.clone()
     }
 
+    /// Whether the form declares `field`.
+    pub(crate) fn has_field(&self, field: &str) -> bool {
+        self.config.fields.iter().any(|f| f.name == field)
+    }
+
+    /// The widget assets `field`'s type declares.
+    pub(crate) fn field_assets(&self, field: &str) -> Vec<&'static str> {
+        self.config
+            .fields
+            .iter()
+            .zip(&self.fields)
+            .find(|(f, _)| f.name == field)
+            .map(|(_, pf)| pf.field_type.assets(&pf.opts))
+            .unwrap_or_default()
+    }
+
+    /// One field's bare control holding `value`, as the form would render it,
+    /// for a place outside the form such as an editable cell. `None` when the
+    /// form has no such field.
+    pub(crate) fn control(
+        &self,
+        state: &AdminState,
+        field: &str,
+        dom_id: &str,
+        value: &str,
+        shell: &crate::Shell,
+    ) -> Option<String> {
+        let (f, pf) = self
+            .config
+            .fields
+            .iter()
+            .zip(&self.fields)
+            .find(|(f, _)| f.name == field)?;
+        let value = FieldValue::Text(value.to_string());
+        let label = shell.tt(&f.label);
+        let cx = FieldCx {
+            name: &f.name,
+            id: dom_id,
+            label: &label,
+            value: &value,
+            required: has_required(&pf.rules),
+            max_length: max_length(&pf.rules),
+            opts: &pf.opts,
+            base: &shell.base,
+            i18n: shell.i18n(),
+        };
+        let ft = state.field_types.get(&f.field_type)?;
+        let scope = OverrideScope {
+            surface: Surface::Field,
+            view_key: &f.field_type,
+            resource: Some(&self.config.base_path),
+            field: Some(&f.name),
+        };
+        Some(render_field(ft.as_ref(), state.overrides.as_ref(), &scope, &cx).into_string())
+    }
+
     /// Resolves every field against the registry. Returns the offending field
     /// and reason (for a boot abort) when a type is unregistered or rejects its
     /// options.
@@ -916,7 +972,10 @@ fn declared_record(
 /// Its type gathers them into one value, so the rules see the field and a
 /// refused save is re-rendered from what the operator entered. A key already
 /// present is left as submitted.
-fn gathered(form: &PreparedForm, mut data: HashMap<String, String>) -> HashMap<String, String> {
+pub(crate) fn gathered(
+    form: &PreparedForm,
+    mut data: HashMap<String, String>,
+) -> HashMap<String, String> {
     for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
         if data.contains_key(&field.name) {
             continue;
@@ -1572,7 +1631,7 @@ pub(crate) struct RelationSection {
     pub html: crate::html::Markup,
 }
 
-fn escape_attr(s: &str) -> String {
+pub(crate) fn escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('"', "&quot;")
         .replace('<', "&lt;")

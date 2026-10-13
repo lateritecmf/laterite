@@ -1,0 +1,17 @@
+entity: products
+path: /products
+title: Products
+permission: acme.manage_products
+list:
+  columns:
+    name: { editable: true }
+    status: { editable: true }
+    code: {}
+form:
+  title: Product
+  fields:
+    name: { rules: [required] }
+    code: { rules: [required] }
+    status:
+      type: select
+      options: [{ value: draft, label: Draft }, { value: live, label: Live }]
