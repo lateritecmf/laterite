@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-10-15
+
+Navigation and system screens complete, closing the admin panel: a menu
+registry with sections, anchors and the operator's own order, breadcrumbs, a
+command palette, a request log, resource hooks, a module boot hook, typed UI
+elements and per-operator settings.
+
 ### Added
 
 - A menu registry: `menu: { under, icon, order }` (or `false`) on a resource,

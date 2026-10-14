@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-admin"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "anyhow",
  "askama",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-auth"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-cli"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -1379,7 +1379,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-core"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-macros"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1410,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-media"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "async-trait",
  "blake3",
@@ -1431,14 +1431,14 @@ dependencies = [
 
 [[package]]
 name = "laterite-web"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "lateritecmf"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "laterite-admin",
  "laterite-auth",

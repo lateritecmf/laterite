@@ -22,6 +22,10 @@ msgstr ""
 msgid "A field marked * must be matched."
 msgstr ""
 
+#: templates/palette.html
+msgid "A page, a setting or a record"
+msgstr ""
+
 #: src/lib.rs
 msgid "A password needs at least {n} characters."
 msgstr ""
@@ -134,7 +138,6 @@ msgstr ""
 
 #: templates/users_form.html
 #: templates/users_new.html
-#: (descriptors)
 msgid "Backend Users"
 msgstr ""
 
@@ -372,6 +375,10 @@ msgstr ""
 msgid "Download the refused rows"
 msgstr ""
 
+#: templates/preferences.html
+msgid "Drag the tabs in the top bar into the order you want; it follows you to every device."
+msgstr ""
+
 #: templates/_list_rows.html
 msgid "Drag to reorder"
 msgstr ""
@@ -451,6 +458,10 @@ msgstr ""
 msgid "File column"
 msgstr ""
 
+#: templates/palette.html
+msgid "Find"
+msgstr ""
+
 #: templates/import/_run_status.html
 msgid "Finished"
 msgstr ""
@@ -461,12 +472,33 @@ msgstr ""
 msgid "First name"
 msgstr ""
 
+#: (descriptors)
+msgid "First seen"
+msgstr ""
+
 #: src/error.rs
 msgid "Forbidden"
 msgstr ""
 
 #: templates/login.html
 msgid "Forgot your password? Ask an administrator to reset it."
+msgstr ""
+
+#: templates/base.html
+#: templates/palette.html
+msgid "Go to"
+msgstr ""
+
+#: templates/base.html
+msgid "Go to (Ctrl+K)"
+msgstr ""
+
+#: templates/base.html
+msgid "Go to a page, a setting or a record"
+msgstr ""
+
+#: (descriptors)
+msgid "Hits"
 msgstr ""
 
 #: templates/list.html
@@ -519,6 +551,10 @@ msgstr ""
 #: templates/users_new.html
 #: (descriptors)
 msgid "Last name"
+msgstr ""
+
+#: (descriptors)
+msgid "Last seen"
 msgstr ""
 
 #: templates/base.html
@@ -574,11 +610,20 @@ msgid "Matched the way your last file with these columns was."
 msgstr ""
 
 #: templates/base.html
+#: templates/preferences.html
 msgid "Menu"
 msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Message"
+msgstr ""
+
+#: (descriptors)
+msgid "Method"
+msgstr ""
+
+#: templates/preferences.html
+msgid "More"
 msgstr ""
 
 #: src/field.rs
@@ -666,6 +711,8 @@ msgid "Not recorded"
 msgstr ""
 
 #: src/checklist.rs
+#: templates/base.html
+#: templates/palette.html
 msgid "Nothing matches."
 msgstr ""
 
@@ -717,6 +764,10 @@ msgstr ""
 msgid "Password changed. Every other device was signed out."
 msgstr ""
 
+#: (descriptors)
+msgid "Path"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Permission overrides"
 msgstr ""
@@ -759,6 +810,7 @@ msgid "Preferences"
 msgstr ""
 
 #: src/lib.rs
+#: src/settings/mod.rs
 msgid "Preferences saved."
 msgstr ""
 
@@ -806,12 +858,20 @@ msgid_plural "Removed {n} records."
 msgstr[0] ""
 msgstr[1] ""
 
+#: (descriptors)
+msgid "Request Log"
+msgstr ""
+
 #: src/error.rs
 msgid "Request blocked"
 msgstr ""
 
 #: templates/users_form.html
 msgid "Reset password"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Reset the menu order"
 msgstr ""
 
 #: templates/users_form.html
@@ -824,6 +884,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Review sign-ins, failures and lockouts."
+msgstr ""
+
+#: (descriptors)
+msgid "Review the URLs the panel could not serve."
 msgstr ""
 
 #: (descriptors)
@@ -886,6 +950,7 @@ msgid "Save first, then add"
 msgstr ""
 
 #: src/form.rs
+#: src/lib.rs
 #: src/list.rs
 msgid "Saved."
 msgstr ""
@@ -893,6 +958,10 @@ msgstr ""
 #: src/checklist.rs
 #: templates/list.html
 msgid "Search"
+msgstr ""
+
+#: (descriptors)
+msgid "Search by path"
 msgstr ""
 
 #: (descriptors)
@@ -1005,6 +1074,7 @@ msgstr ""
 #: templates/import/index.html
 #: templates/plugins.html
 #: templates/users_form.html
+#: (descriptors)
 msgid "Status"
 msgstr ""
 
@@ -1124,6 +1194,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "The framework maintains this role; it cannot be deleted."
+msgstr ""
+
+#: src/lib.rs
+msgid "The menu is back in its default order."
 msgstr ""
 
 #: src/lib.rs
@@ -1268,6 +1342,10 @@ msgstr ""
 msgid "View the audit log"
 msgstr ""
 
+#: (descriptors)
+msgid "View the request log"
+msgstr ""
+
 #: templates/base.html
 msgid "View the site"
 msgstr ""
@@ -1295,6 +1373,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Would update"
+msgstr ""
+
+#: templates/base.html
+msgid "You are here"
 msgstr ""
 
 #: templates/users_form.html
