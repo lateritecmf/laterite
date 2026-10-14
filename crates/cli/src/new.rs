@@ -534,19 +534,25 @@ fn set_dir_mode(_path: &Path, _mode: u32) -> Result<()> {
 }
 
 fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
-    // The driver feature on laterite-admin links the sqlx driver everywhere (via
-    // core and auth). laterite-core is a direct dep for the app's own migrations.
-    // In dev mode the framework is a local checkout, so path deps, not versions.
+    // The app depends on the umbrella, whose driver feature links the sqlx
+    // driver everywhere, and on laterite-core directly for the migrations that
+    // `lat make:migration` scaffolds with `laterite_core` paths (the same paths
+    // a plugin uses). laterite-core and laterite-admin stay in the workspace
+    // table for the plugin manifest and the plugins. In dev mode the framework
+    // is a local checkout, so path deps, not versions.
     let laterite_deps = match framework {
         Some(root) => format!(
-            "laterite-core = {{ path = {core:?} }}\n\
-             laterite-admin = {{ path = {admin:?}, features = [\"{feature}\"] }}",
+            "lateritecmf = {{ path = {umbrella:?}, features = [\"{feature}\"] }}\n\
+             laterite-core = {{ path = {core:?} }}\n\
+             laterite-admin = {{ path = {admin:?} }}",
+            umbrella = root.join("crates/lateritecmf").display().to_string(),
             core = root.join("crates/core").display().to_string(),
             admin = root.join("crates/admin").display().to_string(),
         ),
         None => format!(
-            "laterite-core = \"0.6\"\n\
-             laterite-admin = {{ version = \"0.9\", features = [\"{feature}\"] }}"
+            "lateritecmf = {{ version = \"0.9\", features = [\"{feature}\"] }}\n\
+             laterite-core = \"0.9\"\n\
+             laterite-admin = \"0.9\""
         ),
     };
     // Plugins are separate crates linked at build time, so the application is a
@@ -589,8 +595,8 @@ edition = "2021"
 {laterite_deps}
 {patch}
 [dependencies]
+lateritecmf = {{ workspace = true }}
 laterite-core = {{ workspace = true }}
-laterite-admin = {{ workspace = true }}
 plugins-manifest = {{ path = "plugins-manifest" }}
 anyhow = "1"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
@@ -605,11 +611,13 @@ const MAIN_RS: &str = r#"//! A Laterite application.
 //! and serves the admin. Register the application's own resources, settings,
 //! permissions, and routes (a public API, web pages) on the builder as it grows.
 
+use lateritecmf::prelude::*;
+
 mod migrations;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    laterite_admin::Bootstrap::new("config")
+    Bootstrap::new("config")
         // Every plugin under plugins/, as listed in plugins/plugins.toml.
         .modules(plugins_manifest::all())
         .module(migrations::AppModule)
@@ -634,7 +642,9 @@ fn migrations_mod_rs(module_id: &str) -> String {
 //! the framework's built-in migrations. Append new entries at the end; never
 //! reorder or rename a shipped one.
 
-laterite_core::migration_set! {{
+use lateritecmf::prelude::*;
+
+migration_set! {{
     module_id: "{module_id}",
 }}
 
@@ -642,11 +652,11 @@ laterite_core::migration_set! {{
 /// its migrations run after the framework's built-in ones.
 pub struct AppModule;
 
-impl laterite_core::Module for AppModule {{
-    fn id(&self) -> laterite_core::ModuleId {{
-        laterite_core::ModuleId::new(MODULE_ID)
+impl Module for AppModule {{
+    fn id(&self) -> ModuleId {{
+        ModuleId::new(MODULE_ID)
     }}
-    fn migrations(&self) -> laterite_core::MigrationSet {{
+    fn migrations(&self) -> MigrationSet {{
         migrations()
     }}
 }}
@@ -756,15 +766,19 @@ mod tests {
     #[test]
     fn cargo_toml_uses_published_versions_by_default() {
         let toml = cargo_toml("acme", "sqlite", None);
-        assert!(toml.contains("laterite-core = \"0.6\""));
-        assert!(toml.contains("laterite-admin = { version = \"0.9\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("lateritecmf = { version = \"0.9\", features = [\"sqlite\"] }"));
+        assert!(toml.contains("laterite-core = \"0.9\""));
+        assert!(toml.contains("laterite-admin = \"0.9\""));
         // No local checkout leaks into a published-mode scaffold. The one path
         // here is the generated manifest, which is part of the app.
+        assert!(!toml.contains("lateritecmf = { path"));
         assert!(!toml.contains("laterite-core = { path"));
-        assert!(!toml.contains("laterite-admin = { path"));
         assert!(!toml.contains("[patch.crates-io]"));
         // laterite-auth is no longer a direct dependency (Bootstrap owns auth).
         assert!(!toml.contains("laterite-auth"));
+        // The umbrella carries the driver feature; the app names no admin dep.
+        assert!(!toml.contains("laterite-admin = { workspace"));
+        assert!(MAIN_RS.contains("use lateritecmf::prelude::*;"));
     }
 
     /// A fresh app is a workspace that already links the generated manifest, so
@@ -793,11 +807,13 @@ mod tests {
     fn cargo_toml_uses_path_deps_in_dev_mode() {
         let root = Path::new("/opt/laterite");
         let toml = cargo_toml("acme", "postgres", Some(root));
-        // Path dependencies to the local checkout, with the driver feature on admin.
-        assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
+        // Path dependencies to the local checkout, with the driver feature on
+        // the umbrella.
         assert!(toml.contains(
-            r#"laterite-admin = { path = "/opt/laterite/crates/admin", features = ["postgres"] }"#
+            r#"lateritecmf = { path = "/opt/laterite/crates/lateritecmf", features = ["postgres"] }"#
         ));
+        assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
+        assert!(toml.contains(r#"laterite-admin = { path = "/opt/laterite/crates/admin" }"#));
         assert!(!toml.contains("laterite-auth"));
     }
 

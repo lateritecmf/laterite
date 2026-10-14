@@ -64,6 +64,7 @@ acme/
 ```toml
 [dependencies]
 lateritecmf = { version = "0.9", features = ["postgres"] }
+laterite-core = "0.9"
 ```
 
 ```rust

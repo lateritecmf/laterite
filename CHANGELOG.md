@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- `lateritecmf` is on crates.io, and `lat new` generates an application on it:
+  `use lateritecmf::prelude::*;` with the driver feature set on the umbrella.
+
 ### Fixed
 
 - `lat make:migration` listed the new migration inside the module impl that
