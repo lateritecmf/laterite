@@ -100,12 +100,17 @@ fn append_to_manifest(manifest: &Path, module: &str) -> Result<()> {
     let src =
         fs::read_to_string(manifest).with_context(|| format!("reading {}", manifest.display()))?;
     let mut lines: Vec<String> = src.lines().map(str::to_string).collect();
-    // The manifest holds a single `migration_set!` block whose only bare `}`
-    // line closes it; insert the entry just above that line.
-    let close = lines
+    // The `migration_set!` block closes at the first bare `}` line after its
+    // opening; the module impl that follows it in an application has its own.
+    let open = lines
         .iter()
-        .rposition(|l| l.trim() == "}")
+        .position(|l| l.contains("migration_set!"))
         .context("could not find the migration_set! block to extend")?;
+    let close = lines[open..]
+        .iter()
+        .position(|l| l.trim() == "}")
+        .map(|i| open + i)
+        .context("could not find the end of the migration_set! block")?;
     lines.insert(close, format!("    {module},"));
     let mut out = lines.join("\n");
     out.push('\n');
@@ -244,6 +249,34 @@ mod tests {
         })
         .unwrap();
         assert!(migrations.join("m0002_add_flags.rs").exists());
+    }
+
+    /// An application's manifest carries its module impl after the set; the
+    /// entry goes into the set, never into the impl's braces.
+    #[test]
+    fn make_lists_inside_the_set_not_the_module_impl() {
+        let tmp = tempfile::tempdir().unwrap();
+        let migrations = tmp.path().join("src").join("migrations");
+        fs::create_dir_all(&migrations).unwrap();
+        fs::write(
+            migrations.join("mod.rs"),
+            "use lateritecmf::prelude::*;\n\nmigration_set! {\n    module_id: \"acme\",\n}\n\n\
+             pub struct AppModule;\n\nimpl Module for AppModule {\n    fn id(&self) -> ModuleId {\n        \
+             ModuleId::new(MODULE_ID)\n    }\n}\n",
+        )
+        .unwrap();
+
+        run(MakeMigrationArgs {
+            description: "create events".to_string(),
+            path: tmp.path().to_path_buf(),
+        })
+        .unwrap();
+
+        let manifest = fs::read_to_string(migrations.join("mod.rs")).unwrap();
+        let entry = manifest.find("    m0001_create_events,").unwrap();
+        let set_close = manifest.find("\n}\n").unwrap();
+        assert!(entry < set_close, "{manifest}");
+        assert!(manifest.ends_with("ModuleId::new(MODULE_ID)\n    }\n}\n"));
     }
 
     #[test]

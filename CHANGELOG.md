@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- `lat make:migration` listed the new migration inside the module impl that
+  follows the set in a generated application; it goes into the set.
+
 ## [0.9.12] - 2026-10-15
 
 Navigation and system screens complete, closing the admin panel: a menu
