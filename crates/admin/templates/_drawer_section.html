@@ -1,0 +1,8 @@
+{% if !shell.sidebar.is_empty() %}
+      <div class="lat-drawer__section">
+        {% for group in shell.sidebar %}
+        <div class="lat-drawer__grouphead">{{ group.name }}</div>
+        {% for entry in group.items %}<a class="lat-drawer__sub{% if entry.active %} is-active{% endif %}" href="{{ entry.path }}"{% if entry.active %} aria-current="page"{% endif %}>{{ entry.icon|safe }}<span>{{ entry.label }}</span></a>{% endfor %}
+        {% endfor %}
+      </div>
+{% endif %}

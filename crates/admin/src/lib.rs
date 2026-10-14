@@ -537,6 +537,12 @@ impl Shell {
     }
 
     /// Inline SVG for a named icon, for chrome that is not a nav item.
+    /// Whether a top-level tab is active, so the drawer nests the section
+    /// entries under it; otherwise the drawer appends them after the tabs.
+    pub(crate) fn sidebar_anchored(&self) -> bool {
+        self.nav.iter().any(|n| n.active)
+    }
+
     pub(crate) fn icon(&self, name: &str) -> String {
         icons::svg(&self.icon_set, &self.sprite_url, Some(name))
     }

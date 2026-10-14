@@ -438,6 +438,16 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-drawer__item{display:block;padding:13px 18px;color:var(--slate-300);text-decoration:none;font-size:var(--fs-13);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:var(--ls-caps);border-left:3px solid transparent}
 .lat-drawer__item:hover{background:var(--alpha-bone-08);color:var(--bone-100);text-decoration:none}
 .lat-drawer__item.is-active{background:var(--alpha-bone-08);color:var(--bone-100);border-left-color:var(--accent)}
+/* The active tab's section entries, nested under it. The context rail is
+   hidden while the drawer is the navigation, so these are the only way to
+   them on a narrow screen. */
+.lat-drawer__section{padding:2px 0 8px;background:var(--surface-sidebar-active)}
+.lat-drawer__grouphead{padding:10px 18px 4px 32px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--bone-500)}
+.lat-drawer__sub{display:flex;align-items:center;gap:10px;padding:9px 18px 9px 29px;border-left:3px solid transparent;color:var(--bone-200);font-size:var(--fs-13);font-weight:var(--fw-medium);text-decoration:none}
+.lat-drawer__sub svg{width:16px;height:16px;flex:0 0 auto;color:var(--bone-500)}
+.lat-drawer__sub:hover{background:var(--alpha-bone-08);color:var(--bone-100);text-decoration:none}
+.lat-drawer__sub.is-active{border-left-color:var(--accent);color:var(--bone-100)}
+.lat-drawer__sub.is-active svg{color:var(--accent)}
 
 /* Settings index items */
 .lat-settingsitem{display:block;padding:14px 16px;border-bottom:1px solid var(--border-subtle);text-decoration:none;color:inherit}
@@ -587,16 +597,17 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
 .lat-poweredby{left:24px;bottom:24px}
 }
 
-/* Below --bp-md: collapse the inline nav into the off-canvas drawer */
+/* Below --bp-md: collapse the inline nav into the off-canvas drawer, which
+   carries the context rail's entries too; the rail itself is hidden. */
 @media (max-width:1100px){.lat-fields>.lat-field--1,.lat-fields>.lat-field--2,.lat-fields>.lat-field--3{grid-column:span 6}}
 @media (max-width:768px){.lat-fields>.lat-field{grid-column:span 12}}
 @media (max-width:992px){
 .lat-topnav__burger{display:flex}
 .lat-topnav__nav{display:none}
 .lat-topnav__brand{padding-left:6px}
+.lat-sidebar{display:none}
 }
-/* Below --bp-sm: tighten chrome, let tables scroll, drop the wordmark, and
-   stack the context rail above the content instead of beside it. */
+/* Below --bp-sm: tighten chrome, let tables scroll and drop the wordmark. */
 @media (max-width:768px){
 .lat-page{padding:18px}
 .lat-topnav__wordmark{display:none}
@@ -606,8 +617,6 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
    reads as a mistake: give the tools the whole line and let the box fill it. */
 .lat-listbar__tools{margin-left:0;width:100%}
 .lat-listbar__search{flex:1;width:auto}
-.lat-body{flex-direction:column}
-.lat-sidebar{width:auto;align-self:stretch}
 }
 }
 .lat-table__grip{width:64px;white-space:nowrap;padding-right:0}

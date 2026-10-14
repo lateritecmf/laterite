@@ -38,6 +38,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- On a narrow screen the section sidebar sat above the content and pushed it
+  down; its entries now nest under the active tab in the menu drawer.
 - Deleting rows from a list returned to a doubled path (`/admin/admin/...`), a 404;
   it returns to the list.
 - The setup screen's first sign-in now records the client's address and agent
