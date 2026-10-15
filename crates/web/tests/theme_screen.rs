@@ -359,3 +359,78 @@ async fn a_theme_exports_as_a_zip_and_imports_as_a_new_one() {
         "{html}"
     );
 }
+
+#[tokio::test]
+async fn a_page_save_checks_its_url_and_layout() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    let theme = store::create_theme(&db, "acme", "name: Acme\n")
+        .await
+        .unwrap();
+    let (_, location) = post(
+        &app,
+        "/admin/themes/acme/templates",
+        &root,
+        "kind=page&path=about.htm",
+    )
+    .await;
+    let t = store::find_template(&db, theme.id, Kind::Page, "about.htm")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        t.settings,
+        serde_json::json!({"url": "/about"}),
+        "a new page gets a url"
+    );
+    let editor = location;
+
+    // A layout the theme lacks is refused; a bad pattern too.
+    let (_, _) = post(
+        &app,
+        &format!("{editor}/save"),
+        &root,
+        "settings=%7B%22url%22%3A%22%2Fabout%22%2C%22layout%22%3A%22default%22%7D&markup=x",
+    )
+    .await;
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(html.contains("no layout"), "{html}");
+    assert_eq!(
+        store::template(&db, t.id).await.unwrap().unwrap().markup,
+        ""
+    );
+
+    let (_, _) = post(
+        &app,
+        &format!("{editor}/save"),
+        &root,
+        "settings=%7B%22url%22%3A%22about%22%7D&markup=x",
+    )
+    .await;
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(html.contains("starts with a slash"), "{html}");
+
+    store::save_template(
+        &db,
+        theme.id,
+        Kind::Layout,
+        "default.htm",
+        None,
+        "{% block page %}{% endblock %}",
+        None,
+    )
+    .await
+    .unwrap();
+    let (_, _) = post(
+        &app,
+        &format!("{editor}/save"),
+        &root,
+        "settings=%7B%22url%22%3A%22%2Fabout%22%2C%22layout%22%3A%22default%22%7D&markup=x",
+    )
+    .await;
+    assert_eq!(
+        store::template(&db, t.id).await.unwrap().unwrap().markup,
+        "x"
+    );
+}

@@ -324,6 +324,23 @@ async fn import_into(
     back(&ctx, &code)
 }
 
+/// A page's settings as a save checks them: the URL parses and the layout
+/// is one the theme or an ancestor has.
+async fn check_page(
+    ctx: &RouteCtx,
+    code: &str,
+    settings: &serde_json::Value,
+) -> Result<(), ThemeError> {
+    let page = super::page::PageSettings::from_value(settings)?;
+    let mut layouts = Vec::new();
+    for theme in store::chain(ctx.db(), code).await? {
+        for t in store::list_templates(ctx.db(), theme.id, Some(Kind::Layout)).await? {
+            layouts.push(t.path);
+        }
+    }
+    page.check(&layouts)
+}
+
 /// A template as the theme page lists it: the theme's own, or an ancestor's.
 struct TemplateRow {
     path: String,
@@ -758,7 +775,20 @@ async fn create_template(
     if let Ok(Some(existing)) = store::find_template(ctx.db(), theme.id, kind, path).await {
         return back(&ctx, &format!("{code}/templates/{}", existing.id));
     }
-    match store::save_template(ctx.db(), theme.id, kind, path, None, "", Some(user.user.id)).await {
+    // A new page starts at the URL its name suggests, so it serves at once.
+    let settings = (kind == Kind::Page)
+        .then(|| serde_json::json!({ "url": format!("/{}", super::page::page_name(path)) }));
+    match store::save_template(
+        ctx.db(),
+        theme.id,
+        kind,
+        path,
+        settings,
+        "",
+        Some(user.user.id),
+    )
+    .await
+    {
         Ok(t) => {
             ctx.audit(
                 &user,
@@ -892,6 +922,12 @@ async fn save_template(
     if template.kind != Kind::Content {
         if let Err(e) = engine::check(&markup) {
             session.push_flash(FlashLevel::Error, Text::dynamic(e.to_string()));
+            return back(&ctx, &here);
+        }
+    }
+    if template.kind == Kind::Page {
+        if let Err(e) = check_page(&ctx, &code, &settings).await {
+            flash_error(&session, &e);
             return back(&ctx, &here);
         }
     }

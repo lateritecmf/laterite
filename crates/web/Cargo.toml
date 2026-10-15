@@ -13,6 +13,7 @@ laterite-admin = { workspace = true }
 askama = { workspace = true }
 chrono = { workspace = true }
 minijinja = { version = "3", features = ["serde", "fuel"] }
+regex = { workspace = true }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 sea-query = { workspace = true }
 serde = { workspace = true }

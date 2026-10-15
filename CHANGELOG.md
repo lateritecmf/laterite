@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Pages route: a page's `url` pattern (`:param`, `?`, `?default`, `|regex`, `*`),
+  its `layout` wrapping it on save, `page()` for links, and `Engine::resolve`.
+
 ## [0.9.13] - 2026-10-16
 
 Themes: the public site's templates as rows edited from the admin. A theme is a

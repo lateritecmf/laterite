@@ -101,6 +101,68 @@ if let Some((from, template)) = store::resolve_template(&db, "child", Kind::Layo
 store::delete_template(&db, template.id).await?;
 ```
 
+## Pages
+
+A page's settings name its URL pattern and its layout; the save refuses a pattern that does not parse or a layout the theme and its ancestors lack.
+
+```json
+{
+  "url": "/blog/:slug",
+  "layout": "default",
+  "title": "A post",
+  "description": "",
+  "meta_title": "",
+  "meta_description": "",
+  "meta_image": "",
+  "meta_type": "",
+  "meta_robots": "",
+  "hidden": false
+}
+```
+
+Key | Default | Meaning
+--- | --- | ---
+`url` | required | The URL pattern.
+`layout` | none | The layout by name (`default` for `layouts/default.htm`); the page then fills its `page` block, and a block the page defines at its top level fills the layout's block of that name without rendering in place. A page that writes `{% extends %}` itself is left as written.
+`title`, `description` | `""` | The page's own words, read as `this.page.title`.
+`meta_title`, `meta_description`, `meta_image`, `meta_type`, `meta_robots` | `""` | The head's meta fields.
+`hidden` | `false` | Served only to an operator previewing the theme.
+
+Pattern | Matches
+--- | ---
+`/blog` | `/blog`, in any case
+`/blog/:slug` | one segment, bound to `slug`
+`/blog/:slug?` | the segment or nothing
+`/blog/:page?1` | the segment, or `1` when left out
+`/blog/:id|^[0-9]+$` | a segment the expression matches
+`/docs/:path*` | one or more segments, joined with `/`
+`/docs/:path?*` | none or more segments
+
+An optional parameter before a required one is required. One wildcard at most, with no expression and nothing optional after it. The most specific page wins: more static segments, then fewer wildcards, then fewer parameters.
+
+```jinja
+{% block title %}{{ this.page.title }}{% endblock %}
+<a href="{{ page('blog/post', slug=post.slug) }}">{{ post.title }}</a>
+```
+
+Name | Gives
+--- | ---
+`page(<name>, param=value, ...)` | The URL of the page named by its path without the extension; a parameter left out takes its default.
+`{% block page %}` in a layout | Where the page renders.
+
+```rust
+let engine = Engine::build(&db, "acme").await?;
+if let Some((name, params)) = engine.resolve("/blog/hello") {
+    let settings = engine.page(name);
+    let url = engine.url_for(name, &params);
+}
+for (name, url) in engine.routes().fixed() {
+    println!("{name} at {url}");
+}
+```
+
+`router::Pattern::parse`, `Pattern::matches`, `Pattern::url` and `router::RouteTable` are the engine beneath, usable on their own.
+
 ## Revisions
 
 Every save keeps what it replaced:

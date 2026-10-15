@@ -15,6 +15,8 @@
 //! template that would fail. An [`EngineCache`] keeps one engine per theme and
 //! rebuilds it when the theme or an ancestor changes.
 
+use super::page::{page_name, PageSettings};
+use super::router::{Params, RouteTable};
 use super::{store, Kind, Theme, ThemeError};
 use laterite_core::Db;
 use minijinja::value::{Kwargs, Serde, Value};
@@ -88,6 +90,74 @@ pub struct Engine {
     theme: Theme,
     stamp: String,
     names: Vec<String>,
+    routes: Arc<RouteTable>,
+    pages: HashMap<String, PageSettings>,
+    /// Each page template's compiled-to-author line map.
+    line_maps: HashMap<String, Vec<usize>>,
+}
+
+/// A page's source as the environment compiles it, with a map from each
+/// compiled line to the author's.
+///
+/// A page that names a layout and does not extend a template itself is
+/// wrapped: `{% extends %}` and `{% block page %}` open on its first line, so
+/// the body keeps its line numbers. A block the page defines at its top level
+/// (`{% block title %}`) is lifted out of the page block to the end, blank
+/// lines holding its place, so it fills the layout's block without rendering
+/// where it stood; the map carries its lines back.
+fn compose_page(source: &str, layout: Option<&str>) -> (String, Vec<usize>) {
+    let lines = source.lines().count().max(1);
+    let identity: Vec<usize> = (1..=lines).collect();
+    let Some(layout) = layout else {
+        return (source.to_string(), identity);
+    };
+    if source.contains("{% extends") || source.contains("{%- extends") {
+        return (source.to_string(), identity);
+    }
+    let tag = regex::Regex::new(
+        r"\{%-?\s*(block\s+[A-Za-z_][A-Za-z0-9_]*|endblock(?:\s+[A-Za-z_][A-Za-z0-9_]*)?)\s*-?%\}",
+    )
+    .expect("a fixed expression");
+    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut depth = 0usize;
+    let mut open = None;
+    for m in tag.find_iter(source) {
+        if m.as_str().contains("endblock") {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                if let Some(start) = open.take() {
+                    spans.push(start..m.end());
+                }
+            }
+        } else {
+            if depth == 0 {
+                open = Some(m.start());
+            }
+            depth += 1;
+        }
+    }
+    let mut body = String::with_capacity(source.len());
+    let mut hoisted: Vec<(usize, &str)> = Vec::new();
+    let mut at = 0;
+    for span in &spans {
+        body.push_str(&source[at..span.start]);
+        let text = &source[span.clone()];
+        body.extend(std::iter::repeat_n('\n', text.matches('\n').count()));
+        hoisted.push((source[..span.start].matches('\n').count() + 1, text));
+        at = span.end;
+    }
+    body.push_str(&source[at..]);
+    let mut compiled = format!(
+        "{{% extends {:?} %}}{{% block page %}}{body}{{% endblock %}}",
+        template_name(Kind::Layout, layout)
+    );
+    let mut map: Vec<usize> = (1..=body.lines().count().max(1)).collect();
+    for (origin, text) in hoisted {
+        compiled.push('\n');
+        compiled.push_str(text);
+        map.extend(text.lines().enumerate().map(|(i, _)| origin + i));
+    }
+    (compiled, map)
 }
 
 /// The theme as templates see it: its settings values, then `code`, `name`,
@@ -136,16 +206,42 @@ impl Engine {
         let stamp = stamp_of(&chain);
         let mut sources: HashMap<String, String> = HashMap::new();
         let mut content: HashMap<String, String> = HashMap::new();
+        let mut page_rows: HashMap<String, (serde_json::Value, String)> = HashMap::new();
         // Ancestors first, so a nearer theme's row replaces a farther one's.
         for theme in chain.iter().rev() {
             for t in store::list_templates(db, theme.id, None).await? {
-                if t.kind == Kind::Content {
-                    content.insert(t.path, t.markup);
-                } else {
-                    sources.insert(template_name(t.kind, &t.path), t.markup);
+                match t.kind {
+                    Kind::Content => {
+                        content.insert(t.path, t.markup);
+                    }
+                    Kind::Page => {
+                        page_rows.insert(t.path, (t.settings, t.markup));
+                    }
+                    _ => {
+                        sources.insert(template_name(t.kind, &t.path), t.markup);
+                    }
                 }
             }
         }
+        // A page with settings that do not parse is left out of the routes
+        // but still compiles, so the editor can open it.
+        let mut routes = RouteTable::default();
+        let mut pages: HashMap<String, PageSettings> = HashMap::new();
+        let mut line_maps: HashMap<String, Vec<usize>> = HashMap::new();
+        for (path, (settings, markup)) in page_rows {
+            let name = page_name(&path).to_string();
+            let parsed = PageSettings::from_value(&settings).unwrap_or_default();
+            if let Ok(pattern) = parsed.pattern() {
+                routes.add(name.clone(), pattern);
+            }
+            let layout = parsed.layout_path();
+            let (compiled, map) = compose_page(&markup, layout.as_deref());
+            let template = template_name(Kind::Page, &path);
+            sources.insert(template.clone(), compiled);
+            line_maps.insert(template, map);
+            pages.insert(name, parsed);
+        }
+        let routes = Arc::new(routes);
         let theme = chain
             .into_iter()
             .next()
@@ -166,6 +262,26 @@ impl Engine {
             },
         );
         env.add_function("partial", partial);
+        let table = Arc::clone(&routes);
+        env.add_function(
+            "page",
+            move |name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+                let mut params = Params::new();
+                for key in kwargs.args() {
+                    params.insert(key.to_string(), kwargs.get::<String>(key)?);
+                }
+                kwargs.assert_all_used()?;
+                table
+                    .url(&name, &params)
+                    .map(Value::from_safe_string)
+                    .ok_or_else(|| {
+                        minijinja::Error::new(
+                            ErrorKind::InvalidOperation,
+                            format!("no page {name:?}"),
+                        )
+                    })
+            },
+        );
         configure(&mut env);
         let mut names: Vec<String> = sources.keys().cloned().collect();
         names.sort();
@@ -178,6 +294,9 @@ impl Engine {
             theme,
             stamp,
             names,
+            routes,
+            pages,
+            line_maps,
         })
     }
 
@@ -201,6 +320,26 @@ impl Engine {
         &self.names
     }
 
+    /// The page a request path resolves to, with its parameters.
+    pub fn resolve(&self, path: &str) -> Option<(&str, Params)> {
+        self.routes.resolve(path)
+    }
+
+    /// A page's settings by name (its path without the extension).
+    pub fn page(&self, name: &str) -> Option<&PageSettings> {
+        self.pages.get(name)
+    }
+
+    /// The URL of the page `name` with `params`.
+    pub fn url_for(&self, name: &str, params: &Params) -> Option<String> {
+        self.routes.url(name, params)
+    }
+
+    /// The route table: every page's pattern in matching order.
+    pub fn routes(&self) -> &RouteTable {
+        &self.routes
+    }
+
     /// Whether the theme, or an ancestor, has this template.
     pub fn has(&self, kind: Kind, path: &str) -> bool {
         self.names.binary_search(&template_name(kind, path)).is_ok()
@@ -213,8 +352,23 @@ impl Engine {
         path: &str,
         ctx: impl Serialize,
     ) -> Result<String, RenderError> {
-        let template = self.env.get_template(&template_name(kind, path))?;
-        Ok(template.render(Value::from(Serde(ctx)))?)
+        let name = template_name(kind, path);
+        let template = self.env.get_template(&name)?;
+        template
+            .render(Value::from(Serde(ctx)))
+            .map_err(|e| self.author_line(RenderError::from(e)))
+    }
+
+    /// An error's line as the author sees it, for a page the engine composed.
+    fn author_line(&self, mut err: RenderError) -> RenderError {
+        if let (Some(template), Some(line)) = (&err.template, err.line) {
+            if let Some(map) = self.line_maps.get(template) {
+                if let Some(original) = map.get(line.saturating_sub(1)) {
+                    err.line = Some(*original);
+                }
+            }
+        }
+        err
     }
 }
 
@@ -319,5 +473,33 @@ impl EngineCache {
     /// Drops the engine for `code`, so the next request rebuilds it.
     pub fn invalidate(&self, code: &str) {
         self.engines.write().expect("engine cache").remove(code);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_is_composed_into_its_layout_with_its_blocks_lifted() {
+        let (compiled, map) = compose_page(
+            "a\n{% block title %}T\nU{% endblock %}\nb {{ x }}",
+            Some("default.htm"),
+        );
+        assert_eq!(
+            compiled,
+            "{% extends \"layouts/default.htm\" %}{% block page %}a\n\n\nb {{ x }}{% endblock %}\n{% block title %}T\nU{% endblock %}"
+        );
+        // Body lines keep their numbers; the lifted block maps back to 2 and 3.
+        assert_eq!(map, vec![1, 2, 3, 4, 2, 3]);
+
+        let (plain, map) = compose_page("x\ny", None);
+        assert_eq!(plain, "x\ny");
+        assert_eq!(map, vec![1, 2]);
+        let (own, _) = compose_page("{% extends \"layouts/a.htm\" %}", Some("default.htm"));
+        assert!(own.starts_with("{% extends \"layouts/a.htm\" %}"));
+        // An unmatched block is left where it is.
+        let (unmatched, _) = compose_page("{% block t %}x", Some("default.htm"));
+        assert!(unmatched.contains("{% block page %}{% block t %}x{% endblock %}"));
     }
 }

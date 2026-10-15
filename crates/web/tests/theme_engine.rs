@@ -239,3 +239,120 @@ async fn a_template_reads_the_settings_beside_the_theme_keys() {
         "Acme &lt;Co&gt;|Base"
     );
 }
+
+#[tokio::test]
+async fn a_page_renders_inside_its_layout_and_routes_resolve() {
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    save(
+        &db,
+        base.id,
+        Kind::Layout,
+        "default.htm",
+        "<title>{% block title %}Base{% endblock %}</title><main>{% block page %}{% endblock %}</main>",
+    )
+    .await;
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "home.htm",
+        Some(serde_json::json!({"url": "/", "layout": "default", "title": "Home"})),
+        "{% block title %}Home{% endblock %}<h1>{{ this.page.title }}</h1><a href=\"{{ page('blog/post', slug='hi') }}\">x</a>",
+        None,
+    )
+    .await
+    .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "blog/post.htm",
+        Some(serde_json::json!({"url": "/blog/:slug", "layout": "default"})),
+        "<p>{{ this.params.slug }}</p>",
+        None,
+    )
+    .await
+    .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "bare.htm",
+        Some(serde_json::json!({"url": "/bare"})),
+        "bare {{ x }}",
+        None,
+    )
+    .await
+    .unwrap();
+    let child = store::create_child_theme(&db, "base", "child", "Child")
+        .await
+        .unwrap();
+    store::save_template(
+        &db,
+        child.id,
+        Kind::Page,
+        "home.htm",
+        Some(serde_json::json!({"url": "/", "layout": "default"})),
+        "{% extends \"layouts/default.htm\" %}{% block page %}child home{% endblock %}",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let engine = Engine::build(&db, "base").await.unwrap();
+    assert_eq!(engine.routes().names(), ["bare", "blog/post", "home"]);
+    let (name, params) = engine.resolve("/blog/hello").unwrap();
+    assert_eq!(name, "blog/post");
+    assert_eq!(params.get("slug").map(String::as_str), Some("hello"));
+    assert!(engine.resolve("/nowhere").is_none());
+    assert_eq!(engine.page("home").unwrap().title, "Home");
+    assert_eq!(
+        engine
+            .url_for(
+                "blog/post",
+                &[("slug".to_string(), "a-b".to_string())].into()
+            )
+            .as_deref(),
+        Some("/blog/a-b")
+    );
+
+    let html = engine
+        .render(
+            Kind::Page,
+            "home.htm",
+            serde_json::json!({"this": {"page": {"title": "Home"}, "params": {}}}),
+        )
+        .unwrap();
+    assert_eq!(
+        html, "<title>Home</title><main><h1>Home</h1><a href=\"/blog/hi\">x</a></main>",
+        "the page fills the layout's page block and overrides its title block"
+    );
+    let html = engine
+        .render(Kind::Page, "bare.htm", serde_json::json!({"x": 1}))
+        .unwrap();
+    assert_eq!(html, "bare 1", "no layout renders the page alone");
+
+    // A page that extends on its own is left as written.
+    let engine = Engine::build(&db, "child").await.unwrap();
+    let html = engine.render(Kind::Page, "home.htm", ()).unwrap();
+    assert_eq!(html, "<title>Base</title><main>child home</main>");
+
+    // An error in a page keeps the author's line number.
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "broken.htm",
+        Some(serde_json::json!({"url": "/broken", "layout": "default"})),
+        "line one\nline two {{ missing }}",
+        None,
+    )
+    .await
+    .unwrap();
+    let engine = Engine::build(&db, "base").await.unwrap();
+    let err = engine.render(Kind::Page, "broken.htm", ()).unwrap_err();
+    assert_eq!(err.line, Some(2), "{err}");
+}

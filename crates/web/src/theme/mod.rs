@@ -25,6 +25,8 @@ pub mod admin;
 pub mod archive;
 pub mod engine;
 mod migrations;
+pub mod page;
+pub mod router;
 mod schema;
 pub mod store;
 
@@ -236,6 +238,8 @@ pub enum ThemeError {
     Active(String),
     #[error("the template does not compile")]
     Template(#[source] engine::RenderError),
+    #[error("{0}")]
+    Page(String),
     #[error("archive error")]
     Zip(#[from] zip::result::ZipError),
     #[error("archive error")]
