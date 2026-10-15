@@ -19,6 +19,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   the render and read under the alias, with `{{ :name }}` taking a URL parameter.
 - `site::render_page_with` and `site::run_components`; `build::build_with` takes the
   registered components too.
+- `Component::markup` and `component("alias")`: a component's own markup, overridden
+  by the theme's `partials/<alias>/default.htm`; the page editor's Components box.
 
 ### Changed
 

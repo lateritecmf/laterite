@@ -235,6 +235,8 @@ async fn serve(
         .engines
         .get_with(ctx.db(), &theme.code, |env| {
             markup::install_all(&site.markup, env);
+            let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
+            component::install_markup(&regs, env);
             add_url(env, origin.clone());
         })
         .await

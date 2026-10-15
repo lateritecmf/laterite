@@ -402,6 +402,24 @@ Name | Gives
 
 A layout's components run first, then the page's; a page alias replaces a layout's. `build::build_with` takes the registered components for a static build.
 
+A component may ship markup; a theme overrides it per alias:
+
+```rust
+fn markup(&self) -> Option<&'static str> {
+    Some("<ul>{% for item in component.items %}<li>{{ item.title }}</li>{% endfor %}</ul>")
+}
+```
+
+```jinja
+{{ component('latest') }}
+```
+
+Name | Gives
+--- | ---
+`component(<alias>)` | The theme's `partials/<alias>/default.htm`, else the component's own markup, with the data as `component` and under the alias, beside `this` and `head`.
+
+The page editor's Components box takes the `components` object as JSON and lists the registered components with their properties.
+
 ## Markup a module adds
 
 ```rust

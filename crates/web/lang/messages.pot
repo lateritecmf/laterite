@@ -51,6 +51,10 @@ msgstr ""
 msgid "Code"
 msgstr ""
 
+#: src/theme/admin/mod.rs
+msgid "Components must be a JSON object keyed by alias."
+msgstr ""
+
 #: templates/theme.html
 msgid "Config"
 msgstr ""

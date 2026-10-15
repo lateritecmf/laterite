@@ -287,6 +287,7 @@ impl Engine {
             },
         );
         env.add_function("partial", partial);
+        env.add_function("component", component);
         let code = theme.code.clone();
         env.add_function("asset", move |path: String| -> Value {
             Value::from_safe_string(format!(
@@ -452,6 +453,46 @@ fn partial(state: &State, name: String, kwargs: Kwargs) -> Result<Value, minijin
         pairs.push((key.to_string(), kwargs.get::<Value>(key)?));
     }
     kwargs.assert_all_used()?;
+    Ok(Value::from_safe_string(
+        template.render(Value::from_pairs(pairs))?,
+    ))
+}
+
+/// `component("post")`: renders the theme's `partials/post/default.htm`, else
+/// the component's default markup, with the component's data as `component`
+/// and under its alias, beside the request's `this` and `head`.
+fn component(state: &State, alias: String) -> Result<Value, minijinja::Error> {
+    let code = state
+        .lookup(super::component::ALIASES_KEY)
+        .and_then(|m| m.get_attr(&alias).ok())
+        .filter(|v| !v.is_undefined())
+        .map(|v| v.to_string())
+        .ok_or_else(|| {
+            minijinja::Error::new(
+                ErrorKind::InvalidOperation,
+                format!("no component is attached as {alias:?}"),
+            )
+        })?;
+    let own = template_name(Kind::Partial, &format!("{alias}/default.htm"));
+    let template = match state.env().get_template(&own) {
+        Ok(t) => t,
+        Err(_) => state
+            .env()
+            .get_template(&super::component::template_name(&code))
+            .map_err(|_| {
+                minijinja::Error::new(
+                    ErrorKind::TemplateNotFound,
+                    format!("no markup for the component {code:?} as {alias:?}: add partials/{alias}/default.htm"),
+                )
+            })?,
+    };
+    let data = state.lookup(&alias).unwrap_or_default();
+    let mut pairs: Vec<(String, Value)> = ["this", "head"]
+        .into_iter()
+        .filter_map(|key| state.lookup(key).map(|v| (key.to_string(), v)))
+        .collect();
+    pairs.push((alias.clone(), data.clone()));
+    pairs.push(("component".to_string(), data));
     Ok(Value::from_safe_string(
         template.render(Value::from_pairs(pairs))?,
     ))

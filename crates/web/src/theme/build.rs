@@ -50,6 +50,7 @@ pub async fn build_with(
         let origin = origin.clone();
         move |env| {
             super::markup::install_all(markup, env);
+            super::component::install_markup(components, env);
             site::add_url(env, origin);
         }
     })

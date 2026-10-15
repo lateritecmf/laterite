@@ -338,8 +338,32 @@ async fn layouts_of(ctx: &RouteCtx, code: &str) -> Result<Vec<String>, ThemeErro
     Ok(layouts)
 }
 
+/// The registered components, as the Components help lists them.
+fn components_help(ctx: &RouteCtx) -> String {
+    let regs = ctx.contributions::<super::component::ComponentReg>();
+    if regs.is_empty() {
+        return String::from("No component is registered.");
+    }
+    regs.iter()
+        .map(|r| {
+            let props: Vec<String> = r
+                .component
+                .properties()
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            if props.is_empty() {
+                r.code.clone()
+            } else {
+                format!("{} ({})", r.code, props.join(", "))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// A page's settings as the editor shows them: typed fields over the bag.
-fn page_fields(layouts: &[String]) -> Vec<laterite_admin::form::FormField> {
+fn page_fields(layouts: &[String], components_help: &str) -> Vec<laterite_admin::form::FormField> {
     use laterite_admin::form::FormField;
     let names: Vec<String> = layouts
         .iter()
@@ -347,6 +371,9 @@ fn page_fields(layouts: &[String]) -> Vec<laterite_admin::form::FormField> {
         .collect();
     let mut choices: Vec<(&str, &str)> = vec![("", "")];
     choices.extend(names.iter().map(|n| (n.as_str(), n.as_str())));
+    let components_help = Text::dynamic(format!(
+        "A JSON object keyed by alias: {{\"posts\": {{\"component\": \"acme.posts\", \"limit\": 5}}}}. Registered: {components_help}"
+    ));
     vec![
         FormField::text("url", t!("URL"))
             .required()
@@ -360,7 +387,23 @@ fn page_fields(layouts: &[String]) -> Vec<laterite_admin::form::FormField> {
         FormField::text("meta_type", t!("Meta type")),
         FormField::text("meta_robots", t!("Meta robots")),
         FormField::switch("hidden", t!("Hidden: shown only while previewing")),
+        FormField::textarea("components", t!("Components")).help(components_help),
     ]
+}
+
+/// The bag as the fields show it: `components` as pretty JSON text.
+fn bag_for_fields(settings: &serde_json::Value) -> serde_json::Value {
+    let mut bag = settings.clone();
+    if let Some(obj) = bag.as_object_mut() {
+        let text = match obj.get("components") {
+            Some(serde_json::Value::Object(m)) if !m.is_empty() => {
+                serde_json::to_string_pretty(m).unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        obj.insert("components".into(), serde_json::Value::String(text));
+    }
+    bag
 }
 
 /// A page's settings as a save checks them: the URL parses and the layout
@@ -919,8 +962,11 @@ async fn template(
         .unwrap_or_default();
     let page_fields = if template.kind == Kind::Page {
         let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
-        match ctx.value_form(&page_fields(&layouts), &code) {
-            Ok(form) => Some(form.render(&template.settings, &shell).into_string()),
+        match ctx.value_form(&page_fields(&layouts, &components_help(&ctx)), &code) {
+            Ok(form) => Some(
+                form.render(&bag_for_fields(&template.settings), &shell)
+                    .into_string(),
+            ),
             Err(text) => {
                 session.push_flash(FlashLevel::Error, text);
                 None
@@ -966,12 +1012,32 @@ async fn save_template(
     let settings: serde_json::Value = if template.kind == Kind::Page {
         let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
         let collected = ctx
-            .value_form(&page_fields(&layouts), &code)
+            .value_form(&page_fields(&layouts, &components_help(&ctx)), &code)
             .and_then(|f| f.collect(&form));
         match collected {
-            Ok(serde_json::Value::Object(fields)) => {
+            Ok(serde_json::Value::Object(mut fields)) => {
+                // The Components box is JSON text; empty means none.
+                let text = fields
+                    .remove("components")
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default();
+                let components = if text.trim().is_empty() {
+                    serde_json::json!({})
+                } else {
+                    match serde_json::from_str::<serde_json::Value>(&text) {
+                        Ok(v @ serde_json::Value::Object(_)) => v,
+                        _ => {
+                            session.push_flash(
+                                FlashLevel::Error,
+                                t!("Components must be a JSON object keyed by alias."),
+                            );
+                            return back(&ctx, &here);
+                        }
+                    }
+                };
                 let mut bag = template.settings.as_object().cloned().unwrap_or_default();
                 bag.extend(fields);
+                bag.insert("components".into(), components);
                 serde_json::Value::Object(bag)
             }
             Ok(_) => serde_json::json!({}),

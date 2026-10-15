@@ -119,6 +119,13 @@ pub trait Component: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// The component's default markup, rendered by `component("alias")` when
+    /// the theme has no `partials/<alias>/default.htm` of its own. It reads
+    /// the component's data as `component` and as the alias.
+    fn markup(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Produces the data for one request.
     async fn run(&self, cx: &ComponentContext<'_>) -> Result<ComponentOutput, ThemeError>;
 }
@@ -145,6 +152,14 @@ impl ComponentReg {
         }
     }
 }
+
+/// The environment name of a component's default markup.
+pub fn template_name(code: &str) -> String {
+    format!("components/{code}.htm")
+}
+
+/// The context key holding each alias's component code for `component()`.
+pub const ALIASES_KEY: &str = "__components";
 
 /// One attachment: an alias, a component code and its raw properties.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,6 +298,19 @@ pub struct Ran {
     pub pairs: Vec<(String, serde_json::Value)>,
 }
 
+/// Adds every registered component's default markup to `env`, so
+/// `component()` can fall back to it.
+pub fn install_markup(regs: &[&ComponentReg], env: &mut minijinja::Environment<'static>) {
+    for reg in regs {
+        if let Some(markup) = reg.component.markup() {
+            // A default that does not compile is a module bug, logged and skipped.
+            if let Err(e) = env.add_template_owned(template_name(&reg.code), markup.to_string()) {
+                tracing::error!(component = %reg.code, error = %e, "a component's default markup does not compile");
+            }
+        }
+    }
+}
+
 /// Runs every attachment in `bags` (a layout's, then a page's; a later alias
 /// replaces an earlier one), returning the context pairs.
 pub async fn run_all(
@@ -328,6 +356,11 @@ pub async fn run_all(
             pairs.push((name, value));
         }
     }
+    let aliases: serde_json::Map<String, serde_json::Value> = by_alias
+        .values()
+        .map(|a| (a.alias.clone(), serde_json::Value::String(a.code.clone())))
+        .collect();
+    pairs.push((ALIASES_KEY.to_string(), serde_json::Value::Object(aliases)));
     Ok(Ran { pairs })
 }
 
