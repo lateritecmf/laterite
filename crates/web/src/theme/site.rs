@@ -10,6 +10,7 @@
 //! assets serve under `/themes/<code>/assets/<path>` with an ETag.
 
 use super::admin::PERMISSION;
+use super::component::{self, ComponentReg};
 use super::engine::{template_name, Engine, EngineCache, RenderError};
 use super::maintenance::{self, MaintenanceSettings};
 use super::markup::{self, Markup, MarkupReg};
@@ -40,6 +41,8 @@ struct SiteState {
     engines: EngineCache,
     /// The markup every module registered, installed into each engine.
     markup: Vec<Arc<dyn Markup>>,
+    /// The components every module registered.
+    components: Vec<Arc<ComponentReg>>,
 }
 
 impl PublicRoute for Site {
@@ -49,10 +52,22 @@ impl PublicRoute for Site {
             .into_iter()
             .map(|r| Arc::clone(&r.markup))
             .collect();
+        let components = ctx
+            .contributions::<ComponentReg>()
+            .into_iter()
+            .map(|r| {
+                Arc::new(ComponentReg::new(
+                    r.code.clone(),
+                    r.label.clone(),
+                    Arc::clone(&r.component),
+                ))
+            })
+            .collect();
         let state = Arc::new(SiteState {
             ctx: ctx.clone(),
             engines: EngineCache::new(),
             markup,
+            components,
         });
         Router::new()
             .route("/", get(serve))
@@ -266,15 +281,37 @@ async fn serve(
             }
         }
     };
-    match render_page(
+    let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
+    let rendered = match run_components(
         &engine,
+        &regs,
+        ctx.db(),
         &theme,
         &name,
         &params,
         &path,
         preview,
-        ctx.base_url(),
-    ) {
+    )
+    .await
+    {
+        Ok(extras) => render_page_with(
+            &engine,
+            &theme,
+            &name,
+            &params,
+            &path,
+            preview,
+            ctx.base_url(),
+            extras,
+        ),
+        Err(e) => Err(RenderError {
+            template: None,
+            line: None,
+            kind: "component".into(),
+            message: e.to_string(),
+        }),
+    };
+    match rendered {
         Ok(body) => html(status, body, preview),
         Err(e) => {
             tracing::error!(error = %e, theme = %theme.code, page = %name, "rendering a page failed");
@@ -312,6 +349,33 @@ fn error_response(detail: String) -> Response {
     AdminError::Internal(anyhow::anyhow!(detail)).into_response()
 }
 
+/// Runs the components the page `name` and its layout attach, giving the
+/// context pairs the render adds.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_components(
+    engine: &Engine,
+    regs: &[&ComponentReg],
+    db: &laterite_core::Db,
+    theme: &Theme,
+    name: &str,
+    params: &Params,
+    path: &str,
+    preview: bool,
+) -> Result<Vec<(String, serde_json::Value)>, super::ThemeError> {
+    let settings = engine.page(name).cloned().unwrap_or_default();
+    let page_bag = engine
+        .page_bag(name)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let layout_bag = settings
+        .layout_path()
+        .and_then(|l| engine.layout_settings(&l).cloned())
+        .unwrap_or(serde_json::Value::Null);
+    let bags: Vec<&serde_json::Value> = vec![&layout_bag, &page_bag];
+    let ran = component::run_all(&bags, regs, db, params, path, &theme.code, preview).await?;
+    Ok(ran.pairs)
+}
+
 /// Renders the page `name` as the site serves it at `path`: with `this`,
 /// `head`, and the meta fields expanded. `origin` is the deployment's, for
 /// the canonical link.
@@ -323,6 +387,31 @@ pub fn render_page(
     path: &str,
     preview: bool,
     origin: &str,
+) -> Result<String, RenderError> {
+    render_page_with(
+        engine,
+        theme,
+        name,
+        params,
+        path,
+        preview,
+        origin,
+        Vec::new(),
+    )
+}
+
+/// Like [`render_page`], with `extras` (a component's alias and data, an
+/// injected variable) added to the context.
+#[allow(clippy::too_many_arguments)]
+pub fn render_page_with(
+    engine: &Engine,
+    theme: &Theme,
+    name: &str,
+    params: &Params,
+    path: &str,
+    preview: bool,
+    origin: &str,
+    extras: Vec<(String, serde_json::Value)>,
 ) -> Result<String, RenderError> {
     let settings = engine.page(name).cloned().unwrap_or_default();
     let layout = settings.layout.clone();
@@ -341,10 +430,13 @@ pub fn render_page(
         preview,
     }));
     let head = head_tags(engine, &settings, &this, origin, path);
-    let ctx = Value::from_pairs([
-        ("this".to_string(), this),
-        ("head".to_string(), Value::from_safe_string(head)),
-    ]);
+    let mut pairs: Vec<(String, Value)> = extras
+        .into_iter()
+        .map(|(k, v)| (k, Value::from(Serde(v))))
+        .collect();
+    pairs.push(("this".to_string(), this));
+    pairs.push(("head".to_string(), Value::from_safe_string(head)));
+    let ctx = Value::from_pairs(pairs);
     let path = engine.page_path(name).unwrap_or(name);
     let template = engine
         .env()

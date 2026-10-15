@@ -29,17 +29,18 @@ pub async fn build(
     out_dir: &Path,
     base_url: &str,
 ) -> Result<BuildReport, ThemeError> {
-    build_with(db, code, out_dir, base_url, &[]).await
+    build_with(db, code, out_dir, base_url, &[], &[]).await
 }
 
-/// Like [`build`], with `markup` a module registered installed into the
-/// engine, as the site installs it.
+/// Like [`build`], with the `markup` and `components` modules registered, as
+/// the site has them.
 pub async fn build_with(
     db: &Db,
     code: &str,
     out_dir: &Path,
     base_url: &str,
     markup: &[std::sync::Arc<dyn super::markup::Markup>],
+    components: &[&super::component::ComponentReg],
 ) -> Result<BuildReport, ThemeError> {
     let theme = store::find_theme(db, code)
         .await?
@@ -68,8 +69,28 @@ pub async fn build_with(
             continue;
         }
         let url = pattern.source().to_string();
-        let html = site::render_page(&engine, &theme, name, &Params::new(), &url, false, &origin)
-            .map_err(ThemeError::Template)?;
+        let extras = site::run_components(
+            &engine,
+            components,
+            db,
+            &theme,
+            name,
+            &Params::new(),
+            &url,
+            false,
+        )
+        .await?;
+        let html = site::render_page_with(
+            &engine,
+            &theme,
+            name,
+            &Params::new(),
+            &url,
+            false,
+            &origin,
+            extras,
+        )
+        .map_err(ThemeError::Template)?;
         out.page(&url, &html)?;
         if url == "/404" {
             out.file("404.html", &html)?;

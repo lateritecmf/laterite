@@ -24,6 +24,7 @@
 pub mod admin;
 pub mod archive;
 pub mod build;
+pub mod component;
 pub mod engine;
 pub mod maintenance;
 pub mod markup;

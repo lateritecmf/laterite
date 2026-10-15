@@ -14,6 +14,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Maintenance mode (Settings › Website, `web.manage_site`): visitors get the theme's
   `/maintenance` page or a notice with 503; an operator who may manage themes sees the site.
 
+- `theme::component`: a `Component` trait with declared properties, registered as a
+  `ComponentReg`; attached in a page's or layout's `components` settings, run before
+  the render and read under the alias, with `{{ :name }}` taking a URL parameter.
+- `site::render_page_with` and `site::run_components`; `build::build_with` takes the
+  registered components too.
+
 ### Changed
 
 - With a site registered, the session and remember cookies are scoped to `/` rather

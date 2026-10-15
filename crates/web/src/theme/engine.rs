@@ -96,6 +96,10 @@ pub struct Engine {
     line_maps: HashMap<String, Vec<usize>>,
     /// Each page name's stored path (`home` to `home.htm`).
     page_paths: HashMap<String, String>,
+    /// Each layout's settings bag, by path.
+    layout_settings: HashMap<String, serde_json::Value>,
+    /// Each page's whole settings bag, by name.
+    page_bags: HashMap<String, serde_json::Value>,
 }
 
 /// A page's source as the environment compiles it, with a map from each
@@ -209,6 +213,7 @@ impl Engine {
         let mut sources: HashMap<String, String> = HashMap::new();
         let mut content: HashMap<String, String> = HashMap::new();
         let mut page_rows: HashMap<String, (serde_json::Value, String)> = HashMap::new();
+        let mut layout_settings: HashMap<String, serde_json::Value> = HashMap::new();
         // Ancestors first, so a nearer theme's row replaces a farther one's.
         for theme in chain.iter().rev() {
             for t in store::list_templates(db, theme.id, None).await? {
@@ -218,6 +223,10 @@ impl Engine {
                     }
                     Kind::Page => {
                         page_rows.insert(t.path, (t.settings, t.markup));
+                    }
+                    Kind::Layout => {
+                        layout_settings.insert(t.path.clone(), t.settings);
+                        sources.insert(template_name(t.kind, &t.path), t.markup);
                     }
                     _ => {
                         sources.insert(template_name(t.kind, &t.path), t.markup);
@@ -231,9 +240,11 @@ impl Engine {
         let mut pages: HashMap<String, PageSettings> = HashMap::new();
         let mut line_maps: HashMap<String, Vec<usize>> = HashMap::new();
         let mut page_paths: HashMap<String, String> = HashMap::new();
+        let mut page_bags: HashMap<String, serde_json::Value> = HashMap::new();
         for (path, (settings, markup)) in page_rows {
             let name = page_name(&path).to_string();
             page_paths.insert(name.clone(), path.clone());
+            page_bags.insert(name.clone(), settings.clone());
             let parsed = PageSettings::from_value(&settings).unwrap_or_default();
             if let Ok(pattern) = parsed.pattern() {
                 routes.add(name.clone(), pattern);
@@ -319,6 +330,8 @@ impl Engine {
             pages,
             line_maps,
             page_paths,
+            layout_settings,
+            page_bags,
         })
     }
 
@@ -355,6 +368,16 @@ impl Engine {
     /// A page's stored path by name.
     pub fn page_path(&self, name: &str) -> Option<&str> {
         self.page_paths.get(name).map(String::as_str)
+    }
+
+    /// A layout's settings bag by path.
+    pub fn layout_settings(&self, path: &str) -> Option<&serde_json::Value> {
+        self.layout_settings.get(path)
+    }
+
+    /// A page's whole settings bag by name, `components` included.
+    pub fn page_bag(&self, name: &str) -> Option<&serde_json::Value> {
+        self.page_bags.get(name)
     }
 
     /// The URL of the page `name` with `params`.

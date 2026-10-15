@@ -371,7 +371,9 @@ async fn check_page(
     settings: &serde_json::Value,
 ) -> Result<(), ThemeError> {
     let page = super::page::PageSettings::from_value(settings)?;
-    page.check(&layouts_of(ctx, code).await?)
+    page.check(&layouts_of(ctx, code).await?)?;
+    let regs = ctx.contributions::<super::component::ComponentReg>();
+    super::component::check(settings, &regs)
 }
 
 /// A template as the theme page lists it: the theme's own, or an ancestor's.
