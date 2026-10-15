@@ -18,6 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `RouteCtx::operator` and `RouteCtx::record_unserved` for a public route.
 - The template editor shows a page's settings as typed fields with a layout picker,
   and the theme page lists each page's URL.
+- `partial()` carries the request's `this` and `head`; `content()` takes variables
+  for `{name}` in the block; `asset()` and `url()` build theme and site links.
 
 ## [0.9.13] - 2026-10-16
 

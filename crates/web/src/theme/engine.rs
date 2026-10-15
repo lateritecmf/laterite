@@ -255,17 +255,34 @@ impl Engine {
         let content = Arc::new(content);
         env.add_function(
             "content",
-            move |name: String| -> Result<Value, minijinja::Error> {
-                match content.get(&name) {
-                    Some(body) => Ok(Value::from_safe_string(render_content(&name, body))),
-                    None => Err(minijinja::Error::new(
+            move |name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+                let Some(body) = content.get(&name) else {
+                    return Err(minijinja::Error::new(
                         ErrorKind::TemplateNotFound,
                         format!("no content block {name:?}"),
-                    )),
+                    ));
+                };
+                // `{name}` in the block is the named variable, escaped.
+                let mut text = body.clone();
+                for key in kwargs.args() {
+                    let value: Value = kwargs.get(key)?;
+                    text = text.replace(
+                        &format!("{{{key}}}"),
+                        &minijinja::HtmlEscape(&value.to_string()).to_string(),
+                    );
                 }
+                kwargs.assert_all_used()?;
+                Ok(Value::from_safe_string(render_content(&name, &text)))
             },
         );
         env.add_function("partial", partial);
+        let code = theme.code.clone();
+        env.add_function("asset", move |path: String| -> Value {
+            Value::from_safe_string(format!(
+                "/themes/{code}/assets/{}",
+                path.trim_start_matches('/')
+            ))
+        });
         let table = Arc::clone(&routes);
         env.add_function(
             "page",
@@ -399,18 +416,22 @@ fn base_environment() -> Environment<'static> {
 }
 
 /// `partial("nav.htm", title="Acme")`: renders `partials/nav.htm` with the
-/// named variables and the globals.
+/// named variables, the request's `this` and `head`, and the globals.
 fn partial(state: &State, name: String, kwargs: Kwargs) -> Result<Value, minijinja::Error> {
     let template = state
         .env()
         .get_template(&template_name(Kind::Partial, &name))?;
-    let ctx = Value::from_pairs(
-        kwargs
-            .args()
-            .map(|k| (k.to_string(), kwargs.get::<Value>(k).unwrap_or_default())),
-    );
+    let mut pairs: Vec<(String, Value)> = ["this", "head"]
+        .into_iter()
+        .filter_map(|key| state.lookup(key).map(|v| (key.to_string(), v)))
+        .collect();
+    for key in kwargs.args() {
+        pairs.push((key.to_string(), kwargs.get::<Value>(key)?));
+    }
     kwargs.assert_all_used()?;
-    Ok(Value::from_safe_string(template.render(ctx)?))
+    Ok(Value::from_safe_string(
+        template.render(Value::from_pairs(pairs))?,
+    ))
 }
 
 /// A content block as HTML: Markdown rendered (`.md`), HTML as it is (`.htm`,

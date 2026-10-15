@@ -205,7 +205,12 @@ async fn serve(
         ctx.record_unserved(method.as_str(), &path, 404).await;
         return AdminError::NotFound.into_response();
     };
-    let engine = match site.engines.get(ctx.db(), &theme.code).await {
+    let origin = ctx.base_url().trim_end_matches('/').to_string();
+    let engine = match site
+        .engines
+        .get_with(ctx.db(), &theme.code, |env| add_url(env, origin))
+        .await
+    {
         Ok(engine) => engine,
         Err(e) => return error_response(e.to_string()),
     };
@@ -253,6 +258,13 @@ async fn serve(
             error_response(e.to_string())
         }
     }
+}
+
+/// `url("/blog")`: the absolute URL of a path on this site.
+fn add_url(env: &mut minijinja::Environment<'static>, origin: String) {
+    env.add_function("url", move |path: String| -> Value {
+        Value::from_safe_string(format!("{origin}/{}", path.trim_start_matches('/')))
+    });
 }
 
 fn error_response(detail: String) -> Response {

@@ -124,7 +124,7 @@ async fn site_theme(db: &Db) -> theme::Theme {
         Kind::Page,
         "home.htm",
         Some(serde_json::json!({"url": "/", "layout": "default", "title": "Home of {{ this.theme.name }}", "description": "The site"})),
-        "<h1>{{ this.page.title }}</h1><a href=\"{{ page('blog/post', slug='x') }}\">post</a>{% if this.preview %}<i>preview</i>{% endif %}",
+        "<h1>{{ this.page.title }}</h1><a href=\"{{ page('blog/post', slug='x') }}\">post</a>{% if this.preview %}<i>preview</i>{% endif %}<link href=\"{{ url('/feed') }}\">",
     )
     .await;
     save(
@@ -196,6 +196,7 @@ async fn pages_are_served_from_the_active_theme() {
         "{html}"
     );
     assert!(html.contains("href=\"/blog/x\""), "{html}");
+    assert!(html.contains("href=\"https://acme.test/feed\""), "{html}");
     assert!(!html.contains("<i>preview</i>"), "{html}");
     assert_eq!(
         header(&headers, "content-type"),

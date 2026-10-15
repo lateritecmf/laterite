@@ -356,3 +356,56 @@ async fn a_page_renders_inside_its_layout_and_routes_resolve() {
     let err = engine.render(Kind::Page, "broken.htm", ()).unwrap_err();
     assert_eq!(err.line, Some(2), "{err}");
 }
+
+#[tokio::test]
+async fn partials_carry_this_and_content_takes_variables() {
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    save(
+        &db,
+        base.id,
+        Kind::Partial,
+        "card.htm",
+        "<b>{{ title }}</b>{{ this.page.title }}{% if head is defined %}+head{% endif %}",
+    )
+    .await;
+    save(
+        &db,
+        base.id,
+        Kind::Content,
+        "hello.md",
+        "Hello **{name}** from {where}",
+    )
+    .await;
+    save(&db, base.id, Kind::Asset, "css/site.css", "a{}").await;
+    save(
+        &db,
+        base.id,
+        Kind::Page,
+        "p.htm",
+        "{{ partial(\"card.htm\", title=\"T\") }}|{{ content(\"hello.md\", name=\"<Ann>\", where=\"here\") }}|{{ asset(\"css/site.css\") }}",
+    )
+    .await;
+    let engine = Engine::build(&db, "base").await.unwrap();
+    let html = engine
+        .render(
+            Kind::Page,
+            "p.htm",
+            serde_json::json!({"this": {"page": {"title": "P"}}, "head": "<title>x</title>"}),
+        )
+        .unwrap();
+    assert_eq!(
+        html,
+        "<b>T</b>P+head|<p>Hello <strong>&lt;Ann&gt;</strong> from here</p>\n|/themes/base/assets/css/site.css"
+    );
+    let html = engine
+        .render(
+            Kind::Page,
+            "p.htm",
+            serde_json::json!({"this": {"page": {"title": "P"}}}),
+        )
+        .unwrap();
+    assert!(html.starts_with("<b>T</b>P|"), "{html}");
+}
