@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
+use laterite_auth::{AuditEntry, AuthService, AuthenticatedUser};
 use laterite_core::{Db, Events, Registry, Text};
 
 use crate::form::{FormHandle, Forms};
@@ -26,6 +27,7 @@ use crate::list::ImportLink;
 #[derive(Clone)]
 pub struct RouteCtx {
     db: Db,
+    auth: AuthService,
     base_path: Arc<str>,
     admin_path: Arc<str>,
     base_url: Arc<str>,
@@ -35,8 +37,10 @@ pub struct RouteCtx {
 }
 
 impl RouteCtx {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         db: Db,
+        auth: AuthService,
         base_path: &str,
         admin_path: &str,
         base_url: &str,
@@ -46,12 +50,38 @@ impl RouteCtx {
     ) -> Self {
         Self {
             db,
+            auth,
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
             base_url: Arc::from(base_url),
             plugin_defined,
             events,
             forms,
+        }
+    }
+
+    /// Appends one audit entry for a mutation `user` just performed through a
+    /// module's own screen. A failed write is logged and never fails the
+    /// operation it records.
+    pub async fn audit(
+        &self,
+        user: &AuthenticatedUser,
+        action: &str,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+        target_label: Option<&str>,
+        detail: Option<&str>,
+    ) {
+        let actor = laterite_core::Actor::user(user.user.id, user.user.username.clone());
+        let mut entry = AuditEntry::new(&actor, action);
+        if let (Some(kind), Some(id)) = (target_type, target_id) {
+            entry = entry.target(kind, id, target_label);
+        }
+        if let Some(detail) = detail {
+            entry = entry.detail(detail);
+        }
+        if let Err(e) = self.auth.record_audit(entry).await {
+            tracing::error!(action, error = %e, "failed to write audit log entry");
         }
     }
 
@@ -135,6 +165,7 @@ impl RouteCtx {
     pub fn builder(db: Db) -> RouteCtxBuilder {
         RouteCtxBuilder {
             db,
+            auth: None,
             base_path: "/".to_string(),
             admin_path: "/admin".to_string(),
             base_url: "http://localhost".to_string(),
@@ -148,6 +179,7 @@ impl RouteCtx {
 /// asserts on.
 pub struct RouteCtxBuilder {
     db: Db,
+    auth: Option<AuthService>,
     base_path: String,
     admin_path: String,
     base_url: String,
@@ -190,10 +222,21 @@ impl RouteCtxBuilder {
         self
     }
 
+    /// The auth service [`RouteCtx::audit`] writes through. Without one, a
+    /// default service over the same database.
+    pub fn auth(mut self, auth: AuthService) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
     pub fn build(self) -> RouteCtx {
         let events = self.events.unwrap_or_else(|| Events::new(self.db.clone()));
+        let auth = self.auth.unwrap_or_else(|| {
+            AuthService::new(self.db.clone(), laterite_auth::AuthConfig::default())
+        });
         RouteCtx::new(
             self.db,
+            auth,
             &self.base_path,
             &self.admin_path,
             &self.base_url,

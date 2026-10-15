@@ -1683,6 +1683,7 @@ pub fn router(
         let base = link.href.clone();
         let ctx = routes::RouteCtx::new(
             state.db.clone(),
+            state.auth.clone(),
             &base,
             &admin_path,
             &state.origin,
@@ -1710,6 +1711,7 @@ pub fn router(
         let base = format!("{admin_path}{}", reg.base_path);
         let ctx = routes::RouteCtx::new(
             state.db.clone(),
+            state.auth.clone(),
             &base,
             &admin_path,
             &state.origin,
@@ -1859,6 +1861,7 @@ pub fn router(
         .merge(mount_public(
             &app_public,
             &state.db,
+            &state.auth,
             &admin_path,
             &state.origin,
             &state.plugin_defined,
@@ -1947,9 +1950,11 @@ pub fn normalize_path(path: &str) -> String {
 /// Resolves a resource's authored-relative paths (`base_path`, the list's
 /// `edit_base`, the form's `base_path`) to full paths under the admin mount.
 /// Every contributed public route, nested at its declared path.
+#[allow(clippy::too_many_arguments)]
 fn mount_public(
     regs: &[routes::PublicRouteReg],
     db: &Db,
+    auth: &AuthService,
     admin_path: &str,
     origin: &str,
     plugin_defined: &Arc<laterite_core::Registry>,
@@ -1960,6 +1965,7 @@ fn mount_public(
     for reg in regs {
         let ctx = routes::RouteCtx::new(
             db.clone(),
+            auth.clone(),
             &reg.path,
             admin_path,
             origin,

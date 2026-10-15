@@ -8,7 +8,9 @@ repository.workspace = true
 
 [dependencies]
 laterite-core = { workspace = true }
+laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }
+askama = { workspace = true }
 chrono = { workspace = true }
 minijinja = { version = "3", features = ["serde", "fuel"] }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
@@ -18,9 +20,10 @@ serde_json = { workspace = true }
 serde-saphyr = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tracing.workspace = true
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["testing"] }
-laterite-auth = { workspace = true }
+tower = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

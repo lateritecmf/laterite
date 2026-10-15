@@ -33,6 +33,20 @@ store::save_template(
 theme::set_active_theme(&db, "acme").await?;
 ```
 
+## The screen
+
+`ThemeModule` registers the Themes tab at `/admin/themes` under the permission `web.manage_themes`, granted to the Administrator role. The tab lists the themes with their state, creates, duplicates, locks, activates and deletes them, and opens a theme to its templates by kind, its config and a template's editor with the earlier versions to restore.
+
+Setting | Default | Meaning
+--- | --- | ---
+`backend.paths."laterite.theme/themes"` | `/themes` | Where the tab mounts under the admin, as a deployment override.
+
+A module's own screen audits through the route context:
+
+```rust
+ctx.audit(&user, "acme.thing.save", Some("thing"), Some(&id), Some(&label), None).await;
+```
+
 ## The config
 
 ```yaml

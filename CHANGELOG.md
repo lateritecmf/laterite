@@ -13,6 +13,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   path resolved through a parent chain, a revision per save, and the active and edit theme.
 - `laterite_web::theme::Engine`: a theme's templates rendered with layouts, partials
   and content blocks, a parse check for the editor, and a cache rebuilt on change.
+- The Themes tab (`web.manage_themes`): themes created, duplicated, extended, locked,
+  activated and deleted, and their templates edited with a parse check and revisions.
+- `RouteCtx::audit`, so a module's own screen writes the audit log like the admin's.
 
 ### Changed
 

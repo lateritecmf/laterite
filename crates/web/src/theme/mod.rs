@@ -21,6 +21,7 @@
 //! # Ok(()) }
 //! ```
 
+pub mod admin;
 pub mod engine;
 mod migrations;
 mod schema;
@@ -35,7 +36,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-/// The theme module: its tables migrate with the application's.
+/// The theme module: its tables migrate with the application's, and it
+/// registers the Themes screen under `web.manage_themes`.
 pub struct ThemeModule;
 
 impl Module for ThemeModule {
@@ -44,6 +46,16 @@ impl Module for ThemeModule {
     }
     fn migrations(&self) -> MigrationSet {
         migrations::migrations()
+    }
+    /// The Themes tab sits at the panel's top level: `/admin/themes`.
+    fn admin_base(&self) -> Option<&'static str> {
+        Some("/")
+    }
+    /// The Themes screen and its permission.
+    fn register(&self, registry: &mut laterite_core::Registry) {
+        use laterite_admin::AdminRegistry;
+        registry.add_permission(admin::permission());
+        registry.add_screen(admin::screen());
     }
 }
 

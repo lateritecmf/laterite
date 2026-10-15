@@ -1433,6 +1433,7 @@ dependencies = [
 name = "laterite-web"
 version = "0.9.12"
 dependencies = [
+ "askama",
  "chrono",
  "laterite-admin",
  "laterite-auth",
@@ -1447,6 +1448,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tower",
+ "tracing",
 ]
 
 [[package]]

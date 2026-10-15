@@ -315,17 +315,21 @@ pub async fn list_templates(
     theme_id: i64,
     kind: Option<Kind>,
 ) -> Result<Vec<Template>, ThemeError> {
-    let mut query = Query::select()
-        .columns(TEMPLATE_COLUMNS)
-        .from(ThemeTemplates::Table)
-        .and_where(Expr::col(ThemeTemplates::ThemeId).eq(theme_id))
-        .order_by(ThemeTemplates::Kind, Order::Asc)
-        .order_by(ThemeTemplates::Path, Order::Asc)
-        .to_owned();
-    if let Some(kind) = kind {
-        query.and_where(Expr::col(ThemeTemplates::Kind).eq(kind.as_str()));
-    }
-    let (sql, values) = build(db.backend, query);
+    // Built and rendered in one block: a statement builder is not `Send`, and
+    // one left in scope across the await makes the whole future not `Send`.
+    let (sql, values) = {
+        let mut query = Query::select()
+            .columns(TEMPLATE_COLUMNS)
+            .from(ThemeTemplates::Table)
+            .and_where(Expr::col(ThemeTemplates::ThemeId).eq(theme_id))
+            .order_by(ThemeTemplates::Kind, Order::Asc)
+            .order_by(ThemeTemplates::Path, Order::Asc)
+            .to_owned();
+        if let Some(kind) = kind {
+            query.and_where(Expr::col(ThemeTemplates::Kind).eq(kind.as_str()));
+        }
+        build(db.backend, query)
+    };
     let rows = bind_values(sqlx::query(&sql), values)
         .fetch_all(&db.pool)
         .await?;
