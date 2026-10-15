@@ -10,7 +10,8 @@ repository.workspace = true
 laterite-core = { workspace = true }
 laterite-admin = { workspace = true }
 chrono = { workspace = true }
-minijinja = "3"
+minijinja = { version = "3", features = ["serde", "fuel"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 sea-query = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

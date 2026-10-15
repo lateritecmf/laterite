@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `laterite_web::theme`: themes as rows with a YAML config, templates by kind and
   path resolved through a parent chain, a revision per save, and the active and edit theme.
+- `laterite_web::theme::Engine`: a theme's templates rendered with layouts, partials
+  and content blocks, a parse check for the editor, and a cache rebuilt on change.
 
 ### Changed
 

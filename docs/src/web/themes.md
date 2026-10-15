@@ -115,6 +115,69 @@ Call | Refused when
 `save_template`, `delete_template` | The theme is locked, or the path is not a template path.
 `delete_theme` | The theme is active, locked, or another theme's parent.
 
+## Rendering
+
+```rust
+use lateritecmf::web::theme::{Engine, EngineCache, Kind};
+
+let engine = Engine::build(&db, "acme").await?;
+let html = engine.render(Kind::Page, "home.htm", serde_json::json!({ "title": "Home" }))?;
+let css = engine.render(Kind::Asset, "css/site.css", ())?;
+
+// One engine per theme, rebuilt when the theme or an ancestor changes.
+let cache = EngineCache::new();
+let engine = cache.get(&db, "acme").await?;
+cache.invalidate("acme");
+
+// The application's own functions, filters and globals.
+let engine = Engine::build_with(&db, "acme", |env| {
+    env.add_function("year", || 2026);
+})
+.await?;
+```
+
+Templates are named by the kind's folder and the path:
+
+Kind | Name
+--- | ---
+`Kind::Layout` | `layouts/default.htm`
+`Kind::Page` | `pages/home.htm`
+`Kind::Partial` | `partials/nav.htm`
+`Kind::Asset` | `assets/css/site.css`
+
+A theme's own template is used, else the nearest ancestor's. In a template:
+
+```jinja
+{% extends "layouts/default.htm" %}
+{% block body %}
+  {% include "partials/nav.htm" %}
+  {{ partial("card.htm", title="Acme", body=page.body) }}
+  {{ content("intro.md") }}
+  <h1>{{ theme.name }}</h1>
+{% endblock %}
+```
+
+Name | Gives
+--- | ---
+`{% extends "layouts/<path>" %}`, `{% block %}` | A page inside a layout.
+`{% include "partials/<path>" %}` | A partial with the current variables.
+`partial(<path>, name=value, ...)` | A partial with the named variables and the globals only.
+`content(<path>)` | A content block: `.md` rendered to HTML, `.htm` and `.html` as they are, anything else escaped as text.
+`theme` | `code`, `name`, `author`, `homepage`, `description` of the theme rendered.
+
+HTML is escaped in every template but an asset. A printed undefined value is an error; `{% if page.sub %}` on an undefined value is not. A render spends at most five million instructions.
+
+```rust
+use lateritecmf::web::theme::{check, RenderError};
+
+match check(source) {
+    Ok(()) => {}
+    Err(RenderError { line, message, .. }) => println!("line {line:?}: {message}"),
+}
+```
+
+`RenderError` carries `template`, `line`, `kind` and `message`.
+
 ## The active theme and the edit theme
 
 ```rust

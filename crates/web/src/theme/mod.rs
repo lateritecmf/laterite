@@ -21,9 +21,12 @@
 //! # Ok(()) }
 //! ```
 
+pub mod engine;
 mod migrations;
 mod schema;
 pub mod store;
+
+pub use engine::{check, Engine, EngineCache, RenderError};
 
 use laterite_admin::form::FormConfig;
 use laterite_admin::settings::{PreferencesModel, SettingsModel};
@@ -194,6 +197,8 @@ pub enum ThemeError {
     Parent(String),
     #[error("the theme {0:?} is active")]
     Active(String),
+    #[error("the template does not compile")]
+    Template(#[source] engine::RenderError),
     #[error("settings error")]
     Settings(#[from] laterite_admin::settings::SettingsError),
     #[error("preferences error")]

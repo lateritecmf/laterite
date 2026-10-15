@@ -399,6 +399,22 @@ pub async fn resolve_template(
     }
 }
 
+/// A theme and its ancestors, nearest first: the theme, its parent, the
+/// parent's parent. A missing ancestor ends the chain; a cycle is cut at 32.
+pub async fn chain(db: &Db, code: &str) -> Result<Vec<Theme>, ThemeError> {
+    let mut out = vec![require_theme(db, code).await?];
+    while let Some(parent) = out.last().and_then(|t| t.parent.clone()) {
+        if out.len() > 32 {
+            break;
+        }
+        match find_theme(db, &parent).await? {
+            Some(p) => out.push(p),
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
 async fn theme_by_id(db: &Db, id: i64) -> Result<Theme, ThemeError> {
     let (sql, values) = build(
         db.backend,
