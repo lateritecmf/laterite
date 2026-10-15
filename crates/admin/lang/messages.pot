@@ -184,7 +184,7 @@ msgstr ""
 msgid "Check the file"
 msgstr ""
 
-#: src/settings/mod.rs
+#: src/form.rs
 msgid "Check the values and try again."
 msgstr ""
 
@@ -1264,11 +1264,11 @@ msgstr ""
 msgid "This role is maintained by the framework. Duplicate it to make your own."
 msgstr ""
 
-#: src/settings/mod.rs
+#: src/form.rs
 msgid "This screen has a malformed field."
 msgstr ""
 
-#: src/settings/mod.rs
+#: src/form.rs
 msgid "This screen uses a field type that is not registered."
 msgstr ""
 

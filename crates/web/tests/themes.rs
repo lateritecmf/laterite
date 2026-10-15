@@ -260,3 +260,49 @@ async fn the_active_theme_and_an_operators_edit_theme() {
         "base"
     );
 }
+
+#[tokio::test]
+async fn settings_are_saved_per_theme_and_the_form_falls_through() {
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(
+        &db,
+        "base",
+        "name: Base\nform:\n  fields:\n    site_name:\n      label: Site name\n      type: text\n",
+    )
+    .await
+    .unwrap();
+    assert!(base.settings.as_object().unwrap().is_empty());
+    store::create_child_theme(&db, "base", "child", "Child")
+        .await
+        .unwrap();
+    let chain = store::chain(&db, "child").await.unwrap();
+    let fields = store::form_fields(&chain);
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "site_name");
+
+    store::save_settings(&db, "child", &serde_json::json!({"site_name": "Acme"}))
+        .await
+        .unwrap();
+    let child = store::find_theme(&db, "child").await.unwrap().unwrap();
+    assert_eq!(child.settings, serde_json::json!({"site_name": "Acme"}));
+    let base = store::find_theme(&db, "base").await.unwrap().unwrap();
+    assert!(
+        base.settings.as_object().unwrap().is_empty(),
+        "values are per theme"
+    );
+
+    assert!(matches!(
+        store::save_settings(&db, "child", &serde_json::json!([1])).await,
+        Err(ThemeError::Config(_))
+    ));
+    // A field cannot take a key the theme value owns.
+    assert!(matches!(
+        store::create_theme(
+            &db,
+            "clash",
+            "name: X\nform:\n  fields:\n    name:\n      label: Name\n      type: text\n",
+        )
+        .await,
+        Err(ThemeError::Config(_))
+    ));
+}

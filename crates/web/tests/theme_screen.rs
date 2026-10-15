@@ -217,3 +217,46 @@ async fn a_theme_and_a_template_are_created_and_a_broken_template_is_refused() {
     );
     assert!(store::find_theme(&db, "other").await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn the_theme_page_shows_and_saves_the_declared_settings() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    store::create_theme(
+        &db,
+        "acme",
+        "name: Acme\nform:\n  fields:\n    site_name:\n      label: Site name\n      type: text\n",
+    )
+    .await
+    .unwrap();
+
+    let (status, html) = get(&app, "/admin/themes/acme", &root).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Site name") && html.contains(r#"name="site_name""#),
+        "{html}"
+    );
+
+    let (status, location) = post(
+        &app,
+        "/admin/themes/acme/settings",
+        &root,
+        "site_name=Acme+Site",
+    )
+    .await;
+    assert_eq!(
+        (status, location.as_str()),
+        (StatusCode::SEE_OTHER, "/admin/themes/acme")
+    );
+    let theme = store::find_theme(&db, "acme").await.unwrap().unwrap();
+    assert_eq!(
+        theme.settings,
+        serde_json::json!({"site_name": "Acme Site"})
+    );
+    let (_, html) = get(&app, "/admin/themes/acme", &root).await;
+    assert!(
+        html.contains("Theme settings saved.") && html.contains("Acme Site"),
+        "{html}"
+    );
+}

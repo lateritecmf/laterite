@@ -169,6 +169,7 @@ msgstr ""
 msgid "Saved"
 msgstr ""
 
+#: templates/theme.html
 #: templates/theme_template.html
 msgid "Settings"
 msgstr ""
@@ -215,6 +216,10 @@ msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Theme locked."
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "Theme settings saved."
 msgstr ""
 
 #: src/theme/admin/mod.rs

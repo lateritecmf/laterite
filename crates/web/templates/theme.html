@@ -4,6 +4,17 @@
 </div>
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
 
+{% if let Some(fields) = settings %}
+<div class="lat-card lat-card--form">
+  <div class="lat-card__label">{{ shell.t("Settings") }}</div>
+  <form method="post" action="{{ theme_url }}/settings" data-lat-widget="form">
+    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+    {{ fields|safe }}
+    {% if !locked %}<div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
+  </form>
+</div>
+{% endif %}
+
 {% for g in groups %}
 <div class="lat-toolbar lat-toolbar--section"><h2>{{ g.label }}</h2></div>
 <div class="lat-tablewrap">

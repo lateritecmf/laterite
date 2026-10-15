@@ -1,0 +1,9 @@
+<div class="lat-fields">
+{% for field in fields %}
+<div class="lat-field{{ field.layout }}"{{ field.attrs|safe }}>
+  <label class="lat-field__label">{{ field.label }}</label>
+  {{ field.control|safe }}
+  {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
+</div>
+{% endfor %}
+</div>

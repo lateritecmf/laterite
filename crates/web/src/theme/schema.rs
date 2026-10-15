@@ -11,6 +11,8 @@ pub(crate) enum Themes {
     Parent,
     Locked,
     Config,
+    /// The theme's own settings values, a JSON object over the config's `form`.
+    Settings,
     CreatedAt,
     UpdatedAt,
 }

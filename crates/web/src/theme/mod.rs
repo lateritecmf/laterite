@@ -59,6 +59,10 @@ impl Module for ThemeModule {
     }
 }
 
+/// The keys of the `theme` value a template reads that belong to the theme
+/// itself; a settings field cannot take one.
+pub const RESERVED_KEYS: [&str; 5] = ["code", "name", "author", "homepage", "description"];
+
 /// A theme's config: the YAML an operator edits, parsed on every save.
 ///
 /// `form` declares the theme's own settings fields; `parent` names the theme
@@ -77,9 +81,25 @@ pub struct ThemeConfig {
 }
 
 impl ThemeConfig {
-    /// Parses a theme's YAML config.
+    /// Parses a theme's YAML config. A `form` field named like one of the
+    /// `theme` value's own keys (`code`, `name`, `author`, `homepage`,
+    /// `description`) is refused, since the settings render beside them.
     pub fn parse(yaml: &str) -> Result<Self, ThemeError> {
-        serde_saphyr::from_str(yaml).map_err(|e| ThemeError::Config(e.to_string()))
+        let config: Self =
+            serde_saphyr::from_str(yaml).map_err(|e| ThemeError::Config(e.to_string()))?;
+        if let Some(form) = &config.form {
+            if let Some(field) = form
+                .fields
+                .iter()
+                .find(|f| RESERVED_KEYS.contains(&f.name.as_str()))
+            {
+                return Err(ThemeError::Config(format!(
+                    "the form field {:?} is reserved for the theme itself",
+                    field.name
+                )));
+            }
+        }
+        Ok(config)
     }
 
     /// Renders the config as YAML, the form a new theme's row starts from.
@@ -154,6 +174,10 @@ pub struct Theme {
     pub config: ThemeConfig,
     /// The YAML as the operator wrote it.
     pub config_source: String,
+    /// The theme's own settings values: a JSON object keyed by the fields of
+    /// the `form` in force (its own, else the nearest ancestor's). Empty
+    /// until saved.
+    pub settings: serde_json::Value,
     pub created_at: String,
     pub updated_at: String,
 }

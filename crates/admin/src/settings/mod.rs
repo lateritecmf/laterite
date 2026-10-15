@@ -35,11 +35,11 @@ impl laterite_core::Module for SettingsModule {
     }
 }
 
+use crate::form::ValueFieldView;
 use std::collections::HashMap;
 
 use askama::Template;
 use axum::response::{IntoResponse, Redirect, Response};
-use laterite_core::validation::Mode;
 use laterite_core::{t, Text, Translator};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -382,38 +382,7 @@ fn collect(
     types: &crate::field::FieldRegistry,
     data: &HashMap<String, String>,
 ) -> Result<Value, Text> {
-    let mut object = Map::new();
-    for field in &item.fields {
-        let Some(field_type) = types.get(&field.field_type) else {
-            return Err(t!("This screen uses a field type that is not registered."));
-        };
-        let opts = field_type
-            .resolve_options(&field.options, types)
-            .map_err(|_| t!("This screen has a malformed field."))?;
-        let submitted = crate::field::SubmittedField::new(&field.name, data);
-        // Settings always write every declared key: a settings blob has no
-        // previous row to fall back to the way a table column does.
-        let value = match field_type.to_attr(&submitted, &opts, Mode::Update) {
-            Ok(Some(value)) => attr_to_json(value),
-            Ok(None) => Value::String(String::new()),
-            Err(_) => return Err(t!("Check the values and try again.")),
-        };
-        object.insert(field.name.clone(), value);
-    }
-    Ok(Value::Object(object))
-}
-
-/// A stored attribute as the JSON a settings blob holds.
-fn attr_to_json(value: laterite_core::AttrValue) -> Value {
-    use laterite_core::AttrValue;
-    match value {
-        AttrValue::Null => Value::String(String::new()),
-        AttrValue::Bool(b) => Value::Bool(b),
-        AttrValue::Int(i) => Value::from(i),
-        AttrValue::Float(f) => Value::from(f),
-        AttrValue::Json(j) => j,
-        other => Value::String(other.to_text().unwrap_or_default()),
-    }
+    crate::form::value_collect(&item.fields, types, data)
 }
 
 /// Builds the context-sidebar groups: items grouped by category and ordered
@@ -500,60 +469,8 @@ fn build(
     stored: &Value,
     shell: &crate::Shell,
 ) -> SettingsFormTemplate {
-    let fields = item
-        .fields
-        .iter()
-        .map(|f| {
-            let label = shell.tt(&f.label);
-            let control = match types.get(&f.field_type) {
-                Some(ft) => {
-                    let opts = ft
-                        .resolve_options(&f.options, types)
-                        .unwrap_or_else(|_| crate::field::ResolvedOptions::none());
-                    let value = match stored.get(&f.name) {
-                        Some(Value::Array(rows)) => {
-                            crate::field::FieldValue::Json(Value::Array(rows.clone()))
-                        }
-                        Some(Value::String(text)) => {
-                            crate::field::FieldValue::Text(ft.to_control(Some(text), &opts))
-                        }
-                        Some(Value::Null) | None => {
-                            crate::field::FieldValue::Text(ft.to_control(None, &opts))
-                        }
-                        Some(other) => crate::field::FieldValue::Text(
-                            ft.to_control(Some(&other.to_string()), &opts),
-                        ),
-                    };
-                    let cx = crate::field::FieldCx {
-                        name: &f.name,
-                        id: &f.name,
-                        label: &label,
-                        value: &value,
-                        required: false,
-                        max_length: crate::form::max_length(&f.rules),
-                        opts: &opts,
-                        base: &shell.base,
-                        i18n: shell.i18n(),
-                    };
-                    let scope = crate::field::OverrideScope {
-                        surface: crate::field::Surface::Field,
-                        view_key: &f.field_type,
-                        resource: Some(&item.code),
-                        field: Some(&f.name),
-                    };
-                    crate::field::render_field(ft.as_ref(), overrides, &scope, &cx).into_string()
-                }
-                None => String::new(),
-            };
-            FieldView {
-                label,
-                help: f.help.as_ref().map(|h| shell.tt(h)),
-                control,
-                layout: crate::form::layout_classes(f.span, f.break_row),
-                attrs: crate::form::behaviour_attrs(f),
-            }
-        })
-        .collect();
+    let fields =
+        crate::form::value_views(&item.fields, types, overrides, stored, shell, &item.code);
     SettingsFormTemplate {
         title: shell.tt(&item.label),
         description: shell.tt(&item.description),
@@ -603,17 +520,6 @@ struct SettingsIndexTemplate {
     shell: crate::Shell,
 }
 
-struct FieldView {
-    label: String,
-    help: Option<String>,
-    /// The control, rendered by the field's own type.
-    control: String,
-    /// Wrapper classes for the span and a row break, each led by a space.
-    layout: String,
-    /// The wrapper's preset and trigger attributes, each led by a space.
-    attrs: String,
-}
-
 #[derive(Template)]
 #[template(path = "settings_form.html")]
 struct SettingsFormTemplate {
@@ -625,7 +531,7 @@ struct SettingsFormTemplate {
     hint: Option<String>,
     action: String,
     error: Option<String>,
-    fields: Vec<FieldView>,
+    fields: Vec<ValueFieldView>,
     /// Leaving with changes unsaved does not ask.
     leave_off: bool,
 }

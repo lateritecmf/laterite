@@ -16,6 +16,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - The Themes tab (`web.manage_themes`): themes created, duplicated, extended, locked,
   activated and deleted, and their templates edited with a parse check and revisions.
 - `RouteCtx::audit`, so a module's own screen writes the audit log like the admin's.
+- Theme settings: fields declared under `form` in a theme's config, edited on its
+  page and read in templates as `theme.<field>`; a child theme uses its parent's form.
+- `ValueForm` and `RouteCtx::value_form`: a form over a JSON object through the
+  registered field types, for a module's own screen; the settings screens use it too.
 
 ### Changed
 

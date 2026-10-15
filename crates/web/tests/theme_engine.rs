@@ -211,3 +211,31 @@ async fn the_cache_rebuilds_when_the_theme_or_an_ancestor_changes() {
     let fresh = cache.get(&db, "child").await.unwrap();
     assert!(!std::sync::Arc::ptr_eq(&rebuilt, &fresh));
 }
+
+#[tokio::test]
+async fn a_template_reads_the_settings_beside_the_theme_keys() {
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(
+        &db,
+        "base",
+        "name: Base\nform:\n  fields:\n    site_name:\n      label: Site name\n      type: text\n",
+    )
+    .await
+    .unwrap();
+    store::save_settings(&db, "base", &serde_json::json!({"site_name": "Acme <Co>"}))
+        .await
+        .unwrap();
+    save(
+        &db,
+        base.id,
+        Kind::Page,
+        "p.htm",
+        "{{ theme.site_name }}|{{ theme.name }}",
+    )
+    .await;
+    let engine = Engine::build(&db, "base").await.unwrap();
+    assert_eq!(
+        engine.render(Kind::Page, "p.htm", ()).unwrap(),
+        "Acme &lt;Co&gt;|Base"
+    );
+}

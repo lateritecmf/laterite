@@ -15,7 +15,7 @@ use axum::Router;
 use laterite_auth::{AuditEntry, AuthService, AuthenticatedUser};
 use laterite_core::{Db, Events, Registry, Text};
 
-use crate::form::{FormHandle, Forms};
+use crate::form::{FormField, FormHandle, Forms, ValueForm};
 use crate::list::ImportLink;
 
 /// What a contributed route is given at boot.
@@ -28,6 +28,8 @@ use crate::list::ImportLink;
 pub struct RouteCtx {
     db: Db,
     auth: AuthService,
+    field_types: Arc<crate::field::FieldRegistry>,
+    overrides: Arc<dyn crate::field::OverrideResolver>,
     base_path: Arc<str>,
     admin_path: Arc<str>,
     base_url: Arc<str>,
@@ -41,6 +43,8 @@ impl RouteCtx {
     pub(crate) fn new(
         db: Db,
         auth: AuthService,
+        field_types: Arc<crate::field::FieldRegistry>,
+        overrides: Arc<dyn crate::field::OverrideResolver>,
         base_path: &str,
         admin_path: &str,
         base_url: &str,
@@ -51,6 +55,8 @@ impl RouteCtx {
         Self {
             db,
             auth,
+            field_types,
+            overrides,
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
             base_url: Arc::from(base_url),
@@ -83,6 +89,19 @@ impl RouteCtx {
         if let Err(e) = self.auth.record_audit(entry).await {
             tracing::error!(action, error = %e, "failed to write audit log entry");
         }
+    }
+
+    /// A form over a JSON object from `fields`, rendered and collected through
+    /// the registered field types; `scope` names what an override is scoped to.
+    /// Refused, naming the field, when a type is unregistered or an option
+    /// malformed: the fields may come from data edited at runtime.
+    pub fn value_form(&self, fields: &[FormField], scope: &str) -> Result<ValueForm, Text> {
+        ValueForm::new(
+            fields,
+            self.field_types.clone(),
+            self.overrides.clone(),
+            scope,
+        )
     }
 
     pub fn db(&self) -> &Db {
@@ -237,6 +256,8 @@ impl RouteCtxBuilder {
         RouteCtx::new(
             self.db,
             auth,
+            Arc::new(crate::field::builtin_registry()),
+            Arc::new(crate::field::NoOverrides),
             &self.base_path,
             &self.admin_path,
             &self.base_url,

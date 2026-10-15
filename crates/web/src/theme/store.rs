@@ -17,6 +17,11 @@ fn now() -> String {
 
 fn theme_from_row(row: &AnyRow) -> Result<Theme, ThemeError> {
     let config_source = row.get_text("config")?;
+    let settings = row
+        .get_text_opt("settings")?
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
     Ok(Theme {
         id: row.get_int("id")?,
         code: row.get_text("code")?,
@@ -24,6 +29,7 @@ fn theme_from_row(row: &AnyRow) -> Result<Theme, ThemeError> {
         locked: row.get_bool("locked")?,
         config: ThemeConfig::parse(&config_source)?,
         config_source,
+        settings,
         created_at: row.get_text("created_at")?,
         updated_at: row.get_text("updated_at")?,
     })
@@ -55,12 +61,13 @@ fn revision_from_row(row: &AnyRow) -> Result<Revision, ThemeError> {
     })
 }
 
-const THEME_COLUMNS: [Themes; 7] = [
+const THEME_COLUMNS: [Themes; 8] = [
     Themes::Id,
     Themes::Code,
     Themes::Parent,
     Themes::Locked,
     Themes::Config,
+    Themes::Settings,
     Themes::CreatedAt,
     Themes::UpdatedAt,
 ];
@@ -201,6 +208,46 @@ pub async fn update_theme_config(
         .execute(&db.pool)
         .await?;
     require_theme(db, code).await
+}
+
+/// Replaces a theme's settings values. `settings` must be a JSON object.
+pub async fn save_settings(
+    db: &Db,
+    code: &str,
+    settings: &serde_json::Value,
+) -> Result<(), ThemeError> {
+    if !settings.is_object() {
+        return Err(ThemeError::Config(
+            "the settings must be a JSON object".into(),
+        ));
+    }
+    let theme = require_theme(db, code).await?;
+    if theme.locked {
+        return Err(ThemeError::Locked(code.to_string()));
+    }
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(Themes::Table)
+            .value(Themes::Settings, settings.to_string())
+            .value(Themes::UpdatedAt, now())
+            .and_where(Expr::col(Themes::Id).eq(theme.id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// The settings form in force for a chain (nearest first): the first theme
+/// that declares one, as the config falls through to the parent.
+pub fn form_fields(chain: &[Theme]) -> Vec<laterite_admin::form::FormField> {
+    chain
+        .iter()
+        .find_map(|t| t.config.form.as_ref())
+        .map(|f| f.fields.clone())
+        .unwrap_or_default()
 }
 
 /// Locks or unlocks a theme.

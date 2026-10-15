@@ -1683,6 +1683,205 @@ struct FormTemplate {
     focus: &'static str,
 }
 
+/// A field as a value form renders it: the label, the control its type drew,
+/// the help, and the wrapper's layout classes and behaviour attributes.
+pub struct ValueFieldView {
+    pub label: String,
+    pub help: Option<String>,
+    /// The control, rendered by the field's own type.
+    pub control: String,
+    /// Wrapper classes for the span and a row break, each led by a space.
+    pub layout: String,
+    /// The wrapper's preset and trigger attributes, each led by a space.
+    pub attrs: String,
+}
+
+#[derive(Template)]
+#[template(path = "_value_fields.html")]
+struct ValueFieldsTemplate {
+    fields: Vec<ValueFieldView>,
+}
+
+/// A form over a JSON object: the declared fields rendered with their stored
+/// values, and a submission collected back through the field types into an
+/// object with every declared key. The settings screens are one, a theme's
+/// settings another. Built from a [`RouteCtx`](crate::routes::RouteCtx) with
+/// [`value_form`](crate::routes::RouteCtx::value_form).
+pub struct ValueForm {
+    fields: Vec<FormField>,
+    types: Arc<crate::field::FieldRegistry>,
+    overrides: Arc<dyn crate::field::OverrideResolver>,
+    /// What an override is scoped to (a settings code, a theme code).
+    scope: String,
+}
+
+impl ValueForm {
+    /// Checks every field's type is registered and its options resolve. The
+    /// error names the field and the type, for a form declared at runtime.
+    pub(crate) fn new(
+        fields: &[FormField],
+        types: Arc<crate::field::FieldRegistry>,
+        overrides: Arc<dyn crate::field::OverrideResolver>,
+        scope: &str,
+    ) -> Result<Self, Text> {
+        for field in fields {
+            let Some(ft) = types.get(&field.field_type) else {
+                return Err(Text::dynamic(format!(
+                    "field {:?} uses unregistered type {:?}",
+                    field.name, field.field_type
+                )));
+            };
+            if ft.resolve_options(&field.options, &types).is_err() {
+                return Err(Text::dynamic(format!(
+                    "field {:?} has malformed options",
+                    field.name
+                )));
+            }
+        }
+        Ok(Self {
+            fields: fields.to_vec(),
+            types,
+            overrides,
+            scope: scope.to_string(),
+        })
+    }
+
+    /// The fields, in order.
+    pub fn fields(&self) -> &[FormField] {
+        &self.fields
+    }
+
+    /// Each field over `stored`, ready for a template.
+    pub fn views(&self, stored: &serde_json::Value, shell: &crate::Shell) -> Vec<ValueFieldView> {
+        value_views(
+            &self.fields,
+            &self.types,
+            self.overrides.as_ref(),
+            stored,
+            shell,
+            &self.scope,
+        )
+    }
+
+    /// The fields over `stored` as one `.lat-fields` block, for a form a screen
+    /// builds by hand around it.
+    pub fn render(&self, stored: &serde_json::Value, shell: &crate::Shell) -> crate::html::Markup {
+        let template = ValueFieldsTemplate {
+            fields: self.views(stored, shell),
+        };
+        crate::html::Markup::from_template(&template).unwrap_or_default()
+    }
+
+    /// A submission as the stored object: every declared key, each value
+    /// through its field type. A type that refuses its input refuses the whole.
+    pub fn collect(&self, data: &HashMap<String, String>) -> Result<serde_json::Value, Text> {
+        value_collect(&self.fields, &self.types, data)
+    }
+}
+
+/// Each of `fields` over `stored`, rendered by its type with overrides scoped
+/// to `scope`.
+pub(crate) fn value_views(
+    fields: &[FormField],
+    types: &crate::field::FieldRegistry,
+    overrides: &dyn crate::field::OverrideResolver,
+    stored: &serde_json::Value,
+    shell: &crate::Shell,
+    scope: &str,
+) -> Vec<ValueFieldView> {
+    fields
+        .iter()
+        .map(|f| {
+            let label = shell.tt(&f.label);
+            let control = match types.get(&f.field_type) {
+                Some(ft) => {
+                    let opts = ft
+                        .resolve_options(&f.options, types)
+                        .unwrap_or_else(|_| ResolvedOptions::none());
+                    let value = match stored.get(&f.name) {
+                        Some(serde_json::Value::Array(rows)) => {
+                            FieldValue::Json(serde_json::Value::Array(rows.clone()))
+                        }
+                        Some(serde_json::Value::String(text)) => {
+                            FieldValue::Text(ft.to_control(Some(text), &opts))
+                        }
+                        Some(serde_json::Value::Null) | None => {
+                            FieldValue::Text(ft.to_control(None, &opts))
+                        }
+                        Some(other) => {
+                            FieldValue::Text(ft.to_control(Some(&other.to_string()), &opts))
+                        }
+                    };
+                    let cx = FieldCx {
+                        name: &f.name,
+                        id: &f.name,
+                        label: &label,
+                        value: &value,
+                        required: false,
+                        max_length: max_length(&f.rules),
+                        opts: &opts,
+                        base: &shell.base,
+                        i18n: shell.i18n(),
+                    };
+                    let scope = OverrideScope {
+                        surface: Surface::Field,
+                        view_key: &f.field_type,
+                        resource: Some(scope),
+                        field: Some(&f.name),
+                    };
+                    render_field(ft.as_ref(), overrides, &scope, &cx).into_string()
+                }
+                None => String::new(),
+            };
+            ValueFieldView {
+                label,
+                help: f.help.as_ref().map(|h| shell.tt(h)),
+                control,
+                layout: layout_classes(f.span, f.break_row),
+                attrs: behaviour_attrs(f),
+            }
+        })
+        .collect()
+}
+
+/// A submission over `fields` as a JSON object with every declared key.
+pub(crate) fn value_collect(
+    fields: &[FormField],
+    types: &crate::field::FieldRegistry,
+    data: &HashMap<String, String>,
+) -> Result<serde_json::Value, Text> {
+    let mut object = serde_json::Map::new();
+    for field in fields {
+        let Some(field_type) = types.get(&field.field_type) else {
+            return Err(t!("This screen uses a field type that is not registered."));
+        };
+        let opts = field_type
+            .resolve_options(&field.options, types)
+            .map_err(|_| t!("This screen has a malformed field."))?;
+        let submitted = crate::field::SubmittedField::new(&field.name, data);
+        let value = match field_type.to_attr(&submitted, &opts, Mode::Update) {
+            Ok(Some(value)) => attr_to_json(value),
+            Ok(None) => serde_json::Value::String(String::new()),
+            Err(_) => return Err(t!("Check the values and try again.")),
+        };
+        object.insert(field.name.clone(), value);
+    }
+    Ok(serde_json::Value::Object(object))
+}
+
+/// A field type's attribute value as settings JSON stores it.
+pub(crate) fn attr_to_json(value: laterite_core::AttrValue) -> serde_json::Value {
+    use laterite_core::AttrValue;
+    match value {
+        AttrValue::Null => serde_json::Value::String(String::new()),
+        AttrValue::Bool(b) => serde_json::Value::Bool(b),
+        AttrValue::Int(i) => serde_json::Value::from(i),
+        AttrValue::Float(f) => serde_json::Value::from(f),
+        AttrValue::Json(j) => j,
+        other => serde_json::Value::String(other.to_text().unwrap_or_default()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

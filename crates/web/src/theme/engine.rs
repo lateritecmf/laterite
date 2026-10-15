@@ -90,14 +90,22 @@ pub struct Engine {
     names: Vec<String>,
 }
 
-/// The theme as templates see it: `theme.name`, `theme.code`.
-#[derive(Serialize)]
-struct ThemeView<'a> {
-    code: &'a str,
-    name: &'a str,
-    author: &'a str,
-    homepage: &'a str,
-    description: &'a str,
+/// The theme as templates see it: its settings values, then `code`, `name`,
+/// `author`, `homepage` and `description`, which a setting cannot shadow.
+fn theme_value(theme: &Theme) -> serde_json::Value {
+    let mut map = match &theme.settings {
+        serde_json::Value::Object(values) => values.clone(),
+        _ => serde_json::Map::new(),
+    };
+    map.insert("code".into(), theme.code.clone().into());
+    map.insert("name".into(), theme.config.name.clone().into());
+    map.insert("author".into(), theme.config.author.clone().into());
+    map.insert("homepage".into(), theme.config.homepage.clone().into());
+    map.insert(
+        "description".into(),
+        theme.config.description.clone().into(),
+    );
+    serde_json::Value::Object(map)
 }
 
 /// The stamp of a chain: every theme's `updated_at`, nearest first. A change
@@ -143,16 +151,7 @@ impl Engine {
             .next()
             .expect("a chain starts with its theme");
         let mut env = base_environment();
-        env.add_global(
-            "theme",
-            Value::from(Serde(ThemeView {
-                code: &theme.code,
-                name: &theme.config.name,
-                author: &theme.config.author,
-                homepage: &theme.config.homepage,
-                description: &theme.config.description,
-            })),
-        );
+        env.add_global("theme", Value::from(Serde(theme_value(&theme))));
         let content = Arc::new(content);
         env.add_function(
             "content",

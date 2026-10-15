@@ -38,6 +38,7 @@ impl Screen for ThemeScreen {
             .route("/", get(index).post(create))
             .route("/{code}", get(show))
             .route("/{code}/config", post(update_config))
+            .route("/{code}/settings", post(save_settings))
             .route("/{code}/activate", post(activate))
             .route("/{code}/edit", post(edit))
             .route("/{code}/duplicate", post(duplicate))
@@ -198,6 +199,9 @@ struct ShowTemplate {
     code: String,
     locked: bool,
     config: String,
+    /// The settings fields over the theme's values, when its config (or an
+    /// ancestor's) declares a form.
+    settings: Option<String>,
     groups: Vec<KindGroup>,
     kinds: Vec<(&'static str, String)>,
 }
@@ -278,6 +282,18 @@ async fn show(
         .into_iter()
         .map(|k| (k.as_str(), kind_label(&shell, k)))
         .collect();
+    let fields = store::form_fields(&chain);
+    let settings = if fields.is_empty() {
+        None
+    } else {
+        match ctx.value_form(&fields, &theme.code) {
+            Ok(form) => Some(form.render(&theme.settings, &shell).into_string()),
+            Err(text) => {
+                session.push_flash(FlashLevel::Error, text);
+                None
+            }
+        }
+    };
     page(
         &shell,
         Text::dynamic(theme.config.name.clone()),
@@ -287,6 +303,7 @@ async fn show(
             code: theme.code.clone(),
             locked: theme.locked,
             config: theme.config_source.clone(),
+            settings,
             groups,
             kinds,
             shell: shell.clone(),
@@ -320,6 +337,45 @@ async fn update_config(
             session.push_flash(FlashLevel::Success, t!("Theme config saved."));
         }
         Err(e) => flash_error(&session, &e),
+    }
+    back(&ctx, &code)
+}
+
+async fn save_settings(
+    State(ctx): Ctx,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(code): Path<String>,
+    Form(data): Form<std::collections::HashMap<String, String>>,
+) -> Response {
+    let chain = match store::chain(ctx.db(), &code).await {
+        Ok(chain) => chain,
+        Err(e) => {
+            flash_error(&session, &e);
+            return back(&ctx, "");
+        }
+    };
+    let fields = store::form_fields(&chain);
+    let collected = ctx
+        .value_form(&fields, &code)
+        .and_then(|form| form.collect(&data));
+    match collected {
+        Ok(values) => match store::save_settings(ctx.db(), &code, &values).await {
+            Ok(()) => {
+                ctx.audit(
+                    &user,
+                    "web.theme.settings",
+                    Some("theme"),
+                    Some(&code),
+                    Some(&chain[0].config.name),
+                    None,
+                )
+                .await;
+                session.push_flash(FlashLevel::Success, t!("Theme settings saved."));
+            }
+            Err(e) => flash_error(&session, &e),
+        },
+        Err(text) => session.push_flash(FlashLevel::Error, text),
     }
     back(&ctx, &code)
 }

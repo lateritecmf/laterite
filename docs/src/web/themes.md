@@ -129,6 +129,44 @@ Call | Refused when
 `save_template`, `delete_template` | The theme is locked, or the path is not a template path.
 `delete_theme` | The theme is active, locked, or another theme's parent.
 
+## Settings
+
+A theme declares its own settings under `form` in the config; the theme page shows them as a form, and templates read the values beside the theme's keys:
+
+```yaml
+name: Acme
+form:
+  fields:
+    site_name:
+      label: Site name
+      type: text
+    tagline:
+      label: Tagline
+      type: textarea
+```
+
+```jinja
+<h1>{{ theme.site_name }}</h1>
+<p>{{ theme.tagline }}</p>
+```
+
+A child theme without a `form` uses its parent's; the values are each theme's own. A field named `code`, `name`, `author`, `homepage` or `description` is refused.
+
+```rust
+let chain = store::chain(&db, "acme").await?;
+let fields = store::form_fields(&chain);
+store::save_settings(&db, "acme", &serde_json::json!({ "site_name": "Acme" })).await?;
+let values = store::find_theme(&db, "acme").await?.unwrap().settings;
+```
+
+A module's own screen renders and collects such a form through the route context:
+
+```rust
+let form = ctx.value_form(&fields, "acme")?;
+let markup = form.render(&values, &shell);
+let saved = form.collect(&data)?;
+```
+
 ## Rendering
 
 ```rust
