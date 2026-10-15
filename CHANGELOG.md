@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-10-16
+
+Pages and layouts: the public site served from the active theme. A page's URL
+is a pattern, its layout a setting, its settings typed fields in the editor;
+the site renders with `this` and `head`, the theme's own 404 and error pages,
+assets with an ETag, and preview for an operator; `lat theme build` writes the
+same pages as a static site.
+
 ### Added
 
 - Pages route: a page's `url` pattern (`:param`, `?`, `?default`, `|regex`, `*`),
