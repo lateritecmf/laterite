@@ -260,3 +260,102 @@ async fn the_theme_page_shows_and_saves_the_declared_settings() {
         "{html}"
     );
 }
+
+const BOUNDARY: &str = "lat-boundary";
+
+/// A multipart body: text fields, then one file field holding `file`.
+fn multipart(fields: &[(&str, &str)], file: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (name, value) in fields {
+        out.extend_from_slice(
+            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+                .as_bytes(),
+        );
+    }
+    out.extend_from_slice(
+        format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"t.zip\"\r\nContent-Type: application/zip\r\n\r\n")
+            .as_bytes(),
+    );
+    out.extend_from_slice(file);
+    out.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+    out
+}
+
+#[tokio::test]
+async fn a_theme_exports_as_a_zip_and_imports_as_a_new_one() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "home.htm",
+        None,
+        "<h1>hi</h1>",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let req = Request::builder()
+        .uri("/admin/themes/base/export")
+        .header("cookie", format!("{SESSION_COOKIE}={root}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("application/zip")
+    );
+    assert!(response
+        .headers()
+        .get("content-disposition")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .contains("base.zip"));
+    let bytes = laterite_admin::axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/themes/import")
+        .header("cookie", format!("{SESSION_COOKIE}={root}"))
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", "tok-123")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(multipart(&[("code", "copy")], &bytes)))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok()),
+        Some("/admin/themes/copy")
+    );
+    let copy = store::find_theme(&db, "copy").await.unwrap().unwrap();
+    assert_eq!(copy.config.name, "Base");
+    let home = store::find_template(&db, copy.id, Kind::Page, "home.htm")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(home.markup, "<h1>hi</h1>");
+    let (_, html) = get(&app, "/admin/themes/copy", &root).await;
+    assert!(
+        html.contains("Imported 1 template(s), skipped 0."),
+        "{html}"
+    );
+}

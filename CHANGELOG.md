@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   page and read in templates as `theme.<field>`; a child theme uses its parent's form.
 - `ValueForm` and `RouteCtx::value_form`: a form over a JSON object through the
   registered field types, for a module's own screen; the settings screens use it too.
+- `lat theme export`, `lat theme import` and `lat theme list`, and Export and Import on
+  the Themes screen: a theme as a zip of `theme.yaml` and one file per template.
 
 ### Changed
 

@@ -1,13 +1,15 @@
 //! The Themes screen: every theme, its config and its templates, edited from
 //! the admin under the `web.manage_themes` permission.
 
-use super::{engine, store, EditTheme, Kind, Revision, Template, Theme, ThemeError};
+use super::{archive, engine, store, EditTheme, Kind, Revision, Template, Theme, ThemeError};
 use laterite_admin::axum::extract::{Form, Path, State};
+use laterite_admin::axum::http::{header, StatusCode};
 use laterite_admin::axum::response::{IntoResponse, Redirect, Response};
 use laterite_admin::axum::routing::{get, post};
 use laterite_admin::axum::{Extension, Router};
 use laterite_admin::html::Markup;
 use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
+use laterite_admin::VerifiedUpload;
 use laterite_admin::{FlashLevel, Permission, SessionHandle, Shell, ROLE_ADMIN};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::{t, Text};
@@ -36,6 +38,9 @@ impl Screen for ThemeScreen {
         let state = Arc::new(ctx.clone());
         Router::new()
             .route("/", get(index).post(create))
+            .route("/import", post(import_new))
+            .route("/{code}/export", get(export))
+            .route("/{code}/import", post(import_into))
             .route("/{code}", get(show))
             .route("/{code}/config", post(update_config))
             .route("/{code}/settings", post(save_settings))
@@ -176,6 +181,147 @@ async fn create(
             back(&ctx, "")
         }
     }
+}
+
+/// The most an uploaded archive may weigh.
+const UPLOAD_LIMIT: u64 = 32 * 1024 * 1024;
+
+async fn export(
+    State(ctx): Ctx,
+    Extension(session): Extension<SessionHandle>,
+    Path(code): Path<String>,
+) -> Response {
+    match archive::export(ctx.db(), &code).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/zip".to_string()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{code}.zip\""),
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(e) => {
+            flash_error(&session, &e);
+            back(&ctx, &code)
+        }
+    }
+}
+
+/// The fields of an import form: the code (for a new theme), the file, and
+/// whether to replace what exists.
+struct ImportForm {
+    code: String,
+    replace: bool,
+    file: Option<Vec<u8>>,
+    too_large: bool,
+}
+
+async fn read_import(upload: &mut VerifiedUpload) -> ImportForm {
+    let mut form = ImportForm {
+        code: String::new(),
+        replace: false,
+        file: None,
+        too_large: false,
+    };
+    while let Ok(Some(mut field)) = upload.next_field().await {
+        match field.name().unwrap_or_default() {
+            "code" => form.code = field.text().await.unwrap_or_default().trim().to_string(),
+            "replace" => form.replace = field.text().await.unwrap_or_default() == "1",
+            "file" => {
+                let mut bytes = Vec::new();
+                while let Ok(Some(chunk)) = field.chunk().await {
+                    if bytes.len() as u64 + chunk.len() as u64 > UPLOAD_LIMIT {
+                        form.too_large = true;
+                        break;
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                form.file = Some(bytes);
+            }
+            _ => {}
+        }
+    }
+    form
+}
+
+async fn run_import(
+    ctx: &RouteCtx,
+    session: &SessionHandle,
+    user: &AuthenticatedUser,
+    code: &str,
+    form: ImportForm,
+) -> Option<String> {
+    if form.too_large {
+        session.push_flash(FlashLevel::Error, t!("The archive is larger than 32 MB."));
+        return None;
+    }
+    let Some(bytes) = form.file.filter(|b| !b.is_empty()) else {
+        session.push_flash(FlashLevel::Error, t!("Choose a zip to import."));
+        return None;
+    };
+    match archive::import(ctx.db(), code, &bytes, form.replace, Some(user.user.id)).await {
+        Ok(report) => {
+            ctx.audit(
+                user,
+                "web.theme.import",
+                Some("theme"),
+                Some(code),
+                None,
+                Some(&format!(
+                    "{{\"created\":{},\"imported\":{},\"skipped\":{}}}",
+                    report.created, report.imported, report.skipped
+                )),
+            )
+            .await;
+            session.push_flash(
+                FlashLevel::Success,
+                t!(
+                    "Imported {imported} template(s), skipped {skipped}.",
+                    imported = report.imported as i64,
+                    skipped = report.skipped as i64
+                ),
+            );
+            Some(code.to_string())
+        }
+        Err(e) => {
+            flash_error(session, &e);
+            None
+        }
+    }
+}
+
+async fn import_new(
+    State(ctx): Ctx,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    mut upload: VerifiedUpload,
+) -> Response {
+    let form = read_import(&mut upload).await;
+    let code = form.code.clone();
+    if code.is_empty() {
+        session.push_flash(FlashLevel::Error, t!("Give the new theme a code."));
+        return back(&ctx, "");
+    }
+    match run_import(&ctx, &session, &user, &code, form).await {
+        Some(code) => back(&ctx, &code),
+        None => back(&ctx, ""),
+    }
+}
+
+async fn import_into(
+    State(ctx): Ctx,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(code): Path<String>,
+    mut upload: VerifiedUpload,
+) -> Response {
+    let form = read_import(&mut upload).await;
+    run_import(&ctx, &session, &user, &code, form).await;
+    back(&ctx, &code)
 }
 
 /// A template as the theme page lists it: the theme's own, or an ancestor's.

@@ -21,9 +21,11 @@ serde-saphyr = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing.workspace = true
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["testing"] }
+zip = { version = "9", default-features = false }
 tower = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

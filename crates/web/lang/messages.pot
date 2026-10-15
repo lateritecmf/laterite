@@ -6,12 +6,21 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "A JSON object: a page's url and layout, a layout's description."
 msgstr ""
 
+#: templates/theme.html
+msgid "A zip as Export writes it: theme.yaml and one file per template under its kind's folder."
+msgstr ""
+
 #: templates/themes.html
 msgid "Active"
 msgstr ""
 
 #: templates/theme.html
 msgid "All themes"
+msgstr ""
+
+#: templates/theme.html
+#: templates/themes.html
+msgid "Archive"
 msgstr ""
 
 #: templates/theme_template.html
@@ -32,6 +41,10 @@ msgstr ""
 
 #: templates/themes.html
 msgid "Child theme name"
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "Choose a zip to import."
 msgstr ""
 
 #: templates/themes.html
@@ -85,7 +98,36 @@ msgid "Editing"
 msgstr ""
 
 #: templates/theme.html
+msgid "Export as zip"
+msgstr ""
+
+#: templates/theme.html
 msgid "Folders with a slash, lowercase letters, digits, dots, hyphens and underscores."
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "Give the new theme a code."
+msgstr ""
+
+#: templates/theme.html
+#: templates/themes.html
+msgid "Import"
+msgstr ""
+
+#: templates/themes.html
+msgid "Import a theme from a zip"
+msgstr ""
+
+#: templates/theme.html
+msgid "Import a zip"
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "Imported {imported} template(s), skipped {skipped}."
+msgstr ""
+
+#: templates/themes.html
+msgid "Its theme.yaml names and describes the theme."
 msgstr ""
 
 #: templates/theme.html
@@ -148,6 +190,10 @@ msgstr ""
 msgid "Path"
 msgstr ""
 
+#: templates/theme.html
+msgid "Replace templates this theme already has"
+msgstr ""
+
 #: templates/theme_template.html
 msgid "Restore"
 msgstr ""
@@ -188,6 +234,10 @@ msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Template saved."
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "The archive is larger than 32 MB."
 msgstr ""
 
 #: src/theme/admin/mod.rs

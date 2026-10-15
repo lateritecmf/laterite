@@ -61,6 +61,24 @@
       <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
     </form>
   </div>
+  <div class="lat-card">
+    <div class="lat-card__label">{{ shell.t("Import a theme from a zip") }}</div>
+    <form method="post" action="{{ base }}/import" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-fields">
+        <div class="lat-field">
+          <label class="lat-field__label" for="import-code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
+          <input class="lat-input" id="import-code" name="code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="acme">
+        </div>
+        <div class="lat-field">
+          <label class="lat-field__label" for="import-new-file">{{ shell.t("Archive") }}<span class="lat-field__req">*</span></label>
+          <input class="lat-input" id="import-new-file" type="file" name="file" accept=".zip,application/zip" required>
+          <p class="lat-field__help">{{ shell.t("Its theme.yaml names and describes the theme.") }}</p>
+        </div>
+      </div>
+      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Import") }}</button></div>
+    </form>
+  </div>
   {% for t in themes %}
   <div class="lat-card">
     <div class="lat-card__label">{{ shell.tfs("Copy or extend {name}", [("name", t.name.as_str())]) }}</div>

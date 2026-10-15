@@ -22,6 +22,7 @@
 //! ```
 
 pub mod admin;
+pub mod archive;
 pub mod engine;
 mod migrations;
 mod schema;
@@ -235,6 +236,10 @@ pub enum ThemeError {
     Active(String),
     #[error("the template does not compile")]
     Template(#[source] engine::RenderError),
+    #[error("archive error")]
+    Zip(#[from] zip::result::ZipError),
+    #[error("archive error")]
+    Io(#[from] std::io::Error),
     #[error("settings error")]
     Settings(#[from] laterite_admin::settings::SettingsError),
     #[error("preferences error")]

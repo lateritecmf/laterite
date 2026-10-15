@@ -1,6 +1,7 @@
 <div class="lat-toolbar__actions" style="margin:-8px 0 16px">
   <code>{{ code }}</code>
   <a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ base }}">{{ shell.t("All themes") }}</a>
+  <a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ theme_url }}/export">{{ shell.t("Export as zip") }}</a>
 </div>
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
 
@@ -55,6 +56,23 @@
         </div>
       </div>
       <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
+    </form>
+  </div>
+  <div class="lat-card">
+    <div class="lat-card__label">{{ shell.t("Import a zip") }}</div>
+    <form method="post" action="{{ theme_url }}/import" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-fields">
+        <div class="lat-field">
+          <label class="lat-field__label" for="import-file">{{ shell.t("Archive") }}</label>
+          <input class="lat-input" id="import-file" type="file" name="file" accept=".zip,application/zip" required>
+          <p class="lat-field__help">{{ shell.t("A zip as Export writes it: theme.yaml and one file per template under its kind's folder.") }}</p>
+        </div>
+        <div class="lat-field">
+          <label class="lat-field__label"><input type="checkbox" name="replace" value="1"> {{ shell.t("Replace templates this theme already has") }}</label>
+        </div>
+      </div>
+      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Import") }}</button></div>
     </form>
   </div>
   <div class="lat-card">

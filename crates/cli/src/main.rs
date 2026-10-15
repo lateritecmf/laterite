@@ -20,6 +20,7 @@ mod new;
 mod plugin;
 mod project;
 mod serve;
+mod theme;
 
 #[derive(Parser)]
 #[command(name = "lat", version, about = "The Laterite command-line tool")]
@@ -65,6 +66,11 @@ enum Command {
     },
     /// Derive and check the UI-string message catalogs.
     I18n(i18n::I18nArgs),
+    /// Export, import and list the site's themes.
+    Theme {
+        #[command(subcommand)]
+        command: theme::ThemeCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -128,6 +134,10 @@ async fn main() -> Result<()> {
         Command::Admin { command } => run_admin(command, cli.database_url).await,
         Command::Plugin { command } => plugin::run(command),
         Command::I18n(args) => i18n::run(args),
+        Command::Theme { command } => {
+            let db = connect(cli.database_url).await?;
+            theme::run(command, db).await
+        }
     }
 }
 
