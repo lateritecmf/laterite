@@ -39,6 +39,7 @@
 # The Public Web
 
 - [Static Site Generation](web/static-sites.md)
+- [Themes](web/themes.md)
 
 # Reference
 

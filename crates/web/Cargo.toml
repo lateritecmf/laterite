@@ -1,12 +1,25 @@
 [package]
 name = "laterite-web"
 version = "0.9.12"
-description = "Laterite CMF public web layer: static-site generation, page metadata, canonical URLs, and sitemaps"
+description = "Laterite CMF public web layer: themes, static-site generation, page metadata, canonical URLs, and sitemaps"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+laterite-core = { workspace = true }
+laterite-admin = { workspace = true }
+chrono = { workspace = true }
+minijinja = "3"
+sea-query = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-saphyr = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
+laterite-core = { workspace = true, features = ["testing"] }
+laterite-auth = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true }

@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_web::theme`: themes as rows with a YAML config, templates by kind and
+  path resolved through a parent chain, a revision per save, and the active and edit theme.
+
 ### Changed
 
 - `lateritecmf` is on crates.io, and `lat new` generates an application on it:
