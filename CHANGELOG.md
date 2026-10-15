@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-10-16
+
+Themes: the public site's templates as rows edited from the admin. A theme is a
+YAML config and templates by kind, resolved through a parent chain and rendered
+by a runtime engine; every save keeps a revision; settings declared in the
+config; export and import as a zip. Plus the umbrella crate on crates.io and
+`lat new` generating on it.
+
 ### Added
 
 - `laterite_web::theme`: themes as rows with a YAML config, templates by kind and
