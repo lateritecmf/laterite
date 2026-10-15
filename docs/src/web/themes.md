@@ -163,6 +163,52 @@ for (name, url) in engine.routes().fixed() {
 
 `router::Pattern::parse`, `Pattern::matches`, `Pattern::url` and `router::RouteTable` are the engine beneath, usable on their own.
 
+## The site
+
+`ThemeModule` serves the active theme's pages at every URL the admin and the other public routes leave. A page renders with `this` and `head`:
+
+```jinja
+<html>
+<head>{{ head }}</head>
+<body>
+  <h1>{{ this.page.title }}</h1>
+  <p>{{ this.params.slug }} on {{ this.url }} in {{ this.theme.name }}</p>
+  {% if this.preview %}<p>Previewing.</p>{% endif %}
+  {% block page %}{% endblock %}
+</body>
+</html>
+```
+
+Name | Gives
+--- | ---
+`this.page` | The page's settings and `name`.
+`this.params` | The URL's parameters.
+`this.theme` | `code` and `name`.
+`this.layout` | The layout the page named.
+`this.url` | The request path.
+`this.preview` | Whether an operator is previewing.
+`head` | The title, description, canonical, Open Graph and robots tags from the page's settings; a setting may carry an expression.
+
+Page at | Serves
+--- | ---
+`/404` | An unmatched URL, with status 404.
+`/error` | A page that failed to render, with status 500.
+
+URL | Serves
+--- | ---
+`/themes/<code>/assets/<path>` | The theme's text asset, rendered, with an ETag and `public, no-cache`.
+
+An operator signed in to the admin with `web.manage_themes` sees their edit theme and its hidden pages, with `private, no-store`; a visitor sees the active theme. The site is registered through `PublicRouteReg::site`, so a module of your own can take its place:
+
+```rust
+registry.add_public_route(PublicRouteReg::site(Arc::new(MySite)));
+```
+
+```rust
+let operator = ctx.operator(&headers).await;     // the session cookie's operator, if any
+ctx.record_unserved("GET", "/missing", 404).await; // into the request log
+```
+
 ## Revisions
 
 Every save keeps what it replaced:

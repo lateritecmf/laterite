@@ -94,6 +94,8 @@ pub struct Engine {
     pages: HashMap<String, PageSettings>,
     /// Each page template's compiled-to-author line map.
     line_maps: HashMap<String, Vec<usize>>,
+    /// Each page name's stored path (`home` to `home.htm`).
+    page_paths: HashMap<String, String>,
 }
 
 /// A page's source as the environment compiles it, with a map from each
@@ -228,8 +230,10 @@ impl Engine {
         let mut routes = RouteTable::default();
         let mut pages: HashMap<String, PageSettings> = HashMap::new();
         let mut line_maps: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut page_paths: HashMap<String, String> = HashMap::new();
         for (path, (settings, markup)) in page_rows {
             let name = page_name(&path).to_string();
+            page_paths.insert(name.clone(), path.clone());
             let parsed = PageSettings::from_value(&settings).unwrap_or_default();
             if let Ok(pattern) = parsed.pattern() {
                 routes.add(name.clone(), pattern);
@@ -297,6 +301,7 @@ impl Engine {
             routes,
             pages,
             line_maps,
+            page_paths,
         })
     }
 
@@ -330,6 +335,11 @@ impl Engine {
         self.pages.get(name)
     }
 
+    /// A page's stored path by name.
+    pub fn page_path(&self, name: &str) -> Option<&str> {
+        self.page_paths.get(name).map(String::as_str)
+    }
+
     /// The URL of the page `name` with `params`.
     pub fn url_for(&self, name: &str, params: &Params) -> Option<String> {
         self.routes.url(name, params)
@@ -360,7 +370,7 @@ impl Engine {
     }
 
     /// An error's line as the author sees it, for a page the engine composed.
-    fn author_line(&self, mut err: RenderError) -> RenderError {
+    pub fn author_line(&self, mut err: RenderError) -> RenderError {
         if let (Some(template), Some(line)) = (&err.template, err.line) {
             if let Some(map) = self.line_maps.get(template) {
                 if let Some(original) = map.get(line.saturating_sub(1)) {

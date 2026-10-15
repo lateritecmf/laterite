@@ -1458,6 +1458,7 @@ dependencies = [
 name = "laterite-web"
 version = "0.9.13"
 dependencies = [
+ "anyhow",
  "askama",
  "chrono",
  "laterite-admin",

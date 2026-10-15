@@ -28,6 +28,7 @@ mod migrations;
 pub mod page;
 pub mod router;
 mod schema;
+pub mod site;
 pub mod store;
 
 pub use engine::{check, Engine, EngineCache, RenderError};
@@ -59,6 +60,7 @@ impl Module for ThemeModule {
         use laterite_admin::AdminRegistry;
         registry.add_permission(admin::permission());
         registry.add_screen(admin::screen());
+        registry.add_public_route(site::route());
     }
 }
 

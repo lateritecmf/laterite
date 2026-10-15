@@ -176,7 +176,7 @@ impl std::fmt::Debug for ResourceHook {
     }
 }
 
-const SESSION_COOKIE: &str = "laterite_session";
+pub(crate) const SESSION_COOKIE: &str = "laterite_session";
 /// The long-lived "stay signed in" credential. Separate from the session cookie
 /// so the session itself stays short and the credential can be rotated and
 /// revoked on its own.
@@ -1845,7 +1845,7 @@ pub fn router(
         );
     }
 
-    protected
+    let app = protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         // Public routes (not covered by the guard above): the login and first-run
         // setup screens and the embedded stylesheet and fonts (needed before
@@ -1873,9 +1873,28 @@ pub fn router(
             &state.plugin_defined,
             state.auth.events(),
             &forms,
-        ))
-        // Unmatched URLs render the styled 404; a handler panic renders the 500.
-        .fallback(not_found_fallback)
+        ));
+    // Unmatched URLs reach the site when a module registered one, else render
+    // the styled 404; a handler panic renders the 500 either way.
+    let app = match app_public.iter().find(|r| r.is_site()) {
+        Some(site) => {
+            let ctx = routes::RouteCtx::new(
+                state.db.clone(),
+                state.auth.clone(),
+                state.field_types.clone(),
+                state.overrides.clone(),
+                "/",
+                &admin_path,
+                &state.origin,
+                state.plugin_defined.clone(),
+                state.auth.events().clone(),
+                forms.clone(),
+            );
+            app.fallback_service(site.route.mount(&ctx))
+        }
+        None => app.fallback(not_found_fallback),
+    };
+    app
         // The CSRF origin gate wraps every route (login and setup included); the
         // panic layer is outermost so it catches everything.
         .layer(middleware::from_fn_with_state(
@@ -1970,7 +1989,8 @@ fn mount_public(
     forms: &form::Forms,
 ) -> Router<AdminState> {
     let mut router = Router::new();
-    for reg in regs {
+    // The site mounts as the fallback, not as a nested service.
+    for reg in regs.iter().filter(|r| !r.is_site()) {
         let ctx = routes::RouteCtx::new(
             db.clone(),
             auth.clone(),

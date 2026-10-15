@@ -104,6 +104,26 @@ impl RouteCtx {
         )
     }
 
+    /// The operator a request's session cookie belongs to, when it carries a
+    /// live one: how a public route tells an operator from a visitor.
+    pub async fn operator(&self, headers: &axum::http::HeaderMap) -> Option<AuthenticatedUser> {
+        let token = headers
+            .get_all(axum::http::header::COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|line| line.split(';'))
+            .filter_map(|pair| pair.trim().split_once('='))
+            .find(|(name, _)| *name == crate::SESSION_COOKIE)
+            .map(|(_, value)| value.trim().to_string())?;
+        self.auth.verify_session(&token).await.ok()
+    }
+
+    /// Counts a URL the site could not serve in the request log, as the panel
+    /// does for its own.
+    pub async fn record_unserved(&self, method: &str, path: &str, status: u16) {
+        crate::requestlog::record(&self.db, method, path, status).await;
+    }
+
     pub fn db(&self) -> &Db {
         &self.db
     }
@@ -363,6 +383,18 @@ impl PublicRouteReg {
             path: path.into(),
             route,
         }
+    }
+
+    /// The site itself: the route every URL reaches that no admin route and no
+    /// other public route serves, in place of the panel's own 404. One module
+    /// may register it; a second aborts the boot as a clash.
+    pub fn site(route: Arc<dyn PublicRoute>) -> Self {
+        Self::new("/", route)
+    }
+
+    /// Whether this registration is the site (see [`PublicRouteReg::site`]).
+    pub fn is_site(&self) -> bool {
+        self.path == "/"
     }
 }
 

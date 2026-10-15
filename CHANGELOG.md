@@ -11,6 +11,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - Pages route: a page's `url` pattern (`:param`, `?`, `?default`, `|regex`, `*`),
   its `layout` wrapping it on save, `page()` for links, and `Engine::resolve`.
+- The public site: the active theme's pages served at every URL the admin leaves,
+  with `this` and `head`, a `/404` and `/error` page, text assets with an ETag, and
+  preview of an operator's edit theme and hidden pages.
+- `PublicRouteReg::site`, the route that takes the panel's 404 for the site;
+  `RouteCtx::operator` and `RouteCtx::record_unserved` for a public route.
 
 ## [0.9.13] - 2026-10-16
 
