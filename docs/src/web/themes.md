@@ -163,6 +163,8 @@ for (name, url) in engine.routes().fixed() {
 
 `router::Pattern::parse`, `Pattern::matches`, `Pattern::url` and `router::RouteTable` are the engine beneath, usable on their own.
 
+The editor shows a page's settings as fields (URL, a layout picker over the theme and its ancestors, title, description, the meta fields, hidden) and keeps the JSON box for every other kind; the theme page lists each page's URL beside its path.
+
 ## The site
 
 `ThemeModule` serves the active theme's pages at every URL the admin and the other public routes leave. A page renders with `this` and `head`:

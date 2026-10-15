@@ -169,7 +169,7 @@ async fn a_theme_and_a_template_are_created_and_a_broken_template_is_refused() {
         &app,
         &format!("{editor}/save"),
         &root,
-        "settings=%7B%22url%22%3A%22%2F%22%7D&markup=%7B%25+if+%25%7D",
+        "url=%2F&markup=%7B%25+if+%25%7D",
     )
     .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -185,13 +185,13 @@ async fn a_theme_and_a_template_are_created_and_a_broken_template_is_refused() {
         &app,
         &format!("{editor}/save"),
         &root,
-        "settings=%7B%22url%22%3A%22%2F%22%7D&markup=%3Ch1%3E%7B%7B+theme.name+%7D%7D%3C%2Fh1%3E",
+        "url=%2F&markup=%3Ch1%3E%7B%7B+theme.name+%7D%7D%3C%2Fh1%3E",
     )
     .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let saved = store::template(&db, t.id).await.unwrap().unwrap();
     assert_eq!(saved.markup, "<h1>{{ theme.name }}</h1>");
-    assert_eq!(saved.settings, serde_json::json!({"url": "/"}));
+    assert_eq!(saved.settings["url"], "/");
     let (_, html) = get(&app, &editor, &root).await;
     assert!(
         html.contains("Template saved.") && html.contains("Restore"),
@@ -386,12 +386,20 @@ async fn a_page_save_checks_its_url_and_layout() {
     );
     let editor = location;
 
+    // The editor shows the page's settings as fields.
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(
+        html.contains(r#"name="url""#) && html.contains(r#"name="hidden""#),
+        "{html}"
+    );
+    assert!(!html.contains(r#"name="settings""#), "{html}");
+
     // A layout the theme lacks is refused; a bad pattern too.
     let (_, _) = post(
         &app,
         &format!("{editor}/save"),
         &root,
-        "settings=%7B%22url%22%3A%22%2Fabout%22%2C%22layout%22%3A%22default%22%7D&markup=x",
+        "url=%2Fabout&layout=default&markup=x",
     )
     .await;
     let (_, html) = get(&app, &editor, &root).await;
@@ -401,13 +409,7 @@ async fn a_page_save_checks_its_url_and_layout() {
         ""
     );
 
-    let (_, _) = post(
-        &app,
-        &format!("{editor}/save"),
-        &root,
-        "settings=%7B%22url%22%3A%22about%22%7D&markup=x",
-    )
-    .await;
+    let (_, _) = post(&app, &format!("{editor}/save"), &root, "url=about&markup=x").await;
     let (_, html) = get(&app, &editor, &root).await;
     assert!(html.contains("starts with a slash"), "{html}");
 
@@ -422,15 +424,27 @@ async fn a_page_save_checks_its_url_and_layout() {
     )
     .await
     .unwrap();
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(
+        html.contains(r#"<option value="default""#),
+        "the layout picker lists it: {html}"
+    );
     let (_, _) = post(
         &app,
         &format!("{editor}/save"),
         &root,
-        "settings=%7B%22url%22%3A%22%2Fabout%22%2C%22layout%22%3A%22default%22%7D&markup=x",
+        "url=%2Fabout&layout=default&title=About+us&hidden=1&markup=x",
     )
     .await;
-    assert_eq!(
-        store::template(&db, t.id).await.unwrap().unwrap().markup,
-        "x"
+    let saved = store::template(&db, t.id).await.unwrap().unwrap();
+    assert_eq!(saved.markup, "x");
+    assert_eq!(saved.settings["url"], "/about");
+    assert_eq!(saved.settings["layout"], "default");
+    assert_eq!(saved.settings["title"], "About us");
+    assert_eq!(saved.settings["hidden"], true);
+    let (_, html) = get(&app, "/admin/themes/acme", &root).await;
+    assert!(
+        html.contains("<code>/about</code>"),
+        "the page's URL beside its path: {html}"
     );
 }

@@ -3,7 +3,7 @@ msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 #: templates/theme_template.html
-msgid "A JSON object: a page's url and layout, a layout's description."
+msgid "A JSON object, such as a layout's description."
 msgstr ""
 
 #: templates/theme.html
@@ -180,6 +180,10 @@ msgstr ""
 
 #: templates/theme.html
 msgid "None."
+msgstr ""
+
+#: templates/theme_template.html
+msgid "Page"
 msgstr ""
 
 #: templates/themes.html

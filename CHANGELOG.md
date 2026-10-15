@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   preview of an operator's edit theme and hidden pages.
 - `PublicRouteReg::site`, the route that takes the panel's 404 for the site;
   `RouteCtx::operator` and `RouteCtx::record_unserved` for a public route.
+- The template editor shows a page's settings as typed fields with a layout picker,
+  and the theme page lists each page's URL.
 
 ## [0.9.13] - 2026-10-16
 

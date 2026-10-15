@@ -9,12 +9,18 @@
       <label class="lat-field__label" for="markup">{{ shell.t("Markup") }}</label>
       <textarea class="lat-input" id="markup" name="markup" rows="24" spellcheck="false" style="font-family:var(--font-mono)"{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
     </div>
+    {% if page_fields.is_none() %}
     <div class="lat-field">
       <label class="lat-field__label" for="settings">{{ shell.t("Settings") }}</label>
       <textarea class="lat-input" id="settings" name="settings" rows="6" spellcheck="false" style="font-family:var(--font-mono)"{% if locked %} readonly{% endif %}>{{ settings }}</textarea>
-      <p class="lat-field__help">{{ shell.t("A JSON object: a page's url and layout, a layout's description.") }}</p>
+      <p class="lat-field__help">{{ shell.t("A JSON object, such as a layout's description.") }}</p>
     </div>
+    {% endif %}
   </div>
+  {% if let Some(fields) = page_fields %}
+  <div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Page") }}</h2></div>
+  {{ fields|safe }}
+  {% endif %}
   {% if !locked %}
   <div class="lat-actions">
     <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>

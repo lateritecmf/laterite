@@ -324,6 +324,45 @@ async fn import_into(
     back(&ctx, &code)
 }
 
+/// The layouts a theme and its ancestors hold, by path.
+async fn layouts_of(ctx: &RouteCtx, code: &str) -> Result<Vec<String>, ThemeError> {
+    let mut layouts = Vec::new();
+    for theme in store::chain(ctx.db(), code).await? {
+        for t in store::list_templates(ctx.db(), theme.id, Some(Kind::Layout)).await? {
+            if !layouts.contains(&t.path) {
+                layouts.push(t.path);
+            }
+        }
+    }
+    layouts.sort();
+    Ok(layouts)
+}
+
+/// A page's settings as the editor shows them: typed fields over the bag.
+fn page_fields(layouts: &[String]) -> Vec<laterite_admin::form::FormField> {
+    use laterite_admin::form::FormField;
+    let names: Vec<String> = layouts
+        .iter()
+        .map(|l| super::page::page_name(l).to_string())
+        .collect();
+    let mut choices: Vec<(&str, &str)> = vec![("", "")];
+    choices.extend(names.iter().map(|n| (n.as_str(), n.as_str())));
+    vec![
+        FormField::text("url", t!("URL"))
+            .required()
+            .help(t!("A pattern: /blog/:slug, /docs/:path*, /page/:n?1")),
+        FormField::select("layout", t!("Layout"), choices),
+        FormField::text("title", t!("Title")),
+        FormField::textarea("description", t!("Description")),
+        FormField::text("meta_title", t!("Meta title")),
+        FormField::textarea("meta_description", t!("Meta description")),
+        FormField::text("meta_image", t!("Meta image")),
+        FormField::text("meta_type", t!("Meta type")),
+        FormField::text("meta_robots", t!("Meta robots")),
+        FormField::switch("hidden", t!("Hidden: shown only while previewing")),
+    ]
+}
+
 /// A page's settings as a save checks them: the URL parses and the layout
 /// is one the theme or an ancestor has.
 async fn check_page(
@@ -332,13 +371,7 @@ async fn check_page(
     settings: &serde_json::Value,
 ) -> Result<(), ThemeError> {
     let page = super::page::PageSettings::from_value(settings)?;
-    let mut layouts = Vec::new();
-    for theme in store::chain(ctx.db(), code).await? {
-        for t in store::list_templates(ctx.db(), theme.id, Some(Kind::Layout)).await? {
-            layouts.push(t.path);
-        }
-    }
-    page.check(&layouts)
+    page.check(&layouts_of(ctx, code).await?)
 }
 
 /// A template as the theme page lists it: the theme's own, or an ancestor's.
@@ -346,6 +379,8 @@ struct TemplateRow {
     path: String,
     from: String,
     href: String,
+    /// A page's URL pattern; empty for every other kind.
+    url: String,
 }
 
 struct KindGroup {
@@ -387,11 +422,21 @@ async fn groups(
     shell: &Shell,
     chain: &[Theme],
 ) -> Result<Vec<KindGroup>, ThemeError> {
-    let mut seen: std::collections::HashMap<(Kind, String), (String, i64)> = Default::default();
+    let mut seen: std::collections::HashMap<(Kind, String), (String, i64, String)> =
+        Default::default();
     for theme in chain {
         for t in store::list_templates(ctx.db(), theme.id, None).await? {
+            let url = match t.kind {
+                Kind::Page => t
+                    .settings
+                    .get("url")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                _ => String::new(),
+            };
             seen.entry((t.kind, t.path.clone()))
-                .or_insert((theme.code.clone(), t.id));
+                .or_insert((theme.code.clone(), t.id, url));
         }
     }
     let own = &chain[0].code;
@@ -401,7 +446,7 @@ async fn groups(
             let mut rows: Vec<TemplateRow> = seen
                 .iter()
                 .filter(|((k, _), _)| *k == kind)
-                .map(|((_, path), (from, id))| TemplateRow {
+                .map(|((_, path), (from, id, url))| TemplateRow {
                     path: path.clone(),
                     from: if from == own {
                         String::new()
@@ -409,6 +454,7 @@ async fn groups(
                         from.clone()
                     },
                     href: ctx.url(&format!("{from}/templates/{id}")),
+                    url: url.clone(),
                 })
                 .collect();
             rows.sort_by(|a, b| a.path.cmp(&b.path));
@@ -823,6 +869,8 @@ struct EditorTemplate {
     template_url: String,
     locked: bool,
     settings: String,
+    /// A page's settings as fields; none for every other kind.
+    page_fields: Option<String>,
     markup: String,
     revisions: Vec<RevisionRow>,
 }
@@ -867,6 +915,18 @@ async fn template(
     let revisions = store::revisions(ctx.db(), template.id)
         .await
         .unwrap_or_default();
+    let page_fields = if template.kind == Kind::Page {
+        let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
+        match ctx.value_form(&page_fields(&layouts), &code) {
+            Ok(form) => Some(form.render(&template.settings, &shell).into_string()),
+            Err(text) => {
+                session.push_flash(FlashLevel::Error, text);
+                None
+            }
+        }
+    } else {
+        None
+    };
     page(
         &shell,
         Text::dynamic(engine::template_name(template.kind, &template.path)),
@@ -876,6 +936,7 @@ async fn template(
             template_url: ctx.url(&format!("{code}/templates/{id}")),
             locked: theme.locked,
             settings: serde_json::to_string_pretty(&template.settings).unwrap_or_default(),
+            page_fields,
             markup: template.markup.clone(),
             revisions: revision_rows(&shell, revisions),
             shell: shell.clone(),
@@ -883,18 +944,12 @@ async fn template(
     )
 }
 
-#[derive(serde::Deserialize)]
-struct SaveForm {
-    settings: String,
-    markup: String,
-}
-
 async fn save_template(
     State(ctx): Ctx,
     Extension(session): Extension<SessionHandle>,
     Extension(user): Extension<AuthenticatedUser>,
     Path((code, id)): Path<(String, i64)>,
-    Form(form): Form<SaveForm>,
+    Form(form): Form<std::collections::HashMap<String, String>>,
 ) -> Response {
     let here = format!("{code}/templates/{id}");
     let (theme, template) = match owned(&ctx, &code, id).await {
@@ -904,21 +959,47 @@ async fn save_template(
             return back(&ctx, &code);
         }
     };
-    let settings: serde_json::Value = match serde_json::from_str(form.settings.trim()) {
-        Ok(v @ serde_json::Value::Object(_)) => v,
-        Ok(_) => {
-            session.push_flash(FlashLevel::Error, t!("The settings must be a JSON object."));
-            return back(&ctx, &here);
+    // A page's settings arrive as fields, laid over the bag it has; any other
+    // kind's arrive as the JSON box.
+    let settings: serde_json::Value = if template.kind == Kind::Page {
+        let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
+        let collected = ctx
+            .value_form(&page_fields(&layouts), &code)
+            .and_then(|f| f.collect(&form));
+        match collected {
+            Ok(serde_json::Value::Object(fields)) => {
+                let mut bag = template.settings.as_object().cloned().unwrap_or_default();
+                bag.extend(fields);
+                serde_json::Value::Object(bag)
+            }
+            Ok(_) => serde_json::json!({}),
+            Err(text) => {
+                session.push_flash(FlashLevel::Error, text);
+                return back(&ctx, &here);
+            }
         }
-        Err(e) => {
-            session.push_flash(
-                FlashLevel::Error,
-                Text::dynamic(format!("The settings do not parse: {e}")),
-            );
-            return back(&ctx, &here);
+    } else {
+        let raw = form.get("settings").map(String::as_str).unwrap_or("{}");
+        match serde_json::from_str(raw.trim()) {
+            Ok(v @ serde_json::Value::Object(_)) => v,
+            Ok(_) => {
+                session.push_flash(FlashLevel::Error, t!("The settings must be a JSON object."));
+                return back(&ctx, &here);
+            }
+            Err(e) => {
+                session.push_flash(
+                    FlashLevel::Error,
+                    Text::dynamic(format!("The settings do not parse: {e}")),
+                );
+                return back(&ctx, &here);
+            }
         }
     };
-    let markup = form.markup.replace("\r\n", "\n");
+    let markup = form
+        .get("markup")
+        .map(String::as_str)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     if template.kind != Kind::Content {
         if let Err(e) = engine::check(&markup) {
             session.push_flash(FlashLevel::Error, Text::dynamic(e.to_string()));

@@ -27,6 +27,7 @@
       {% for r in g.rows %}
       <tr>
         <td><a href="{{ r.href }}">{{ r.path }}</a></td>
+        <td>{% if !r.url.is_empty() %}<code>{{ r.url }}</code>{% endif %}</td>
         <td>{% if !r.from.is_empty() %}<span class="lat-help">{{ shell.tfs("from {theme}", [("theme", r.from.as_str())]) }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
