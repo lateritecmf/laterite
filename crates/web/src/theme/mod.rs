@@ -25,6 +25,8 @@ pub mod admin;
 pub mod archive;
 pub mod build;
 pub mod engine;
+pub mod maintenance;
+pub mod markup;
 mod migrations;
 pub mod page;
 pub mod router;
@@ -60,6 +62,8 @@ impl Module for ThemeModule {
     fn register(&self, registry: &mut laterite_core::Registry) {
         use laterite_admin::AdminRegistry;
         registry.add_permission(admin::permission());
+        registry.add_permission(maintenance::permission());
+        registry.add_settings(maintenance::settings_item());
         registry.add_screen(admin::screen());
         registry.add_public_route(site::route());
     }

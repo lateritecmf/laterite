@@ -10,6 +10,8 @@ use laterite_auth::{
     password, store as auth_store, AuthConfig, AuthService, NewOperator, RequestContext,
 };
 use laterite_core::{CatalogStore, Db, Module};
+use laterite_web::theme::maintenance::MaintenanceSettings;
+use laterite_web::theme::markup::{Markup, MarkupReg};
 use laterite_web::theme::{self, site, store, Kind, ThemeModule};
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -22,13 +24,34 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     laterite_core::testing::connect_test(&migrations).await
 }
 
+/// `{{ 1234|money }}` renders `12.34`: a module's own markup.
+struct Money;
+
+impl Markup for Money {
+    fn install(&self, env: &mut minijinja::Environment<'static>) {
+        env.add_filter("money", |minor: i64| {
+            format!("{}.{:02}", minor / 100, minor % 100)
+        });
+    }
+}
+
 fn app(db: &Db) -> Router {
     let mut config = AdminConfig::default();
     config.origin = "https://acme.test".to_string();
     let mut contributions = Contributions::default();
     contributions.permissions.push(theme::admin::permission());
+    contributions
+        .permissions
+        .push(theme::maintenance::permission());
+    contributions
+        .settings
+        .push(theme::maintenance::settings_item());
     contributions.screens.push(theme::admin::screen());
     contributions.public_routes.push(site::route());
+    let mut registry = laterite_core::Registry::new();
+    registry.set_owner(laterite_core::ModuleId::new("acme.money"));
+    registry.add(MarkupReg::new("acme.money", Arc::new(Money)));
+    contributions.plugin_defined = Arc::new(registry);
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
@@ -124,7 +147,7 @@ async fn site_theme(db: &Db) -> theme::Theme {
         Kind::Page,
         "home.htm",
         Some(serde_json::json!({"url": "/", "layout": "default", "title": "Home of {{ this.theme.name }}", "description": "The site"})),
-        "<h1>{{ this.page.title }}</h1><a href=\"{{ page('blog/post', slug='x') }}\">post</a>{% if this.preview %}<i>preview</i>{% endif %}<link href=\"{{ url('/feed') }}\">",
+        "<h1>{{ this.page.title }}</h1><a href=\"{{ page('blog/post', slug='x') }}\">post</a>{% if this.preview %}<i>preview</i>{% endif %}<link href=\"{{ url('/feed') }}\"><s>{{ 1234|money }}</s>",
     )
     .await;
     save(
@@ -197,6 +220,10 @@ async fn pages_are_served_from_the_active_theme() {
     );
     assert!(html.contains("href=\"/blog/x\""), "{html}");
     assert!(html.contains("href=\"https://acme.test/feed\""), "{html}");
+    assert!(
+        html.contains("<s>12.34</s>"),
+        "a module's markup is installed: {html}"
+    );
     assert!(!html.contains("<i>preview</i>"), "{html}");
     assert_eq!(
         header(&headers, "content-type"),
@@ -292,4 +319,89 @@ async fn assets_serve_with_a_validator() {
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
     let (status, _, _) = get(&app, "/themes/base/assets/css/none.css", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    let base = site_theme(&db).await;
+    let (root, plain) = sessions(&db).await;
+
+    laterite_admin::settings::save(
+        &db,
+        &MaintenanceSettings {
+            enabled: true,
+            message: "Back <soon>".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (status, html, headers) = get(&app, "/", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(html.contains("Back &lt;soon&gt;"), "{html}");
+    assert_eq!(header(&headers, "retry-after"), Some("600"));
+    let (status, _, _) = get(&app, "/", Some(&plain)).await;
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "no permission, no way in"
+    );
+    let (status, html, _) = get(&app, "/", Some(&root)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("<h1>"), "{html}");
+
+    // The theme's own maintenance page, when it has one.
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "maintenance.htm",
+        Some(serde_json::json!({"url": "/maintenance"})),
+        "closed for {{ this.theme.name }}",
+        None,
+    )
+    .await
+    .unwrap();
+    let (status, html, _) = get(&app, "/blog/x", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(html, "closed for Base");
+
+    // The settings screen is in place for the permission.
+    let (status, html) = {
+        let (s, h, _) = get(&app, "/admin/settings", Some(&root)).await;
+        (s, h)
+    };
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Maintenance mode"), "{html}");
+}
+
+#[tokio::test]
+async fn the_session_cookie_covers_the_site_when_one_is_registered() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    sessions(&db).await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/login")
+        .header("sec-fetch-site", "same-origin")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from("username=root&password=rootpw12345"))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let cookies: Vec<String> = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap_or_default().to_string())
+        .collect();
+    let session = cookies
+        .iter()
+        .find(|c| c.starts_with("laterite_session="))
+        .expect("a session cookie");
+    assert!(
+        session.contains("Path=/;") || session.ends_with("Path=/"),
+        "{session}"
+    );
 }

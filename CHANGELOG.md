@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `theme::markup::MarkupReg`: a module's functions, filters and globals installed
+  into every theme engine; `build::build_with` takes them for a static build.
+- Maintenance mode (Settings › Website, `web.manage_site`): visitors get the theme's
+  `/maintenance` page or a notice with 503; an operator who may manage themes sees the site.
+
+### Changed
+
+- With a site registered, the session and remember cookies are scoped to `/` rather
+  than the admin mount, so the site recognises a signed-in operator.
+
 ## [0.9.14] - 2026-10-16
 
 Pages and layouts: the public site served from the active theme. A page's URL

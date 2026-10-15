@@ -195,9 +195,13 @@ pub(crate) struct AdminState {
     settings: Arc<Vec<settings::SettingsItem>>,
     permissions: Arc<Vec<Permission>>,
     /// The URL path the panel is mounted under, without a trailing slash (e.g.
-    /// `/admin`). Every route, redirect, link, and the session-cookie scope is
-    /// built from it, so one config value moves the whole panel.
+    /// `/admin`). Every route, redirect and link is built from it, so one config
+    /// value moves the whole panel.
     admin_path: Arc<str>,
+    /// The path the session and remember cookies are scoped to: the admin
+    /// mount, or `/` when a module registered the site, so the site can tell
+    /// an operator from a visitor (a preview, maintenance mode).
+    cookie_path: Arc<str>,
     secure_cookie: bool,
     /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
@@ -260,6 +264,7 @@ impl AdminState {
             icons: Arc::new(laterite_core::icons::IconSet::new()),
             sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
+            cookie_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
@@ -1615,6 +1620,11 @@ pub fn router(
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
         plugin_defined,
+        cookie_path: if app_public.iter().any(|r| r.is_site()) {
+            Arc::from("/")
+        } else {
+            Arc::from(admin_path.as_str())
+        },
         assets: Arc::new(assets),
         asset_urls: asset_urls_arc.clone(),
         pickers,
@@ -2983,12 +2993,12 @@ fn with_recall_cookies(
             let jar = jar
                 .add(session_cookie(
                     token,
-                    &state.admin_path,
+                    &state.cookie_path,
                     state.secure_cookie,
                 ))
                 .add(remember_cookie(
                     credential,
-                    &state.admin_path,
+                    &state.cookie_path,
                     state.secure_cookie,
                 ));
             (jar, response).into_response()
@@ -3117,7 +3127,7 @@ async fn login_submit(
             let user_id = session.user_id;
             let mut jar = jar.add(session_cookie(
                 session.token,
-                &state.admin_path,
+                &state.cookie_path,
                 state.secure_cookie,
             ));
             if wants_remember {
@@ -3125,7 +3135,7 @@ async fn login_submit(
                     Ok(credential) => {
                         jar = jar.add(remember_cookie(
                             credential,
-                            &state.admin_path,
+                            &state.cookie_path,
                             state.secure_cookie,
                         ));
                     }
@@ -3151,8 +3161,9 @@ async fn login_submit(
     }
 }
 
-/// Builds the session cookie, scoped to the admin mount and flagged `Secure`
-/// behind HTTPS. Shared by login and first-run setup.
+/// Builds the session cookie, scoped to the admin mount (or the whole site when
+/// a module registered one) and flagged `Secure` behind HTTPS. Shared by login
+/// and first-run setup.
 ///
 /// `remember` is what the login form's "Stay signed in" box asks for: the cookie
 /// is given the session's own lifetime, so closing the browser does not end it.
@@ -3207,10 +3218,10 @@ fn signed_out(
     let jar = jar
         .remove(
             Cookie::build((SESSION_COOKIE, ""))
-                .path(state.admin_path.to_string())
+                .path(state.cookie_path.to_string())
                 .build(),
         )
-        .remove(remember_removal(&state.admin_path));
+        .remove(remember_removal(&state.cookie_path));
     if htmx {
         let mut response = (jar, axum::http::StatusCode::NO_CONTENT).into_response();
         if let Ok(value) = axum::http::HeaderValue::from_str(&to) {
@@ -3379,7 +3390,7 @@ async fn setup_submit(
         .await
     {
         Ok(session) => {
-            let cookie = session_cookie(session.token, &state.admin_path, state.secure_cookie);
+            let cookie = session_cookie(session.token, &state.cookie_path, state.secure_cookie);
             (jar.add(cookie), Redirect::to(&state.admin_path)).into_response()
         }
         Err(_) => Redirect::to(&format!("{}/login", state.admin_path)).into_response(),
@@ -3427,11 +3438,11 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
         let _ = state.auth.revoke_remember(cookie.value()).await;
     }
     let removal = Cookie::build((SESSION_COOKIE, ""))
-        .path(state.admin_path.to_string())
+        .path(state.cookie_path.to_string())
         .build();
     (
         jar.remove(removal)
-            .remove(remember_removal(&state.admin_path)),
+            .remove(remember_removal(&state.cookie_path)),
         Redirect::to(&format!("{}/login", state.admin_path)),
     )
         .into_response()
@@ -3653,7 +3664,7 @@ async fn session_revoke_others(
     // The credential this browser holds went with the rest, so clear its cookie
     // rather than leave one that will fail on the next request.
     (
-        jar.remove(remember_removal(&state.admin_path)),
+        jar.remove(remember_removal(&state.cookie_path)),
         Redirect::to(&format!("{}/preferences", state.admin_path)),
     )
         .into_response()
@@ -3742,18 +3753,18 @@ async fn password_update(
         match state.auth.issue_remember(user.user.id).await {
             Ok(credential) => jar.add(remember_cookie(
                 credential,
-                &state.admin_path,
+                &state.cookie_path,
                 state.secure_cookie,
             )),
             Err(e) => {
                 tracing::error!(error = %e, "reissuing a stay-signed-in credential failed");
-                jar.remove(remember_removal(&state.admin_path))
+                jar.remove(remember_removal(&state.cookie_path))
             }
         }
     } else if jar.get(REMEMBER_COOKIE).is_some() {
         // Not this account's, or no longer current: it would only fail on the
         // next request.
-        jar.remove(remember_removal(&state.admin_path))
+        jar.remove(remember_removal(&state.cookie_path))
     } else {
         jar
     };
@@ -4566,6 +4577,7 @@ mod tests {
             icons: Arc::new(laterite_core::icons::IconSet::new()),
             sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
+            cookie_path: Arc::from("/admin"),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,

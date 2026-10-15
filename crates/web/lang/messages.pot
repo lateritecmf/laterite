@@ -146,8 +146,16 @@ msgstr ""
 msgid "Lowercase letters, digits and hyphens."
 msgstr ""
 
+#: src/theme/maintenance.rs
+msgid "Maintenance mode"
+msgstr ""
+
 #: templates/themes.html
 msgid "Make active"
+msgstr ""
+
+#: src/theme/maintenance.rs
+msgid "Manage the site"
 msgstr ""
 
 #: src/theme/admin/mod.rs
@@ -232,6 +240,10 @@ msgstr ""
 msgid "Stop editing"
 msgstr ""
 
+#: src/theme/maintenance.rs
+msgid "Take the site down for visitors while you work on it."
+msgstr ""
+
 #: src/theme/admin/mod.rs
 msgid "Template deleted."
 msgstr ""
@@ -294,6 +306,7 @@ msgid "Unlock"
 msgstr ""
 
 #: src/theme/admin/mod.rs
+#: src/theme/maintenance.rs
 msgid "Website"
 msgstr ""
 

@@ -29,13 +29,28 @@ pub async fn build(
     out_dir: &Path,
     base_url: &str,
 ) -> Result<BuildReport, ThemeError> {
+    build_with(db, code, out_dir, base_url, &[]).await
+}
+
+/// Like [`build`], with `markup` a module registered installed into the
+/// engine, as the site installs it.
+pub async fn build_with(
+    db: &Db,
+    code: &str,
+    out_dir: &Path,
+    base_url: &str,
+    markup: &[std::sync::Arc<dyn super::markup::Markup>],
+) -> Result<BuildReport, ThemeError> {
     let theme = store::find_theme(db, code)
         .await?
         .ok_or_else(|| ThemeError::NotFound(code.to_string()))?;
     let origin = base_url.trim_end_matches('/').to_string();
     let engine = Engine::build_with(db, code, {
         let origin = origin.clone();
-        move |env| site::add_url(env, origin)
+        move |env| {
+            super::markup::install_all(markup, env);
+            site::add_url(env, origin);
+        }
     })
     .await?;
     let mut out = StaticSite::new(out_dir, &origin)?;

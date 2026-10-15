@@ -11,6 +11,8 @@
 
 use super::admin::PERMISSION;
 use super::engine::{template_name, Engine, EngineCache, RenderError};
+use super::maintenance::{self, MaintenanceSettings};
+use super::markup::{self, Markup, MarkupReg};
 use super::page::PageSettings;
 use super::router::Params;
 use super::{Kind, Theme};
@@ -36,13 +38,21 @@ pub struct Site;
 struct SiteState {
     ctx: RouteCtx,
     engines: EngineCache,
+    /// The markup every module registered, installed into each engine.
+    markup: Vec<Arc<dyn Markup>>,
 }
 
 impl PublicRoute for Site {
     fn mount(&self, ctx: &RouteCtx) -> Router {
+        let markup = ctx
+            .contributions::<MarkupReg>()
+            .into_iter()
+            .map(|r| Arc::clone(&r.markup))
+            .collect();
         let state = Arc::new(SiteState {
             ctx: ctx.clone(),
             engines: EngineCache::new(),
+            markup,
         });
         Router::new()
             .route("/", get(serve))
@@ -208,12 +218,40 @@ async fn serve(
     let origin = ctx.base_url().trim_end_matches('/').to_string();
     let engine = match site
         .engines
-        .get_with(ctx.db(), &theme.code, |env| add_url(env, origin))
+        .get_with(ctx.db(), &theme.code, |env| {
+            markup::install_all(&site.markup, env);
+            add_url(env, origin.clone());
+        })
         .await
     {
         Ok(engine) => engine,
         Err(e) => return error_response(e.to_string()),
     };
+    // Maintenance: visitors get the theme's page or the notice, with 503.
+    if !preview {
+        let settings: MaintenanceSettings = laterite_admin::settings::load(ctx.db())
+            .await
+            .unwrap_or_default();
+        if settings.enabled {
+            let body = match engine.resolve("/maintenance") {
+                Some((name, _)) => {
+                    render_page(&engine, &theme, name, &Params::new(), &path, false, &origin)
+                        .unwrap_or_else(|_| maintenance::notice(&settings.message))
+                }
+                None => maintenance::notice(&settings.message),
+            };
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
+                    (header::RETRY_AFTER, "600"),
+                ],
+                body,
+            )
+                .into_response();
+        }
+    }
     let resolved = engine
         .resolve(&path)
         .map(|(name, params)| (name.to_string(), params))

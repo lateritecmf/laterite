@@ -200,7 +200,7 @@ URL | Serves
 --- | ---
 `/themes/<code>/assets/<path>` | The theme's text asset, rendered, with an ETag and `public, no-cache`.
 
-An operator signed in to the admin with `web.manage_themes` sees their edit theme and its hidden pages, with `private, no-store`; a visitor sees the active theme. The site is registered through `PublicRouteReg::site`, so a module of your own can take its place:
+An operator signed in to the admin with `web.manage_themes` sees their edit theme and its hidden pages, with `private, no-store`; a visitor sees the active theme. With a site registered, the admin's session cookie is scoped to `/` so the site can tell the two apart; without one it stays scoped to the admin mount. The site is registered through `PublicRouteReg::site`, so a module of your own can take its place:
 
 ```rust
 registry.add_public_route(PublicRouteReg::site(Arc::new(MySite)));
@@ -341,6 +341,54 @@ match check(source) {
 ```
 
 `RenderError` carries `template`, `line`, `kind` and `message`.
+
+## Markup a module adds
+
+```rust
+use lateritecmf::web::theme::markup::{Markup, MarkupReg};
+use minijinja::Environment;
+use std::sync::Arc;
+
+struct Money;
+
+impl Markup for Money {
+    fn install(&self, env: &mut Environment<'static>) {
+        env.add_filter("money", |minor: i64| format!("{}.{:02}", minor / 100, minor % 100));
+        env.add_function("year", || 2026);
+    }
+}
+
+fn register(&self, registry: &mut Registry) {
+    registry.add(MarkupReg::new("acme.money", Arc::new(Money)));
+}
+```
+
+```jinja
+{{ price|money }} in {{ year() }}
+```
+
+Every registration is installed into each engine the site builds, in order. `lat theme build` renders without an application's modules, so a template that needs their markup is built from the application with `build::build_with`.
+
+## Maintenance mode
+
+Settings › Website › Maintenance mode, under `web.manage_site`:
+
+Field | Meaning
+--- | ---
+Show visitors the maintenance page | On, a visitor gets status 503 with `Retry-After: 600`.
+Message | The plain notice's text, when the theme has no page at `/maintenance`.
+
+Page at | Serves
+--- | ---
+`/maintenance` | Every visitor's request while the mode is on.
+
+An operator with `web.manage_themes` sees the site as usual.
+
+```rust
+use lateritecmf::web::theme::maintenance::MaintenanceSettings;
+
+let settings: MaintenanceSettings = lateritecmf::admin::settings::load(&db).await?;
+```
 
 ## Building a static site
 
