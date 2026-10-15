@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.15] - 2026-10-16
+
+Components: a module's compiled units attached to a page or layout by data,
+run before the render and read under their alias, with their own markup a
+theme may override; markup a module adds to every engine; maintenance mode;
+and the session cookie covering the site so an operator is known to it.
+
 ### Added
 
 - `theme::markup::MarkupReg`: a module's functions, filters and globals installed
