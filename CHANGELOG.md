@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   and the theme page lists each page's URL.
 - `partial()` carries the request's `this` and `head`; `content()` takes variables
   for `{name}` in the block; `asset()` and `url()` build theme and site links.
+- `lat theme build` and `theme::build`: a theme's fixed pages and assets rendered to a
+  directory for a static host, through the render path the site serves.
 
 ## [0.9.13] - 2026-10-16
 

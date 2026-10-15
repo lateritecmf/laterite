@@ -14,6 +14,21 @@ pub enum ThemeCommand {
     Import(ImportArgs),
     /// List the themes.
     List,
+    /// Render a theme's fixed pages and assets to a directory, for a static host.
+    Build(BuildArgs),
+}
+
+#[derive(Args)]
+pub struct BuildArgs {
+    /// The theme's code.
+    pub code: String,
+    /// The output directory. Default: `dist`.
+    #[arg(long, short, default_value = "dist")]
+    pub out: PathBuf,
+    /// The site's origin for absolute links. Default: the application's
+    /// `app.url`, else one derived from `server.listen`.
+    #[arg(long)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Args)]
@@ -73,6 +88,28 @@ pub async fn run(command: ThemeCommand, db: Db) -> Result<()> {
                 println!("Pass --replace to overwrite the templates the theme already has.");
             }
         }
+        ThemeCommand::Build(args) => {
+            let base_url = args.base_url.unwrap_or_else(base_url_from_project);
+            let report = laterite_web::theme::build::build(&db, &args.code, &args.out, &base_url)
+                .await
+                .with_context(|| format!("could not build the theme {:?}", args.code))?;
+            println!(
+                "Wrote {} page(s) and {} asset(s) to {} for {base_url}",
+                report.pages.len(),
+                report.assets.len(),
+                args.out.display()
+            );
+            for url in &report.pages {
+                println!("  {url}");
+            }
+            if !report.skipped.is_empty() {
+                println!(
+                    "Skipped {} page(s) with parameters or hidden: {}",
+                    report.skipped.len(),
+                    report.skipped.join(", ")
+                );
+            }
+        }
         ThemeCommand::List => {
             let active = laterite_web::theme::active_theme(&db)
                 .await?
@@ -89,4 +126,33 @@ pub async fn run(command: ThemeCommand, db: Db) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The site's origin from the application found upward: `app.url`, else
+/// derived from `server.listen`; `http://localhost` with no application.
+fn base_url_from_project() -> String {
+    #[derive(serde::Deserialize, Default)]
+    struct App {
+        #[serde(default)]
+        url: Option<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Server {
+        #[serde(default)]
+        listen: Option<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Only {
+        #[serde(default)]
+        app: App,
+        #[serde(default)]
+        server: Server,
+    }
+    let only: Only = crate::project::Project::locate()
+        .and_then(|p| p.load::<Only>())
+        .unwrap_or_default();
+    laterite_core::config::base_url(
+        only.app.url.as_deref(),
+        only.server.listen.as_deref().unwrap_or("127.0.0.1:8080"),
+    )
 }

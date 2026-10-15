@@ -342,6 +342,27 @@ match check(source) {
 
 `RenderError` carries `template`, `line`, `kind` and `message`.
 
+## Building a static site
+
+```bash
+lat theme build acme
+lat theme build acme --out public --base-url https://acme.example
+```
+
+Every page whose URL has no parameter is written at its URL (`/about` to `about/index.html`), the `/404` page also as `404.html`, and the text assets under `themes/<code>/assets/`, through the same render path the site serves. A page with parameters or a hidden page is skipped and named.
+
+Flag | Default | Meaning
+--- | --- | ---
+`--out` | `dist` | The output directory.
+`--base-url` | the application's `app.url`, else one derived from `server.listen` | The origin `url()` and the canonical link use.
+
+```rust
+use lateritecmf::web::theme::build;
+
+let report = build::build(&db, "acme", Path::new("dist"), "https://acme.example").await?;
+println!("{} pages, {} assets, {} skipped", report.pages.len(), report.assets.len(), report.skipped.len());
+```
+
 ## Export and import
 
 ```bash

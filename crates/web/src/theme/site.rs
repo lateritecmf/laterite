@@ -260,8 +260,10 @@ async fn serve(
     }
 }
 
-/// `url("/blog")`: the absolute URL of a path on this site.
-fn add_url(env: &mut minijinja::Environment<'static>, origin: String) {
+/// `url("/blog")`: the absolute URL of a path on this site. The site adds it
+/// to every engine it renders with; a tool rendering the same pages adds it
+/// through [`Engine::build_with`](super::Engine::build_with).
+pub fn add_url(env: &mut minijinja::Environment<'static>, origin: String) {
     env.add_function("url", move |path: String| -> Value {
         Value::from_safe_string(format!("{origin}/{}", path.trim_start_matches('/')))
     });
@@ -272,7 +274,10 @@ fn error_response(detail: String) -> Response {
     AdminError::Internal(anyhow::anyhow!(detail)).into_response()
 }
 
-fn render_page(
+/// Renders the page `name` as the site serves it at `path`: with `this`,
+/// `head`, and the meta fields expanded. `origin` is the deployment's, for
+/// the canonical link.
+pub fn render_page(
     engine: &Engine,
     theme: &Theme,
     name: &str,

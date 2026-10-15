@@ -23,6 +23,7 @@
 
 pub mod admin;
 pub mod archive;
+pub mod build;
 pub mod engine;
 mod migrations;
 pub mod page;
