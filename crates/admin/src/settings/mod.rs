@@ -78,7 +78,10 @@ pub struct SettingsItem {
     pub hint: Option<Text>,
     /// Ask before leaving this screen with changes unsaved. Default `true`.
     pub confirm_leave: bool,
-    /// Weight within the category (lower sorts first).
+    /// The band the item belongs to; see [`laterite_core::arrange::slot`].
+    /// The application band unless the item says otherwise.
+    pub slot: i32,
+    /// Weight within the band (lower sorts first).
     pub order: i32,
     /// Icon name shown beside the item in the context sidebar (a Lucide name
     /// such as `users` or `shield`). `None` falls back to a generic glyph.
@@ -119,6 +122,7 @@ impl SettingsItem {
             category: Text::from(""),
             hint: None,
             confirm_leave: true,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 0,
             icon: None,
             permission: None,
@@ -175,9 +179,15 @@ impl SettingsItem {
         self
     }
 
-    /// Weight within the category; lower sorts first.
+    /// Weight within the band; lower sorts first.
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
+        self
+    }
+
+    /// The band the item belongs to; see [`laterite_core::arrange::slot`].
+    pub fn slot(mut self, slot: i32) -> Self {
+        self.slot = slot;
         self
     }
 
@@ -385,56 +395,75 @@ fn collect(
     crate::form::value_collect(&item.fields, types, data)
 }
 
-/// Builds the context-sidebar groups: items grouped by category and ordered
-/// deterministically, with `active_code` (if any) marked. Categories sort by
-/// their lowest item `order`, then name; items by `order`, then label. This is
-/// the simple-weight stage; relative-anchor ordering with an operator override
-/// is a later refinement.
+/// The settings index as a hierarchy: a deployment may rearrange it.
+pub const HIERARCHY: &str = "backend.settings";
+
+struct Placed<'a> {
+    item: &'a SettingsItem,
+    position: laterite_core::arrange::Position,
+}
+
+impl laterite_core::arrange::Arranged for Placed<'_> {
+    fn key(&self) -> &str {
+        &self.item.code
+    }
+    fn position(&self) -> &laterite_core::arrange::Position {
+        &self.position
+    }
+    fn label(&self) -> &str {
+        self.item.label.source()
+    }
+}
+
+/// Builds the context-sidebar groups: the items arranged by the engine (slot,
+/// order, label, then the deployment's `[backend.order]` for
+/// `backend.settings`), grouped by category in order of first appearance,
+/// with `active_code` (if any) marked.
 pub(crate) fn sidebar_groups(
     items: &[SettingsItem],
     admin_path: &str,
     active_code: Option<&str>,
     tr: &Translator,
     icons: crate::icons::Icons<'_>,
+    order: Option<&[String]>,
 ) -> Vec<CategoryView> {
-    // Group by the localized category heading (a shared source localizes identically).
-    let mut by_category: HashMap<String, Vec<&SettingsItem>> = HashMap::new();
-    for item in items {
-        by_category
-            .entry(tr.t(&item.category))
-            .or_default()
-            .push(item);
-    }
-    let mut groups: Vec<CategoryView> = by_category
-        .into_iter()
-        .map(|(category, mut items)| {
-            // Order by weight, then the label's source for a stable tie-break.
-            items.sort_by(|a, b| {
-                a.order
-                    .cmp(&b.order)
-                    .then_with(|| a.label.source().cmp(b.label.source()))
-            });
-            CategoryView {
-                min_order: items.iter().map(|i| i.order).min().unwrap_or(0),
-                name: category,
-                items: items
-                    .iter()
-                    .map(|i| ItemView {
-                        label: tr.t(&i.label),
-                        description: tr.t(&i.description),
-                        path: i.path(admin_path),
-                        icon: icons.render(i.icon.as_deref()),
-                        active: active_code == Some(i.code.as_str()),
-                    })
-                    .collect(),
-            }
+    let placed: Vec<Placed<'_>> = items
+        .iter()
+        .map(|item| Placed {
+            item,
+            position: laterite_core::arrange::Position::new()
+                .slot(item.slot)
+                .order(item.order),
         })
         .collect();
-    groups.sort_by(|a, b| {
-        a.min_order
-            .cmp(&b.min_order)
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    let arranged = laterite_core::arrange::arrange(
+        &laterite_core::arrange::Hierarchy::new(HIERARCHY),
+        placed,
+        laterite_core::arrange::Overrides {
+            deployment: order,
+            operator: None,
+        },
+    )
+    .unwrap_or_default();
+    let mut groups: Vec<CategoryView> = Vec::new();
+    for placed in arranged {
+        let i = placed.item;
+        let category = tr.t(&i.category);
+        let view = ItemView {
+            label: tr.t(&i.label),
+            description: tr.t(&i.description),
+            path: i.path(admin_path),
+            icon: icons.render(i.icon.as_deref()),
+            active: active_code == Some(i.code.as_str()),
+        };
+        match groups.iter_mut().find(|g| g.name == category) {
+            Some(group) => group.items.push(view),
+            None => groups.push(CategoryView {
+                name: category,
+                items: vec![view],
+            }),
+        }
+    }
     groups
 }
 
@@ -487,18 +516,13 @@ fn build(
 #[derive(Clone)]
 pub(crate) struct CategoryView {
     pub(crate) name: String,
-    min_order: i32,
     pub(crate) items: Vec<ItemView>,
 }
 
 impl CategoryView {
     /// One group of entries, as a menu section renders in the sidebar.
     pub(crate) fn new(name: String, items: Vec<ItemView>) -> Self {
-        Self {
-            name,
-            min_order: 0,
-            items,
-        }
+        Self { name, items }
     }
 }
 
@@ -572,6 +596,7 @@ mod field_system_tests {
             category: Text::new(""),
             hint: None,
             confirm_leave: true,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 0,
             icon: None,
             permission: None,
@@ -717,6 +742,7 @@ mod tests {
             category: "Logs".into(),
             hint: None,
             confirm_leave: true,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 10,
             icon: None,
             permission: None,
@@ -761,6 +787,7 @@ mod tests {
                 category: "System".into(),
                 hint: None,
                 confirm_leave: true,
+                slot: laterite_core::arrange::slot::APPLICATION,
                 order: 20,
                 icon: None,
                 permission: None,
@@ -776,6 +803,7 @@ mod tests {
                 category: "System".into(),
                 hint: None,
                 confirm_leave: true,
+                slot: laterite_core::arrange::slot::APPLICATION,
                 order: 10,
                 icon: None,
                 permission: None,
@@ -791,6 +819,7 @@ mod tests {
                 category: "Logs".into(),
                 hint: None,
                 confirm_leave: true,
+                slot: laterite_core::arrange::slot::APPLICATION,
                 order: 5,
                 icon: None,
                 permission: None,
@@ -806,8 +835,9 @@ mod tests {
             None,
             &Translator::new("en"),
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+            None,
         );
-        // "Logs" (min order 5) comes before "System" (min order 10).
+        // "Logs" holds the first-arranged item, so it comes before "System".
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
         // Within "System", Alpha (10) before Beta (20).
@@ -826,6 +856,7 @@ mod tests {
             Some("test.log"),
             &Translator::new("en"),
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+            None,
         );
         let active: Vec<&str> = groups
             .iter()

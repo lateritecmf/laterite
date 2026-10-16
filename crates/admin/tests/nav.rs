@@ -166,8 +166,8 @@ async fn the_menu_shows_each_operator_what_they_may_open() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         tabs(&html),
-        ["Dashboard", "Content", "Orders", "Media", "Settings"],
-        "sections and entries in order, Dashboard first, Settings last: {html}"
+        ["Dashboard", "Media", "Content", "Orders", "Settings"],
+        "Dashboard first, Media in its band before the application, Settings last: {html}"
     );
     assert!(
         html.contains(r#"href="/admin/pages""#) && !html.contains(r#"href="/admin/drafts""#),
@@ -276,7 +276,7 @@ async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
     let (_, html) = get(&app, "/admin", &root).await;
     assert_eq!(
         tabs(&html),
-        ["Dashboard", "Content", "Orders", "Media", "Settings"]
+        ["Dashboard", "Media", "Content", "Orders", "Settings"]
     );
 
     let (_, html) = get(&app, "/admin/preferences", &root).await;

@@ -28,6 +28,7 @@ fn app(db: &Db) -> Router {
     let mut contributions = Contributions::default();
     contributions.permissions.push(theme::admin::permission());
     contributions.screens.push(theme::admin::screen());
+    contributions.settings.push(theme::admin::settings_item());
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
@@ -124,10 +125,23 @@ async fn the_screen_is_gated_and_lists_themes() {
 
     let (status, _) = get(&app, "/admin/themes", &plain).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let (_, html) = get(&app, "/admin", &plain).await;
-    assert!(!html.contains("/admin/themes"), "out of their menu: {html}");
+    // Themes is a settings entry, not a tab: the settings index lists it for
+    // an operator who may manage themes and leaves it out for one who may not.
+    let (_, html) = get(&app, "/admin/settings", &plain).await;
+    assert!(
+        !html.contains("/admin/themes"),
+        "out of their settings: {html}"
+    );
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert!(
+        html.contains("/admin/themes") && html.contains("Website"),
+        "in settings: {html}"
+    );
     let (_, html) = get(&app, "/admin", &root).await;
-    assert!(html.contains("/admin/themes"), "in the menu: {html}");
+    assert!(
+        !html.contains(r#"class="lat-topnav__section" href="/admin/themes""#),
+        "not a tab: {html}"
+    );
 }
 
 #[tokio::test]

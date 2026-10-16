@@ -5,6 +5,7 @@
 //! loading, the framework error taxonomy, database connectivity and
 //! migrations, module registration, and pagination primitives.
 
+pub mod arrange;
 pub mod capabilities;
 pub mod config;
 pub mod db;

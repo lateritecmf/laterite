@@ -37,6 +37,7 @@ pub(crate) fn settings_item() -> SettingsItem {
     )
     .description("The application name shown across the admin.")
     .category("System")
+    .slot(laterite_core::arrange::slot::SYSTEM)
     .order(10)
     .icon("palette")
     .permission("backend.manage_branding")

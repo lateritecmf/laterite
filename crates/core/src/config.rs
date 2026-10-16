@@ -136,6 +136,11 @@ pub struct BackendConfig {
     /// absolute under the admin mount, so they survive a relocated panel. Lets a
     /// deployment move a plugin's screens without forking it.
     pub paths: std::collections::BTreeMap<String, String>,
+    /// Arrangement overrides, keyed by hierarchy (`"backend.nav"`,
+    /// `"backend.settings"`, a plugin's own): the keys in the wanted order.
+    /// Keys left out keep their arrangement after the listed ones; a fixed
+    /// hierarchy ignores its entry.
+    pub order: std::collections::BTreeMap<String, Vec<String>>,
     /// The URL path the admin panel is mounted under, without a trailing slash
     /// (default `/admin`). Change it to move or obscure the panel (`/manage`,
     /// `/backend`). A leading slash is added if missing and a trailing slash is
@@ -165,6 +170,7 @@ impl Default for BackendConfig {
             secret: None,
             timezone: "UTC".to_string(),
             paths: std::collections::BTreeMap::new(),
+            order: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
             trusted_proxies: Vec::new(),
             storage: "storage".to_string(),

@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_core::arrange`: one engine for every list entries insert themselves into,
+  with named slots, anchors, a per-hierarchy policy and `[backend.order]` overrides.
+- `slot` on `menu:` placements and settings items; the top bar and the settings index
+  arrange by it, so a plugin's resource lands after Media by default.
+
+### Changed
+
+- Themes sits in the settings index under Website; the top bar carries Dashboard, Media,
+  the application and Settings.
+
 ## [0.9.16] - 2026-10-16
 
 The media library: folders, links and the browser, private-disk serving behind a

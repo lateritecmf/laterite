@@ -385,6 +385,10 @@ msgid "The archive is larger than 32 MB."
 msgstr ""
 
 #: src/theme/admin/mod.rs
+msgid "The look of the site: pick, preview and edit themes."
+msgstr ""
+
+#: src/theme/admin/mod.rs
 msgid "The settings must be a JSON object."
 msgstr ""
 

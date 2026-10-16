@@ -72,15 +72,17 @@ impl Module for ThemeModule {
     fn migrations(&self) -> MigrationSet {
         migrations::migrations()
     }
-    /// The Themes tab sits at the panel's top level: `/admin/themes`.
+    /// The Themes screen mounts at the panel's top level (`/admin/themes`),
+    /// reached from the settings index.
     fn admin_base(&self) -> Option<&'static str> {
         Some("/")
     }
-    /// The Themes screen and its permission.
+    /// The Themes screen, its settings entry and its permission.
     fn register(&self, registry: &mut laterite_core::Registry) {
         use laterite_admin::AdminRegistry;
         registry.add_permission(admin::permission());
         registry.add_permission(maintenance::permission());
+        registry.add_settings(admin::settings_item());
         registry.add_settings(maintenance::settings_item());
         registry.add_screen(admin::screen());
         registry.add_public_route(site::route());

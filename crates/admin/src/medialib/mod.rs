@@ -89,7 +89,11 @@ pub(crate) fn permissions() -> Vec<Permission> {
 pub(crate) fn screen() -> ScreenReg {
     ScreenReg::new("/media", BROWSE, Arc::new(MediaScreen))
         .in_menu(t!("Media"))
-        .menu(crate::nav::Placement::new().icon("image").order(80))
+        .menu(
+            crate::nav::Placement::new()
+                .icon("image")
+                .slot(laterite_core::arrange::slot::MEDIA),
+        )
 }
 
 /// The serve route.

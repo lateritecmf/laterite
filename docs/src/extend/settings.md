@@ -73,8 +73,9 @@ Builder | Description
 `new(code, label, fields)` | The model's `CODE`, the menu label, and its fields.
 `description(text)` | Under the label in the settings index. At most 72 characters.
 `hint(text)` | Above the form.
-`category(text)` | Groups items in the index.
-`order(n)` | Sort within the category.
+`category(text)` | Groups items in the index, in order of first appearance.
+`slot(n)` | The band (`laterite_core::arrange::slot`); `application` unless set.
+`order(n)` | Sort within the band.
 `icon(name)` | An [icon](../reference/icons.md). An unknown name stops the boot.
 `permission(code)` | Hides the item from operators without the grant.
 `link(path)` | Places an existing screen in the settings menu, with no form.

@@ -26,8 +26,20 @@ pub fn permission() -> Permission {
 /// The screen, as the module registers it: the Themes tab.
 pub fn screen() -> ScreenReg {
     ScreenReg::new("/themes", PERMISSION, Arc::new(ThemeScreen))
-        .in_menu(t!("Themes"))
-        .menu(laterite_admin::nav::Placement::new().icon("palette"))
+        .menu(laterite_admin::nav::Placement::hidden())
+}
+
+/// The Themes entry in the settings index: a theme is chosen and left, so it
+/// sits with the other things set once.
+pub fn settings_item() -> laterite_admin::settings::SettingsItem {
+    laterite_admin::settings::SettingsItem::new("web.themes", t!("Themes"), Vec::new())
+        .description(t!("The look of the site: pick, preview and edit themes."))
+        .category(t!("Website"))
+        .slot(laterite_core::arrange::slot::CONTENT)
+        .order(10)
+        .icon("palette")
+        .permission(PERMISSION)
+        .link("/themes")
 }
 
 /// The Themes screen.

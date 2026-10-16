@@ -494,6 +494,7 @@ impl Bootstrap {
             path: config.backend.path.clone(),
             origin: origin.clone(),
             storage_dir: config.backend.storage.clone(),
+            order: config.backend.order.clone(),
             secret,
         };
         // Merge every loaded module's PO catalogs into the shared store the request

@@ -30,14 +30,31 @@ pub struct NavItem {
     /// What the operator must hold to see the entry. `None` shows it to every
     /// signed-in operator; a section with no path shows when any entry does.
     pub permission: Option<String>,
-    /// Sorts among siblings, lowest first; equal orders sort by label.
+    /// The band the entry belongs to (`slot: media`); see
+    /// [`laterite_core::arrange::slot`]. A contributed entry defaults to the
+    /// application band.
+    #[serde(deserialize_with = "laterite_core::arrange::deserialize_slot")]
+    pub slot: i32,
+    /// Sorts among siblings of the band, lowest first; equal orders sort by label.
     pub order: i32,
-    /// Sits right after the sibling with this key, whatever the orders say.
+    /// Sits right after the sibling with this key, whatever the bands say.
     pub after: Option<String>,
-    /// Sits right before the sibling with this key, whatever the orders say.
+    /// Sits right before the sibling with this key, whatever the bands say.
     pub before: Option<String>,
     /// The key of the item this sits under; `None` is the top bar.
     pub under: Option<String>,
+}
+
+impl laterite_core::arrange::Arranged for NavNode {
+    fn key(&self) -> &str {
+        &self.item.key
+    }
+    fn position(&self) -> &laterite_core::arrange::Position {
+        &self.position
+    }
+    fn label(&self) -> &str {
+        self.item.label.source()
+    }
 }
 
 impl NavItem {
@@ -49,6 +66,7 @@ impl NavItem {
             path: Some(path.into()),
             icon: None,
             permission: None,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 0,
             after: None,
             before: None,
@@ -64,6 +82,7 @@ impl NavItem {
             path: None,
             icon: None,
             permission: None,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 0,
             after: None,
             before: None,
@@ -83,6 +102,12 @@ impl NavItem {
 
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
+        self
+    }
+
+    /// The band the entry belongs to; see [`laterite_core::arrange::slot`].
+    pub fn slot(mut self, slot: i32) -> Self {
+        self.slot = slot;
         self
     }
 
@@ -113,13 +138,16 @@ impl Default for NavItem {
 
 /// Where a resource or a screen sits in the menu: under which section, with
 /// which icon, at which position; or out of the menu altogether.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct Placement {
     /// The key of the section to sit under; `None` is the top bar.
     pub under: Option<String>,
     pub icon: Option<String>,
+    /// The band (`slot: media`); the application band when unset.
+    #[serde(deserialize_with = "laterite_core::arrange::deserialize_slot")]
+    pub slot: i32,
     pub order: i32,
     /// Sits right after the sibling with this key (a resource's key is
     /// `resource:` and its path, a screen's `screen:` and its path).
@@ -128,6 +156,20 @@ pub struct Placement {
     pub before: Option<String>,
     /// Mounted and reachable by link, with no menu entry.
     pub hidden: bool,
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Self {
+            under: None,
+            icon: None,
+            slot: laterite_core::arrange::slot::APPLICATION,
+            order: 0,
+            after: None,
+            before: None,
+            hidden: false,
+        }
+    }
 }
 
 impl Placement {
@@ -155,6 +197,12 @@ impl Placement {
 
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
+        self
+    }
+
+    /// The band the entry belongs to; see [`laterite_core::arrange::slot`].
+    pub fn slot(mut self, slot: i32) -> Self {
+        self.slot = slot;
         self
     }
 
@@ -194,7 +242,40 @@ where
 pub(crate) struct NavNode {
     pub item: NavItem,
     pub children: Vec<NavNode>,
+    /// The item's placement as the arrangement engine reads it.
+    pub position: laterite_core::arrange::Position,
 }
+
+impl NavNode {
+    fn leaf(item: NavItem) -> Self {
+        let mut position = laterite_core::arrange::Position::new()
+            .slot(item.slot)
+            .order(item.order);
+        if let Some(after) = &item.after {
+            position = position.after(after.clone());
+        }
+        if let Some(before) = &item.before {
+            position = position.before(before.clone());
+        }
+        Self {
+            item,
+            children: Vec::new(),
+            position,
+        }
+    }
+}
+
+/// The top bar as a hierarchy: a deployment and an operator may rearrange it,
+/// Dashboard stays first and Settings last.
+pub(crate) fn top_hierarchy() -> laterite_core::arrange::Hierarchy {
+    laterite_core::arrange::Hierarchy::new(TOP_HIERARCHY)
+        .operator_adjustable()
+        .pin_first("dashboard")
+        .pin_last("settings")
+}
+
+/// The configuration key of the top bar.
+pub const TOP_HIERARCHY: &str = "backend.nav";
 
 /// The menu as a tree, built once at boot.
 #[derive(Debug, Default)]
@@ -206,7 +287,19 @@ impl NavTree {
     /// Resolves `items` into a tree under `admin_path`. Refuses a duplicate
     /// key, an entry under a key nobody declared, and an entry under an entry
     /// (one level of sections).
+    #[cfg(test)]
     pub(crate) fn build(items: Vec<NavItem>, admin_path: &str) -> Result<Self, String> {
+        Self::build_with(items, admin_path, &std::collections::BTreeMap::new())
+    }
+
+    /// [`build`](Self::build) with a deployment's `[backend.order]`: the top
+    /// bar under `backend.nav`, a section's entries under `backend.nav.<key>`.
+    pub(crate) fn build_with(
+        items: Vec<NavItem>,
+        admin_path: &str,
+        order: &std::collections::BTreeMap<String, Vec<String>>,
+    ) -> Result<Self, String> {
+        use laterite_core::arrange::{arrange, Hierarchy, Overrides};
         let mut seen = std::collections::HashSet::new();
         for item in &items {
             if item.key.is_empty() {
@@ -224,10 +317,7 @@ impl NavTree {
         let mut top: Vec<NavNode> = items
             .iter()
             .filter(|i| i.under.is_none())
-            .map(|i| NavNode {
-                item: prefixed(i),
-                children: Vec::new(),
-            })
+            .map(|i| NavNode::leaf(prefixed(i)))
             .collect();
         for item in items.iter().filter(|i| i.under.is_some()) {
             let under = item.under.as_deref().unwrap_or_default();
@@ -240,24 +330,23 @@ impl NavTree {
                         item.key
                     )
                 })?;
-            parent.children.push(NavNode {
-                item: prefixed(item),
-                children: Vec::new(),
-            });
+            parent.children.push(NavNode::leaf(prefixed(item)));
         }
-        let by_order = |a: &NavNode, b: &NavNode| {
-            a.item
-                .order
-                .cmp(&b.item.order)
-                .then_with(|| a.item.label.source().cmp(b.item.label.source()))
+        let overrides = |key: &str| Overrides {
+            deployment: order.get(key).map(Vec::as_slice),
+            operator: None,
         };
-        top.sort_by(by_order);
-        anchor(&mut top)?;
-        for node in &mut top {
-            node.children.sort_by(by_order);
-            anchor(&mut node.children)?;
+        let top = arrange(&top_hierarchy(), top, overrides(TOP_HIERARCHY))
+            .map_err(|e| format!("menu: {e}"))?;
+        let mut arranged = Vec::with_capacity(top.len());
+        for mut node in top {
+            let key = format!("{TOP_HIERARCHY}.{}", node.item.key);
+            let children = std::mem::take(&mut node.children);
+            node.children = arrange(&Hierarchy::new(&key), children, overrides(&key))
+                .map_err(|e| format!("menu, under `{}`: {e}", node.item.key))?;
+            arranged.push(node);
         }
-        Ok(Self { top })
+        Ok(Self { top: arranged })
     }
 
     /// The tree as one operator sees it: entries they may not open are gone,
@@ -284,44 +373,11 @@ impl NavTree {
                 Some(NavNode {
                     item: node.item.clone(),
                     children,
+                    position: node.position.clone(),
                 })
             })
             .collect()
     }
-}
-
-/// Moves each anchored sibling next to its anchor, in order of appearance,
-/// so `after: acme.posts` holds whatever the orders say. An anchor that is
-/// no sibling is refused.
-fn anchor(nodes: &mut Vec<NavNode>) -> Result<(), String> {
-    let keys: Vec<String> = nodes.iter().map(|n| n.item.key.clone()).collect();
-    for key in keys {
-        let at = nodes.iter().position(|n| n.item.key == key).unwrap_or(0);
-        let (anchor_key, after) = match (&nodes[at].item.after, &nodes[at].item.before) {
-            (Some(a), _) => (a.clone(), true),
-            (None, Some(b)) => (b.clone(), false),
-            (None, None) => continue,
-        };
-        let target = nodes
-            .iter()
-            .position(|n| n.item.key == anchor_key)
-            .ok_or_else(|| {
-                format!(
-                    "menu item `{key}` is placed {} `{anchor_key}`, which is no sibling of it",
-                    if after { "after" } else { "before" }
-                )
-            })?;
-        if target == at {
-            return Err(format!("menu item `{key}` is placed next to itself"));
-        }
-        let node = nodes.remove(at);
-        let target = nodes
-            .iter()
-            .position(|n| n.item.key == anchor_key)
-            .unwrap_or(0);
-        nodes.insert(if after { target + 1 } else { target }, node);
-    }
-    Ok(())
 }
 
 /// The preference key holding an operator's own order for the top bar.
@@ -332,37 +388,20 @@ pub(crate) const ORDER_PREFERENCE: &str = "menu.order";
 /// stays first and Settings last whatever the order says, and a key that is
 /// no tab is ignored, so a stale preference never hides anything.
 pub(crate) fn apply_order(nodes: &mut Vec<NavNode>, order: &str) {
-    let wanted: Vec<&str> = order
-        .split(',')
-        .map(str::trim)
-        .filter(|k| !k.is_empty())
-        .collect();
+    let wanted = laterite_core::arrange::parse_sequence(order);
     if wanted.is_empty() {
         return;
     }
-    let fixed = |key: &str| key == "dashboard" || key == "settings";
-    let mut rest: Vec<NavNode> = std::mem::take(nodes);
-    let mut ordered: Vec<NavNode> = Vec::with_capacity(rest.len());
-    for key in wanted {
-        if fixed(key) {
-            continue;
-        }
-        if let Some(at) = rest.iter().position(|n| n.item.key == key) {
-            ordered.push(rest.remove(at));
-        }
-    }
-    let mut tail: Vec<NavNode> = Vec::new();
-    for node in rest {
-        if node.item.key == "dashboard" {
-            ordered.insert(0, node);
-        } else if node.item.key == "settings" {
-            tail.push(node);
-        } else {
-            ordered.push(node);
-        }
-    }
-    ordered.extend(tail);
-    *nodes = ordered;
+    let taken = std::mem::take(nodes);
+    *nodes = laterite_core::arrange::arrange(
+        &top_hierarchy(),
+        taken,
+        laterite_core::arrange::Overrides {
+            deployment: None,
+            operator: Some(&wanted),
+        },
+    )
+    .unwrap_or_default();
 }
 
 /// The path a top-level node's tab leads to: its own, or its first entry's.

@@ -207,6 +207,8 @@ pub(crate) struct AdminState {
     storage_dir: Arc<str>,
     /// The key tokens are signed with.
     signing_key: Arc<Vec<u8>>,
+    /// Arrangement overrides by hierarchy (`backend.order`).
+    order: std::collections::BTreeMap<String, Vec<String>>,
     secure_cookie: bool,
     /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
@@ -272,6 +274,7 @@ impl AdminState {
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
             signing_key: Arc::new(random_key()),
+            order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
@@ -355,6 +358,9 @@ pub struct AdminConfig {
     /// `backend.storage`). Uploaded import files go to `private` beneath it
     /// when the application registers no disk of that name.
     pub storage_dir: String,
+    /// Arrangement overrides by hierarchy (`backend.order`): the keys of the
+    /// top bar, a section or the settings index in the wanted order.
+    pub order: std::collections::BTreeMap<String, Vec<String>>,
     /// The key tokens the admin mints are signed with (a private file's URL).
     /// The default is a fresh random key, so such tokens outlive the process
     /// only when the bootstrap supplies the configured or stored key.
@@ -372,6 +378,7 @@ impl Default for AdminConfig {
             path: "/admin".to_string(),
             origin: String::new(),
             storage_dir: "storage".to_string(),
+            order: std::collections::BTreeMap::new(),
             secret: random_key(),
         }
     }
@@ -796,6 +803,7 @@ fn resolve_nav_context(
     path: &str,
     tr: &Translator,
     icons: icons::Icons<'_>,
+    order: &std::collections::BTreeMap<String, Vec<String>>,
 ) -> (
     Vec<nav::NavNode>,
     Vec<settings::CategoryView>,
@@ -812,7 +820,14 @@ fn resolve_nav_context(
         .collect();
     let (in_context, active) = settings_context(&visible, admin_path, path);
     if in_context {
-        let sidebar = settings::sidebar_groups(&visible, admin_path, active.as_deref(), tr, icons);
+        let sidebar = settings::sidebar_groups(
+            &visible,
+            admin_path,
+            active.as_deref(),
+            tr,
+            icons,
+            order.get(settings::HIERARCHY).map(Vec::as_slice),
+        );
         return (visible_nav, sidebar, Some("settings".to_string()));
     }
     let active_top = nav::active_top(&visible_nav, admin_path, path);
@@ -1484,10 +1499,10 @@ pub fn router(
     let mut nav_items = vec![
         nav::NavItem::new("dashboard", "Dashboard", "")
             .icon("layout-dashboard")
-            .order(i32::MIN),
+            .slot(laterite_core::arrange::slot::HOME),
         nav::NavItem::new("settings", "Settings", "/settings")
             .icon("settings")
-            .order(i32::MAX),
+            .slot(laterite_core::arrange::slot::SYSTEM),
     ];
     nav_items.extend(app_nav);
     for resource in &app_resources {
@@ -1504,6 +1519,7 @@ pub fn router(
             resource.nav_label.clone(),
             unprefixed,
         )
+        .slot(resource.menu.slot)
         .order(resource.menu.order);
         item.icon = resource.menu.icon.clone();
         item.permission = resource.permission.clone();
@@ -1525,6 +1541,7 @@ pub fn router(
             reg.base_path.clone(),
         )
         .permission(reg.permission.clone())
+        .slot(reg.menu.slot)
         .order(reg.menu.order);
         item.icon = reg.menu.icon.clone();
         item.under = reg.menu.under.clone();
@@ -1532,8 +1549,8 @@ pub fn router(
         item.before = reg.menu.before.clone();
         nav_items.push(item);
     }
-    let nav =
-        nav::NavTree::build(nav_items, &admin_path).unwrap_or_else(|e| panic!("admin menu: {e}"));
+    let nav = nav::NavTree::build_with(nav_items, &admin_path, &config.order)
+        .unwrap_or_else(|e| panic!("admin menu: {e}"));
     // The palette's record sources: a resource that named its picker source.
     // The source itself is checked against the registry below, once it exists.
     let palette_sources: Vec<palette::RecordSource> = app_resources
@@ -1704,6 +1721,7 @@ pub fn router(
         plugin_defined,
         storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
         signing_key: Arc::new(config.secret.clone()),
+        order: config.order.clone(),
         cookie_path: if app_public.iter().any(|r| r.is_site()) {
             Arc::from("/")
         } else {
@@ -3016,6 +3034,7 @@ async fn require_auth(
         &path,
         &i18n,
         icons::Icons::new(&state.icons, &state.sprite_url),
+        &state.order,
     );
     let brand = state.brand().await;
     let shell = Shell::new(
@@ -4087,6 +4106,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.administrators", "Administrators", Vec::new())
             .description("Manage backend administrator accounts.")
             .category("Users")
+            .slot(laterite_core::arrange::slot::PEOPLE)
             .order(10)
             .icon("users")
             .permission("backend.manage_users")
@@ -4094,6 +4114,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.roles", "Roles", Vec::new())
             .description("Manage roles and their permissions.")
             .category("Users")
+            .slot(laterite_core::arrange::slot::PEOPLE)
             .order(20)
             .icon("shield")
             .permission("backend.manage_roles")
@@ -4102,6 +4123,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.plugins", "Plugins", Vec::new())
             .description("Enable or disable installed plugins.")
             .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
             .order(10)
             .icon("plug")
             .permission(plugins::MANAGE_PERMISSION)
@@ -4109,6 +4131,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
             .description("Review the record of administrative changes.")
             .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
             .order(20)
             .icon("history")
             .permission("backend.view_audit_log")
@@ -4116,6 +4139,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.access_log", "Access Log", Vec::new())
             .description("Review sign-ins, failures and lockouts.")
             .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
             .order(30)
             .icon("log-in")
             .permission("backend.view_access_log")
@@ -4123,6 +4147,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::SettingsItem::new("backend.request_log", "Request Log", Vec::new())
             .description("Review the URLs the panel could not serve.")
             .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
             .order(31)
             .icon("unlink")
             .permission("backend.view_request_log")
@@ -4676,6 +4701,7 @@ mod tests {
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
             signing_key: Arc::new(random_key()),
+            order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
@@ -4730,6 +4756,7 @@ mod tests {
             category: "General".into(),
             hint: None,
             confirm_leave: true,
+            slot: laterite_core::arrange::slot::APPLICATION,
             order: 1,
             icon: None,
             permission: permission.map(str::to_string),
@@ -4780,6 +4807,7 @@ mod tests {
                 path,
                 &tr,
                 icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+                &std::collections::BTreeMap::new(),
             )
             .1
         };

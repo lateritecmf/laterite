@@ -43,6 +43,7 @@ pub fn settings_item() -> SettingsItem {
     )
     .description(t!("Take the site down for visitors while you work on it."))
     .category(t!("Website"))
+    .slot(laterite_core::arrange::slot::CONTENT)
     .order(20)
     .icon("wrench")
     .permission(PERMISSION)
