@@ -123,7 +123,9 @@ async fn a_system_role_is_rebuilt_with_the_new_code() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(store::role_permissions(&db, id).await.unwrap(), [NEW]);
+    let held = store::role_permissions(&db, id).await.unwrap();
+    assert!(held.contains(&NEW.to_string()), "{held:?}");
+    assert!(!held.contains(&OLD.to_string()), "{held:?}");
 }
 
 #[test]

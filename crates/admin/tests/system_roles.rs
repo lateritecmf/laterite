@@ -10,12 +10,19 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
 }
 
 /// The permissions a role holds, read back from the row.
+/// The sample's permissions a role holds; the framework's own (`media.*`)
+/// ride along in every system role and are not what these tests count.
 async fn held(db: &Db, code: &str) -> Vec<String> {
     let id = store::role_id_by_code(db, code)
         .await
         .unwrap()
         .expect("role");
-    store::role_permissions(db, id).await.unwrap()
+    store::role_permissions(db, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.starts_with("acme."))
+        .collect()
 }
 
 fn sample() -> Vec<Permission> {
