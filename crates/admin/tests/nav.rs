@@ -166,7 +166,7 @@ async fn the_menu_shows_each_operator_what_they_may_open() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         tabs(&html),
-        ["Dashboard", "Content", "Orders", "Settings"],
+        ["Dashboard", "Content", "Orders", "Media", "Settings"],
         "sections and entries in order, Dashboard first, Settings last: {html}"
     );
     assert!(
@@ -263,7 +263,7 @@ async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
     let (_, html) = get(&app, "/admin", &root).await;
     assert_eq!(
         tabs(&html),
-        ["Dashboard", "Orders", "Content", "Settings"],
+        ["Dashboard", "Orders", "Content", "Media", "Settings"],
         "the operator's order, with the ends fixed: {html}"
     );
 
@@ -274,7 +274,10 @@ async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let (_, html) = get(&app, "/admin", &root).await;
-    assert_eq!(tabs(&html), ["Dashboard", "Content", "Orders", "Settings"]);
+    assert_eq!(
+        tabs(&html),
+        ["Dashboard", "Content", "Orders", "Media", "Settings"]
+    );
 
     let (_, html) = get(&app, "/admin/preferences", &root).await;
     assert!(

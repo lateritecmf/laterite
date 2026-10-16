@@ -15,15 +15,23 @@
 //! variants and the finder widget arrive with the CMS work.
 
 pub mod driver;
+pub mod folder;
 pub mod ingest;
+pub mod kind;
+pub mod library;
+pub mod link;
 pub mod local;
 pub mod migrations;
 pub mod record;
+pub mod variant;
 
 pub use driver::{BlobMeta, ByteStream, StorageDriver, StorageError};
+pub use folder::{Folder, FolderError};
 pub use ingest::{blob_path, ingest, stream_of, IngestError, Ingested};
+pub use kind::Kind;
+pub use link::{Link, Owner};
 pub use local::LocalDisk;
-pub use record::{MediaRecord, NewMedia, RecordError};
+pub use record::{MediaRecord, NewMedia, NewMediaExtra, RecordError};
 
 use std::sync::Arc;
 
@@ -44,6 +52,9 @@ pub struct DiskReg {
     /// What the disk is for, shown where an operator chooses one. Defaults to
     /// the name.
     pub label: Text,
+    /// A private disk's files are never served by a hash URL alone: a signed
+    /// URL or an app-streamed token gates them.
+    pub private: bool,
 }
 
 impl DiskReg {
@@ -53,7 +64,14 @@ impl DiskReg {
             label: Text::dynamic(name.clone()),
             name,
             driver,
+            private: false,
         }
+    }
+
+    /// Marks the disk private (see [`DiskReg::private`]).
+    pub fn private(mut self) -> Self {
+        self.private = true;
+        self
     }
 
     /// What the disk is for, localized where shown.

@@ -1,0 +1,73 @@
+<div class="lat-toolbar__actions" style="margin:-8px 0 16px">
+  <a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ back_href }}">{{ shell.t("Back to the library") }}</a>
+  <a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ file.url }}" target="_blank" rel="noopener">{{ shell.t("Open") }}</a>
+</div>
+<div class="lat-grid">
+  <div class="lat-card">
+    <div class="lat-media-preview">{% if file.is_image %}<img src="{{ file.url }}" alt="{{ alt }}">{% else %}<span class="lat-media-card__kind">{{ file.kind }}</span>{% endif %}</div>
+    <table class="lat-table lat-media-facts">
+      <tbody>
+        <tr><th>{{ shell.t("Type") }}</th><td>{{ file.content_type }}</td></tr>
+        <tr><th>{{ shell.t("Size") }}</th><td>{{ file.size }}</td></tr>
+        {% if !dimensions.is_empty() %}<tr><th>{{ shell.t("Dimensions") }}</th><td>{{ dimensions }}</td></tr>{% endif %}
+        <tr><th>{{ shell.t("Uploaded") }}</th><td>{{ uploaded }}</td></tr>
+        <tr><th>{{ shell.t("Disk") }}</th><td>{{ disk }}</td></tr>
+        <tr><th>{{ shell.t("URL") }}</th><td><code>{{ file.url }}</code></td></tr>
+        <tr><th>{{ shell.t("Hash") }}</th><td><code>{{ hash }}</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="lat-card">
+    <div class="lat-card__label">{{ shell.t("Details") }}</div>
+    <form method="post" action="{{ file_href }}/update">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-fields">
+        <div class="lat-field">
+          <label class="lat-field__label" for="name">{{ shell.t("File name") }}</label>
+          <input class="lat-input" id="name" name="name" value="{{ original_name }}" required{% if !may_manage %} readonly{% endif %}>
+        </div>
+        <div class="lat-field">
+          <label class="lat-field__label" for="title">{{ shell.t("Title") }}</label>
+          <input class="lat-input" id="title" name="title" value="{{ title }}"{% if !may_manage %} readonly{% endif %}>
+        </div>
+        <div class="lat-field">
+          <label class="lat-field__label" for="alt">{{ shell.t("Alt text") }}</label>
+          <input class="lat-input" id="alt" name="alt" value="{{ alt }}"{% if !may_manage %} readonly{% endif %}>
+          <p class="lat-field__help">{{ shell.t("What the image shows, for readers who cannot see it.") }}</p>
+        </div>
+      </div>
+      {% if may_manage %}<div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
+    </form>
+    {% if may_manage %}
+    <form method="post" action="{{ file_href }}/move" style="margin-top:16px">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-fields">
+        <div class="lat-field">
+          <label class="lat-field__label" for="to">{{ shell.t("Folder") }}</label>
+          <select class="lat-select" id="to" name="to">
+            <option value=""{% if folder.is_empty() %} selected{% endif %}>/</option>
+            {% for f in folders %}<option value="{{ f.id }}"{% if folder == f.id %} selected{% endif %}>{{ f.path }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Move") }}</button></div>
+    </form>
+    {% endif %}
+  </div>
+  <div class="lat-card">
+    <div class="lat-card__label">{{ shell.t("Used by") }}</div>
+    {% if users.is_empty() %}
+    <p class="lat-help">{{ shell.t("No record links to this file.") }}</p>
+    {% else %}
+    <table class="lat-table"><tbody>
+      {% for u in users %}<tr><td>{{ u.owner_type }}</td><td>{{ u.owner_id }}</td><td>{{ u.field }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% if (users.is_empty() && may_delete) || (!users.is_empty() && may_delete_linked) %}
+    <form method="post" action="{{ file_href }}/delete" style="margin-top:12px">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm='{% if users.is_empty() %}{{ shell.t("Delete this file?") }}{% else %}{{ shell.t("Records still use this file. Delete it anyway?") }}{% endif %}'>{{ shell.t("Delete") }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>

@@ -83,6 +83,76 @@ files reads the disks through `ctx.contributions::<DiskReg>()` and picks one by
 name. The admin's import keeps uploads on `private`: the registered disk of that
 name, else `private` under `backend.storage`.
 
+## The library
+
+The Media tab lists the records with `in_library` set, in virtual folders, with upload, search, a kind filter, sorting, folders to make, rename, move and remove, and a file page to retitle, rename, move and delete. Library uploads go to the disk named `public` (the registered one, else `media` under `backend.storage`).
+
+Permission | Grants
+--- | ---
+`media.browse` | The tab.
+`media.upload` | Upload into it.
+`media.manage` | Rename, retitle, move, and make or remove folders.
+`media.delete` | Delete a file no record links to.
+`media.delete_linked` | Delete a file records still use; the file page lists them.
+
+```rust
+use laterite_media::library::{self, Listing, Sort};
+use laterite_media::{folder, link, Kind, Owner};
+
+let photos = folder::create(&db, None, "Photos").await?;
+let year = folder::create(&db, Some(photos.id), "2026").await?;   // path /Photos/2026
+folder::rename(&db, year.id, "2027").await?;
+folder::move_to(&db, year.id, None).await?;
+folder::delete(&db, year.id).await?;                                // empty folders only
+let crumbs = folder::ancestors(&db, year.id).await?;
+
+let page = library::list(&db, &Listing {
+    folder: Some(photos.id),
+    search: None,
+    kind: Some(Kind::Image),
+    sort: Sort::Newest,
+    page: 1,
+    per_page: 60,
+}).await?;
+
+let owner = Owner { owner_type: "acme_posts", owner_id: "7", field: "gallery" };
+link::set(&db, owner, &[first, second]).await?;                     // in that order
+let held = link::of_owner(&db, owner).await?;
+let users = link::users_of(&db, first).await?;
+link::clear_owner(&db, "acme_posts", "7").await?;
+
+record::update_details(&db, id, Some("Our cat"), Some("A tabby")).await?;
+record::rename(&db, id, "cat.png").await?;
+record::move_to_folder(&db, id, Some(photos.id)).await?;
+record::set_in_library(&db, id, true, None).await?;
+```
+
+Call | Refused when
+--- | ---
+`folder::create`, `folder::rename` | The name has a slash or a control character, or a sibling has it.
+`folder::move_to` | The target is the folder or below it.
+`folder::delete` | The folder still holds a file or a folder.
+
+`Listing.search` looks across every folder; `Kind::of(content_type)` gives `Image`, `Video`, `Audio`, `Document` or `Other`.
+
+## Serve
+
+Every record serves at `/storage/media/<hash>/<name>`:
+
+Header | Value
+--- | ---
+`ETag` | The hash; `If-None-Match` answers 304.
+`Cache-Control` | `public, max-age=31536000, immutable`
+`X-Content-Type-Options` | `nosniff`
+`Content-Disposition` | `inline`, or `attachment` for SVG, HTML, script and any `Other` kind.
+
+A record on a disk registered `.private()` is not served this way.
+
+```rust
+registry.add(DiskReg::new("vault", Arc::new(private)).private());
+let url = laterite_admin::medialib::file_url(&record);
+```
+
 ## Delete
 
 ```rust

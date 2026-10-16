@@ -9,6 +9,7 @@
 use chrono::{SecondsFormat, Utc};
 use laterite_core::strata::*;
 use laterite_core::Db;
+use sea_query::UpdateStatement;
 
 /// The media table's columns.
 #[derive(Iden)]
@@ -35,6 +36,13 @@ pub enum Media {
     CreatedBy,
     CreatedAt,
     UpdatedAt,
+    /// The library folder the record sits in; null is the root.
+    FolderId,
+    /// An image's pixel size, read on ingest; null for anything else.
+    Width,
+    Height,
+    /// A JSON bag: orientation, dominant colour, duration, whatever a reader found.
+    Meta,
 }
 
 /// A stored file, as the database holds it.
@@ -50,6 +58,29 @@ pub struct MediaRecord {
     pub alt: Option<String>,
     pub in_library: bool,
     pub created_by: Option<i64>,
+    /// The library folder; `None` is the root.
+    pub folder_id: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    /// The meta bag as stored, `{}` when nothing was read.
+    pub meta: serde_json::Value,
+    pub created_at: String,
+}
+
+impl MediaRecord {
+    /// What the file is to a browser: `image`, `video`, `audio`, `document`
+    /// or `other`, from its sniffed content type.
+    pub fn kind(&self) -> crate::Kind {
+        crate::Kind::of(&self.content_type)
+    }
+
+    /// The name shown: the title when set, else the original file name.
+    pub fn display_name(&self) -> &str {
+        match &self.title {
+            Some(t) if !t.trim().is_empty() => t,
+            _ => &self.original_name,
+        }
+    }
 }
 
 /// What a caller supplies to record an ingested blob.
@@ -63,6 +94,60 @@ pub struct NewMedia {
     pub original_name: String,
     pub in_library: bool,
     pub created_by: Option<i64>,
+}
+
+/// What a record may be created with beyond [`NewMedia`]: a folder and an
+/// image's size.
+#[derive(Debug, Clone, Default)]
+pub struct NewMediaExtra {
+    pub folder_id: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub meta: Option<serde_json::Value>,
+}
+
+/// Every column a record read selects.
+pub(crate) const COLUMNS: [Media; 15] = [
+    Media::Id,
+    Media::Disk,
+    Media::Hash,
+    Media::Size,
+    Media::ContentType,
+    Media::OriginalName,
+    Media::Title,
+    Media::Alt,
+    Media::InLibrary,
+    Media::CreatedBy,
+    Media::FolderId,
+    Media::Width,
+    Media::Height,
+    Media::Meta,
+    Media::CreatedAt,
+];
+
+/// A record from a row selected with [`COLUMNS`].
+pub(crate) fn from_row(r: &sqlx::any::AnyRow) -> Result<MediaRecord, sqlx::Error> {
+    let meta = r
+        .get_text_opt("meta")?
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    Ok(MediaRecord {
+        id: r.get_int("id")?,
+        disk: r.get_text("disk")?,
+        hash: r.get_text("hash")?,
+        size: r.get_int("size")?,
+        content_type: r.get_text("content_type")?,
+        original_name: r.get_text("original_name")?,
+        title: r.get_text_opt("title")?,
+        alt: r.get_text_opt("alt")?,
+        in_library: r.get_bool("in_library")?,
+        created_by: r.get_int_opt("created_by")?,
+        folder_id: r.get_int_opt("folder_id")?,
+        width: r.get_int_opt("width")?,
+        height: r.get_int_opt("height")?,
+        meta,
+        created_at: r.get_text("created_at")?,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,7 +164,16 @@ pub enum RecordError {
 /// two files, each with its own name, title and links. That is the intended
 /// outcome, not a duplicate to be collapsed.
 pub async fn create(db: &Db, new: NewMedia) -> Result<i64, RecordError> {
-    let now = Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true);
+    create_with(db, new, NewMediaExtra::default()).await
+}
+
+/// Creates a record with a folder and an image's size.
+pub async fn create_with(db: &Db, new: NewMedia, extra: NewMediaExtra) -> Result<i64, RecordError> {
+    let now = stamp();
+    let meta = extra
+        .meta
+        .unwrap_or_else(|| serde_json::json!({}))
+        .to_string();
     let stmt = Query::insert()
         .into_table(Media::Table)
         .columns([
@@ -90,6 +184,10 @@ pub async fn create(db: &Db, new: NewMedia) -> Result<i64, RecordError> {
             Media::OriginalName,
             Media::InLibrary,
             Media::CreatedBy,
+            Media::FolderId,
+            Media::Width,
+            Media::Height,
+            Media::Meta,
             Media::CreatedAt,
             Media::UpdatedAt,
         ])
@@ -103,6 +201,10 @@ pub async fn create(db: &Db, new: NewMedia) -> Result<i64, RecordError> {
             // on every backend.
             i32::from(new.in_library).into(),
             new.created_by.into(),
+            extra.folder_id.into(),
+            extra.width.into(),
+            extra.height.into(),
+            meta.into(),
             now.clone().into(),
             now.into(),
         ])
@@ -110,23 +212,139 @@ pub async fn create(db: &Db, new: NewMedia) -> Result<i64, RecordError> {
     Ok(insert_returning_id(db, stmt, Media::Id).await?)
 }
 
+fn stamp() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+// Rendered before the future is made, so the statement builder (not `Send`)
+// never lives inside it and a handler can hold the future across an await.
+fn update_one(
+    db: &Db,
+    id: i64,
+    mut stmt: UpdateStatement,
+) -> impl std::future::Future<Output = Result<(), RecordError>> + Send + '_ {
+    stmt.value(Media::UpdatedAt, stamp())
+        .and_where(Expr::col(Media::Id).eq(id));
+    let (sql, values) = build(db.backend, stmt);
+    async move {
+        bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await?;
+        Ok(())
+    }
+}
+
+/// Sets a record's title and alt text.
+pub async fn update_details(
+    db: &Db,
+    id: i64,
+    title: Option<&str>,
+    alt: Option<&str>,
+) -> Result<(), RecordError> {
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::Title, title.map(str::to_string))
+        .value(Media::Alt, alt.map(str::to_string))
+        .to_owned();
+    update_one(db, id, stmt).await
+}
+
+/// Renames the file as operators see it; the blob and its URL do not change.
+pub async fn rename(db: &Db, id: i64, original_name: &str) -> Result<(), RecordError> {
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::OriginalName, original_name)
+        .to_owned();
+    update_one(db, id, stmt).await
+}
+
+/// Moves a record into a folder (`None` for the root).
+pub async fn move_to_folder(db: &Db, id: i64, folder_id: Option<i64>) -> Result<(), RecordError> {
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::FolderId, folder_id)
+        .to_owned();
+    update_one(db, id, stmt).await
+}
+
+/// Shows a record in the library, in `folder`, or takes it out.
+pub async fn set_in_library(
+    db: &Db,
+    id: i64,
+    in_library: bool,
+    folder_id: Option<i64>,
+) -> Result<(), RecordError> {
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::InLibrary, i32::from(in_library))
+        .value(Media::FolderId, folder_id)
+        .to_owned();
+    update_one(db, id, stmt).await
+}
+
+/// Records an image's size and what a reader found, after ingest.
+pub async fn set_dimensions(
+    db: &Db,
+    id: i64,
+    width: Option<i64>,
+    height: Option<i64>,
+    meta: Option<&serde_json::Value>,
+) -> Result<(), RecordError> {
+    let mut stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::Width, width)
+        .value(Media::Height, height)
+        .to_owned();
+    if let Some(meta) = meta {
+        stmt.value(Media::Meta, meta.to_string());
+    }
+    update_one(db, id, stmt).await
+}
+
+/// The record with this hash on this disk, if any.
+pub async fn find_by_hash(
+    db: &Db,
+    disk: &str,
+    hash: &str,
+) -> Result<Option<MediaRecord>, RecordError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(COLUMNS)
+            .from(Media::Table)
+            .and_where(Expr::col(Media::Disk).eq(disk))
+            .and_where(Expr::col(Media::Hash).eq(hash))
+            .limit(1)
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(row.as_ref().map(from_row).transpose()?)
+}
+
+/// Every record with this hash, on any disk.
+pub async fn find_all_by_hash(db: &Db, hash: &str) -> Result<Vec<MediaRecord>, RecordError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(COLUMNS)
+            .from(Media::Table)
+            .and_where(Expr::col(Media::Hash).eq(hash))
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    Ok(rows.iter().map(from_row).collect::<Result<_, _>>()?)
+}
+
 /// One record by id, or `None` if it is gone.
 pub async fn find(db: &Db, id: i64) -> Result<Option<MediaRecord>, RecordError> {
     let (sql, values) = build(
         db.backend,
         Query::select()
-            .columns([
-                Media::Id,
-                Media::Disk,
-                Media::Hash,
-                Media::Size,
-                Media::ContentType,
-                Media::OriginalName,
-                Media::Title,
-                Media::Alt,
-                Media::InLibrary,
-                Media::CreatedBy,
-            ])
+            .columns(COLUMNS)
             .from(Media::Table)
             .and_where(Expr::col(Media::Id).eq(id))
             .to_owned(),
@@ -134,21 +352,7 @@ pub async fn find(db: &Db, id: i64) -> Result<Option<MediaRecord>, RecordError> 
     let row = bind_values(sqlx::query(&sql), values)
         .fetch_optional(&db.pool)
         .await?;
-    row.map(|r| {
-        Ok(MediaRecord {
-            id: r.get_int("id")?,
-            disk: r.get_text("disk")?,
-            hash: r.get_text("hash")?,
-            size: r.get_int("size")?,
-            content_type: r.get_text("content_type")?,
-            original_name: r.get_text("original_name")?,
-            title: r.get_text_opt("title")?,
-            alt: r.get_text_opt("alt")?,
-            in_library: r.get_bool("in_library")?,
-            created_by: r.get_int_opt("created_by")?,
-        })
-    })
-    .transpose()
+    Ok(row.as_ref().map(from_row).transpose()?)
 }
 
 /// Deletes a record, returning whether its blob is now unreferenced.

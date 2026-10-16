@@ -7,6 +7,15 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- The media library: the Media tab with virtual folders, upload, search, a kind filter
+  and sorting, a file page with who links to it, and `media.*` permissions.
+- `laterite_media::{folder, link, library}`: folders as rows with materialized
+  paths, links by owner and field, and listings; `DiskReg::private`.
+- Every file serves at `/storage/media/<hash>/<name>` with an ETag, `immutable`
+  caching and `nosniff`.
+
 ## [0.9.15] - 2026-10-16
 
 Components: a module's compiled units attached to a page or layout by data,

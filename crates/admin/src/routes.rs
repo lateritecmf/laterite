@@ -30,6 +30,7 @@ pub struct RouteCtx {
     auth: AuthService,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
+    storage_dir: Arc<str>,
     base_path: Arc<str>,
     admin_path: Arc<str>,
     base_url: Arc<str>,
@@ -45,6 +46,7 @@ impl RouteCtx {
         auth: AuthService,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
+        storage_dir: &str,
         base_path: &str,
         admin_path: &str,
         base_url: &str,
@@ -57,6 +59,7 @@ impl RouteCtx {
             auth,
             field_types,
             overrides,
+            storage_dir: Arc::from(storage_dir.trim_end_matches('/')),
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
             base_url: Arc::from(base_url),
@@ -122,6 +125,12 @@ impl RouteCtx {
     /// does for its own.
     pub async fn record_unserved(&self, method: &str, path: &str, status: u16) {
         crate::requestlog::record(&self.db, method, path, status).await;
+    }
+
+    /// The deployment's storage directory (`backend.storage`), where a module
+    /// keeps files when the application registered no disk for it.
+    pub fn storage_dir(&self) -> &str {
+        &self.storage_dir
     }
 
     pub fn db(&self) -> &Db {
@@ -278,6 +287,7 @@ impl RouteCtxBuilder {
             auth,
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),
+            "storage",
             &self.base_path,
             &self.admin_path,
             &self.base_url,

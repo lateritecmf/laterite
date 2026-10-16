@@ -80,12 +80,20 @@ msgstr ""
 msgid "All"
 msgstr ""
 
+#: templates/media.html
+msgid "All kinds"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Allow"
 msgstr ""
 
 #: templates/users_form.html
 msgid "Allow or deny a permission for this user regardless of their roles. Inherit defers to the roles. Permissions you do not hold yourself are shown locked."
+msgstr ""
+
+#: templates/media_file.html
+msgid "Alt text"
 msgstr ""
 
 #: templates/list.html
@@ -97,7 +105,12 @@ msgid "Application name"
 msgstr ""
 
 #: templates/list.html
+#: templates/media.html
 msgid "Apply"
+msgstr ""
+
+#: (descriptors)
+msgid "Arrange media and folders"
 msgstr ""
 
 #: templates/setup.html
@@ -128,6 +141,10 @@ msgstr ""
 msgid "Back to import"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Back to the library"
+msgstr ""
+
 #: src/import/pages.rs
 msgid "Back to {resource}"
 msgstr ""
@@ -149,6 +166,10 @@ msgstr ""
 msgid "Branding"
 msgstr ""
 
+#: (descriptors)
+msgid "Browse the media library"
+msgstr ""
+
 #: templates/login.html
 #: templates/setup.html
 msgid "Build sites. Ship solid."
@@ -157,6 +178,10 @@ msgstr ""
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "By"
+msgstr ""
+
+#: templates/media.html
+msgid "By name"
 msgstr ""
 
 #: templates/list.html
@@ -190,6 +215,10 @@ msgstr ""
 
 #: src/import/pages.rs
 msgid "Choose a file to import."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Choose a file to upload."
 msgstr ""
 
 #: templates/settings_index.html
@@ -243,6 +272,10 @@ msgstr ""
 msgid "Could not create the account. The username or email may already be taken."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "Could not delete. Please try again."
+msgstr ""
+
 #: src/list.rs
 msgid "Could not move. Try again."
 msgstr ""
@@ -259,6 +292,7 @@ msgstr ""
 msgid "Could not save. Check the values and try again."
 msgstr ""
 
+#: src/medialib/mod.rs
 #: src/settings/mod.rs
 msgid "Could not save. Please try again."
 msgstr ""
@@ -269,6 +303,10 @@ msgstr ""
 
 #: src/import/run.rs
 msgid "Could not save: {reason}"
+msgstr ""
+
+#: templates/media.html
+msgid "Create"
 msgstr ""
 
 #: templates/users_new.html
@@ -319,15 +357,36 @@ msgstr ""
 
 #: src/relation.rs
 #: templates/list.html
+#: templates/media_file.html
 msgid "Delete"
+msgstr ""
+
+#: templates/media.html
+msgid "Delete folder"
+msgstr ""
+
+#: (descriptors)
+msgid "Delete media records still use"
 msgstr ""
 
 #: templates/list.html
 msgid "Delete the selected records? This cannot be undone."
 msgstr ""
 
+#: templates/media.html
+msgid "Delete this empty folder?"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Delete this file?"
+msgstr ""
+
 #: src/relation.rs
 msgid "Delete this record?"
+msgstr ""
+
+#: (descriptors)
+msgid "Delete unused media"
 msgstr ""
 
 #: src/bulk.rs
@@ -345,12 +404,24 @@ msgstr ""
 msgid "Deny"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Details"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Device"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Dimensions"
+msgstr ""
+
 #: templates/plugins.html
 msgid "Disabled"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Disk"
 msgstr ""
 
 #: templates/base.html
@@ -458,6 +529,26 @@ msgstr ""
 msgid "File column"
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "File deleted."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "File moved."
+msgstr ""
+
+#: templates/media_file.html
+msgid "File name"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "File saved."
+msgstr ""
+
+#: templates/media.html
+msgid "Files"
+msgstr ""
+
 #: templates/palette.html
 msgid "Find"
 msgstr ""
@@ -476,12 +567,37 @@ msgstr ""
 msgid "First seen"
 msgstr ""
 
+#: templates/media.html
+#: templates/media_file.html
+msgid "Folder"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Folder created."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Folder deleted."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Folder moved."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Folder renamed."
+msgstr ""
+
 #: src/error.rs
 msgid "Forbidden"
 msgstr ""
 
 #: templates/login.html
 msgid "Forgot your password? Ask an administrator to reset it."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Give the file a name without slashes."
 msgstr ""
 
 #: templates/base.html
@@ -495,6 +611,10 @@ msgstr ""
 
 #: templates/base.html
 msgid "Go to a page, a setting or a record"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Hash"
 msgstr ""
 
 #: (descriptors)
@@ -522,6 +642,10 @@ msgstr ""
 msgid "Inherit"
 msgstr ""
 
+#: templates/media.html
+msgid "Into this folder. Identical files are stored once."
+msgstr ""
+
 #: src/lib.rs
 msgid "Invalid username or password."
 msgstr ""
@@ -532,11 +656,16 @@ msgstr ""
 
 #: templates/import/index.html
 #: templates/import/run.html
+#: templates/media.html
 msgid "Kind"
 msgstr ""
 
 #: templates/preferences.html
 msgid "Language"
+msgstr ""
+
+#: templates/media.html
+msgid "Largest first"
 msgstr ""
 
 #: templates/preferences.html
@@ -559,6 +688,10 @@ msgstr ""
 
 #: templates/base.html
 msgid "Leave"
+msgstr ""
+
+#: templates/media.html
+msgid "Library"
 msgstr ""
 
 #: templates/list.html
@@ -609,6 +742,11 @@ msgstr ""
 msgid "Matched the way your last file with these columns was."
 msgstr ""
 
+#: src/medialib/mod.rs
+#: (descriptors)
+msgid "Media"
+msgstr ""
+
 #: templates/base.html
 #: templates/preferences.html
 msgid "Menu"
@@ -624,6 +762,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "More"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Move"
 msgstr ""
 
 #: src/field.rs
@@ -649,6 +791,7 @@ msgid "Moved."
 msgstr ""
 
 #: templates/_roles_form_fields.html
+#: templates/media.html
 #: (descriptors)
 msgid "Name"
 msgstr ""
@@ -661,6 +804,10 @@ msgstr ""
 msgid "New backend user"
 msgstr ""
 
+#: templates/media.html
+msgid "New folder"
+msgstr ""
+
 #: templates/preferences.html
 msgid "New password"
 msgstr ""
@@ -669,12 +816,21 @@ msgstr ""
 msgid "New {label}"
 msgstr ""
 
+#: templates/media.html
+msgid "Newest first"
+msgstr ""
+
 #: templates/_list_table.html
+#: templates/media.html
 msgid "Next"
 msgstr ""
 
 #: templates/import/match.html
 msgid "No columns could be read from the file."
+msgstr ""
+
+#: templates/media.html
+msgid "No files here yet."
 msgstr ""
 
 #: templates/import/index.html
@@ -683,6 +839,10 @@ msgstr ""
 
 #: templates/plugins.html
 msgid "No plugins installed."
+msgstr ""
+
+#: templates/media_file.html
+msgid "No record links to this file."
 msgstr ""
 
 #: templates/_list_table.html
@@ -695,6 +855,10 @@ msgstr ""
 
 #: templates/settings_index.html
 msgid "No settings have been registered."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "No such folder."
 msgstr ""
 
 #: src/error.rs
@@ -712,12 +876,21 @@ msgstr ""
 
 #: src/checklist.rs
 #: templates/base.html
+#: templates/media.html
 #: templates/palette.html
 msgid "Nothing matches."
 msgstr ""
 
 #: templates/import/match.html
 msgid "Nothing: every row makes a new record"
+msgstr ""
+
+#: templates/media.html
+msgid "Oldest first"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Open"
 msgstr ""
 
 #: templates/login.html
@@ -739,6 +912,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Outcome"
+msgstr ""
+
+#: templates/media.html
+msgid "Page {n} of {m}"
 msgstr ""
 
 #: templates/_list_table.html
@@ -818,6 +995,10 @@ msgstr ""
 msgid "Prev"
 msgstr ""
 
+#: templates/media.html
+msgid "Previous"
+msgstr ""
+
 #: templates/plugins.html
 msgid "Quarantined"
 msgstr ""
@@ -836,6 +1017,10 @@ msgstr ""
 
 #: templates/import/index.html
 msgid "Recent imports"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Records still use this file. Delete it anyway?"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -857,6 +1042,14 @@ msgid "Removed {n} record."
 msgid_plural "Removed {n} records."
 msgstr[0] ""
 msgstr[1] ""
+
+#: templates/media.html
+msgid "Rename"
+msgstr ""
+
+#: templates/media.html
+msgid "Rename to"
+msgstr ""
 
 #: (descriptors)
 msgid "Request Log"
@@ -935,6 +1128,7 @@ msgstr ""
 
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
+#: templates/media_file.html
 #: templates/preferences.html
 #: templates/settings_form.html
 #: templates/users_form.html
@@ -957,6 +1151,7 @@ msgstr ""
 
 #: src/checklist.rs
 #: templates/list.html
+#: templates/media.html
 msgid "Search"
 msgstr ""
 
@@ -966,6 +1161,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Search by username or address"
+msgstr ""
+
+#: templates/media.html
+msgid "Search the library"
 msgstr ""
 
 #: src/bulk.rs
@@ -1047,6 +1246,10 @@ msgstr ""
 msgid "Signed-in devices"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Size"
+msgstr ""
+
 #: templates/import/_run_status.html
 #: templates/import/index.html
 msgid "Skipped"
@@ -1063,6 +1266,10 @@ msgstr ""
 
 #: templates/base.html
 msgid "Something went wrong. Please try again."
+msgstr ""
+
+#: templates/media.html
+msgid "Sort"
 msgstr ""
 
 #: templates/import/index.html
@@ -1248,6 +1455,10 @@ msgstr ""
 msgid "This device"
 msgstr ""
 
+#: templates/media.html
+msgid "This folder"
+msgstr ""
+
 #: src/error.rs
 msgid "This form expired or its origin was not recognised. Go back, reload the page, and try again."
 msgstr ""
@@ -1280,8 +1491,20 @@ msgstr ""
 msgid "Those sessions could not be signed out."
 msgstr ""
 
+#: templates/media_file.html
+msgid "Title"
+msgstr ""
+
 #: src/lib.rs
 msgid "Too many attempts. Try again later."
+msgstr ""
+
+#: templates/media_file.html
+msgid "Type"
+msgstr ""
+
+#: templates/media_file.html
+msgid "URL"
 msgstr ""
 
 #: templates/users_form.html
@@ -1301,8 +1524,28 @@ msgstr ""
 msgid "Updated"
 msgstr ""
 
+#: templates/media.html
+msgid "Upload"
+msgstr ""
+
+#: (descriptors)
+msgid "Upload media"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Uploaded"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Uploaded {n} file(s)."
+msgstr ""
+
 #: templates/preferences.html
 msgid "Use the deployment default"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Used by"
 msgstr ""
 
 #: templates/login.html
@@ -1352,6 +1595,10 @@ msgstr ""
 
 #: templates/dashboard.html
 msgid "Welcome"
+msgstr ""
+
+#: templates/media_file.html
+msgid "What the image shows, for readers who cannot see it."
 msgstr ""
 
 #: templates/import/index.html
@@ -1415,6 +1662,14 @@ msgstr ""
 msgid "{field} must be matched to a column."
 msgstr ""
 
+#: templates/media.html
+msgid "{n} file(s)"
+msgstr ""
+
 #: src/checklist.rs
 msgid "{n} of {total}"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "{n} record(s) still use this file; deleting it needs the permission to delete linked media."
 msgstr ""

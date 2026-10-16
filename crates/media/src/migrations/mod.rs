@@ -6,4 +6,5 @@
 laterite_core::migration_set! {
     module_id: "laterite.media",
     m0001_create_media,
+    m0002_create_library,
 }

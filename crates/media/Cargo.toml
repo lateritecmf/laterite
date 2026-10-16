@@ -20,6 +20,7 @@ infer = "0.16"
 # `strata`, but the derive still needs the crate as a direct dependency.
 sea-query = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

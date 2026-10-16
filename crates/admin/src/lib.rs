@@ -30,6 +30,7 @@ mod icons;
 pub mod import;
 pub(crate) mod keyed;
 pub mod list;
+pub mod medialib;
 pub mod nav;
 pub(crate) mod palette;
 pub mod persist;
@@ -202,6 +203,8 @@ pub(crate) struct AdminState {
     /// mount, or `/` when a module registered the site, so the site can tell
     /// an operator from a visitor (a preview, maintenance mode).
     cookie_path: Arc<str>,
+    /// The deployment's storage directory (`backend.storage`).
+    storage_dir: Arc<str>,
     secure_cookie: bool,
     /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
@@ -265,6 +268,7 @@ impl AdminState {
             sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
+            storage_dir: Arc::from("storage"),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
@@ -1176,7 +1180,7 @@ impl laterite_core::ModelListener for SystemRoleGuard {
 fn builtin_permissions() -> Vec<Permission> {
     // Each names no role, so each belongs to the administrator alone: every one
     // of them administers the panel rather than its content.
-    vec![
+    let mut out = vec![
         Permission::new("backend.manage_users", "Manage backend users", "Backend"),
         Permission::new("backend.manage_roles", "Manage roles", "Backend"),
         Permission::new("backend.manage_branding", "Manage branding", "Backend"),
@@ -1188,7 +1192,9 @@ fn builtin_permissions() -> Vec<Permission> {
             "View the request log",
             "Backend",
         ),
-    ]
+    ];
+    out.extend(medialib::permissions());
+    out
 }
 
 /// Every source string in the framework's built-in admin descriptors: resource nav
@@ -1234,6 +1240,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
+        Box::new(medialib::MediaLibraryModule),
         Box::new(import::ImportModule),
     ]
 }
@@ -1323,6 +1330,12 @@ pub fn router(
         resource_hooks,
         plugin_defined,
     } = contributions;
+    // The admin's own screen and route beside the application's: the media
+    // library's tab and its serve route.
+    let mut app_screens = app_screens;
+    app_screens.push(medialib::screen());
+    let mut app_public = app_public;
+    app_public.push(medialib::serve_route());
     let admin_path = normalize_path(&config.path);
 
     let mut resources = builtin_resources();
@@ -1620,6 +1633,7 @@ pub fn router(
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
         plugin_defined,
+        storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
         cookie_path: if app_public.iter().any(|r| r.is_site()) {
             Arc::from("/")
         } else {
@@ -1696,6 +1710,7 @@ pub fn router(
             state.auth.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
+            &state.storage_dir,
             &base,
             &admin_path,
             &state.origin,
@@ -1726,6 +1741,7 @@ pub fn router(
             state.auth.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
+            &state.storage_dir,
             &base,
             &admin_path,
             &state.origin,
@@ -1878,6 +1894,7 @@ pub fn router(
             &state.auth,
             &state.field_types,
             &state.overrides,
+            &state.storage_dir,
             &admin_path,
             &state.origin,
             &state.plugin_defined,
@@ -1893,6 +1910,7 @@ pub fn router(
                 state.auth.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
+                &state.storage_dir,
                 "/",
                 &admin_path,
                 &state.origin,
@@ -1992,6 +2010,7 @@ fn mount_public(
     auth: &AuthService,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
+    storage_dir: &str,
     admin_path: &str,
     origin: &str,
     plugin_defined: &Arc<laterite_core::Registry>,
@@ -2006,6 +2025,7 @@ fn mount_public(
             auth.clone(),
             field_types.clone(),
             overrides.clone(),
+            storage_dir,
             &reg.path,
             admin_path,
             origin,
@@ -4578,6 +4598,7 @@ mod tests {
             sprite_url: Arc::from(""),
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
+            storage_dir: Arc::from("storage"),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
