@@ -48,6 +48,10 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde-saphyr = "1.3"
 sha2 = "0.10"
 hmac = "0.12"
+# Image decoding and encoding for media variants, without the AVIF stack.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+# Lossless metadata stripping: EXIF leaves a JPEG, PNG or WebP without a re-encode.
+img-parts = "0.4"
 sea-query = { version = "0.32", features = [
     "backend-postgres",
     "backend-mysql",

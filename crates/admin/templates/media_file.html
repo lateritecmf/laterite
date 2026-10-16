@@ -1,6 +1,6 @@
 <div class="lat-split lat-split--aside">
   <div class="lat-pane">
-    <div class="lat-media-preview">{% if file.is_image %}<img src="{{ file.url }}" alt="{{ alt }}">{% else %}<span class="lat-media-card__kind">{{ file.kind }}</span>{% endif %}</div>
+    <div class="lat-media-preview">{% if file.is_image %}<img src="{{ file.preview_url }}" alt="{{ alt }}">{% else %}<span class="lat-media-card__kind">{{ file.kind }}</span>{% endif %}</div>
     <div class="lat-pane__body">
       <table class="lat-media-facts">
         <tbody>

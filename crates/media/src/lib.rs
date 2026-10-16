@@ -17,12 +17,14 @@
 pub mod driver;
 pub mod folder;
 pub mod gc;
+pub mod image;
 pub mod ingest;
 pub mod kind;
 pub mod library;
 pub mod link;
 pub mod local;
 pub mod migrations;
+pub mod preset;
 pub mod record;
 pub mod variant;
 pub mod verify;
@@ -33,7 +35,9 @@ pub use ingest::{blob_path, ingest, stream_of, IngestError, Ingested};
 pub use kind::Kind;
 pub use link::{Link, Owner};
 pub use local::LocalDisk;
+pub use preset::{Format, Mode, Preset};
 pub use record::{MediaRecord, NewMedia, NewMediaExtra, RecordError};
+pub use variant::{Variant, VariantError, Variants};
 
 use std::sync::Arc;
 

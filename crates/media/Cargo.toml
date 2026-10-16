@@ -13,6 +13,8 @@ blake3 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
+image = { workspace = true }
+img-parts = { workspace = true }
 # Content types are sniffed from the bytes, never taken from the client.
 infer = "0.16"
 # The schema identifier enum uses sea-query's `Iden` derive, whose generated code

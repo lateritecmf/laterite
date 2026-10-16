@@ -64,13 +64,20 @@ pub async fn collect(
     let before = Utc::now() - grace;
     let mut report = GcReport::default();
     for r in garbage(db, before).await? {
+        let variants = crate::variant::list_for(db, r.id).await?;
+        crate::variant::delete_for(db, r.id).await?;
         let last = record::delete(db, r.id).await?;
         report.records += 1;
         if !last {
             continue;
         }
         let removed = match disks.get(&r.disk) {
-            Some(driver) => driver.delete(&blob_path(&r.hash)).await.is_ok(),
+            Some(driver) => {
+                for v in &variants {
+                    let _ = driver.delete(&v.path).await;
+                }
+                driver.delete(&blob_path(&r.hash)).await.is_ok()
+            }
             None => false,
         };
         if removed {

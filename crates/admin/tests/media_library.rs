@@ -468,3 +468,122 @@ async fn the_uploader_gets_a_json_answer_per_file() {
         "{html}"
     );
 }
+
+/// A variant is made on first request from a named preset, cached, served
+/// with its own validator, and refused for a name nobody declared.
+#[tokio::test]
+async fn a_thumbnail_is_made_once_from_its_preset() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let (status, _) = upload(&app, &root, &[], &[("wide.png", &wide_png(400, 200))]).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let listed = laterite_media::library::list(&db, &laterite_media::library::Listing::default())
+        .await
+        .unwrap();
+    let r = &listed.items[0];
+    assert_eq!(
+        (r.width, r.height),
+        (Some(400), Some(200)),
+        "measured on upload"
+    );
+
+    let url = format!("/storage/media/{}/thumb/wide.png", r.hash);
+    let (status, body, headers) = get(&app, &url, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(header(&headers, "content-type"), Some("image/jpeg"));
+    assert_eq!(
+        header(&headers, "etag"),
+        Some(format!("\"{}/thumb\"", r.hash).as_str())
+    );
+    let made = laterite_media::variant::find(&db, r.id, "thumb")
+        .await
+        .unwrap()
+        .expect("a variant row");
+    assert_eq!((made.width, made.height), (Some(320), Some(160)));
+    assert_eq!(
+        header(&headers, "content-length").and_then(|v| v.parse::<i64>().ok()),
+        Some(made.size)
+    );
+    let _ = body;
+    let (status, _, _) = get(&app, &url, None).await;
+    assert_eq!(status, StatusCode::OK, "served again from the cache");
+    assert_eq!(
+        laterite_media::variant::list_for(&db, r.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let (status, _, _) = get(
+        &app,
+        &format!("/storage/media/{}/giant/wide.png", r.hash),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "an undeclared preset");
+    let (status, _, _) = get(
+        &app,
+        &format!("/storage/media/{}/thumb/x.txt", "0".repeat(64)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// A real PNG of the given size, so a variant has pixels to resize.
+fn wide_png(w: u32, h: u32) -> Vec<u8> {
+    use std::io::Write;
+    fn chunk(out: &mut Vec<u8>, kind: &[u8], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&crc32(&body).to_be_bytes());
+    }
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    0xEDB8_8320 ^ (crc >> 1)
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    let mut raw = Vec::new();
+    for _ in 0..h {
+        // A filter byte, then the row's pixels.
+        raw.extend(std::iter::once(0u8).chain((0..w).flat_map(|x| [(x % 256) as u8, 40, 30])));
+    }
+    // Stored, uncompressed deflate blocks (65535 bytes at most each).
+    let mut deflated = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
+    for (i, block) in blocks.iter().enumerate() {
+        deflated.push(u8::from(i + 1 == blocks.len()));
+        let len = block.len() as u16;
+        deflated.extend_from_slice(&len.to_le_bytes());
+        deflated.extend_from_slice(&(!len).to_le_bytes());
+        deflated.extend_from_slice(block);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for &byte in &raw {
+        a = (a + u32::from(byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    deflated.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    let mut ihdr = Vec::new();
+    ihdr.write_all(&w.to_be_bytes()).unwrap();
+    ihdr.write_all(&h.to_be_bytes()).unwrap();
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(&mut out, b"IDAT", &deflated);
+    chunk(&mut out, b"IEND", &[]);
+    out
+}

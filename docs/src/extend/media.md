@@ -195,6 +195,56 @@ Bare, expired, altered or retargeted | 404
 
 The admin's own links to a private file carry a one-hour signature.
 
+## Variants
+
+```rust
+use laterite_media::{Format, Preset};
+
+registry.add(Preset::new("card").width(600).height(400).crop());
+registry.add(Preset::new("hero").width(1600).format(Format::WebP).quality(85));
+```
+
+```html
+<img src="/storage/media/{{ hash }}/card/{{ name }}" width="600" height="400">
+```
+
+Builder | Default | Meaning
+--- | --- | ---
+`Preset::new(name)` | | The name in the URL.
+`.width(px)`, `.height(px)` | unbounded | The box.
+`.fit()` | yes | Inside the box, keeping the aspect ratio; a smaller source stays its size.
+`.crop()` | | Filling the box, cropped from the centre.
+`.exact()` | | The box, stretched.
+`.format(Format::Auto | Jpeg | Png | WebP)` | `Auto` | `Auto` is JPEG for an opaque image and PNG for a transparent one; `WebP` is lossless.
+`.quality(1..=100)` | `82` | JPEG quality.
+
+Built in | Box | Used by
+--- | --- | ---
+`thumb` | 320 × 320, fit | The library grid.
+`preview` | 1200 × 1200, fit | The file page.
+
+A registered preset with a built-in name replaces it. An undeclared name is a
+404. A file that is not an image serves as it is under any preset. The first
+request renders the variant behind a lock per file and preset and stores it at
+`variants/<hash prefix>/<hash>/<preset>.<ext>` beside the original; the ETag
+is `"<hash>/<preset>"`.
+
+Limit | Value
+--- | ---
+Side | 12 000 pixels, read from the header before decoding.
+Pixels | 50 million.
+Decode memory | 512 MiB.
+
+On upload, a JPEG, PNG or WebP loses its EXIF segment before it is hashed, its
+orientation is read and kept in `meta.orientation`, and `width` and `height`
+are recorded. A variant bakes the orientation in. From code:
+
+```rust
+let prepared = laterite_media::image::prepare(bytes);
+let rendered = laterite_media::image::render(&bytes, &preset, prepared.orientation)?;
+let made = variants.ensure(&db, disk.as_ref(), &record, &preset).await?;
+```
+
 ## Collect and verify
 
 ```sh

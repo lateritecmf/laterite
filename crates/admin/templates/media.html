@@ -52,7 +52,7 @@
       {% endfor %}
       {% for f in files %}
       <a class="lat-media-card" href="{{ f.href }}" title="{{ f.name }}">
-        <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.url }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}</span>
+        <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.thumb_url }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}</span>
         <span class="lat-media-card__name">{{ f.name }}</span>
         <span class="lat-media-card__meta">{{ f.size }}</span>
       </a>

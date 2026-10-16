@@ -21,9 +21,10 @@ use axum::{Extension, Router};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::{t, Module, Text};
 use laterite_media::library::{Listing, Sort};
+use laterite_media::preset::{self, Preset};
 use laterite_media::{
-    blob_path, folder, ingest, link, record, stream_of, DiskReg, Kind, LocalDisk, MediaRecord,
-    NewMedia, NewMediaExtra, StorageDriver,
+    blob_path, folder, ingest, link, record, stream_of, variant, DiskReg, Kind, LocalDisk,
+    MediaRecord, NewMedia, NewMediaExtra, StorageDriver, Variants,
 };
 
 use crate::html::Markup;
@@ -129,6 +130,20 @@ fn disks(ctx: &RouteCtx) -> Disks {
 struct AppState {
     ctx: RouteCtx,
     disks: Disks,
+    /// Every preset a variant may be made in, by name.
+    presets: HashMap<String, Preset>,
+    variants: Variants,
+}
+
+impl AppState {
+    fn new(ctx: &RouteCtx) -> Arc<Self> {
+        Arc::new(Self {
+            ctx: ctx.clone(),
+            disks: disks(ctx),
+            presets: preset::all(ctx.contributions::<Preset>().into_iter().cloned()),
+            variants: Variants::new(),
+        })
+    }
 }
 
 type App = State<Arc<AppState>>;
@@ -138,10 +153,7 @@ pub struct MediaScreen;
 
 impl Screen for MediaScreen {
     fn mount(&self, ctx: &RouteCtx) -> Router {
-        let state = Arc::new(AppState {
-            ctx: ctx.clone(),
-            disks: disks(ctx),
-        });
+        let state = AppState::new(ctx);
         Router::new()
             .route("/", get(index))
             .route("/upload", post(upload))
@@ -162,10 +174,7 @@ pub struct Serve;
 
 impl PublicRoute for Serve {
     fn mount(&self, ctx: &RouteCtx) -> Router {
-        let state = Arc::new(AppState {
-            ctx: ctx.clone(),
-            disks: disks(ctx),
-        });
+        let state = AppState::new(ctx);
         Router::new()
             .route("/{hash}/{*name}", get(serve))
             .with_state(state)
@@ -175,11 +184,29 @@ impl PublicRoute for Serve {
 /// The URL a file serves at: its hash and a display name, under the serve route.
 /// A file on a private disk needs [`signed_file_url`] instead.
 pub fn file_url(record: &MediaRecord) -> String {
-    format!(
-        "/storage/media/{}/{}",
-        record.hash,
-        safe_name(&record.original_name)
-    )
+    url_for(record, None)
+}
+
+/// The URL a file's variant in `preset` serves at: the preset sits between
+/// the hash and the name. An unknown preset is a 404; a file that is not an
+/// image serves as it is.
+pub fn variant_url(record: &MediaRecord, preset: &str) -> String {
+    url_for(record, Some(preset))
+}
+
+fn url_for(record: &MediaRecord, preset: Option<&str>) -> String {
+    match preset {
+        Some(p) => format!(
+            "/storage/media/{}/{p}/{}",
+            record.hash,
+            safe_name(&record.original_name)
+        ),
+        None => format!(
+            "/storage/media/{}/{}",
+            record.hash,
+            safe_name(&record.original_name)
+        ),
+    }
 }
 
 /// How long a signed URL the admin hands out stays valid.
@@ -189,13 +216,33 @@ pub const SIGNED_TTL: Duration = Duration::from_secs(60 * 60);
 /// an expiry and a signature over the hash and the expiry, checked by the
 /// serve route. The signature is bound to the hash, so it opens one file.
 pub fn signed_file_url(ctx: &RouteCtx, record: &MediaRecord, ttl: Duration) -> String {
+    signed_url_for(ctx, record, None, ttl)
+}
+
+/// [`variant_url`] with the signature a private disk needs; the token is the
+/// file's, so one signature opens every variant of it.
+pub fn signed_variant_url(
+    ctx: &RouteCtx,
+    record: &MediaRecord,
+    preset: &str,
+    ttl: Duration,
+) -> String {
+    signed_url_for(ctx, record, Some(preset), ttl)
+}
+
+fn signed_url_for(
+    ctx: &RouteCtx,
+    record: &MediaRecord,
+    preset: Option<&str>,
+    ttl: Duration,
+) -> String {
     let expires = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
         .saturating_add(ttl.as_secs());
     let token = ctx.sign(token_message(&record.hash, expires).as_bytes());
-    format!("{}?e={expires}&t={token}", file_url(record))
+    format!("{}?e={expires}&t={token}", url_for(record, preset))
 }
 
 fn token_message(hash: &str, expires: u64) -> String {
@@ -204,9 +251,13 @@ fn token_message(hash: &str, expires: u64) -> String {
 
 /// The URL for `record` as the admin shows it: signed when its disk is private.
 fn admin_url(app: &AppState, record: &MediaRecord) -> String {
+    admin_url_for(app, record, None)
+}
+
+fn admin_url_for(app: &AppState, record: &MediaRecord, preset: Option<&str>) -> String {
     match app.disks.by_name.get(&record.disk) {
-        Some((_, true)) => signed_file_url(&app.ctx, record, SIGNED_TTL),
-        _ => file_url(record),
+        Some((_, true)) => signed_url_for(&app.ctx, record, preset, SIGNED_TTL),
+        _ => url_for(record, preset),
     }
 }
 
@@ -268,9 +319,17 @@ fn token_valid(ctx: &RouteCtx, hash: &str, query: &ServeQuery) -> bool {
 async fn serve(
     State(app): App,
     headers: HeaderMap,
-    Path((hash, _name)): Path<(String, String)>,
+    Path((hash, name)): Path<(String, String)>,
     Query(query): Query<ServeQuery>,
 ) -> Response {
+    // `<hash>/<name>` is the original; `<hash>/<preset>/<name>` a variant.
+    let preset = match name.split_once('/') {
+        Some((preset, _)) => match app.presets.get(preset) {
+            Some(p) => Some(p),
+            None => return AdminError::NotFound.into_response(),
+        },
+        None => None,
+    };
     let records = match record::find_all_by_hash(app.ctx.db(), &hash).await {
         Ok(r) => r,
         Err(_) => return AdminError::NotFound.into_response(),
@@ -299,19 +358,49 @@ async fn serve(
     } else {
         http_cache::IMMUTABLE.to_string()
     };
-    let etag = format!("\"{}\"", record.hash);
-    if !private && http_cache::matches_etag(&headers, &record.hash) {
+    // A variant of an image is made on first request; any other file serves
+    // as it is under a preset too, so a template never has to ask first.
+    let variant = match preset {
+        Some(p) if record.kind() == Kind::Image && record.content_type != "image/svg+xml" => {
+            match app
+                .variants
+                .ensure(app.ctx.db(), driver.as_ref(), record, p)
+                .await
+            {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!(error = %e, hash = %record.hash, preset = %p.name, "a variant could not be made");
+                    return AdminError::NotFound.into_response();
+                }
+            }
+        }
+        _ => None,
+    };
+    let validator = match &variant {
+        Some(v) => format!("{}/{}", record.hash, v.preset),
+        None => record.hash.clone(),
+    };
+    let etag = format!("\"{validator}\"");
+    if !private && http_cache::matches_etag(&headers, &validator) {
         return (
             StatusCode::NOT_MODIFIED,
             [(header::ETAG, etag), (header::CACHE_CONTROL, cache_control)],
         )
             .into_response();
     }
-    let stream = match driver.get(&blob_path(&record.hash)).await {
+    let (path, content_type, size) = match &variant {
+        Some(v) => (v.path.clone(), v.content_type.clone(), v.size),
+        None => (
+            blob_path(&record.hash),
+            record.content_type.clone(),
+            record.size,
+        ),
+    };
+    let stream = match driver.get(&path).await {
         Ok(s) => s,
         Err(_) => return AdminError::NotFound.into_response(),
     };
-    let disposition = if active_type(&record.content_type) || record.kind() == Kind::Other {
+    let disposition = if active_type(&content_type) || record.kind() == Kind::Other {
         format!(
             "attachment; filename=\"{}\"",
             safe_name(&record.original_name)
@@ -322,8 +411,8 @@ async fn serve(
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, record.content_type.clone()),
-            (header::CONTENT_LENGTH, record.size.to_string()),
+            (header::CONTENT_TYPE, content_type),
+            (header::CONTENT_LENGTH, size.to_string()),
             (header::ETAG, etag),
             (header::CACHE_CONTROL, cache_control),
             (header::CONTENT_DISPOSITION, disposition),
@@ -386,6 +475,9 @@ struct FileView {
     content_type: String,
     size: String,
     url: String,
+    /// The `thumb` variant for the grid, the `preview` one for the file page.
+    thumb_url: String,
+    preview_url: String,
     href: String,
     is_image: bool,
 }
@@ -511,6 +603,8 @@ fn file_view(app: &AppState, r: &MediaRecord) -> FileView {
         content_type: r.content_type.clone(),
         size: human_size(r.size),
         url: admin_url(app, r),
+        thumb_url: admin_url_for(app, r, Some(preset::THUMB)),
+        preview_url: admin_url_for(app, r, Some(preset::PREVIEW)),
         href: app.ctx.url(&r.id.to_string()),
         is_image: r.kind() == Kind::Image && r.content_type != "image/svg+xml",
     }
@@ -750,9 +844,12 @@ async fn upload(
                 if bytes.is_empty() {
                     continue;
                 }
+                // Metadata goes before the hash, so two copies of one photo
+                // with different EXIF still share a blob.
+                let prepared = laterite_media::image::prepare(bytes::Bytes::from(bytes));
                 let ingested = match ingest(
                     app.disks.library.as_ref(),
-                    stream_of(bytes),
+                    stream_of(prepared.bytes.clone()),
                     UPLOAD_LIMIT,
                 )
                 .await
@@ -777,7 +874,10 @@ async fn upload(
                     },
                     NewMediaExtra {
                         folder_id,
-                        ..Default::default()
+                        width: prepared.width.map(i64::from),
+                        height: prepared.height.map(i64::from),
+                        meta: (prepared.orientation != 1)
+                            .then(|| serde_json::json!({ "orientation": prepared.orientation })),
                     },
                 )
                 .await
@@ -1266,10 +1366,15 @@ async fn delete_file(
         return Redirect::to(&here).into_response();
     }
     let folder_id = r.folder_id;
+    let variants = variant::list_for(ctx.db(), id).await.unwrap_or_default();
+    let _ = variant::delete_for(ctx.db(), id).await;
     match record::delete(ctx.db(), id).await {
         Ok(last) => {
             if last {
                 if let Some((driver, _)) = app.disks.by_name.get(&r.disk) {
+                    for v in &variants {
+                        let _ = driver.delete(&v.path).await;
+                    }
                     if let Err(e) = driver.delete(&blob_path(&r.hash)).await {
                         tracing::warn!(error = %e, hash = %r.hash, "a blob could not be removed");
                     }
