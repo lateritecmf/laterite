@@ -161,6 +161,10 @@ msgstr ""
 msgid "Backend user"
 msgstr ""
 
+#: templates/preferences.html
+msgid "Belongs in"
+msgstr ""
+
 #: (descriptors)
 msgid "Branding"
 msgstr ""
@@ -491,7 +495,7 @@ msgid "Download the refused rows"
 msgstr ""
 
 #: templates/preferences.html
-msgid "Drag the tabs in the top bar into the order you want; it follows you to every device."
+msgid "Drag the tabs in the top bar and the entries in the settings list into your own order. Choose below where each entry is shown. Both follow you to every device."
 msgstr ""
 
 #: templates/_list_rows.html
@@ -528,6 +532,10 @@ msgstr ""
 
 #: templates/plugins.html
 msgid "Enabling or disabling a plugin takes effect on the next restart."
+msgstr ""
+
+#: templates/preferences.html
+msgid "Entry"
 msgstr ""
 
 #: (descriptors)
@@ -805,6 +813,10 @@ msgstr ""
 msgid "Menu"
 msgstr ""
 
+#: src/lib.rs
+msgid "Menu saved."
+msgstr ""
+
 #: templates/import/_run_status.html
 msgid "Message"
 msgstr ""
@@ -848,6 +860,10 @@ msgstr ""
 #: templates/media.html
 #: (descriptors)
 msgid "Name"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Navigation"
 msgstr ""
 
 #: src/list.rs
@@ -1132,7 +1148,7 @@ msgid "Reset password"
 msgstr ""
 
 #: templates/preferences.html
-msgid "Reset the menu order"
+msgid "Reset the menu"
 msgstr ""
 
 #: templates/users_form.html
@@ -1276,6 +1292,7 @@ msgstr ""
 msgid "Set up"
 msgstr ""
 
+#: templates/preferences.html
 #: templates/settings_index.html
 msgid "Settings"
 msgstr ""
@@ -1293,6 +1310,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
+msgstr ""
+
+#: templates/preferences.html
+msgid "Shown in"
 msgstr ""
 
 #: templates/login.html
@@ -1720,6 +1741,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "When"
+msgstr ""
+
+#: templates/preferences.html
+msgid "Where it belongs"
 msgstr ""
 
 #: templates/media_file.html

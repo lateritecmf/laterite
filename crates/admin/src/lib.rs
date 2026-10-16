@@ -193,6 +193,9 @@ pub(crate) struct AdminState {
     auth: AuthService,
     db: Db,
     nav: Arc<nav::NavTree>,
+    /// The menu entries the tree was built from (after the deployment's
+    /// moves), for an operator whose own moves need a tree of their own.
+    nav_items: Arc<Vec<nav::NavItem>>,
     settings: Arc<Vec<settings::SettingsItem>>,
     permissions: Arc<Vec<Permission>>,
     /// The URL path the panel is mounted under, without a trailing slash (e.g.
@@ -265,6 +268,7 @@ impl AdminState {
             auth,
             db,
             nav: Arc::new(nav::NavTree::default()),
+            nav_items: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
@@ -797,6 +801,58 @@ fn settings_context(
 /// entries). The auth guard runs this once per request and hands all three to
 /// the [`Shell`].
 #[allow(clippy::too_many_arguments)]
+/// An operator's own arrangement: their order for each hierarchy and their
+/// moves between the top bar and the settings index, as preferences hold them.
+#[derive(Default)]
+struct OwnMenu {
+    nav_order: Option<String>,
+    settings_order: Option<String>,
+    moves: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
+}
+
+impl OwnMenu {
+    async fn load(state: &AdminState, user_id: i64) -> Self {
+        let read = |key: String| async move {
+            laterite_auth::store::user_preference(&state.db, user_id, &key)
+                .await
+                .unwrap_or_default()
+        };
+        let nav_order = read(nav::order_preference(nav::TOP_HIERARCHY)).await;
+        let settings_order = read(nav::order_preference(settings::HIERARCHY)).await;
+        let moves = read(nav::MOVES_PREFERENCE.to_string())
+            .await
+            .map(|json| nav::operator_moves(&json))
+            .unwrap_or_default();
+        Self {
+            nav_order,
+            settings_order,
+            moves,
+        }
+    }
+}
+
+/// The menu tree and the settings items as one operator has them: the boot
+/// tree, or one rebuilt around their own moves when they made any.
+fn own_tree(
+    state: &AdminState,
+    own: &OwnMenu,
+) -> (Arc<nav::NavTree>, Arc<Vec<settings::SettingsItem>>) {
+    if own.moves.is_empty() {
+        return (Arc::clone(&state.nav), Arc::clone(&state.settings));
+    }
+    let mut items: Vec<nav::NavItem> = state.nav_items.as_ref().clone();
+    let mut settings: Vec<settings::SettingsItem> = state.settings.as_ref().clone();
+    nav::apply_moves(&mut items, &mut settings, &own.moves);
+    match nav::NavTree::build_with(items, &state.admin_path, &state.order) {
+        Ok(tree) => (Arc::new(tree), Arc::new(settings)),
+        Err(e) => {
+            tracing::warn!(error = %e, "an operator's menu moves could not be applied");
+            (Arc::clone(&state.nav), Arc::clone(&state.settings))
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn resolve_nav_context(
     nav: &nav::NavTree,
     items: &[settings::SettingsItem],
@@ -807,6 +863,7 @@ fn resolve_nav_context(
     tr: &Translator,
     icons: icons::Icons<'_>,
     order: &std::collections::BTreeMap<String, Vec<String>>,
+    own_settings_order: Option<&str>,
 ) -> (
     Vec<nav::NavNode>,
     Vec<settings::CategoryView>,
@@ -816,6 +873,7 @@ fn resolve_nav_context(
     if let Some(order) = own_order {
         nav::apply_order(&mut visible_nav, order);
     }
+    let own_sequence = own_settings_order.map(laterite_core::arrange::parse_sequence);
     // A per-operator item lives on the Preferences page, not in Settings.
     let visible: Vec<settings::SettingsItem> = visible_settings(items, perms)
         .into_iter()
@@ -830,6 +888,7 @@ fn resolve_nav_context(
             tr,
             icons,
             order.get(settings::HIERARCHY).map(Vec::as_slice),
+            own_sequence.as_deref(),
         );
         return (visible_nav, sidebar, Some("settings".to_string()));
     }
@@ -1555,7 +1614,7 @@ pub fn router(
     // A deployment's moves: an entry rendered somewhere other than its home,
     // keeping its label, icon, permission and target.
     nav::apply_moves(&mut nav_items, &mut settings, &config.menu);
-    let nav = nav::NavTree::build_with(nav_items, &admin_path, &config.order)
+    let nav = nav::NavTree::build_with(nav_items.clone(), &admin_path, &config.order)
         .unwrap_or_else(|e| panic!("admin menu: {e}"));
     nav.log_arrangement();
     settings::log_arrangement(
@@ -1714,6 +1773,7 @@ pub fn router(
         auth,
         db,
         nav: Arc::new(nav),
+        nav_items: Arc::new(nav_items),
         settings: settings.clone(),
         permissions: Arc::new(permissions),
         admin_path: Arc::from(admin_path.as_str()),
@@ -1920,6 +1980,10 @@ pub fn router(
         .route(
             &format!("{admin_path}/preferences/menu"),
             post(menu_order_update),
+        )
+        .route(
+            &format!("{admin_path}/preferences/menu/moves"),
+            post(menu_moves_update),
         )
         .route(&format!("{admin_path}/palette"), get(palette::palette))
         .route(
@@ -3031,21 +3095,20 @@ async fn require_auth(
     // A clone kept past `next` (the shell's copy moves into the request) to localize
     // an error response the handler renders English (the `ErrorMeta` seam).
     let translator = i18n.clone();
-    // The operator's own order for the top bar, when they dragged one.
-    let own_order =
-        laterite_auth::store::user_preference(&state.db, user.user.id, nav::ORDER_PREFERENCE)
-            .await
-            .unwrap_or_default();
+    // The operator's own arrangement: their drag orders and their moves.
+    let own = OwnMenu::load(&state, user.user.id).await;
+    let (own_nav, own_settings) = own_tree(&state, &own);
     let (visible_nav, sidebar, active_nav) = resolve_nav_context(
-        &state.nav,
-        &state.settings,
+        &own_nav,
+        &own_settings,
         &state.admin_path,
         &user.permissions,
-        own_order.as_deref(),
+        own.nav_order.as_deref(),
         &path,
         &i18n,
         icons::Icons::new(&state.icons, &state.sprite_url),
         &state.order,
+        own.settings_order.as_deref(),
     );
     let brand = state.brand().await;
     let shell = Shell::new(
@@ -3664,6 +3727,46 @@ async fn preferences_form(
             href: i.path(&state.admin_path),
         })
         .collect();
+    let own = OwnMenu::load(&state, user.user.id).await;
+    let chosen = |key: &str| -> String {
+        own.moves
+            .get(key)
+            .map(|m| {
+                if m.hierarchy == nav::TOP_HIERARCHY {
+                    "nav".to_string()
+                } else {
+                    "settings".to_string()
+                }
+            })
+            .unwrap_or_default()
+    };
+    let mut menu_entries: Vec<MenuEntryView> = state
+        .nav_items
+        .iter()
+        .filter(|i| i.path.is_some() && !matches!(i.key.as_str(), "dashboard" | "settings"))
+        .filter(|i| {
+            i.permission
+                .as_deref()
+                .is_none_or(|p| user.permissions.allows(p))
+        })
+        .map(|i| MenuEntryView {
+            key: i.key.clone(),
+            label: shell.tt(&i.label),
+            home: "nav",
+            chosen: chosen(&i.key),
+        })
+        .collect();
+    menu_entries.extend(
+        visible_settings(&state.settings, &user.permissions)
+            .into_iter()
+            .filter(|i| !i.per_operator)
+            .map(|i| MenuEntryView {
+                chosen: chosen(&i.code),
+                key: i.code,
+                label: shell.tt(&i.label),
+                home: "settings",
+            }),
+    );
     render(preferences_view(
         &shell,
         &user,
@@ -3673,6 +3776,7 @@ async fn preferences_form(
         account,
         state.auth.password_policy().min_length,
         items,
+        menu_entries,
     ))
 }
 
@@ -3714,6 +3818,48 @@ async fn session_revoke(
 struct MenuOrderForm {
     #[serde(default)]
     order: String,
+    /// Which hierarchy the order is for; the top bar when left out.
+    #[serde(default)]
+    hierarchy: String,
+}
+
+/// Keeps the operator's own moves: each `place:<key>` field says `nav`,
+/// `settings`, or nothing for the entry's home. Stored as one JSON object;
+/// cleared when nothing is moved.
+async fn menu_moves_update(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let mut moves = serde_json::Map::new();
+    for (field, place) in &form {
+        let Some(key) = field.strip_prefix("place:") else {
+            continue;
+        };
+        if key.is_empty() || key.len() > 200 || !matches!(place.as_str(), "nav" | "settings") {
+            continue;
+        }
+        moves.insert(key.to_string(), serde_json::Value::String(place.clone()));
+    }
+    let result = if moves.is_empty() {
+        laterite_auth::store::clear_user_preference(&state.db, user.user.id, nav::MOVES_PREFERENCE)
+            .await
+    } else {
+        laterite_auth::store::set_user_preference(
+            &state.db,
+            user.user.id,
+            nav::MOVES_PREFERENCE,
+            &serde_json::Value::Object(moves).to_string(),
+        )
+        .await
+    };
+    if let Err(e) = result {
+        tracing::error!(error = %e, "storing the menu moves failed");
+        return render_error();
+    }
+    session.push_flash(session::FlashLevel::Success, t!("Menu saved."));
+    Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
 }
 
 /// Keeps the operator's own order for the top bar (`order`: the tabs' keys,
@@ -3734,17 +3880,33 @@ async fn menu_order_update(
         .filter(|k| !k.is_empty() && k.len() <= 200)
         .take(100)
         .collect();
-    let result = if order.is_empty() {
-        laterite_auth::store::clear_user_preference(&state.db, user.user.id, nav::ORDER_PREFERENCE)
-            .await
+    let hierarchy = if form.hierarchy.is_empty() {
+        nav::TOP_HIERARCHY
     } else {
-        laterite_auth::store::set_user_preference(
-            &state.db,
-            user.user.id,
-            nav::ORDER_PREFERENCE,
-            &order.join(","),
-        )
-        .await
+        form.hierarchy.as_str()
+    };
+    if !nav::OPERATOR_HIERARCHIES.contains(&hierarchy) {
+        return AdminError::NotFound.into_response();
+    }
+    let key = nav::order_preference(hierarchy);
+    let result = if order.is_empty() {
+        // A blank from the Reset button clears every own arrangement.
+        let mut cleared = Ok(());
+        for key in nav::OPERATOR_HIERARCHIES
+            .iter()
+            .map(|h| nav::order_preference(h))
+            .chain(std::iter::once(nav::MOVES_PREFERENCE.to_string()))
+        {
+            if let Err(e) =
+                laterite_auth::store::clear_user_preference(&state.db, user.user.id, &key).await
+            {
+                cleared = Err(e);
+            }
+        }
+        cleared
+    } else {
+        laterite_auth::store::set_user_preference(&state.db, user.user.id, &key, &order.join(","))
+            .await
     };
     if let Err(e) = result {
         tracing::error!(error = %e, "storing the menu order failed");
@@ -3966,6 +4128,7 @@ fn preferences_view(
     account: AccountSecurity,
     min_password: usize,
     items: Vec<PreferenceLink>,
+    menu_entries: Vec<MenuEntryView>,
 ) -> PreferencesTemplate {
     let current = user.user.timezone.as_deref();
     let zones = TZ_VARIANTS
@@ -3999,6 +4162,7 @@ fn preferences_view(
         must_change: account.must_change,
         min_password: min_password as i64,
         items,
+        menu_entries,
     }
 }
 
@@ -4323,6 +4487,19 @@ struct PreferencesTemplate {
     min_password: i64,
     /// Modules' per-operator settings, each a page of its own.
     items: Vec<PreferenceLink>,
+    /// Every entry the operator may move between the top bar and settings.
+    menu_entries: Vec<MenuEntryView>,
+}
+
+/// One menu entry on the Preferences page: where it lives by default and
+/// where this operator put it.
+struct MenuEntryView {
+    key: String,
+    label: String,
+    /// `nav` or `settings`.
+    home: &'static str,
+    /// The operator's choice: `nav`, `settings`, or empty for the home.
+    chosen: String,
 }
 
 /// One of the account's live sessions, formatted for the page.
@@ -4703,6 +4880,7 @@ mod tests {
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),
             nav: Arc::new(nav::NavTree::default()),
+            nav_items: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
             permissions: Arc::new(builtin_permissions()),
             trusted_proxies: Arc::new(Vec::new()),
@@ -4819,6 +4997,7 @@ mod tests {
                 &tr,
                 icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
                 &std::collections::BTreeMap::new(),
+                None,
             )
             .1
         };

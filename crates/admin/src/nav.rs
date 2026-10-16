@@ -383,6 +383,46 @@ impl NavTree {
 /// The preference key holding an operator's own order for the top bar.
 pub(crate) const ORDER_PREFERENCE: &str = "menu.order";
 
+/// The preference key holding an operator's own moves between the top bar
+/// and the settings index: a JSON object of entry key to `nav` or `settings`.
+pub(crate) const MOVES_PREFERENCE: &str = "menu.moves";
+
+/// The preference key holding an operator's own order for a hierarchy: the
+/// top bar keeps its first key, every other hierarchy is named.
+pub(crate) fn order_preference(hierarchy: &str) -> String {
+    if hierarchy == TOP_HIERARCHY {
+        ORDER_PREFERENCE.to_string()
+    } else {
+        format!("{ORDER_PREFERENCE}.{hierarchy}")
+    }
+}
+
+/// The hierarchies an operator may rearrange and move entries between.
+pub(crate) const OPERATOR_HIERARCHIES: [&str; 2] = [TOP_HIERARCHY, crate::settings::HIERARCHY];
+
+/// An operator's moves as stored (`{"backend.access_log": "nav"}`), as the
+/// engine's moves: `nav` is the top bar, `settings` the settings index.
+pub(crate) fn operator_moves(
+    stored: &str,
+) -> std::collections::BTreeMap<String, laterite_core::arrange::Move> {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(stored)
+    else {
+        return Default::default();
+    };
+    map.into_iter()
+        .filter_map(|(key, place)| {
+            let hierarchy = match place.as_str()? {
+                "nav" => TOP_HIERARCHY,
+                "settings" => crate::settings::HIERARCHY,
+                _ => return None,
+            };
+            let mut m = laterite_core::arrange::Move::default();
+            m.hierarchy = hierarchy.to_string();
+            Some((key, m))
+        })
+        .collect()
+}
+
 /// Puts the top-level nodes in the operator's own order: the keys in `order`
 /// (comma-separated) first, as listed, then the rest as they were. Dashboard
 /// stays first and Settings last whatever the order says, and a key that is
@@ -468,6 +508,7 @@ pub(crate) fn section_sidebar(
         node.children
             .iter()
             .map(|c| ItemView {
+                key: c.item.key.clone(),
                 label: tr.t(&c.item.label),
                 description: String::new(),
                 path: c.item.path.clone().unwrap_or_default(),

@@ -108,14 +108,38 @@
 </div>
 {% endif %}
 <div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Menu") }}</h2></div>
-<div class="lat-card lat-card--form">
-  <p class="lat-note">{{ shell.t("Drag the tabs in the top bar into the order you want; it follows you to every device.") }}</p>
-  <form method="post" action="{{ shell.base }}/preferences/menu">
+<div class="lat-listcard">
+  <div class="lat-listbar">
+    <p class="lat-help" style="margin:0">{{ shell.t("Drag the tabs in the top bar and the entries in the settings list into your own order. Choose below where each entry is shown. Both follow you to every device.") }}</p>
+  </div>
+  <form method="post" action="{{ shell.base }}/preferences/menu/moves" id="lat-menu-moves">
     {% include "_csrf.html" %}
-    <input type="hidden" name="order" value="">
-    <div class="lat-actions">
-      <button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Reset the menu order") }}</button>
-    </div>
+    <table class="lat-table">
+      <thead><tr><th>{{ shell.t("Entry") }}</th><th>{{ shell.t("Belongs in") }}</th><th>{{ shell.t("Shown in") }}</th></tr></thead>
+      <tbody>
+        {% for e in menu_entries %}
+        <tr>
+          <td>{{ e.label }}</td>
+          <td>{% if e.home == "nav" %}{{ shell.t("Navigation") }}{% else %}{{ shell.t("Settings") }}{% endif %}</td>
+          <td>
+            <select class="lat-input lat-select" name="place:{{ e.key }}" aria-label="{{ e.label }}" style="max-width:220px">
+              <option value=""{% if e.chosen.is_empty() %} selected{% endif %}>{{ shell.t("Where it belongs") }}</option>
+              <option value="nav"{% if e.chosen == "nav" %} selected{% endif %}>{{ shell.t("Navigation") }}</option>
+              <option value="settings"{% if e.chosen == "settings" %} selected{% endif %}>{{ shell.t("Settings") }}</option>
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </form>
+  <div class="lat-pane__foot">
+    <form method="post" action="{{ shell.base }}/preferences/menu" style="margin-right:auto">
+      {% include "_csrf.html" %}
+      <input type="hidden" name="order" value="">
+      <button class="lat-btn lat-btn--ghost" type="submit">{{ shell.t("Reset the menu") }}</button>
+    </form>
+    <button class="lat-btn lat-btn--primary" type="submit" form="lat-menu-moves">{{ shell.t("Save") }}</button>
+  </div>
 </div>
 {% endblock %}

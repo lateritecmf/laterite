@@ -395,8 +395,13 @@ fn collect(
     crate::form::value_collect(&item.fields, types, data)
 }
 
-/// The settings index as a hierarchy: a deployment may rearrange it.
+/// The settings index as a hierarchy: a deployment may rearrange it, and so
+/// may an operator for themselves.
 pub const HIERARCHY: &str = "backend.settings";
+
+pub(crate) fn hierarchy() -> laterite_core::arrange::Hierarchy {
+    laterite_core::arrange::Hierarchy::new(HIERARCHY).operator_adjustable()
+}
 
 struct Placed<'a> {
     item: &'a SettingsItem,
@@ -428,7 +433,7 @@ pub(crate) fn log_arrangement(items: &[SettingsItem], order: Option<&[String]>) 
         })
         .collect();
     let arranged = laterite_core::arrange::arrange(
-        &laterite_core::arrange::Hierarchy::new(HIERARCHY),
+        &hierarchy(),
         placed,
         laterite_core::arrange::Overrides {
             deployment: order,
@@ -460,6 +465,7 @@ pub(crate) fn sidebar_groups(
     tr: &Translator,
     icons: crate::icons::Icons<'_>,
     order: Option<&[String]>,
+    own_order: Option<&[String]>,
 ) -> Vec<CategoryView> {
     let placed: Vec<Placed<'_>> = items
         .iter()
@@ -471,11 +477,11 @@ pub(crate) fn sidebar_groups(
         })
         .collect();
     let arranged = laterite_core::arrange::arrange(
-        &laterite_core::arrange::Hierarchy::new(HIERARCHY),
+        &hierarchy(),
         placed,
         laterite_core::arrange::Overrides {
             deployment: order,
-            operator: None,
+            operator: own_order,
         },
     )
     .unwrap_or_default();
@@ -484,6 +490,7 @@ pub(crate) fn sidebar_groups(
         let i = placed.item;
         let category = tr.t(&i.category);
         let view = ItemView {
+            key: i.code.clone(),
             label: tr.t(&i.label),
             description: tr.t(&i.description),
             path: i.path(admin_path),
@@ -563,6 +570,8 @@ impl CategoryView {
 /// One item in the context sidebar.
 #[derive(Clone)]
 pub(crate) struct ItemView {
+    /// The item's code, which an operator's own order names.
+    pub(crate) key: String,
     pub(crate) label: String,
     pub(crate) description: String,
     pub(crate) path: String,
@@ -870,6 +879,7 @@ mod tests {
             &Translator::new("en"),
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
             None,
+            None,
         );
         // "Logs" holds the first-arranged item, so it comes before "System".
         assert_eq!(groups[0].name, "Logs");
@@ -890,6 +900,7 @@ mod tests {
             Some("test.log"),
             &Translator::new("en"),
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
+            None,
             None,
         );
         let active: Vec<&str> = groups

@@ -281,8 +281,7 @@ async fn an_operator_drags_the_tabs_into_their_own_order_and_can_reset_it() {
 
     let (_, html) = get(&app, "/admin/preferences", &root).await;
     assert!(
-        html.contains("Reset the menu order")
-            && html.contains(r#"action="/admin/preferences/menu""#),
+        html.contains("Reset the menu") && html.contains(r#"action="/admin/preferences/menu""#),
         "the reset lives on Preferences: {html}"
     );
 }
@@ -442,4 +441,73 @@ async fn a_deployment_moves_entries_between_the_menu_and_settings() {
     );
     let (status, _) = get(&app, "/admin/orders", &root).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+/// An operator moves a settings entry into the top bar for themselves, orders
+/// the settings list by dragging it, and the Reset puts everything back.
+#[tokio::test]
+async fn an_operator_moves_and_orders_entries_for_themselves() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    svc.set_session_data(&root, r#"{"v":1,"csrf":"tok-123"}"#)
+        .await
+        .unwrap();
+
+    let (_, html) = get(&app, "/admin/preferences", &root).await;
+    assert!(
+        html.contains(r#"name="place:backend.access_log""#)
+            && html.contains(r#"name="place:resource:/orders""#),
+        "every movable entry is listed: {html}"
+    );
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/admin/preferences/menu/moves",
+            &root,
+            "place%3Abackend.access_log=nav&place%3Aresource%3A%2Forders=settings",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert_eq!(
+        tabs(&html),
+        ["Dashboard", "Media", "Content", "Access Log", "Settings"],
+        "the log is their tab and Orders left the bar: {html}"
+    );
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert!(
+        html.contains(r#"href="/admin/orders""#),
+        "Orders is in their settings: {html}"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/admin/preferences/menu",
+            &root,
+            "hierarchy=backend.settings&order=backend.roles,backend.administrators",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    let roles = html.find(r#"href="/admin/roles""#).unwrap();
+    let admins = html.find(r#"href="/admin/users""#).unwrap();
+    assert!(roles < admins, "their order puts Roles first: {html}");
+
+    let response = app
+        .clone()
+        .oneshot(post("/admin/preferences/menu", &root, "order="))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert_eq!(
+        tabs(&html),
+        ["Dashboard", "Media", "Content", "Orders", "Settings"],
+        "reset: {html}"
+    );
 }

@@ -77,6 +77,20 @@ into settings opens at its own path with the settings sidebar beside it, and
 a settings item moved into the top bar is a tab. A section cannot move into
 settings. The boot log prints every hierarchy's arrangement, one line each.
 
+An operator arranges the two hierarchies for themselves on top of the
+deployment's: dragging the tabs in the top bar and the entries in the
+settings list, and choosing on Preferences, under Menu, where each entry is
+shown. Reset the menu there puts everything back.
+
+Preference | Holds
+--- | ---
+`menu.order` | The top bar's keys in the operator's order.
+`menu.order.backend.settings` | The settings index's codes in the operator's order.
+`menu.moves` | `{"<key>": "nav" | "settings"}` for each entry the operator moved.
+
+A hierarchy a plugin declares takes operator preferences only when it says
+`operator_adjustable()`.
+
 ```rust
 use laterite_core::arrange::{arrange, Arranged, Hierarchy, Overrides, Policy, Position, slot};
 

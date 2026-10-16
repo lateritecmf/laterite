@@ -1883,7 +1883,10 @@ window.lat.widget('menu-order', function (nav) {
     e.preventDefault();
     var box = tab.getBoundingClientRect();
     clear();
-    tab.classList.add(e.clientX < box.left + box.width / 2 ? 'is-drop-before' : 'is-drop-after');
+    var before = nav.hasAttribute('data-menu-vertical')
+      ? e.clientY < box.top + box.height / 2
+      : e.clientX < box.left + box.width / 2;
+    tab.classList.add(before ? 'is-drop-before' : 'is-drop-after');
   });
   nav.addEventListener('drop', function (e) {
     if (!dragging) return;
@@ -1895,6 +1898,7 @@ window.lat.widget('menu-order', function (nav) {
       var body = new URLSearchParams();
       body.set('_csrf', nav.getAttribute('data-menu-csrf') || '');
       body.set('order', order);
+      if (nav.getAttribute('data-menu-hierarchy')) body.set('hierarchy', nav.getAttribute('data-menu-hierarchy'));
       fetch(post, { method: 'POST', body: body, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
         .catch(function () { window.lat.flash && window.lat.flash('The menu order could not be saved.', 'error'); });
     }

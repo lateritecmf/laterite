@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `[backend.menu]`: an entry moved between the top bar, a section and the settings
   index, keeping its label, icon, permission and target; the boot log prints every
   arrangement.
+- An operator's own menu: the settings list drags like the tabs, and Preferences
+  lets them show any entry in the navigation or in settings; Reset puts it all back.
 
 ### Changed
 
