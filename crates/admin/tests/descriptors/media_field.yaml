@@ -1,0 +1,13 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Post
+  fields:
+    code: { rules: [required] }
+    cover_id: { type: media, label: Cover, mode: image }
+    gallery: { type: media, label: Gallery, max: 4 }

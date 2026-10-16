@@ -742,6 +742,22 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-upload__item.is-failed .lat-upload__bar i{background:var(--danger);width:100%}
 .lat-upload__status{grid-column:1/-1;font-size:var(--fs-12);color:var(--text-muted)}
 .lat-upload__item.is-failed .lat-upload__status{color:var(--danger)}
+/* The media field: the chosen files as tiles, picked in a dialog. */
+.lat-mediafield__tiles{display:flex;flex-wrap:wrap;gap:8px}
+.lat-mediafield__tiles:empty{display:none}
+.lat-mediafield__tiles+.lat-mediafield__actions{margin-top:8px}
+.lat-mediafield__tile{display:flex;flex-direction:column;gap:4px;width:120px;padding:6px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);font-size:var(--fs-12);min-width:0}
+.lat-mediafield__tile .lat-media-card__thumb{aspect-ratio:1}
+.lat-mediafield__tile .lat-media-card__name{font-size:var(--fs-12)}
+.lat-mediafield__remove{align-self:flex-end;border:0;background:transparent;color:var(--text-muted);cursor:pointer;font-size:var(--fs-12);padding:0}
+.lat-mediafield__remove:hover{color:var(--danger)}
+.lat-mediafield__actions{display:flex;gap:8px}
+.lat-pick{min-height:320px}
+.lat-pick .lat-media-grid{max-height:56vh;overflow:auto}
+.lat-pick__file{appearance:none;font:inherit;text-align:left;cursor:pointer}
+.lat-pick__file[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-subtle)}
+.lat-dialog--pick{width:min(960px,calc(100vw - 32px))}
+.lat-dialog__body--flush{padding:0}
 /* The media library: a grid of folders and files with a thumbnail. */
 .lat-media-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));padding:14px}
 .lat-media-card{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);color:var(--text-body);text-decoration:none;min-width:0}

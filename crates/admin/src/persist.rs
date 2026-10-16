@@ -125,17 +125,18 @@ pub struct MoveTo<'a> {
 
 /// Binds one attribute for the storage layer.
 ///
-/// Absent, null, and empty text all bind SQL `NULL`, so an optional non-text
-/// column stores correctly instead of failing on `""`. Booleans bind as integers
-/// (the one representation every backend indexes), and timestamps and JSON bind
-/// as text.
+/// Absent, null, and empty text all render the SQL `NULL` keyword, which every
+/// backend accepts for a column of any type; a bound null parameter carries a
+/// text type that Postgres refuses for a bigint column. Booleans bind as
+/// integers (the one representation every backend indexes), and timestamps
+/// and JSON bind as text.
 fn bind(value: Option<&AttrValue>) -> SimpleExpr {
     match value {
-        None | Some(AttrValue::Null) => Option::<String>::None.into(),
+        None | Some(AttrValue::Null) => SimpleExpr::Keyword(sea_query::Keyword::Null),
         Some(AttrValue::Int(i)) => (*i).into(),
         Some(AttrValue::Float(f)) => (*f).into(),
         Some(AttrValue::Bool(b)) => i32::from(*b).into(),
-        Some(AttrValue::Text(s)) if s.is_empty() => Option::<String>::None.into(),
+        Some(AttrValue::Text(s)) if s.is_empty() => SimpleExpr::Keyword(sea_query::Keyword::Null),
         Some(other) => other.to_text().into(),
     }
 }
@@ -949,9 +950,9 @@ mod pipeline_tests {
 
     #[test]
     fn binding_maps_each_kind_to_its_storage_form() {
-        // Absent, null and empty text all bind NULL, so an optional non-text
-        // column stores rather than failing on "".
-        let null: SimpleExpr = Option::<String>::None.into();
+        // Absent, null and empty text all render the NULL keyword, so an
+        // optional column of any type stores rather than failing on "".
+        let null = SimpleExpr::Keyword(sea_query::Keyword::Null);
         assert_eq!(bind(None), null);
         assert_eq!(bind(Some(&AttrValue::Null)), null);
         assert_eq!(bind(Some(&AttrValue::Text(String::new()))), null);

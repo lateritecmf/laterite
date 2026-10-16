@@ -471,6 +471,171 @@ window.lat.widget('upload', function (root) {
   return { take: take };
 });
 
+// The media field: a hidden input of ids, tiles drawn from the resolve
+// endpoint, and a picker dialog that loads the library's browser as a
+// fragment. Folder links and the search inside the fragment refetch it; a
+// tile click chooses (one file closes the dialog, several toggle and a
+// footer button confirms). With no script the hidden input keeps its ids.
+window.lat.widget('media-field', function (root) {
+  var input = root.querySelector('[data-mediafield-value]');
+  var tiles = root.querySelector('[data-mediafield-tiles]');
+  var pickBtn = root.querySelector('[data-mediafield-pick]');
+  var clearBtn = root.querySelector('[data-mediafield-clear]');
+  if (!input || !tiles || !pickBtn) return;
+  var max = parseInt(root.getAttribute('data-max') || '1', 10);
+  var multiple = max !== 1;
+  var words = {
+    select: root.getAttribute('data-lat-select') || 'Select',
+    replace: root.getAttribute('data-lat-replace') || 'Replace',
+    use: root.getAttribute('data-lat-use') || 'Use selected',
+    title: root.getAttribute('data-lat-title') || 'Choose from the library',
+    cancel: document.body.getAttribute('data-lat-cancel') || 'Cancel',
+  };
+  var dialog = null;
+  var chosen = [];
+
+  function ids() {
+    return input.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  function write(list) {
+    input.value = list.join(',');
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    pickBtn.textContent = list.length && !multiple ? words.replace : words.select;
+    if (clearBtn) clearBtn.hidden = list.length === 0;
+    window.lat.emit(root, 'media:changed', { ids: list.slice() });
+  }
+  function tile(item) {
+    var el = document.createElement('div');
+    el.className = 'lat-mediafield__tile';
+    el.setAttribute('data-id', item.id);
+    el.innerHTML =
+      '<span class="lat-media-card__thumb"></span>' +
+      '<span class="lat-media-card__name"></span>' +
+      '<button type="button" class="lat-mediafield__remove">&times;</button>';
+    var thumb = el.querySelector('.lat-media-card__thumb');
+    if (item.is_image) {
+      var img = document.createElement('img');
+      img.src = item.thumb;
+      img.alt = '';
+      thumb.appendChild(img);
+    } else {
+      var kind = document.createElement('span');
+      kind.className = 'lat-media-card__kind';
+      kind.textContent = item.kind;
+      thumb.appendChild(kind);
+    }
+    el.querySelector('.lat-media-card__name').textContent = item.name;
+    el.querySelector('.lat-media-card__name').title = item.name;
+    el.querySelector('.lat-mediafield__remove').addEventListener('click', function () {
+      el.remove();
+      write(ids().filter(function (id) { return id !== String(item.id); }));
+    });
+    return el;
+  }
+  function draw(items) {
+    tiles.innerHTML = '';
+    items.forEach(function (item) { tiles.appendChild(tile(item)); });
+  }
+  function load() {
+    var list = ids();
+    if (!list.length) { draw([]); return; }
+    fetch(root.getAttribute('data-resolve') + '?ids=' + encodeURIComponent(list.join(',')), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(draw)
+      .catch(function () { draw([]); });
+  }
+
+  function box() {
+    if (dialog) return dialog;
+    dialog = document.createElement('dialog');
+    dialog.className = 'lat-dialog lat-dialog--pick';
+    dialog.innerHTML =
+      '<div class="lat-dialog__head"><h2></h2><button type="button" class="lat-dialog__close" data-lat-dialog-close aria-label="' + words.cancel + '">&times;</button></div>' +
+      '<div class="lat-dialog__body lat-dialog__body--flush" data-pick-body></div>' +
+      '<div class="lat-dialog__actions"><button type="button" class="lat-btn lat-btn--ghost" data-lat-dialog-close></button><button type="button" class="lat-btn lat-btn--primary" data-pick-use hidden></button></div>';
+    dialog.querySelector('h2').textContent = words.title;
+    dialog.querySelector('.lat-dialog__actions [data-lat-dialog-close]').textContent = words.cancel;
+    var use = dialog.querySelector('[data-pick-use]');
+    use.textContent = words.use;
+    use.hidden = !multiple;
+    use.addEventListener('click', function () { finish(chosen); });
+    document.body.appendChild(dialog);
+    dialog.addEventListener('click', function (e) {
+      if (!e.target.closest) return;
+      var go = e.target.closest('[data-pick-go]');
+      if (go) { e.preventDefault(); show(go.getAttribute('href')); return; }
+      var file = e.target.closest('[data-pick-file]');
+      if (file) {
+        var item = {
+          id: file.getAttribute('data-id'),
+          name: file.getAttribute('data-name'),
+          kind: file.getAttribute('data-kind'),
+          thumb: file.getAttribute('data-thumb'),
+          url: file.getAttribute('data-url'),
+          is_image: file.getAttribute('data-is-image') === '1',
+        };
+        if (!multiple) { finish([item]); return; }
+        var on = file.getAttribute('aria-pressed') === 'true';
+        file.setAttribute('aria-pressed', on ? 'false' : 'true');
+        chosen = on ? chosen.filter(function (c) { return c.id !== item.id; }) : chosen.concat([item]);
+      }
+    });
+    dialog.addEventListener('submit', function (e) {
+      var form = e.target.closest ? e.target.closest('[data-pick-search]') : null;
+      if (!form) return;
+      e.preventDefault();
+      var params = new URLSearchParams(new FormData(form));
+      show(form.getAttribute('action') + '?' + params.toString());
+    });
+    return dialog;
+  }
+  function show(url) {
+    var body = box().querySelector('[data-pick-body]');
+    fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        body.innerHTML = html;
+        // Tiles already chosen stay marked across folder changes.
+        chosen.forEach(function (c) {
+          var el = body.querySelector('[data-pick-file][data-id="' + c.id + '"]');
+          if (el) el.setAttribute('aria-pressed', 'true');
+        });
+        if (!dialog.open) dialog.showModal();
+      });
+  }
+  function finish(items) {
+    var current = multiple ? ids() : [];
+    var merged = current.slice();
+    var existing = {};
+    tiles.querySelectorAll('[data-id]').forEach(function (t) { existing[t.getAttribute('data-id')] = true; });
+    items.forEach(function (item) {
+      if (merged.indexOf(String(item.id)) === -1) {
+        if (max > 1 && merged.length >= max) return;
+        merged.push(String(item.id));
+      }
+      if (!existing[String(item.id)]) tiles.appendChild(tile(item));
+    });
+    if (!multiple) {
+      tiles.innerHTML = '';
+      tiles.appendChild(tile(items[0]));
+    }
+    write(merged);
+    chosen = [];
+    if (dialog) dialog.close();
+  }
+
+  pickBtn.addEventListener('click', function () {
+    chosen = [];
+    var mode = root.getAttribute('data-mode');
+    show(root.getAttribute('data-pick') + (mode && mode !== 'file' ? '?mode=' + mode : ''));
+  });
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () { draw([]); write([]); });
+  }
+  load();
+  return { ids: ids, set: write };
+});
+
 // Dropdown dismissal. A <details> stays open until its own summary is clicked
 // again, which is not what a dropdown is expected to do: choosing an item or
 // clicking away should close it. Bound once at the document, so a menu that

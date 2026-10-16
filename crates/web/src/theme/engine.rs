@@ -295,6 +295,10 @@ impl Engine {
                 path.trim_start_matches('/')
             ))
         });
+        env.add_function("media", media);
+        env.add_filter("variant", |url: String, preset: String| -> Value {
+            Value::from_safe_string(variant(url, preset))
+        });
         let table = Arc::clone(&routes);
         env.add_function(
             "page",
@@ -437,6 +441,56 @@ fn base_environment() -> Environment<'static> {
     env.set_undefined_behavior(UndefinedBehavior::SemiStrict);
     env.set_fuel(Some(FUEL));
     env
+}
+
+/// `media(file)` or `media(file, preset="card")`: the URL of a media value
+/// (a URL string, or an object with `url` as [`super::media_value`] builds),
+/// under a preset when one is named. An empty value renders empty.
+fn media(value: Value, kwargs: Kwargs) -> Result<Value, minijinja::Error> {
+    let preset: Option<String> = kwargs.get("preset")?;
+    kwargs.assert_all_used()?;
+    let url = media_url(&value);
+    Ok(match (url, preset) {
+        (Some(url), Some(p)) => Value::from_safe_string(variant(url, p)),
+        (Some(url), None) => Value::from_safe_string(url),
+        (None, _) => Value::from(""),
+    })
+}
+
+fn media_url(value: &Value) -> Option<String> {
+    if value.is_undefined() || value.is_none() {
+        return None;
+    }
+    if let Some(s) = value.as_str() {
+        return (!s.is_empty()).then(|| s.to_string());
+    }
+    value
+        .get_attr("url")
+        .ok()
+        .filter(|u| !u.is_undefined())
+        .and_then(|u| u.as_str().map(str::to_string))
+        .filter(|u| !u.is_empty())
+}
+
+/// `url|variant("card")`: a media URL rewritten to its variant in the preset,
+/// replacing one already named. A URL that is not a media URL is returned as
+/// it is.
+pub fn variant(url: String, preset: String) -> String {
+    const MARK: &str = "/storage/media/";
+    let Some(at) = url.find(MARK) else {
+        return url;
+    };
+    let (origin, rest) = url.split_at(at + MARK.len());
+    let mut parts = rest.splitn(3, '/');
+    let (Some(hash), Some(second)) = (parts.next(), parts.next()) else {
+        return url;
+    };
+    let name = match parts.next() {
+        // Already `<hash>/<preset>/<name>`: the name is the last part.
+        Some(name) => name,
+        None => second,
+    };
+    format!("{origin}{hash}/{preset}/{name}")
 }
 
 /// `partial("nav.htm", title="Acme")`: renders `partials/nav.htm` with the

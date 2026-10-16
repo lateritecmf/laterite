@@ -225,6 +225,11 @@ msgstr ""
 msgid "Choose files"
 msgstr ""
 
+#: src/medialib/field.rs
+msgid "Choose from the library"
+msgstr ""
+
+#: src/medialib/field.rs
 #: templates/list.html
 msgid "Clear"
 msgstr ""
@@ -586,6 +591,7 @@ msgstr ""
 
 #: templates/media.html
 #: templates/media_file.html
+#: templates/media_pick.html
 msgid "Folder"
 msgstr ""
 
@@ -707,6 +713,7 @@ msgid "Leave"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Library"
 msgstr ""
 
@@ -835,6 +842,7 @@ msgstr ""
 
 #: templates/_list_table.html
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Next"
 msgstr ""
 
@@ -843,6 +851,7 @@ msgid "No columns could be read from the file."
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "No files here yet."
 msgstr ""
 
@@ -890,6 +899,7 @@ msgstr ""
 #: src/checklist.rs
 #: templates/base.html
 #: templates/media.html
+#: templates/media_pick.html
 #: templates/palette.html
 msgid "Nothing matches."
 msgstr ""
@@ -928,6 +938,7 @@ msgid "Outcome"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Page {n} of {m}"
 msgstr ""
 
@@ -1009,6 +1020,7 @@ msgid "Prev"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Previous"
 msgstr ""
 
@@ -1062,6 +1074,10 @@ msgstr ""
 
 #: templates/media.html
 msgid "Rename folder"
+msgstr ""
+
+#: src/medialib/field.rs
+msgid "Replace"
 msgstr ""
 
 #: (descriptors)
@@ -1165,6 +1181,7 @@ msgstr ""
 #: src/checklist.rs
 #: templates/list.html
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Search"
 msgstr ""
 
@@ -1177,11 +1194,17 @@ msgid "Search by username or address"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Search the library"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Search: {q}"
+msgstr ""
+
+#: src/medialib/field.rs
+msgid "Select"
 msgstr ""
 
 #: src/bulk.rs
@@ -1568,6 +1591,10 @@ msgstr ""
 
 #: templates/_upload.html
 msgid "Uploading"
+msgstr ""
+
+#: src/medialib/field.rs
+msgid "Use selected"
 msgstr ""
 
 #: templates/preferences.html

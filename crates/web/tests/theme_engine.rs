@@ -409,3 +409,45 @@ async fn partials_carry_this_and_content_takes_variables() {
         .unwrap();
     assert!(html.starts_with("<b>T</b>P|"), "{html}");
 }
+
+/// `media()` takes a resolved value or a URL and `|variant` names a preset
+/// in it; a value with nothing in it renders empty.
+#[tokio::test]
+async fn media_helpers_build_file_and_variant_urls() {
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    save(
+        &db,
+        base.id,
+        Kind::Page,
+        "p.htm",
+        "{{ media(cover) }}|{{ media(cover, preset=\"card\") }}|{{ cover.url|variant(\"thumb\") }}|{{ media(cover.url|variant(\"card\"), preset=\"hero\") }}|{{ media(none) }}|{{ media(\"\") }}|{{ \"/other/x.png\"|variant(\"card\") }}",
+    )
+    .await;
+    let engine = Engine::build(&db, "base").await.unwrap();
+    let hash = "a".repeat(64);
+    let cover =
+        serde_json::json!({ "url": format!("/storage/media/{hash}/cat.png"), "name": "cat.png" });
+    let html = engine
+        .render(
+            Kind::Page,
+            "p.htm",
+            serde_json::json!({ "cover": cover, "none": null }),
+        )
+        .unwrap();
+    assert_eq!(
+        html,
+        format!(
+            "/storage/media/{hash}/cat.png|/storage/media/{hash}/card/cat.png|/storage/media/{hash}/thumb/cat.png|/storage/media/{hash}/hero/cat.png|||/other/x.png"
+        )
+    );
+    assert_eq!(
+        theme::variant(
+            format!("https://acme.test/storage/media/{hash}/thumb/cat.png"),
+            "card".into()
+        ),
+        format!("https://acme.test/storage/media/{hash}/card/cat.png")
+    );
+}

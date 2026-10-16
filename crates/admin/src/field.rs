@@ -254,6 +254,15 @@ pub trait FieldType: Send + Sync + 'static {
         Chrome::Wrapped
     }
 
+    /// The media records a submitted value refers to, for a type that holds
+    /// files from the library: the form writes them as the record's links
+    /// after a save, under the field's name, and an empty list clears them.
+    /// `None` (the default) for a type that holds no media.
+    fn linked_media(&self, submitted: Option<&str>, opts: &ResolvedOptions) -> Option<Vec<i64>> {
+        let _ = (submitted, opts);
+        None
+    }
+
     /// Asset-registry keys this type's control needs on any page that renders it
     /// (a heavy widget's script/style). The page shell collects, dedupes, and
     /// emits them; keys must exist in the asset registry. Default: none, so a
@@ -898,6 +907,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(DateField),
         Arc::new(PasswordField),
         Arc::new(RadioField),
+        Arc::new(crate::medialib::field::MediaField),
     ]
 }
 

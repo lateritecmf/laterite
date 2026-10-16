@@ -1,0 +1,8 @@
+<div class="lat-mediafield{% if multiple %} lat-mediafield--multi{% endif %}" data-lat-widget="media-field" data-pick="{{ pick_url }}" data-resolve="{{ resolve_url }}" data-mode="{{ mode }}" data-max="{{ max }}" data-lat-select="{{ words.select }}" data-lat-replace="{{ words.replace }}" data-lat-use="{{ words.use_selected }}" data-lat-title="{{ words.title }}">
+  <input type="hidden" name="{{ name }}" id="{{ id }}" value="{{ value }}" data-mediafield-value>
+  <div class="lat-mediafield__tiles" data-mediafield-tiles></div>
+  <div class="lat-mediafield__actions">
+    <button type="button" class="lat-btn lat-btn--secondary lat-btn--sm" data-mediafield-pick>{% if value.is_empty() || multiple %}{{ words.select }}{% else %}{{ words.replace }}{% endif %}</button>
+    <button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-mediafield-clear{% if value.is_empty() %} hidden{% endif %}>{{ words.clear }}</button>
+  </div>
+</div>

@@ -10,6 +10,7 @@ repository.workspace = true
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }
+laterite-media = { workspace = true }
 anyhow = { workspace = true }
 askama = { workspace = true }
 chrono = { workspace = true }

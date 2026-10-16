@@ -1556,6 +1556,7 @@ dependencies = [
  "laterite-admin",
  "laterite-auth",
  "laterite-core",
+ "laterite-media",
  "minijinja",
  "pulldown-cmark",
  "regex",

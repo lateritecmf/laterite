@@ -351,6 +351,8 @@ Name | Gives
 `content(<path>, name=value, ...)` | A content block: `.md` rendered to HTML, `.htm` and `.html` as they are, anything else escaped as text; `{name}` in the block is the named variable, escaped.
 `asset(<path>)` | The URL of the theme's text asset: `/themes/<code>/assets/<path>`.
 `url(<path>)` | The absolute URL of a path on the site, from the deployment's origin.
+`media(<file>)`, `media(<file>, preset="card")` | The URL of a media value (a URL, or an object with `url` as `theme::media_value` builds), under a preset when one is named.
+`<url>\|variant("card")` | A media URL rewritten to the named preset.
 `theme` | `code`, `name`, `author`, `homepage`, `description` of the theme rendered.
 
 HTML is escaped in every template but an asset. A printed undefined value is an error; `{% if page.sub %}` on an undefined value is not. A render spends at most five million instructions.

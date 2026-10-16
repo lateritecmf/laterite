@@ -29,6 +29,8 @@ use laterite_media::{
 
 use crate::html::Markup;
 use crate::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
+
+pub mod field;
 use crate::session::{FlashLevel, SessionHandle};
 use crate::upload::VerifiedUpload;
 use crate::{http_cache, AdminError, PageHead, Permission, Shell, ROLE_ADMIN, ROLE_EDITOR};
@@ -156,6 +158,8 @@ impl Screen for MediaScreen {
         let state = AppState::new(ctx);
         Router::new()
             .route("/", get(index))
+            .route("/pick", get(pick))
+            .route("/resolve", get(resolve))
             .route("/upload", post(upload))
             .route("/folders", post(create_folder))
             .route("/folders/{id}/rename", post(rename_folder))
@@ -421,6 +425,179 @@ async fn serve(
         Body::from_stream(stream),
     )
         .into_response()
+}
+
+// The picker: the library as a dialog fragment for the `media` field, and
+// the lookup its tiles are drawn from.
+
+#[derive(serde::Deserialize, Default)]
+struct PickQuery {
+    folder: Option<i64>,
+    q: Option<String>,
+    /// `image` narrows to images; anything else offers every file.
+    mode: Option<String>,
+    page: Option<u64>,
+}
+
+struct PickFile {
+    id: i64,
+    name: String,
+    kind: &'static str,
+    size: String,
+    thumb: String,
+    url: String,
+    is_image: bool,
+}
+
+#[derive(Template)]
+#[template(path = "media_pick.html")]
+struct PickTemplate {
+    shell: Shell,
+    pick_url: String,
+    mode: String,
+    q: String,
+    folder: Option<i64>,
+    crumbs: Vec<CrumbView>,
+    folders: Vec<FolderView>,
+    files: Vec<PickFile>,
+    page: u64,
+    pages: u64,
+}
+
+fn pick_href(base: &str, folder: Option<i64>, q: &str, mode: &str, page: u64) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(f) = folder {
+        parts.push(format!("folder={f}"));
+    }
+    if !q.is_empty() {
+        parts.push(format!("q={}", urlencoding(q)));
+    }
+    if !mode.is_empty() {
+        parts.push(format!("mode={mode}"));
+    }
+    if page > 1 {
+        parts.push(format!("page={page}"));
+    }
+    if parts.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}?{}", parts.join("&"))
+    }
+}
+
+async fn pick(
+    State(app): App,
+    Extension(shell): Extension<Shell>,
+    Query(query): Query<PickQuery>,
+) -> Response {
+    let ctx = &app.ctx;
+    let db = ctx.db();
+    let q = query.q.unwrap_or_default().trim().to_string();
+    let mode = query.mode.unwrap_or_default();
+    let page = query.page.unwrap_or(1).max(1);
+    let folder_id = query.folder;
+    let pick_url = ctx.url("pick");
+    let crumbs: Vec<CrumbView> = match folder_id {
+        Some(id) => folder::ancestors(db, id).await.unwrap_or_default(),
+        None => Vec::new(),
+    }
+    .into_iter()
+    .map(|f| CrumbView {
+        href: pick_href(&pick_url, Some(f.id), "", &mode, 1),
+        name: f.name,
+    })
+    .collect();
+    let folders: Vec<FolderView> = if q.is_empty() {
+        folder::children(db, folder_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|f| FolderView {
+                href: pick_href(&pick_url, Some(f.id), "", &mode, 1),
+                name: f.name,
+                active: false,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let listing = Listing {
+        folder: folder_id,
+        search: (!q.is_empty()).then(|| q.clone()),
+        kind: (mode == "image").then_some(Kind::Image),
+        sort: Sort::default(),
+        page,
+        per_page: PER_PAGE,
+    };
+    let listed = laterite_media::library::list(db, &listing).await.unwrap_or(
+        laterite_media::library::Page {
+            items: Vec::new(),
+            total: 0,
+        },
+    );
+    let pages = (listed.total as u64).max(1).div_ceil(PER_PAGE);
+    let files = listed
+        .items
+        .iter()
+        .map(|r| PickFile {
+            id: r.id,
+            name: r.display_name().to_string(),
+            kind: r.kind().as_str(),
+            size: human_size(r.size),
+            thumb: admin_url_for(&app, r, Some(preset::THUMB)),
+            url: admin_url(&app, r),
+            is_image: r.kind() == Kind::Image && r.content_type != "image/svg+xml",
+        })
+        .collect();
+    match Markup::from_template(&PickTemplate {
+        shell: shell.clone(),
+        pick_url,
+        mode,
+        q,
+        folder: folder_id,
+        crumbs,
+        folders,
+        files,
+        page,
+        pages,
+    }) {
+        Ok(body) => axum::response::Html(body.into_string()).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "rendering the media picker failed");
+            AdminError::Internal(anyhow::anyhow!(e)).into_response()
+        }
+    }
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ResolveQuery {
+    #[serde(default)]
+    ids: String,
+}
+
+/// The tiles for ids a field holds: name, kind, thumbnail and URL per file,
+/// in the order asked; an id that no longer exists is left out.
+async fn resolve(State(app): App, Query(query): Query<ResolveQuery>) -> Response {
+    let mut out = Vec::new();
+    for id in query
+        .ids
+        .split(',')
+        .filter_map(|p| p.trim().parse::<i64>().ok())
+        .take(64)
+    {
+        if let Ok(Some(r)) = record::find(app.ctx.db(), id).await {
+            out.push(serde_json::json!({
+                "id": r.id,
+                "name": r.display_name(),
+                "kind": r.kind().as_str(),
+                "size": human_size(r.size),
+                "thumb": admin_url_for(&app, &r, Some(preset::THUMB)),
+                "url": admin_url(&app, &r),
+                "is_image": r.kind() == Kind::Image && r.content_type != "image/svg+xml",
+            }));
+        }
+    }
+    axum::Json(out).into_response()
 }
 
 // The screen.

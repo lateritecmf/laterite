@@ -35,7 +35,24 @@ mod schema;
 pub mod site;
 pub mod store;
 
-pub use engine::{check, Engine, EngineCache, RenderError};
+pub use engine::{check, variant, Engine, EngineCache, RenderError};
+
+/// A media record as a template sees it: what a component hands over so
+/// `media(file)`, `media(file, preset="card")` and `file.url|variant("card")`
+/// work, beside `title`, `alt`, `width`, `height`, `kind` and `name`.
+pub fn media_value(record: &laterite_media::MediaRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "url": laterite_admin::medialib::file_url(record),
+        "name": record.display_name(),
+        "title": record.title,
+        "alt": record.alt,
+        "width": record.width,
+        "height": record.height,
+        "kind": record.kind().as_str(),
+        "content_type": record.content_type,
+    })
+}
 
 use laterite_admin::form::FormConfig;
 use laterite_admin::settings::{PreferencesModel, SettingsModel};

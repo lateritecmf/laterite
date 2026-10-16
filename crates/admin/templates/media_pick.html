@@ -1,0 +1,42 @@
+<div class="lat-pick" data-pick-root data-mode="{{ mode }}">
+  <div class="lat-pane__bar">
+    <nav class="lat-breadcrumb" aria-label='{{ shell.t("Folder") }}'>
+      <a href="{{ pick_url }}{% if !mode.is_empty() %}?mode={{ mode }}{% endif %}" data-pick-go>{{ shell.t("Library") }}</a>
+      {% for c in crumbs %}<span aria-hidden="true">&rsaquo;</span><a href="{{ c.href }}" data-pick-go>{{ c.name }}</a>{% endfor %}
+      {% if !q.is_empty() %}<span aria-hidden="true">&rsaquo;</span><span>{{ shell.tfs("Search: {q}", [("q", q.as_str())]) }}</span>{% endif %}
+    </nav>
+    <form method="get" action="{{ pick_url }}" data-pick-search role="search">
+      {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
+      {% if !mode.is_empty() %}<input type="hidden" name="mode" value="{{ mode }}">{% endif %}
+      <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}" placeholder='{{ shell.t("Search the library") }}' aria-label='{{ shell.t("Search") }}'>
+      <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Search") }}</button>
+    </form>
+  </div>
+  {% if folders.is_empty() && files.is_empty() %}
+  <div class="lat-media-empty">{% if q.is_empty() %}{{ shell.t("No files here yet.") }}{% else %}{{ shell.t("Nothing matches.") }}{% endif %}</div>
+  {% else %}
+  <div class="lat-media-grid">
+    {% for f in folders %}
+    <a class="lat-media-card lat-media-card--folder" href="{{ f.href }}" data-pick-go title="{{ f.name }}">
+      <span class="lat-media-card__thumb">{{ shell.icon("folder")|safe }}</span>
+      <span class="lat-media-card__name">{{ f.name }}</span>
+      <span class="lat-media-card__meta">{{ shell.t("Folder") }}</span>
+    </a>
+    {% endfor %}
+    {% for f in files %}
+    <button type="button" class="lat-media-card lat-pick__file" data-pick-file data-id="{{ f.id }}" data-name="{{ f.name }}" data-kind="{{ f.kind }}" data-size="{{ f.size }}" data-thumb="{{ f.thumb }}" data-url="{{ f.url }}" data-is-image="{% if f.is_image %}1{% else %}0{% endif %}" title="{{ f.name }}" aria-pressed="false">
+      <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.thumb }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}</span>
+      <span class="lat-media-card__name">{{ f.name }}</span>
+      <span class="lat-media-card__meta">{{ f.size }}</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if pages > 1 %}
+  <div class="lat-pager">
+    {% if page > 1 %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ pick_url }}?page={{ page - 1 }}{% if let Some(f) = folder %}&amp;folder={{ f }}{% endif %}{% if !mode.is_empty() %}&amp;mode={{ mode }}{% endif %}{% if !q.is_empty() %}&amp;q={{ q }}{% endif %}" data-pick-go>{{ shell.t("Previous") }}</a>{% endif %}
+    <span class="lat-help" style="margin:0">{{ shell.tf("Page {n} of {m}", [("n", page as i64), ("m", pages as i64)]) }}</span>
+    {% if page < pages %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ pick_url }}?page={{ page + 1 }}{% if let Some(f) = folder %}&amp;folder={{ f }}{% endif %}{% if !mode.is_empty() %}&amp;mode={{ mode }}{% endif %}{% if !q.is_empty() %}&amp;q={{ q }}{% endif %}" data-pick-go>{{ shell.t("Next") }}</a>{% endif %}
+  </div>
+  {% endif %}
+</div>

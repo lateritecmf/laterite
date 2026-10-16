@@ -195,6 +195,29 @@ Bare, expired, altered or retargeted | 404
 
 The admin's own links to a private file carry a one-hour signature.
 
+## The media field
+
+```yaml
+fields:
+  cover_id: { type: media, label: Cover, mode: image }
+  gallery: { type: media, label: Gallery, max: 6 }
+```
+
+Option | Default | Meaning
+--- | --- | ---
+`mode` | `file` | `image` offers images alone and shows thumbnails.
+`max` | `1` | How many files the field holds: `1` stores one id in a bigint column; any other number stores a JSON list in a text column, `0` meaning no limit.
+
+A save writes the record's links under the field's name (`media_links`:
+`owner_type` is the form's entity, `owner_id` the record's id, `field` the
+field's name), so the file page shows who uses a file and a delete of a linked
+file needs `media.delete_linked`. The field's picker is the library at
+`/admin/media/pick` and its tiles come from `/admin/media/resolve?ids=`.
+
+Event | Detail
+--- | ---
+`lat:media:changed` | `{ids}`, after a pick, a removal or a clear.
+
 ## Variants
 
 ```rust

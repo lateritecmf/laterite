@@ -1027,7 +1027,44 @@ pub(crate) async fn write(
         &mut rec,
     )
     .await?;
+    link_media(
+        db,
+        form,
+        data,
+        rec.id()
+            .map(|i| i.to_string())
+            .or_else(|| id.map(str::to_string)),
+    )
+    .await;
     Ok(rec)
+}
+
+/// Writes the links a saved record's media fields hold, under each field's
+/// name, so the library knows who uses a file. A type that holds no media
+/// says so and is skipped; a failure is logged, never a failed save.
+async fn link_media(
+    db: &Db,
+    form: &PreparedForm,
+    data: &HashMap<String, String>,
+    owner_id: Option<String>,
+) {
+    let Some(owner_id) = owner_id else {
+        return;
+    };
+    for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
+        let submitted = data.get(&field.name).map(String::as_str);
+        let Some(ids) = prepared.field_type.linked_media(submitted, &prepared.opts) else {
+            continue;
+        };
+        let owner = laterite_media::Owner {
+            owner_type: &form.config.entity,
+            owner_id: &owner_id,
+            field: &field.name,
+        };
+        if let Err(e) = laterite_media::link::set(db, owner, &ids).await {
+            tracing::warn!(error = %e, entity = %form.config.entity, field = %field.name, "media links could not be written");
+        }
+    }
 }
 
 /// The write up to the point of writing: the data validated and shaped into

@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `StorageDriver::signed_url` for a store that presigns.
 - `PageHead` with `Shell::page_with` (a back link and actions beside the title),
   `dialog.lat-dialog` opened by `data-lat-dialog`, and the `lat-split`/`lat-pane` layout.
+- The `media` field type (`mode`, `max`): a picker over the library, ids stored,
+  the record's links written on save; `media()` and `|variant` in templates.
 - Variants: `Preset` registered on the registry, rendered on first request at
   `/storage/media/<hash>/<preset>/<name>`, with `thumb` and `preview` built in.
 - Uploads lose their EXIF before hashing; `width`, `height` and `meta.orientation` are recorded.
@@ -32,6 +34,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   in a properties dialog; theme.yaml itself travels in the zip and is no longer a textarea.
 - The Themes and Media screens: a theme selector with a Manage menu, a template
   navigator beside the editor, and a media browser with a filter pane; forms open in dialogs.
+
+### Fixed
+
+- A blank optional non-text field (a cleared reference or media id) saved on Postgres;
+  the persister bound a text-typed null that a bigint column refused.
 
 ## [0.9.15] - 2026-10-16
 
