@@ -10,7 +10,7 @@
   {% else %}
   <h1>{{ title }}</h1>
   {% endif %}
-  {% if let Some(actions) = actions %}<div class="lat-toolbar__actions">{{ actions|safe }}</div>{% endif %}
 </div>
+{% if let Some(actions) = actions %}<div class="lat-actionbar">{{ actions|safe }}</div>{% endif %}
 {{ body|safe }}
 {% endblock %}

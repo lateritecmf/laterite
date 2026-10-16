@@ -1,26 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
-<div class="lat-toolbar">
-  <h1>{{ title }}</h1>
-  {% if exportable || import_href.is_some() %}
-  {# Moving a whole resource in or out is the page's business, not the table's:
-     it belongs beside the title, while the row below acts on rows. #}
-  <div class="lat-toolbar__actions">
-    {% if let Some(href) = import_href %}<a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ href }}">{{ shell.t("Import") }}</a>{% endif %}
-    {% if exportable %}
-    <details class="lat-menu">
-      <summary class="lat-btn lat-btn--secondary lat-btn--sm">{{ shell.t("Export") }}</summary>
-      <div class="lat-menu__panel">
-        {# The export carries the current query, so the file matches this screen. #}
-        <a href="{{ path }}/export?format=csv{{ export_query }}">{{ shell.t("CSV") }}</a>
-        <a href="{{ path }}/export?format=json{{ export_query }}">{{ shell.t("JSON") }}</a>
-      </div>
-    </details>
-    {% endif %}
-  </div>
-  {% endif %}
-</div>
+<div class="lat-toolbar"><h1>{{ title }}</h1></div>
 {# The query form carries the search term, every filter and the current sort,
    but holds none of the controls: the search box sits in the action row and the
    filters in their own band, each bound back by `form=`. One form is what makes
@@ -32,13 +13,16 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
 </form>
+{# The heading carries nothing: every control sits in the band on top of the
+   list card, so the card starts right under the title. #}
+<div class="lat-listcard">
 <div class="lat-listbar">
   <div class="lat-listbar__actions">
     {% for b in toolbar %}
     <a class="lat-btn lat-btn--sm {% if b.primary %}lat-btn--primary{% else %}lat-btn--secondary{% endif %}" href="{{ b.href }}">{% if !b.icon.is_empty() %}<span class="lat-btn__icon">{{ b.icon|safe }}</span>{% endif %}{{ b.label }}</a>
     {% endfor %}
     {% if deletable %}
-    <span class="lat-listbar__divider" aria-hidden="true"></span>
+    {% if !toolbar.is_empty() %}<span class="lat-listbar__divider" aria-hidden="true"></span>{% endif %}
     {# Acts on rows inside the swapped region, so it starts disabled and follows
        the checkboxes rather than being enabled by markup. #}
     <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
@@ -82,6 +66,21 @@
       </div>
     </details>
     {% endif %}
+    {% if exportable || import_href.is_some() %}
+    {# Moving the whole resource in or out: the long tail, behind one menu. #}
+    <details class="lat-menu">
+      <summary class="lat-btn lat-btn--secondary lat-btn--sm lat-btn--icon"
+               title='{{ shell.t("More") }}' aria-label='{{ shell.t("More") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
+      <div class="lat-menu__panel">
+        {% if let Some(href) = import_href %}<a href="{{ href }}">{{ shell.t("Import") }}</a>{% endif %}
+        {% if exportable %}
+        {# The export carries the current query, so the file matches this screen. #}
+        <a href="{{ path }}/export?format=csv{{ export_query }}">{{ shell.t("Export CSV") }}</a>
+        <a href="{{ path }}/export?format=json{{ export_query }}">{{ shell.t("Export JSON") }}</a>
+        {% endif %}
+      </div>
+    </details>
+    {% endif %}
     <noscript><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-list-query">{{ shell.t("Apply") }}</button></noscript>
   </div>
 </div>
@@ -120,4 +119,5 @@
 <nav class="lat-breadcrumb lat-tree__crumbs">{% for c in crumbs %}{% if !loop.first %} <span aria-hidden="true">&rsaquo;</span> {% endif %}<a href="{{ c.href }}">{% if c.label.is_empty() %}{{ shell.t("All") }}{% else %}{{ c.label }}{% endif %}</a>{% endfor %}</nav>
 {% endif %}
 {% include "_list_table.html" %}
+</div>
 {% endblock %}

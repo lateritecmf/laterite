@@ -121,7 +121,7 @@ Method | Does
 --- | ---
 `PageHead::new(title)` | The heading.
 `.back(label, href)` | A link above the heading to the page this one sits under.
-`.actions(markup)` | Controls beside the heading: buttons, a `details.lat-menu`, dialog openers.
+`.actions(markup)` | Controls in the band under the heading: buttons, a `details.lat-menu`, dialog openers.
 `shell.page_with(head, body)` | The body under that head, inside the chrome.
 
 ## Open a form in a dialog
@@ -198,7 +198,7 @@ Element | Builders | Renders
 --- | --- | ---
 `Button::link(label, href)` | `.primary()`, `.danger()`, `.ghost()`, `.small()`, `.icon(name)` | A link styled as a button.
 `Button::post(label, action)` | The same, and `.confirm(question)` | A form that posts with the request token, asking first when `confirm` is set.
-`Toolbar::new(title)`, `Toolbar::section(title)` | `.button(..)` | A page or section heading with its buttons on the right.
+`Toolbar::new(title)`, `Toolbar::section(title)` | `.button(..)` | A page or section heading, its buttons in the band under it.
 `Badge::new(label)` | | A small label.
 `Card::new(markup)` | | The panel's framed block around what it is given.
 

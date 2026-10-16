@@ -383,7 +383,7 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-status--quarantined{color:var(--danger)}
 
 /* Page toolbar + breadcrumb */
-.lat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.lat-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .lat-toolbar h1{font-size:var(--fs-24);margin:0;margin-right:auto}
 .lat-toolbar h2{font-size:var(--fs-16);margin:0;margin-right:auto}
 /* A second section on a page needs air above it, or its heading reads as
@@ -482,6 +482,17 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 
 /* List search box, in the toolbar beside the title. */
 /* List bar: search box plus filter controls, above the table. */
+/* The list card: the toolbar band, the filter band when the list has filters,
+   a tree's crumbs, then the table, one framed block under the heading. */
+.lat-listcard{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+.lat-listcard>.lat-listbar{margin:0;padding:10px 14px;border-bottom:1px solid var(--border-subtle)}
+.lat-listcard>.lat-filterbar{border:0;border-bottom:1px solid var(--border-subtle);border-radius:0;background:var(--surface-toolbar)}
+.lat-listcard>.lat-breadcrumb{margin:0;padding:8px 14px;border-bottom:1px solid var(--border-subtle)}
+.lat-listcard .lat-tablewrap{border:0;border-radius:0;box-shadow:none}
+/* A band of controls under a heading: what a page's actions render in. */
+.lat-actionbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:14px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card)}
+.lat-actionbar form{margin:0;display:inline-flex}
+.lat-actionbar__spacer{margin-left:auto}
 .lat-listbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .lat-listbar__actions{display:flex;gap:8px;align-items:center}
 .lat-listbar__divider{width:1px;height:18px;background:var(--border-strong);margin:0 4px}

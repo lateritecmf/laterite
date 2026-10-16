@@ -2,32 +2,35 @@
 {% block title %}{{ full_name }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Backend Users") }}</a></nav>
-{# The account actions sit in the title row, as a list keeps Export there. Each
-   is its own POST form, kept out of the flow and submitted by its button through
-   the `form` attribute, so the card below reads facts, then the form. #}
+{# The account actions sit in the band under the heading, as every page keeps
+   its controls. Each is its own POST form, kept out of the flow and submitted
+   by its button through the `form` attribute, so the card below reads facts,
+   then the form. #}
 <div class="lat-toolbar">
   <div class="lat-titleblock">
     <p class="lat-eyebrow">{{ shell.t("Backend user") }}</p>
     <h1>{{ full_name }}</h1>
   </div>
-  <div class="lat-toolbar__actions">
+</div>
+{% if locked || can_reset || can_change_state %}
+<div class="lat-actionbar">
     {% if locked %}
-    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-unlock">{{ shell.t("Unlock") }}</button>
+    <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-unlock">{{ shell.t("Unlock") }}</button>
     {% endif %}
     {% if can_reset %}
-    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-reset"
+    <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-reset"
             data-lat-confirm="{{ shell.t("Reset this account's password? They will be signed out everywhere and given a temporary password to replace at their next sign-in.") }}">{{ shell.t("Reset password") }}</button>
     {% endif %}
     {% if can_change_state %}
     {% if is_active %}
-    <button class="lat-btn lat-btn--danger" type="submit" form="lat-state"
+    <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" form="lat-state"
             data-lat-confirm="{{ shell.t("Deactivate this account? They will be signed out everywhere and cannot sign in until reactivated.") }}">{{ shell.t("Deactivate") }}</button>
     {% else %}
-    <button class="lat-btn lat-btn--secondary" type="submit" form="lat-state">{{ shell.t("Reactivate") }}</button>
+    <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-state">{{ shell.t("Reactivate") }}</button>
     {% endif %}
     {% endif %}
-  </div>
 </div>
+{% endif %}
 {% if locked %}
 <form id="lat-unlock" method="post" action="{{ unlock_action }}" hidden>{% include "_csrf.html" %}</form>
 {% endif %}

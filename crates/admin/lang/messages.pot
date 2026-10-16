@@ -175,10 +175,6 @@ msgstr ""
 msgid "By"
 msgstr ""
 
-#: templates/list.html
-msgid "CSV"
-msgstr ""
-
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
 #: templates/base.html
@@ -533,7 +529,11 @@ msgid "Expires"
 msgstr ""
 
 #: templates/list.html
-msgid "Export"
+msgid "Export CSV"
+msgstr ""
+
+#: templates/list.html
+msgid "Export JSON"
 msgstr ""
 
 #: (descriptors)
@@ -673,10 +673,6 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr ""
 
-#: templates/list.html
-msgid "JSON"
-msgstr ""
-
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "Kind"
@@ -783,6 +779,7 @@ msgstr ""
 msgid "Method"
 msgstr ""
 
+#: templates/list.html
 #: templates/preferences.html
 msgid "More"
 msgstr ""
