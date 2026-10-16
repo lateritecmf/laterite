@@ -141,6 +141,10 @@ pub struct BackendConfig {
     /// Keys left out keep their arrangement after the listed ones; a fixed
     /// hierarchy ignores its entry.
     pub order: std::collections::BTreeMap<String, Vec<String>>,
+    /// Entries moved from the home their author gave them, keyed by the
+    /// entry (`"backend.access_log"`, `"resource:/orders"`); see
+    /// [`crate::arrange::Move`].
+    pub menu: std::collections::BTreeMap<String, crate::arrange::Move>,
     /// The URL path the admin panel is mounted under, without a trailing slash
     /// (default `/admin`). Change it to move or obscure the panel (`/manage`,
     /// `/backend`). A leading slash is added if missing and a trailing slash is
@@ -171,6 +175,7 @@ impl Default for BackendConfig {
             timezone: "UTC".to_string(),
             paths: std::collections::BTreeMap::new(),
             order: std::collections::BTreeMap::new(),
+            menu: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
             trusted_proxies: Vec::new(),
             storage: "storage".to_string(),

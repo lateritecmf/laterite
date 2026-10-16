@@ -385,3 +385,61 @@ async fn the_palette_finds_pages_settings_and_records_the_operator_may_open() {
         "the same finder as a page: {html}"
     );
 }
+
+/// A deployment moves an entry out of its home: a resource into the settings
+/// index under a heading of its choosing, and a settings item into the top
+/// bar at the band it names. Each keeps its target and its permission.
+#[tokio::test]
+async fn a_deployment_moves_entries_between_the_menu_and_settings() {
+    let (db, _g) = test_db().await;
+    let mut config = AdminConfig::default();
+    config.origin = "https://acme.test".to_string();
+    config.menu.insert(
+        "resource:/orders".to_string(),
+        serde_json::from_value(serde_json::json!({ "in": "backend.settings", "category": "Shop" }))
+            .unwrap(),
+    );
+    config.menu.insert(
+        "backend.access_log".to_string(),
+        serde_json::from_value(serde_json::json!({ "in": "backend.nav", "slot": "tools" }))
+            .unwrap(),
+    );
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![
+                resource!("tests/descriptors/nav_posts.yaml"),
+                resource!("tests/descriptors/nav_shop.yaml"),
+            ],
+            nav: vec![NavItem::section("acme.content", "Content")
+                .icon("folder")
+                .order(10)],
+            picker_sources: vec![PickerSourceReg::new(
+                "acme.posttitles",
+                Arc::new(TableSource::new("posts", "id", "title")),
+            )],
+            permissions: vec![
+                Permission::new("acme.posts", t!("Posts"), t!("Acme")),
+                Permission::new("acme.orders", t!("Orders"), t!("Acme")),
+            ],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    );
+    let (root, _) = sessions(&db).await;
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert_eq!(
+        tabs(&html),
+        ["Dashboard", "Media", "Content", "Access Log", "Settings"],
+        "the log is a tab in the tools band and Orders is gone: {html}"
+    );
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert!(
+        html.contains("Shop") && html.contains(r#"href="/admin/orders""#),
+        "Orders sits in settings under Shop: {html}"
+    );
+    let (status, _) = get(&app, "/admin/orders", &root).await;
+    assert_eq!(status, StatusCode::OK);
+}

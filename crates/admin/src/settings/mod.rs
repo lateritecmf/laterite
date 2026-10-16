@@ -415,6 +415,40 @@ impl laterite_core::arrange::Arranged for Placed<'_> {
     }
 }
 
+/// One boot log line for the settings index, as [`sidebar_groups`] will
+/// arrange it.
+pub(crate) fn log_arrangement(items: &[SettingsItem], order: Option<&[String]>) {
+    let placed: Vec<Placed<'_>> = items
+        .iter()
+        .map(|item| Placed {
+            item,
+            position: laterite_core::arrange::Position::new()
+                .slot(item.slot)
+                .order(item.order),
+        })
+        .collect();
+    let arranged = laterite_core::arrange::arrange(
+        &laterite_core::arrange::Hierarchy::new(HIERARCHY),
+        placed,
+        laterite_core::arrange::Overrides {
+            deployment: order,
+            operator: None,
+        },
+    )
+    .unwrap_or_default();
+    let keys: Vec<String> = arranged
+        .iter()
+        .map(|p| {
+            format!(
+                "{} ({})",
+                p.item.code,
+                laterite_core::arrange::slot::name(p.item.slot)
+            )
+        })
+        .collect();
+    tracing::info!(hierarchy = HIERARCHY, arrangement = %keys.join(" > "));
+}
+
 /// Builds the context-sidebar groups: the items arranged by the engine (slot,
 /// order, label, then the deployment's `[backend.order]` for
 /// `backend.settings`), grouped by category in order of first appearance,

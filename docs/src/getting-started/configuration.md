@@ -43,6 +43,9 @@ secret = "a-long-random-string"  # signs timed URLs; generated and stored if uns
 [backend.order]
 "backend.nav" = ["dashboard", "acme.shop", "media", "settings"]
 
+[backend.menu]
+"backend.access_log" = { in = "backend.nav", slot = "tools" }
+
 [backend.paths]
 "rainmill.location" = "/places"          # a whole module's screens
 "rainmill.location/nodes" = "/places"    # one screen; the more specific key wins
@@ -73,6 +76,7 @@ Key | Description
 `paths` | Remounts a module's screens, or one screen, at another path. Two claims on one path abort the boot.
 `storage` | The directory files the admin keeps are stored under, relative to the working directory unless absolute. Uploaded import files go to `private` beneath it.
 `order` | Arrangement overrides by hierarchy: `"backend.nav"`, `"backend.nav.<section>"`, `"backend.settings"` or a plugin's own, each a list of keys in the wanted order. See [Navigation](../extend/navigation.md).
+`menu` | Entries moved out of their home, keyed by entry: `{ in, slot, order, category }`. See [Navigation](../extend/navigation.md).
 `secret` | The key timed URLs are signed with (a private file's). Unset, one is generated at the first boot and kept in the settings table. Set it when several instances share one database.
 
 ### `[auth]`

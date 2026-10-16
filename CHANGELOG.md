@@ -13,6 +13,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   with named slots, anchors, a per-hierarchy policy and `[backend.order]` overrides.
 - `slot` on `menu:` placements and settings items; the top bar and the settings index
   arrange by it, so a plugin's resource lands after Media by default.
+- `[backend.menu]`: an entry moved between the top bar, a section and the settings
+  index, keeping its label, icon, permission and target; the boot log prints every
+  arrangement.
 
 ### Changed
 

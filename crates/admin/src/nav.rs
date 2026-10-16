@@ -478,6 +478,134 @@ pub(crate) fn section_sidebar(
     )]
 }
 
+/// Applies a deployment's `[backend.menu]` moves. A menu entry named in a
+/// move to `backend.settings` becomes a linked settings item; a settings item
+/// moved to `backend.nav` (or `backend.nav.<section>`) becomes a menu entry;
+/// a move within a hierarchy changes the band, the order or the section. An
+/// entry keeps its label, icon, permission and target wherever it renders. A
+/// key nobody declared, or a section (which has no page), is logged and left.
+pub(crate) fn apply_moves(
+    items: &mut Vec<NavItem>,
+    settings: &mut Vec<crate::settings::SettingsItem>,
+    moves: &std::collections::BTreeMap<String, laterite_core::arrange::Move>,
+) {
+    use laterite_core::arrange::slot;
+    for (key, spec) in moves {
+        let to_settings = spec.hierarchy == crate::settings::HIERARCHY;
+        let to_nav = spec.hierarchy == TOP_HIERARCHY
+            || spec.hierarchy.starts_with(&format!("{TOP_HIERARCHY}."));
+        if !to_settings && !to_nav {
+            tracing::warn!(key = %key, hierarchy = %spec.hierarchy, "a menu move names a hierarchy nothing renders");
+            continue;
+        }
+        let section = spec
+            .hierarchy
+            .strip_prefix(&format!("{TOP_HIERARCHY}."))
+            .map(str::to_string);
+        if let Some(at) = items.iter().position(|i| &i.key == key) {
+            if to_nav {
+                let item = &mut items[at];
+                item.under = section;
+                if let Some(slot) = spec.slot {
+                    item.slot = slot;
+                }
+                if let Some(order) = spec.order {
+                    item.order = order;
+                }
+                continue;
+            }
+            let Some(path) = items[at].path.clone() else {
+                tracing::warn!(key = %key, "a section has no page of its own and cannot move into settings");
+                continue;
+            };
+            let item = items.remove(at);
+            let band = spec.slot.unwrap_or(item.slot);
+            let mut moved = crate::settings::SettingsItem::new(
+                item.key.clone(),
+                item.label.clone(),
+                Vec::new(),
+            )
+            .category(laterite_core::Text::dynamic(
+                spec.category
+                    .clone()
+                    .unwrap_or_else(|| title(&slot::name(band))),
+            ))
+            .slot(band)
+            .order(spec.order.unwrap_or(item.order))
+            .link(path);
+            if let Some(icon) = item.icon.clone() {
+                moved = moved.icon(icon);
+            }
+            if let Some(permission) = item.permission.clone() {
+                moved = moved.permission(permission);
+            }
+            settings.push(moved);
+            continue;
+        }
+        if let Some(at) = settings.iter().position(|i| &i.code == key) {
+            if to_settings {
+                let item = &mut settings[at];
+                if let Some(slot) = spec.slot {
+                    item.slot = slot;
+                }
+                if let Some(order) = spec.order {
+                    item.order = order;
+                }
+                if let Some(category) = &spec.category {
+                    item.category = laterite_core::Text::dynamic(category.clone());
+                }
+                continue;
+            }
+            let item = settings.remove(at);
+            let path = item.link.clone().unwrap_or_else(|| item.route());
+            let mut moved = NavItem::new(item.code.clone(), item.label.clone(), path)
+                .slot(spec.slot.unwrap_or(item.slot))
+                .order(spec.order.unwrap_or(item.order));
+            moved.icon = item.icon.clone();
+            moved.permission = item.permission.clone();
+            moved.under = section;
+            items.push(moved);
+            continue;
+        }
+        tracing::warn!(key = %key, "a menu move names an entry nothing declared");
+    }
+}
+
+/// `tools` as a heading: `Tools`.
+fn title(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+impl NavTree {
+    /// One boot log line per hierarchy, so an author sees where an entry
+    /// landed without opening the panel.
+    pub(crate) fn log_arrangement(&self) {
+        let top: Vec<String> = self
+            .top
+            .iter()
+            .map(|n| {
+                format!(
+                    "{} ({})",
+                    n.item.key,
+                    laterite_core::arrange::slot::name(n.item.slot)
+                )
+            })
+            .collect();
+        tracing::info!(hierarchy = TOP_HIERARCHY, arrangement = %top.join(" > "));
+        for node in &self.top {
+            if node.children.is_empty() {
+                continue;
+            }
+            let keys: Vec<&str> = node.children.iter().map(|c| c.item.key.as_str()).collect();
+            tracing::info!(hierarchy = %format!("{TOP_HIERARCHY}.{}", node.item.key), arrangement = %keys.join(" > "));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

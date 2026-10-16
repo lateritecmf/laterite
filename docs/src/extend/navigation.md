@@ -58,6 +58,25 @@ A key left out keeps its arrangement after the listed ones; a key that is no
 entry is skipped. An operator's own drag of the top bar sits on top of the
 deployment's sequence.
 
+```toml
+[backend.menu]
+"backend.access_log" = { in = "backend.nav", slot = "tools" }
+"resource:/orders" = { in = "backend.settings", category = "Shop", order = 5 }
+"screen:/reports" = { in = "backend.nav.acme.content" }
+```
+
+`[backend.menu]` key | Meaning
+--- | ---
+The entry | A menu key (`resource:/orders`, `screen:/reports`, a contributed item's key) or a settings item's code.
+`in` | `backend.nav`, `backend.nav.<section>` or `backend.settings`.
+`slot`, `order` | The band and order there; the entry's own when left out.
+`category` | The settings heading; the band's name when left out.
+
+A moved entry keeps its label, icon, permission and target: a resource moved
+into settings opens at its own path with the settings sidebar beside it, and
+a settings item moved into the top bar is a tab. A section cannot move into
+settings. The boot log prints every hierarchy's arrangement, one line each.
+
 ```rust
 use laterite_core::arrange::{arrange, Arranged, Hierarchy, Overrides, Policy, Position, slot};
 

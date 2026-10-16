@@ -361,6 +361,8 @@ pub struct AdminConfig {
     /// Arrangement overrides by hierarchy (`backend.order`): the keys of the
     /// top bar, a section or the settings index in the wanted order.
     pub order: std::collections::BTreeMap<String, Vec<String>>,
+    /// Entries moved out of their home (`backend.menu`), keyed by entry.
+    pub menu: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
     /// The key tokens the admin mints are signed with (a private file's URL).
     /// The default is a fresh random key, so such tokens outlive the process
     /// only when the bootstrap supplies the configured or stored key.
@@ -379,6 +381,7 @@ impl Default for AdminConfig {
             origin: String::new(),
             storage_dir: "storage".to_string(),
             order: std::collections::BTreeMap::new(),
+            menu: std::collections::BTreeMap::new(),
             secret: random_key(),
         }
     }
@@ -1549,8 +1552,16 @@ pub fn router(
         item.before = reg.menu.before.clone();
         nav_items.push(item);
     }
+    // A deployment's moves: an entry rendered somewhere other than its home,
+    // keeping its label, icon, permission and target.
+    nav::apply_moves(&mut nav_items, &mut settings, &config.menu);
     let nav = nav::NavTree::build_with(nav_items, &admin_path, &config.order)
         .unwrap_or_else(|e| panic!("admin menu: {e}"));
+    nav.log_arrangement();
+    settings::log_arrangement(
+        &settings,
+        config.order.get(settings::HIERARCHY).map(Vec::as_slice),
+    );
     // The palette's record sources: a resource that named its picker source.
     // The source itself is checked against the registry below, once it exists.
     let palette_sources: Vec<palette::RecordSource> = app_resources

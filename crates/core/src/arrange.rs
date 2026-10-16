@@ -140,6 +140,49 @@ where
     }
 }
 
+/// An optional slot, for a key a configuration may leave out.
+pub fn deserialize_slot_opt<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Number(i32),
+        Name(String),
+    }
+    match Option::<Raw>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(Raw::Number(n)) => Ok(Some(n)),
+        Some(Raw::Name(name)) => slot::parse(&name)
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown slot {name:?}"))),
+    }
+}
+
+/// Where a menu entry goes instead of the home its author gave it: another
+/// hierarchy, a band and an order there, and for the settings index the
+/// category heading it sits under.
+///
+/// ```toml
+/// [backend.menu]
+/// "backend.access_log" = { in = "backend.nav", slot = "tools" }
+/// "resource:/orders" = { in = "backend.settings", category = "Shop" }
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct Move {
+    /// `backend.nav`, `backend.nav.<section>` or `backend.settings`.
+    #[serde(rename = "in")]
+    pub hierarchy: String,
+    #[serde(deserialize_with = "deserialize_slot_opt")]
+    pub slot: Option<i32>,
+    pub order: Option<i32>,
+    /// The settings category heading; the band's name when left out.
+    pub category: Option<String>,
+}
+
 /// Whether a hierarchy's arrangement may be changed after the author placed
 /// its entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
