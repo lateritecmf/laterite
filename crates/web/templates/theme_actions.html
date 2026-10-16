@@ -9,6 +9,7 @@
     <form method="post" action="{{ theme_url }}/edit"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button type="submit">{% if editing %}{{ shell.t("Stop previewing") }}{% else %}{{ shell.t("Preview") }}{% endif %}</button></form>
     {% endif %}
     {% if !locked %}
+    <button type="button" data-lat-dialog="theme-properties">{{ shell.t("Edit properties") }}</button>
     <button type="button" data-lat-dialog="new-template">{{ shell.t("New template") }}</button>
     <button type="button" data-lat-dialog="import-zip">{{ shell.t("Import a zip") }}</button>
     {% endif %}

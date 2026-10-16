@@ -14,6 +14,7 @@
         </dl>
         {% if !description.is_empty() %}<p class="lat-note" style="margin:0">{{ description }}</p>{% endif %}
       </div>
+      {% if !locked %}<div class="lat-pane__foot"><p class="lat-help">{{ shell.t("Name, author, homepage, description and preview.") }}</p><button class="lat-btn lat-btn--secondary lat-btn--sm" type="button" data-lat-dialog="theme-properties">{{ shell.t("Edit properties") }}</button></div>{% endif %}
     </div>
     {% if let Some(fields) = settings %}
     <form class="lat-pane" method="post" action="{{ theme_url }}/settings" data-lat-widget="form">
@@ -25,21 +26,38 @@
       {% if !locked %}<div class="lat-pane__foot"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
     </form>
     {% endif %}
-    {% if locked %}
-    <div class="lat-pane">
-      <div class="lat-pane__head">theme.yaml</div>
-      <pre class="lat-editor" style="margin:0;border:0;background:transparent">{{ config }}</pre>
-    </div>
-    {% else %}
-    <form class="lat-pane" method="post" action="{{ theme_url }}/config">
-      <div class="lat-pane__head">theme.yaml</div>
-      <div class="lat-pane__body">
-        <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-        <textarea class="lat-input lat-editor" id="config" name="config" rows="12" spellcheck="false" aria-label="theme.yaml">{{ config }}</textarea>
-      </div>
-      <div class="lat-pane__foot"><p class="lat-help">{{ shell.t("Name, author, description and the settings form.") }}</p><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>
-    </form>
-    {% endif %}
   </div>
 </div>
 {% include "_theme_dialogs.html" %}
+{% if !locked %}
+<dialog class="lat-dialog" id="theme-properties">
+  <form method="post" action="{{ theme_url }}/properties">
+    {% let dialog_title = shell.t("Theme properties") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="prop-name">{{ shell.t("Name") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="prop-name" name="name" value="{{ name }}" required autofocus>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="prop-description">{{ shell.t("Description") }}</label>
+        <textarea class="lat-input" id="prop-description" name="description" rows="3">{{ description }}</textarea>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="prop-author">{{ shell.t("Author") }}</label>
+        <input class="lat-input" id="prop-author" name="author" value="{{ author }}" placeholder='{{ shell.t("A person or a company") }}'>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="prop-homepage">{{ shell.t("Homepage") }}</label>
+        <input class="lat-input" id="prop-homepage" name="homepage" type="url" value="{{ homepage }}" placeholder="https://">
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="prop-preview">{{ shell.t("Preview image URL") }}</label>
+        <input class="lat-input" id="prop-preview" name="preview" type="url" value="{{ preview }}" placeholder="https://">
+        <p class="lat-field__help">{{ shell.t("Shown on the theme list; the theme's initials stand in without one. A 1200 × 800 PNG or JPEG of the home page, no browser frame.") }}</p>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save properties") }}</button></div>
+  </form>
+</dialog>
+{% endif %}

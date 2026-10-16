@@ -70,11 +70,35 @@ Key | Type | Default | Meaning
 `author` | string | `""` | Who made it.
 `homepage` | string | `""` | The author's site.
 `description` | string | `""` | One line about the theme.
+`preview` | string | none | A URL for the image on the theme list; the initials stand in without one.
 `parent` | string | none | The theme whose templates fill in for the ones this theme lacks.
 `require` | list of module ids | `[]` | The modules the theme's templates need.
 `form` | form descriptor | none | The theme's own settings fields (see [Descriptor Files](../extend/descriptor-files.md)).
 
 A key outside this table is refused. `ThemeConfig::parse` reads the YAML and `ThemeConfig::to_yaml` writes it.
+
+## The preview image
+
+```yaml
+name: Acme
+preview: https://acme.test/themes/acme/preview.png
+```
+
+Property | Standard
+--- | ---
+Size | 1200 × 800 pixels. Minimum 600 × 400.
+Aspect | 3:2, exactly.
+Format | PNG or JPEG. WebP is accepted.
+Weight | Under 300 KB.
+Subject | The home page as the theme renders it, cropped from the top of the viewport at 1200 pixels wide.
+Framing | No browser chrome, device frame, drop shadow, border or rounded corners: the image edges are the page edges.
+Overlays | No added text, badges, logos or colour swatches.
+Content | Representative content and real images; no placeholder blocks.
+Colour scheme | Light, unless the theme is dark only.
+Transparency | None: an opaque image.
+Shown at | 184 pixels wide on the theme list, so headings and large shapes must still read at that size.
+
+A theme without `preview` shows its initials on the theme list.
 
 ## Templates
 

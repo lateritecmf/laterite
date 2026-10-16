@@ -72,7 +72,14 @@ impl Module for ThemeModule {
 
 /// The keys of the `theme` value a template reads that belong to the theme
 /// itself; a settings field cannot take one.
-pub const RESERVED_KEYS: [&str; 5] = ["code", "name", "author", "homepage", "description"];
+pub const RESERVED_KEYS: [&str; 6] = [
+    "code",
+    "name",
+    "author",
+    "homepage",
+    "description",
+    "preview",
+];
 
 /// A theme's config: the YAML an operator edits, parsed on every save.
 ///
@@ -86,6 +93,9 @@ pub struct ThemeConfig {
     pub author: String,
     pub homepage: String,
     pub description: String,
+    /// A URL for the theme's preview image, shown on the theme list; unset,
+    /// the list shows the theme's initials.
+    pub preview: Option<String>,
     pub parent: Option<String>,
     pub require: Vec<String>,
     pub form: Option<FormConfig>,

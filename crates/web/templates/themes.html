@@ -1,7 +1,7 @@
 <div class="lat-themes">
   {% for t in themes %}
   <div class="lat-theme{% if t.active %} is-active{% endif %}">
-    <div class="lat-theme__thumb"><span class="lat-theme__mono" aria-hidden="true">{{ t.initial }}</span></div>
+    <div class="lat-theme__thumb">{% if !t.preview.is_empty() %}<img class="lat-theme__preview" src="{{ t.preview }}" alt="">{% else %}<span class="lat-theme__mono" aria-hidden="true">{{ t.initials }}</span>{% endif %}</div>
     <div class="lat-theme__body">
       <div class="lat-theme__title">
         <h2><a href="{{ t.href }}">{{ t.name }}</a></h2>

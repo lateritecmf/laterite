@@ -43,6 +43,7 @@ impl Screen for ThemeScreen {
             .route("/{code}/import", post(import_into))
             .route("/{code}", get(show))
             .route("/{code}/config", post(update_config))
+            .route("/{code}/properties", post(save_properties))
             .route("/{code}/settings", post(save_settings))
             .route("/{code}/activate", post(activate))
             .route("/{code}/edit", post(edit))
@@ -99,12 +100,28 @@ async fn standing(ctx: &RouteCtx, user: &AuthenticatedUser) -> (Option<String>, 
     (active, editing)
 }
 
+/// Up to two initials of a name: the first letters of its first two words,
+/// or the first letter alone.
+fn initials(name: &str) -> String {
+    let mut words = name.split_whitespace().filter_map(|w| w.chars().next());
+    let mut out: String = words
+        .by_ref()
+        .take(2)
+        .flat_map(|c| c.to_uppercase())
+        .collect();
+    if out.is_empty() {
+        out.push('?');
+    }
+    out
+}
+
 /// A theme as the list shows it.
 struct ThemeRow {
     code: String,
     name: String,
-    /// The first letter of the name, for the thumbnail block.
-    initial: String,
+    /// The name's initials, for the thumbnail block when no preview is set.
+    initials: String,
+    preview: String,
     author: String,
     description: String,
     parent: String,
@@ -136,13 +153,8 @@ async fn index(
             active: active.as_deref() == Some(t.code.as_str()),
             editing: editing.as_deref() == Some(t.code.as_str()),
             parent: t.parent.clone().unwrap_or_default(),
-            initial: t
-                .config
-                .name
-                .chars()
-                .next()
-                .map(|c| c.to_uppercase().to_string())
-                .unwrap_or_default(),
+            initials: initials(&t.config.name),
+            preview: t.config.preview.clone().unwrap_or_default(),
             author: t.config.author.clone(),
             description: t.config.description.clone(),
             name: t.config.name.clone(),
@@ -475,6 +487,7 @@ struct ShowTemplate {
     shell: Shell,
     theme_url: String,
     code: String,
+    name: String,
     parent: String,
     author: String,
     homepage: String,
@@ -482,7 +495,7 @@ struct ShowTemplate {
     active: bool,
     editing: bool,
     locked: bool,
-    config: String,
+    preview: String,
     /// The settings fields over the theme's values, when its config (or an
     /// ancestor's) declares a form.
     settings: Option<String>,
@@ -612,6 +625,7 @@ async fn show(
         &ShowTemplate {
             theme_url: ctx.url(&theme.code),
             code: theme.code.clone(),
+            name: theme.config.name.clone(),
             parent: theme.parent.clone().unwrap_or_default(),
             author: theme.config.author.clone(),
             homepage: theme.config.homepage.clone(),
@@ -619,7 +633,7 @@ async fn show(
             active,
             editing,
             locked: theme.locked,
-            config: theme.config_source.clone(),
+            preview: theme.config.preview.clone().unwrap_or_default(),
             settings,
             groups,
             kinds,
@@ -652,6 +666,76 @@ async fn update_config(
             )
             .await;
             session.push_flash(FlashLevel::Success, t!("Theme config saved."));
+        }
+        Err(e) => flash_error(&session, &e),
+    }
+    back(&ctx, &code)
+}
+
+#[derive(serde::Deserialize)]
+struct PropertiesForm {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    author: String,
+    #[serde(default)]
+    homepage: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    preview: String,
+}
+
+/// The properties dialog: the human fields of theme.yaml, rewritten into the
+/// config with everything else (the form, the parent, the requirements) kept.
+async fn save_properties(
+    State(ctx): Ctx,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(code): Path<String>,
+    Form(form): Form<PropertiesForm>,
+) -> Response {
+    let name = form.name.trim();
+    if name.is_empty() {
+        session.push_flash(FlashLevel::Error, t!("A theme needs a name."));
+        return back(&ctx, &code);
+    }
+    let theme = match store::find_theme(ctx.db(), &code).await {
+        Ok(Some(theme)) => theme,
+        Ok(None) => {
+            flash_error(&session, &ThemeError::NotFound(code.clone()));
+            return back(&ctx, "");
+        }
+        Err(e) => {
+            flash_error(&session, &e);
+            return back(&ctx, "");
+        }
+    };
+    let mut config = theme.config.clone();
+    config.name = name.to_string();
+    config.author = form.author.trim().to_string();
+    config.homepage = form.homepage.trim().to_string();
+    config.description = form.description.trim().to_string();
+    config.preview = Some(form.preview.trim().to_string()).filter(|p| !p.is_empty());
+    let yaml = match config.to_yaml() {
+        Ok(yaml) => yaml,
+        Err(e) => {
+            flash_error(&session, &e);
+            return back(&ctx, &code);
+        }
+    };
+    match store::update_theme_config(ctx.db(), &code, &yaml).await {
+        Ok(theme) => {
+            ctx.audit(
+                &user,
+                "web.theme.update",
+                Some("theme"),
+                Some(&theme.code),
+                Some(&theme.config.name),
+                None,
+            )
+            .await;
+            session.push_flash(FlashLevel::Success, t!("Theme properties saved."));
         }
         Err(e) => flash_error(&session, &e),
     }

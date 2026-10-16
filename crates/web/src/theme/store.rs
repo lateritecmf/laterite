@@ -349,6 +349,7 @@ pub async fn create_child_theme(
         author: parent.config.author.clone(),
         homepage: parent.config.homepage.clone(),
         description: String::new(),
+        preview: None,
         parent: Some(code.to_string()),
         require: parent.config.require.clone(),
         form: None,

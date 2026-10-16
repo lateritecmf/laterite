@@ -10,6 +10,14 @@ msgstr ""
 msgid "A child starts empty and falls back to its parent for every template it does not override."
 msgstr ""
 
+#: templates/theme.html
+msgid "A person or a company"
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "A theme needs a name."
+msgstr ""
+
 #: templates/_theme_dialogs.html
 msgid "A zip as Export writes it: theme.yaml and one file per template under its kind's folder."
 msgstr ""
@@ -42,6 +50,7 @@ msgid "By {name}"
 msgstr ""
 
 #: templates/_theme_dialogs.html
+#: templates/theme.html
 #: templates/theme_template.html
 #: templates/themes.html
 msgid "Cancel"
@@ -120,12 +129,21 @@ msgstr ""
 msgid "Delete this theme and every template in it?"
 msgstr ""
 
+#: templates/theme.html
+msgid "Description"
+msgstr ""
+
 #: templates/themes.html
 msgid "Duplicate"
 msgstr ""
 
 #: templates/themes.html
 msgid "Duplicate {name}"
+msgstr ""
+
+#: templates/theme.html
+#: templates/theme_actions.html
+msgid "Edit properties"
 msgstr ""
 
 #: templates/themes.html
@@ -231,12 +249,13 @@ msgstr ""
 msgid "Markup"
 msgstr ""
 
+#: templates/theme.html
 #: templates/themes.html
 msgid "Name"
 msgstr ""
 
 #: templates/theme.html
-msgid "Name, author, description and the settings form."
+msgid "Name, author, homepage, description and preview."
 msgstr ""
 
 #: templates/_theme_nav.html
@@ -286,6 +305,10 @@ msgid "Preview"
 msgstr ""
 
 #: templates/theme.html
+msgid "Preview image URL"
+msgstr ""
+
+#: templates/theme.html
 msgid "Previewing"
 msgstr ""
 
@@ -310,6 +333,10 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
+#: templates/theme.html
+msgid "Save properties"
+msgstr ""
+
 #: templates/theme_template.html
 msgid "Saved"
 msgstr ""
@@ -317,6 +344,10 @@ msgstr ""
 #: templates/theme.html
 #: templates/theme_template.html
 msgid "Settings"
+msgstr ""
+
+#: templates/theme.html
+msgid "Shown on the theme list; the theme's initials stand in without one. A 1200 × 800 PNG or JPEG of the home page, no browser frame."
 msgstr ""
 
 #: templates/theme.html
@@ -383,6 +414,14 @@ msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Theme locked."
+msgstr ""
+
+#: templates/theme.html
+msgid "Theme properties"
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "Theme properties saved."
 msgstr ""
 
 #: src/theme/admin/mod.rs

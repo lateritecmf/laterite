@@ -25,6 +25,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- A theme's name, author, homepage, description and the new `preview` URL are edited
+  in a properties dialog; theme.yaml itself travels in the zip and is no longer a textarea.
 - The Themes and Media screens: a theme selector with a Manage menu, a template
   navigator beside the editor, and a media browser with a filter pane; forms open in dialogs.
 

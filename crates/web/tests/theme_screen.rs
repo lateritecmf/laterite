@@ -146,7 +146,7 @@ async fn a_theme_and_a_template_are_created_and_a_broken_template_is_refused() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Theme created."), "{html}");
     assert!(
-        html.contains("Layouts") && html.contains("theme.yaml"),
+        html.contains("Layouts") && html.contains("Edit properties"),
         "{html}"
     );
 
@@ -447,4 +447,50 @@ async fn a_page_save_checks_its_url_and_layout() {
         html.contains(">/about</span>"),
         "the page's URL beside its path: {html}"
     );
+}
+
+/// The properties dialog rewrites the human fields of theme.yaml and keeps the
+/// rest: the settings form the theme declares survives a rename.
+#[tokio::test]
+async fn the_properties_dialog_keeps_the_rest_of_the_config() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    store::create_theme(
+        &db,
+        "acme",
+        "name: Acme\nform:\n  fields:\n    site_name:\n      label: Site name\n      type: text\n",
+    )
+    .await
+    .unwrap();
+
+    let (status, location) = post(
+        &app,
+        "/admin/themes/acme/properties",
+        &root,
+        "name=Acme+Clay&author=Acme+Studio&homepage=https%3A%2F%2Facme.test&description=Honest+clay&preview=https%3A%2F%2Facme.test%2Fpreview.png",
+    )
+    .await;
+    assert_eq!(
+        (status, location.as_str()),
+        (StatusCode::SEE_OTHER, "/admin/themes/acme")
+    );
+    let theme = store::find_theme(&db, "acme").await.unwrap().unwrap();
+    assert_eq!(theme.config.name, "Acme Clay");
+    assert_eq!(theme.config.author, "Acme Studio");
+    assert_eq!(
+        theme.config.preview.as_deref(),
+        Some("https://acme.test/preview.png")
+    );
+    assert!(theme.config.form.is_some(), "the settings form survives");
+
+    let (_, html) = get(&app, "/admin/themes", &root).await;
+    assert!(
+        html.contains("https://acme.test/preview.png") && html.contains("Acme Clay"),
+        "{html}"
+    );
+    let (status, _) = post(&app, "/admin/themes/acme/properties", &root, "name=").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, html) = get(&app, "/admin/themes/acme", &root).await;
+    assert!(html.contains("A theme needs a name."), "{html}");
 }
