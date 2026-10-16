@@ -1522,6 +1522,10 @@ msgstr ""
 msgid "The server hit an unexpected error. It has been logged."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "The upload could not be found."
+msgstr ""
+
 #: src/relation.rs
 msgid "There is no such record to attach."
 msgstr ""

@@ -56,6 +56,26 @@ pub trait StorageDriver: Send + Sync + 'static {
     /// A private disk returns `None` and is served through the application.
     fn public_url(&self, path: &str) -> Option<String>;
 
+    /// A URL a browser may PUT a file of `content_type` to at `path` for
+    /// `expires_in`, from a disk that can presign; `None` when it cannot, and
+    /// uploads travel through the application.
+    async fn presigned_put(
+        &self,
+        path: &str,
+        content_type: &str,
+        expires_in: std::time::Duration,
+    ) -> Result<Option<String>, StorageError> {
+        let _ = (path, content_type, expires_in);
+        Ok(None)
+    }
+
+    /// Copies the blob at `from` to `to` on this disk. The default streams it
+    /// through `get` and `put`; an object store copies server-side.
+    async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let data = self.get(from).await?;
+        self.put(to, data).await
+    }
+
     /// A URL that serves `path` for `expires_in`, from a disk that can presign
     /// (an object store); `None` when it cannot, and the application streams
     /// the file itself behind its own token.

@@ -151,8 +151,33 @@ Key | Default | Meaning
 `path_style` | `true` with an endpoint | `endpoint/bucket/key` addressing.
 
 A write under 16 MiB is one request; past it, a multipart upload in 16 MiB
-parts, aborted if a part fails. `signed_url` presigns a GET; `presigned_put`
-presigns a PUT for a direct upload; `copy` moves an object within the bucket.
+parts, aborted if a part fails. `signed_url` presigns a GET, `presigned_put` a
+PUT for a direct upload, and `copy` is server-side.
+
+## Direct uploads
+
+```
+POST /admin/media/direct            name=clip.mp4&content_type=video/mp4&size=52428800
+→ {"direct": true, "url": "<presigned PUT>", "path": "quarantine/<id>/clip.mp4", "headers": {"Content-Type": "video/mp4"}}
+PUT <presigned PUT>                 the bytes, from the browser
+POST /admin/media/direct/complete   path=quarantine/<id>/clip.mp4&name=clip.mp4&folder=3
+→ {"stored": [{"id": 7, "name": "clip.mp4", "href": "/admin/media/7", "url": "..."}], "refused": []}
+```
+
+Step | On a disk that presigns | On any other disk
+--- | --- | ---
+`direct` | A PUT URL under `quarantine/<32 hex>/<name>`, good for an hour. | `{"direct": false}`: the uploader posts the file instead.
+`complete` | The object is read, sniffed, hashed, an image's EXIF stripped, stored under its hash, recorded, and the quarantine copy removed. | The same, for an object already under `quarantine/`.
+
+The uploader does this on its own when the field carries `upload_direct`. A
+path outside `quarantine/`, or an object larger than the upload limit, is
+refused. Abandoned quarantine objects are the bucket's to expire: a lifecycle
+rule on the `quarantine/` prefix of one day.
+
+Method | Default | On `S3Disk`
+--- | --- | ---
+`StorageDriver::presigned_put(path, content_type, expires_in)` | `None` | A presigned PUT.
+`StorageDriver::copy(from, to)` | `get` then `put` | A server-side copy.
 
 ## The library
 

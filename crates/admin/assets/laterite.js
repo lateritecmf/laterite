@@ -395,7 +395,8 @@ window.lat.widget('upload', function (root) {
     }
   }
 
-  function send(file, li) {
+  // The ordinary path: the file in a multipart POST to the upload URL.
+  function post(file, li, bar, status) {
     var body = new FormData();
     var token = form && form.querySelector('input[name="_csrf"]');
     if (token) body.append('_csrf', token.value);
@@ -405,9 +406,6 @@ window.lat.widget('upload', function (root) {
     });
     body.append(input.name || 'file', file, file.name);
     var xhr = new XMLHttpRequest();
-    var bar = li.querySelector('.lat-upload__bar i');
-    var status = li.querySelector('.lat-upload__status');
-    status.textContent = words.uploading;
     xhr.upload.addEventListener('progress', function (e) {
       if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 100) + '%';
     });
@@ -423,6 +421,63 @@ window.lat.widget('upload', function (root) {
     xhr.open('POST', url);
     xhr.setRequestHeader('X-Requested-With', 'fetch');
     xhr.send(body);
+  }
+
+  // The direct path: the server hands out a PUT URL under a quarantine prefix,
+  // the browser puts the bytes there with progress, and the server is told to
+  // hash, promote and record them. A disk that cannot presign says so and the
+  // file takes the ordinary path.
+  function direct(file, li, bar, status, ask) {
+    var token = form && form.querySelector('input[name="_csrf"]');
+    var fields = {};
+    (root.getAttribute('data-upload-fields') || '').split(';').forEach(function (pair) {
+      var at = pair.indexOf('=');
+      if (at > 0) fields[pair.slice(0, at).trim()] = pair.slice(at + 1).trim();
+    });
+    var start = new FormData();
+    if (token) start.append('_csrf', token.value);
+    start.append('name', file.name);
+    start.append('content_type', file.type || 'application/octet-stream');
+    start.append('size', String(file.size));
+    fetch(ask, { method: 'POST', body: start, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.json() : { direct: false }; })
+      .catch(function () { return { direct: false }; })
+      .then(function (plan) {
+        if (!plan || !plan.direct || !plan.url) { post(file, li, bar, status); return; }
+        var xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener('progress', function (e) {
+          if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 95) + '%';
+        });
+        xhr.addEventListener('load', function () {
+          if (xhr.status < 200 || xhr.status >= 300) { finish(li, false, words.failed); return; }
+          var done = new FormData();
+          if (token) done.append('_csrf', token.value);
+          done.append('path', plan.path);
+          done.append('name', file.name);
+          Object.keys(fields).forEach(function (k) { done.append(k, fields[k]); });
+          fetch(ask + '/complete', { method: 'POST', body: done, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+            .then(function (r) { return r.json(); })
+            .then(function (out) {
+              var stored = out && out.stored && out.stored[0];
+              var refused = out && out.refused && out.refused[0];
+              if (stored) finish(li, true, words.stored);
+              else finish(li, false, (refused && refused.reason) || words.failed);
+            })
+            .catch(function () { finish(li, false, words.failed); });
+        });
+        xhr.addEventListener('error', function () { finish(li, false, words.failed); });
+        xhr.open('PUT', plan.url);
+        Object.keys(plan.headers || {}).forEach(function (h) { xhr.setRequestHeader(h, plan.headers[h]); });
+        xhr.send(file);
+      });
+  }
+
+  function send(file, li) {
+    var bar = li.querySelector('.lat-upload__bar i');
+    var status = li.querySelector('.lat-upload__status');
+    status.textContent = words.uploading;
+    var ask = root.getAttribute('data-upload-direct');
+    if (ask) direct(file, li, bar, status, ask); else post(file, li, bar, status);
   }
 
   function take(files) {

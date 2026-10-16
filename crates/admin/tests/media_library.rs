@@ -11,7 +11,7 @@ use laterite_auth::{
 use laterite_core::{CatalogStore, Db};
 use laterite_media::{
     blob_path, folder, ingest, link, record, stream_of, DiskReg, LocalDisk, NewMedia,
-    NewMediaExtra, Owner,
+    NewMediaExtra, Owner, StorageDriver,
 };
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -663,5 +663,90 @@ async fn an_image_is_cropped_to_a_new_file_or_in_place() {
     assert!(
         html.contains("Image cropped.") && html.contains(r#"id="crop-image""#),
         "{html}"
+    );
+}
+
+/// A direct upload: the local disk cannot presign, so the uploader is told to
+/// post instead; a quarantined object handed back is hashed, stored under its
+/// hash, recorded and removed from quarantine, and a made-up path is refused.
+#[tokio::test]
+async fn a_direct_upload_is_promoted_from_quarantine() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+
+    let ask = |path: &str, body: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("cookie", format!("{SESSION_COOKIE}={root}"))
+            .header("sec-fetch-site", "same-origin")
+            .header("x-csrf-token", "tok-123")
+            .header("x-requested-with", "fetch")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let response = app
+        .clone()
+        .oneshot(ask(
+            "/admin/media/direct",
+            "name=clip.png&content_type=image%2Fpng&size=100",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let plan: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(plan["direct"], false, "a local disk cannot presign");
+
+    // As if a browser had put the bytes where a presigning disk told it to.
+    let library = LocalDisk::new(dir.path().join("media"));
+    let quarantine = "quarantine/0123456789abcdef0123456789abcdef/clip.png";
+    library
+        .put(quarantine, stream_of(wide_png(60, 40)))
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(ask(
+            "/admin/media/direct/complete",
+            &format!("path={quarantine}&name=clip.png&folder="),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let out: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(out["stored"][0]["name"], "clip.png", "{out}");
+    let id = out["stored"][0]["id"].as_i64().unwrap();
+    let r = record::find(&db, id).await.unwrap().unwrap();
+    assert_eq!((r.width, r.height), (Some(60), Some(40)));
+    assert!(dir.path().join("media").join(blob_path(&r.hash)).is_file());
+    assert!(
+        !dir.path().join("media").join(quarantine).exists(),
+        "the quarantine copy is gone"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(ask(
+            "/admin/media/direct/complete",
+            "path=blobs/aa/bb/aabb&name=x.png&folder=",
+        ))
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let out: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        out["refused"][0]["name"], "x.png",
+        "a path outside quarantine"
     );
 }

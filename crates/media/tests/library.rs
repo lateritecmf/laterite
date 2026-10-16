@@ -365,3 +365,21 @@ async fn verify_names_the_records_whose_bytes_do_not_match() {
     assert_eq!(faults, [(rotten, "hash mismatch"), (lost, "missing")]);
     assert!(record::find(&db, good).await.unwrap().is_some());
 }
+
+/// The driver's default copy streams a blob to a second path.
+#[tokio::test]
+async fn a_disk_copies_a_blob_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = LocalDisk::new(dir.path());
+    disk.put("quarantine/a/b.txt", stream_of(b"moved".to_vec()))
+        .await
+        .unwrap();
+    disk.copy("quarantine/a/b.txt", "blobs/b").await.unwrap();
+    assert_eq!(std::fs::read(dir.path().join("blobs/b")).unwrap(), b"moved");
+    assert_eq!(
+        disk.presigned_put("x", "text/plain", std::time::Duration::from_secs(1))
+            .await
+            .unwrap(),
+        None
+    );
+}

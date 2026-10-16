@@ -78,6 +78,7 @@
         {% let upload_accept = ".zip,application/zip" %}
         {% let upload_multiple = false %}
         {% let upload_url = String::new() %}
+        {% let upload_direct = String::new() %}
         {% let upload_fields = String::new() %}
         {% let upload_hint = shell.t("Its theme.yaml names and describes the theme.") %}
         {% include "_upload.html" %}

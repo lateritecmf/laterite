@@ -30,6 +30,7 @@
         {% let upload_accept = ".zip,application/zip" %}
         {% let upload_multiple = false %}
         {% let upload_url = String::new() %}
+        {% let upload_direct = String::new() %}
         {% let upload_fields = String::new() %}
         {% let upload_hint = shell.t("A zip as Export writes it: theme.yaml and one file per template under its kind's folder.") %}
         {% include "_upload.html" %}

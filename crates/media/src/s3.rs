@@ -128,40 +128,6 @@ impl S3Disk {
         &self.client
     }
 
-    /// A URL a browser may PUT `path` to for `expires_in`, with the content
-    /// type it has to send: what a direct upload uses.
-    pub async fn presigned_put(
-        &self,
-        path: &str,
-        content_type: &str,
-        expires_in: Duration,
-    ) -> Result<String, StorageError> {
-        let config = PresigningConfig::expires_in(expires_in).map_err(other)?;
-        let req = self
-            .client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(self.key(path))
-            .content_type(content_type)
-            .presigned(config)
-            .await
-            .map_err(other)?;
-        Ok(req.uri().to_string())
-    }
-
-    /// Copies an object within the bucket, from one blob path to another.
-    pub async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        self.client
-            .copy_object()
-            .bucket(&self.bucket)
-            .copy_source(format!("{}/{}", self.bucket, self.key(from)))
-            .key(self.key(to))
-            .send()
-            .await
-            .map_err(other)?;
-        Ok(())
-    }
-
     async fn abort(&self, key: &str, upload_id: &str) {
         let _ = self
             .client
@@ -342,6 +308,39 @@ impl StorageDriver for S3Disk {
         Some(format!("{origin}/{}", self.key(path)))
     }
 
+    /// A presigned PUT, bound to the content type the browser has to send.
+    async fn presigned_put(
+        &self,
+        path: &str,
+        content_type: &str,
+        expires_in: Duration,
+    ) -> Result<Option<String>, StorageError> {
+        let config = PresigningConfig::expires_in(expires_in).map_err(other)?;
+        let req = self
+            .client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(self.key(path))
+            .content_type(content_type)
+            .presigned(config)
+            .await
+            .map_err(other)?;
+        Ok(Some(req.uri().to_string()))
+    }
+
+    /// A server-side copy within the bucket.
+    async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.client
+            .copy_object()
+            .bucket(&self.bucket)
+            .copy_source(format!("{}/{}", self.bucket, self.key(from)))
+            .key(self.key(to))
+            .send()
+            .await
+            .map_err(other)?;
+        Ok(())
+    }
+
     /// A presigned GET, with the disposition the serve route asked for.
     async fn signed_url(
         &self,
@@ -429,6 +428,7 @@ mod tests {
         let put = d
             .presigned_put("quarantine/y", "image/png", Duration::from_secs(300))
             .await
+            .unwrap()
             .unwrap();
         assert!(
             put.contains("/acme/media/quarantine/y?") && put.contains("X-Amz-Expires=300"),

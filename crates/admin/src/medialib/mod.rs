@@ -161,6 +161,8 @@ impl Screen for MediaScreen {
             .route("/pick", get(pick))
             .route("/resolve", get(resolve))
             .route("/upload", post(upload))
+            .route("/direct", post(direct_start))
+            .route("/direct/complete", post(direct_complete))
             .route("/folders", post(create_folder))
             .route("/folders/{id}/rename", post(rename_folder))
             .route("/folders/{id}/move", post(move_folder))
@@ -675,6 +677,8 @@ struct IndexTemplate {
     /// The library's root under the current kind and sort.
     library_href: String,
     upload_url: String,
+    /// Where the uploader asks for a presigned PUT before sending.
+    upload_direct: String,
     /// The fields the uploader sends before each file (`folder=3`).
     upload_fields: String,
     upload_hint: String,
@@ -911,6 +915,7 @@ async fn index(
         &IndexTemplate {
             library_href: browse_href(&base, None, "", &kind_name, &sort_name, 1),
             upload_url: format!("{base}/upload"),
+            upload_direct: format!("{base}/direct"),
             upload_fields: folder_id.map(|f| format!("folder={f}")).unwrap_or_default(),
             upload_hint: if crumbs.is_empty() {
                 shell.t("Into the library. Identical files are stored once.")
@@ -1116,6 +1121,197 @@ async fn upload(
         session.push_flash(FlashLevel::Error, t!("Choose a file to upload."));
     }
     back_to(ctx, folder_id)
+}
+
+/// How long a browser has to finish a direct upload once it asked.
+const DIRECT_TTL: Duration = Duration::from_secs(60 * 60);
+
+#[derive(serde::Deserialize)]
+struct DirectStartForm {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    content_type: String,
+    #[serde(default)]
+    size: u64,
+}
+
+/// The uploader asks before sending: a disk that presigns answers with a PUT
+/// URL under a quarantine prefix the server chose; any other answers that the
+/// file goes through the application.
+async fn direct_start(
+    State(app): App,
+    Extension(user): Extension<AuthenticatedUser>,
+    Form(form): Form<DirectStartForm>,
+) -> Response {
+    if !user.permissions.allows(UPLOAD) {
+        return forbidden();
+    }
+    if form.size > UPLOAD_LIMIT {
+        return axum::Json(serde_json::json!({ "direct": false, "reason": "too large" }))
+            .into_response();
+    }
+    let content_type = if form.content_type.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        form.content_type.chars().take(120).collect()
+    };
+    let path = format!("quarantine/{}/{}", quarantine_id(), safe_name(&form.name));
+    match app
+        .disks
+        .library
+        .presigned_put(&path, &content_type, DIRECT_TTL)
+        .await
+    {
+        Ok(Some(url)) => axum::Json(serde_json::json!({
+            "direct": true,
+            "url": url,
+            "path": path,
+            "headers": { "Content-Type": content_type },
+        }))
+        .into_response(),
+        Ok(None) => axum::Json(serde_json::json!({ "direct": false })).into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "a direct upload could not be presigned");
+            axum::Json(serde_json::json!({ "direct": false })).into_response()
+        }
+    }
+}
+
+/// Thirty-two hex characters nobody can guess, from the signing key's source
+/// of randomness.
+fn quarantine_id() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[derive(serde::Deserialize)]
+struct DirectCompleteForm {
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    folder: String,
+}
+
+/// The browser finished its PUT: the server reads the quarantined object,
+/// sniffs and hashes it, strips an image's metadata, stores it under its hash,
+/// records it and removes the quarantine copy. The client never names a blob
+/// path; it only ever hands back the quarantine path it was given.
+async fn direct_complete(
+    State(app): App,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Form(form): Form<DirectCompleteForm>,
+) -> Response {
+    if !user.permissions.allows(UPLOAD) {
+        return forbidden();
+    }
+    let ctx = &app.ctx;
+    let refused = |reason: Text| {
+        axum::Json(serde_json::json!({
+            "stored": [],
+            "refused": [{ "name": form.name.clone(), "reason": shell.tt(&reason) }],
+        }))
+        .into_response()
+    };
+    let path = form.path.trim();
+    let well_formed = path.starts_with("quarantine/")
+        && path.len() < 300
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '-' | '_'))
+        && !path.contains("..");
+    if !well_formed {
+        return refused(t!("The upload could not be found."));
+    }
+    let disk = Arc::clone(&app.disks.library);
+    let size = match disk.metadata(path).await {
+        Ok(Some(meta)) => meta.size,
+        _ => return refused(t!("The upload could not be found.")),
+    };
+    if size == 0 || size > UPLOAD_LIMIT {
+        let _ = disk.delete(path).await;
+        return refused(t!("Larger than the upload limit."));
+    }
+    let mut stream = match disk.get(path).await {
+        Ok(s) => s,
+        Err(_) => return refused(t!("The upload could not be found.")),
+    };
+    use futures::TryStreamExt;
+    let mut bytes: Vec<u8> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    while let Ok(Some(chunk)) = stream.try_next().await {
+        bytes.extend_from_slice(&chunk);
+    }
+    let prepared = laterite_media::image::prepare(bytes::Bytes::from(bytes));
+    let ingested = match ingest(
+        disk.as_ref(),
+        stream_of(prepared.bytes.clone()),
+        UPLOAD_LIMIT,
+    )
+    .await
+    {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::error!(error = %e, "a direct upload could not be stored");
+            return refused(t!("Could not be stored."));
+        }
+    };
+    let _ = disk.delete(path).await;
+    let folder_id = folder_param(&form.folder);
+    let name = if form.name.trim().is_empty() {
+        "upload".to_string()
+    } else {
+        form.name.trim().to_string()
+    };
+    let id = match record::create_with(
+        ctx.db(),
+        NewMedia {
+            disk: DISK.to_string(),
+            hash: ingested.hash,
+            size: ingested.size as i64,
+            content_type: ingested.content_type,
+            original_name: name.clone(),
+            in_library: true,
+            created_by: Some(user.user.id),
+        },
+        NewMediaExtra {
+            folder_id,
+            width: prepared.width.map(i64::from),
+            height: prepared.height.map(i64::from),
+            meta: (prepared.orientation != 1)
+                .then(|| serde_json::json!({ "orientation": prepared.orientation })),
+        },
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(error = %e, "a direct upload could not be recorded");
+            return refused(t!("Could not be recorded."));
+        }
+    };
+    ctx.audit(
+        &user,
+        "media.upload",
+        Some("media"),
+        Some(&id.to_string()),
+        Some(&name),
+        Some("{\"direct\":true}"),
+    )
+    .await;
+    let url = match record::find(ctx.db(), id).await {
+        Ok(Some(r)) => admin_url(&app, &r),
+        _ => String::new(),
+    };
+    axum::Json(serde_json::json!({
+        "stored": [{ "id": id, "name": name, "href": ctx.url(&id.to_string()), "url": url }],
+        "refused": [],
+    }))
+    .into_response()
 }
 
 /// An optional folder id as a form sends it: blank for the root.
