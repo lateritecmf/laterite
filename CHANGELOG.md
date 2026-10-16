@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-10-16
+
+Ordered hierarchies: one arrangement engine for every list modules insert into,
+with named slots that say where a thing goes, deployment overrides and moves in
+configuration, and each operator's own order and placement on top; Themes under
+Settings.
+
 ### Added
 
 - `laterite_core::arrange`: one engine for every list entries insert themselves into,
