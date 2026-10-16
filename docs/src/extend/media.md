@@ -114,6 +114,46 @@ files reads the disks through `ctx.contributions::<DiskReg>()` and picks one by
 name. The admin's import keeps uploads on `private`: the registered disk of that
 name, else `private` under `backend.storage`.
 
+## An S3 disk
+
+```toml
+[dependencies]
+laterite-media = { version = "0.9", features = ["s3"] }
+```
+
+```rust
+use laterite_media::{DiskReg, S3Config, S3Disk};
+
+let config: S3Config = settings.get("storage.disks.s3")?;
+let disk = Arc::new(S3Disk::from_config(&config).await);
+registry.add(DiskReg::new("s3", disk));
+```
+
+```toml
+[storage.disks.s3]
+bucket = "acme-media"
+region = "auto"
+endpoint = "https://<account>.r2.cloudflarestorage.com"
+access_key = "..."
+secret_key = "..."
+prefix = "media"
+public_url = "https://media.acme.test"
+```
+
+Key | Default | Meaning
+--- | --- | ---
+`bucket` | | The bucket.
+`region` | `auto` | The region name.
+`endpoint` | AWS | The store's URL (R2, MinIO, B2, Spaces, Wasabi).
+`access_key`, `secret_key` | the SDK's default chain | Static credentials.
+`prefix` | `""` | A key prefix every blob goes under.
+`public_url` | none | The origin blobs are reachable at unsigned; unset, the disk is private and serves through presigned URLs.
+`path_style` | `true` with an endpoint | `endpoint/bucket/key` addressing.
+
+A write under 16 MiB is one request; past it, a multipart upload in 16 MiB
+parts, aborted if a part fails. `signed_url` presigns a GET; `presigned_put`
+presigns a PUT for a direct upload; `copy` moves an object within the bucket.
+
 ## The library
 
 The Media tab lists the records with `in_library` set, in virtual folders, with upload, search, a kind filter, sorting, folders to make, rename, move and remove, and a file page to retitle, rename, move and delete. Library uploads go to the disk named `public` (the registered one, else `media` under `backend.storage`).

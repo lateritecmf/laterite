@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `StorageDriver::signed_url` for a store that presigns.
 - `PageHead` with `Shell::page_with` (a back link and actions beside the title),
   `dialog.lat-dialog` opened by `data-lat-dialog`, and the `lat-split`/`lat-pane` layout.
+- `S3Disk` behind the media crate's `s3` feature (`lateritecmf/s3`): any S3-compatible
+  store through an endpoint override, multipart past 16 MiB, presigned GET and PUT.
 - The `media` field type (`mode`, `max`): a picker over the library, ids stored,
   the record's links written on save; `media()` and `|variant` in templates.
 - Variants: `Preset` registered on the registry, rendered on first request at

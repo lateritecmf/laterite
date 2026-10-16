@@ -26,6 +26,8 @@ pub mod local;
 pub mod migrations;
 pub mod preset;
 pub mod record;
+#[cfg(feature = "s3")]
+pub mod s3;
 pub mod variant;
 pub mod verify;
 
@@ -37,6 +39,8 @@ pub use link::{Link, Owner};
 pub use local::LocalDisk;
 pub use preset::{Format, Mode, Preset};
 pub use record::{MediaRecord, NewMedia, NewMediaExtra, RecordError};
+#[cfg(feature = "s3")]
+pub use s3::{S3Config, S3Disk};
 pub use variant::{Variant, VariantError, Variants};
 
 use std::sync::Arc;

@@ -24,7 +24,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --features sqlite -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features sqlite,laterite-media/s3 -- -D warnings
 
   # The third-party notice is generated from `cargo metadata` plus the bundled
   # asset list; fail if a dependency was added without regenerating it. An
