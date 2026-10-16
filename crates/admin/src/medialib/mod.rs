@@ -30,7 +30,7 @@ use crate::html::Markup;
 use crate::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
 use crate::session::{FlashLevel, SessionHandle};
 use crate::upload::VerifiedUpload;
-use crate::{http_cache, AdminError, Permission, Shell, ROLE_ADMIN, ROLE_EDITOR};
+use crate::{http_cache, AdminError, PageHead, Permission, Shell, ROLE_ADMIN, ROLE_EDITOR};
 
 /// See the library.
 pub const BROWSE: &str = "media.browse";
@@ -348,6 +348,36 @@ struct BrowseQuery {
 struct FolderView {
     name: String,
     href: String,
+    /// Whether the folder shown holds, or is, the one being browsed.
+    active: bool,
+}
+
+/// One entry in the browse pane: a kind or a sort order.
+struct NavLink {
+    label: String,
+    href: String,
+    icon: &'static str,
+    active: bool,
+}
+
+/// The controls beside the Media title.
+#[derive(Template)]
+#[template(path = "media_actions.html")]
+struct ActionsTemplate {
+    shell: Shell,
+    may_upload: bool,
+    may_manage: bool,
+}
+
+/// The controls beside a file's title.
+#[derive(Template)]
+#[template(path = "media_file_actions.html")]
+struct FileActionsTemplate {
+    shell: Shell,
+    url: String,
+    file_href: String,
+    may_delete: bool,
+    linked: bool,
 }
 
 struct FileView {
@@ -370,8 +400,14 @@ struct CrumbView {
 struct IndexTemplate {
     shell: Shell,
     base: String,
+    /// The library's root under the current kind and sort.
+    library_href: String,
     folder: Option<i64>,
+    folder_name: String,
     crumbs: Vec<CrumbView>,
+    kind_links: Vec<NavLink>,
+    sort_links: Vec<NavLink>,
+    root_folders: Vec<FolderView>,
     folders: Vec<FolderView>,
     files: Vec<FileView>,
     total: i64,
@@ -380,7 +416,6 @@ struct IndexTemplate {
     q: String,
     kind: String,
     sort: String,
-    kinds: Vec<(&'static str, String)>,
     may_upload: bool,
     may_manage: bool,
     prev_href: Option<String>,
@@ -397,6 +432,16 @@ fn human_size(bytes: i64) -> String {
         format!("{:.1} MB", b / 1024.0 / 1024.0)
     } else {
         format!("{:.2} GB", b / 1024.0 / 1024.0 / 1024.0)
+    }
+}
+
+fn kind_icon(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Image => "image",
+        Kind::Video => "film",
+        Kind::Audio => "music",
+        Kind::Document => "file-text",
+        Kind::Other => "file",
     }
 }
 
@@ -467,9 +512,9 @@ fn file_view(app: &AppState, r: &MediaRecord) -> FileView {
     }
 }
 
-fn page_of<T: Template>(shell: &Shell, title: Text, template: &T) -> Response {
+fn page_with<T: Template>(shell: &Shell, head: PageHead, template: &T) -> Response {
     match Markup::from_template(template) {
-        Ok(body) => shell.page(&title, body),
+        Ok(body) => shell.page_with(head, body),
         Err(e) => {
             tracing::error!(error = %e, "rendering a media page failed");
             AdminError::Internal(anyhow::anyhow!(e)).into_response()
@@ -494,31 +539,70 @@ async fn index(
     let folder_id = query.folder;
     let base = ctx.url("");
 
-    let crumbs: Vec<CrumbView> = match folder_id {
-        Some(id) => folder::ancestors(db, id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|f| CrumbView {
-                name: f.name,
-                href: browse_href(&base, Some(f.id), "", "", "", 1),
-            })
-            .collect(),
+    let ancestors = match folder_id {
+        Some(id) => folder::ancestors(db, id).await.unwrap_or_default(),
         None => Vec::new(),
     };
+    let folder_name = ancestors.last().map(|f| f.name.clone()).unwrap_or_default();
+    let top = ancestors.first().map(|f| f.id);
+    let crumbs: Vec<CrumbView> = ancestors
+        .iter()
+        .map(|f| CrumbView {
+            name: f.name.clone(),
+            href: browse_href(&base, Some(f.id), "", &kind_name, &sort_name, 1),
+        })
+        .collect();
     let folders: Vec<FolderView> = if q.is_empty() {
         folder::children(db, folder_id)
             .await
             .unwrap_or_default()
             .into_iter()
             .map(|f| FolderView {
-                href: browse_href(&base, Some(f.id), "", "", "", 1),
+                href: browse_href(&base, Some(f.id), "", &kind_name, &sort_name, 1),
                 name: f.name,
+                active: false,
             })
             .collect()
     } else {
         Vec::new()
     };
+    let root_folders: Vec<FolderView> = folder::children(db, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| FolderView {
+            href: browse_href(&base, Some(f.id), "", &kind_name, &sort_name, 1),
+            active: top == Some(f.id),
+            name: f.name,
+        })
+        .collect();
+    let kind_links = std::iter::once(NavLink {
+        label: shell.t("Everything"),
+        href: browse_href(&base, folder_id, &q, "", &sort_name, 1),
+        icon: "layers",
+        active: kind.is_none(),
+    })
+    .chain(Kind::ALL.into_iter().map(|k| NavLink {
+        label: kind_label(&shell, k),
+        href: browse_href(&base, folder_id, &q, k.as_str(), &sort_name, 1),
+        icon: kind_icon(k),
+        active: kind == Some(k),
+    }))
+    .collect();
+    let sort_links = [
+        ("newest", shell.t("Newest first")),
+        ("oldest", shell.t("Oldest first")),
+        ("name", shell.t("Name")),
+        ("size", shell.t("Largest first")),
+    ]
+    .into_iter()
+    .map(|(code, label)| NavLink {
+        label,
+        href: browse_href(&base, folder_id, &q, &kind_name, code, 1),
+        icon: "",
+        active: Sort::parse(code).unwrap_or_default() == sort,
+    })
+    .collect();
     let listing = Listing {
         folder: folder_id,
         search: (!q.is_empty()).then(|| q.clone()),
@@ -535,20 +619,29 @@ async fn index(
     );
     let pages = (listed.total as u64).max(1).div_ceil(PER_PAGE);
     let files = listed.items.iter().map(|r| file_view(&app, r)).collect();
-    page_of(
+    let may_upload = user.permissions.allows(UPLOAD);
+    let may_manage = user.permissions.allows(MANAGE);
+    let actions = Markup::from_template(&ActionsTemplate {
+        shell: shell.clone(),
+        may_upload,
+        may_manage,
+    })
+    .unwrap_or_else(|_| Markup::empty());
+    page_with(
         &shell,
-        t!("Media"),
+        PageHead::new(t!("Media")).actions(actions),
         &IndexTemplate {
+            library_href: browse_href(&base, None, "", &kind_name, &sort_name, 1),
+            folder_name,
+            kind_links,
+            sort_links,
+            root_folders,
             prev_href: (page > 1)
                 .then(|| browse_href(&base, folder_id, &q, &kind_name, &sort_name, page - 1)),
             next_href: (page < pages)
                 .then(|| browse_href(&base, folder_id, &q, &kind_name, &sort_name, page + 1)),
-            kinds: Kind::ALL
-                .into_iter()
-                .map(|k| (k.as_str(), kind_label(&shell, k)))
-                .collect(),
-            may_upload: user.permissions.allows(UPLOAD),
-            may_manage: user.permissions.allows(MANAGE),
+            may_upload,
+            may_manage,
             shell: shell.clone(),
             base,
             folder: folder_id,
@@ -868,7 +961,6 @@ struct FolderChoice {
 #[template(path = "media_file.html")]
 struct FileTemplate {
     shell: Shell,
-    back_href: String,
     file_href: String,
     file: FileView,
     original_name: String,
@@ -882,8 +974,6 @@ struct FileTemplate {
     folders: Vec<FolderChoice>,
     folder: String,
     may_manage: bool,
-    may_delete: bool,
-    may_delete_linked: bool,
 }
 
 async fn load(ctx: &RouteCtx, id: i64) -> Option<MediaRecord> {
@@ -900,7 +990,7 @@ async fn file(
     let Some(r) = load(ctx, id).await else {
         return AdminError::NotFound.into_response();
     };
-    let users = link::users_of(ctx.db(), id)
+    let users: Vec<UserView> = link::users_of(ctx.db(), id)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -924,11 +1014,34 @@ async fn file(
         _ => String::new(),
     };
     let view = file_view(&app, &r);
-    page_of(
+    let folder_label = ancestors_name(ctx, r.folder_id).await;
+    let linked = !users.is_empty();
+    let may_delete = if linked {
+        user.permissions.allows(DELETE_LINKED)
+    } else {
+        user.permissions.allows(DELETE)
+    };
+    let actions = Markup::from_template(&FileActionsTemplate {
+        shell: shell.clone(),
+        url: view.url.clone(),
+        file_href: ctx.url(&id.to_string()),
+        may_delete,
+        linked,
+    })
+    .unwrap_or_else(|_| Markup::empty());
+    page_with(
         &shell,
-        Text::dynamic(r.display_name().to_string()),
+        PageHead::new(Text::dynamic(r.display_name().to_string()))
+            .back(
+                if folder_label.is_empty() {
+                    t!("Media")
+                } else {
+                    Text::dynamic(folder_label)
+                },
+                browse_href(&ctx.url(""), r.folder_id, "", "", "", 1),
+            )
+            .actions(actions),
         &FileTemplate {
-            back_href: browse_href(&ctx.url(""), r.folder_id, "", "", "", 1),
             file_href: ctx.url(&id.to_string()),
             file: view,
             original_name: r.original_name.clone(),
@@ -942,11 +1055,22 @@ async fn file(
             folders,
             folder: r.folder_id.map(|f| f.to_string()).unwrap_or_default(),
             may_manage: user.permissions.allows(MANAGE),
-            may_delete: user.permissions.allows(DELETE),
-            may_delete_linked: user.permissions.allows(DELETE_LINKED),
             shell: shell.clone(),
         },
     )
+}
+
+/// The name of the folder a file sits in, for the way back; empty at the root.
+async fn ancestors_name(ctx: &RouteCtx, folder_id: Option<i64>) -> String {
+    match folder_id {
+        Some(id) => folder::find(ctx.db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|f| f.name)
+            .unwrap_or_default(),
+        None => String::new(),
+    }
 }
 
 #[derive(serde::Deserialize)]

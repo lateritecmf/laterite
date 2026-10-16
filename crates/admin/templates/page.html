@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
-<div class="lat-toolbar"><h1>{{ title }}</h1></div>
+<div class="lat-toolbar">
+  {% if let Some((label, href)) = back %}
+  <div class="lat-titleblock">
+    <a class="lat-backlink" href="{{ href }}"><span aria-hidden="true">&lsaquo;</span> {{ label }}</a>
+    <h1>{{ title }}</h1>
+  </div>
+  {% else %}
+  <h1>{{ title }}</h1>
+  {% endif %}
+  {% if let Some(actions) = actions %}<div class="lat-toolbar__actions">{{ actions|safe }}</div>{% endif %}
+</div>
 {{ body|safe }}
 {% endblock %}

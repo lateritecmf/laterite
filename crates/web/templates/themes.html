@@ -1,111 +1,117 @@
-<div class="lat-tablewrap">
-  <table class="lat-table">
-    <thead><tr>
-      <th>{{ shell.t("Name") }}</th>
-      <th>{{ shell.t("Code") }}</th>
-      <th>{{ shell.t("Parent") }}</th>
-      <th>{{ shell.t("Status") }}</th>
-      <th></th>
-    </tr></thead>
-    <tbody>
-      {% if themes.is_empty() %}
-      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No themes yet. Create one below.") }}</td></tr>
-      {% else %}
-      {% for t in themes %}
-      <tr>
-        <td><a href="{{ t.href }}">{{ t.name }}</a></td>
-        <td><code>{{ t.code }}</code></td>
-        <td>{{ t.parent }}</td>
-        <td>
-          {% if t.active %}<span class="lat-status lat-status--on">{{ shell.t("Active") }}</span>{% endif %}
-          {% if t.editing %}<span class="lat-status lat-status--on">{{ shell.t("Editing") }}</span>{% endif %}
-          {% if t.locked %}<span class="lat-status lat-status--off">{{ shell.t("Locked") }}</span>{% endif %}
-        </td>
-        <td class="lat-table__actions">
-          <div class="lat-rowactions">
-            {% if !t.active %}
-            <form method="post" action="{{ t.href }}/activate"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Make active") }}</button></form>
-            {% endif %}
-            {% if t.editing || !t.active %}
-            <form method="post" action="{{ t.href }}/edit"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{% if t.editing %}{{ shell.t("Stop editing") }}{% else %}{{ shell.t("Edit this") }}{% endif %}</button></form>
-            {% endif %}
-            <form method="post" action="{{ t.href }}/lock"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="locked" value="{% if t.locked %}0{% else %}1{% endif %}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{% if t.locked %}{{ shell.t("Unlock") }}{% else %}{{ shell.t("Lock") }}{% endif %}</button></form>
+<div class="lat-themes">
+  {% for t in themes %}
+  <div class="lat-theme{% if t.active %} is-active{% endif %}">
+    <div class="lat-theme__thumb"><span class="lat-theme__mono" aria-hidden="true">{{ t.initial }}</span></div>
+    <div class="lat-theme__body">
+      <div class="lat-theme__title">
+        <h2><a href="{{ t.href }}">{{ t.name }}</a></h2>
+        {% if t.active %}<span class="lat-status lat-status--on">{{ shell.t("Active") }}</span>{% endif %}
+        {% if t.editing %}<span class="lat-status lat-status--on">{{ shell.t("Editing") }}</span>{% endif %}
+        {% if t.locked %}<span class="lat-status lat-status--off">{{ shell.t("Locked") }}</span>{% endif %}
+      </div>
+      <p class="lat-theme__author"><code>{{ t.code }}</code>{% if !t.author.is_empty() %} &middot; {{ shell.tfs("By {name}", [("name", t.author.as_str())]) }}{% endif %}{% if !t.parent.is_empty() %} &middot; {{ shell.tfs("Extends {theme}", [("theme", t.parent.as_str())]) }}{% endif %}</p>
+      <p class="lat-theme__desc">{% if t.description.is_empty() %}{{ shell.t("No description yet: add one to theme.yaml.") }}{% else %}{{ t.description }}{% endif %}</p>
+      <div class="lat-theme__controls">
+        {% if t.active %}
+        <button class="lat-btn lat-btn--secondary lat-btn--sm" type="button" disabled><span class="lat-btn__icon">{{ shell.icon("star")|safe }}</span>{{ shell.t("Active") }}</button>
+        {% else %}
+        <form method="post" action="{{ t.href }}/activate"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--primary lat-btn--sm" type="submit"><span class="lat-btn__icon">{{ shell.icon("check")|safe }}</span>{{ shell.t("Activate") }}</button></form>
+        {% endif %}
+        <a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ t.href }}"><span class="lat-btn__icon">{{ shell.icon("pencil")|safe }}</span>{{ shell.t("Templates") }}</a>
+        {% if t.editing || !t.active %}
+        <form method="post" action="{{ t.href }}/edit"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit"><span class="lat-btn__icon">{{ shell.icon("eye")|safe }}</span>{% if t.editing %}{{ shell.t("Stop previewing") }}{% else %}{{ shell.t("Preview") }}{% endif %}</button></form>
+        {% endif %}
+        <details class="lat-menu">
+          <summary class="lat-btn lat-btn--secondary lat-btn--sm"><span class="lat-btn__icon">{{ shell.icon("wrench")|safe }}</span>{{ shell.t("Manage") }} &#9662;</summary>
+          <div class="lat-menu__panel">
+            <button type="button" data-lat-dialog="duplicate-{{ t.code }}">{{ shell.t("Duplicate") }}</button>
+            <button type="button" data-lat-dialog="child-{{ t.code }}">{{ shell.t("Create a child theme") }}</button>
+            <a href="{{ t.href }}/export">{{ shell.t("Export as zip") }}</a>
+            <form method="post" action="{{ t.href }}/lock"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="locked" value="{% if t.locked %}0{% else %}1{% endif %}"><button type="submit">{% if t.locked %}{{ shell.t("Unlock") }}{% else %}{{ shell.t("Lock") }}{% endif %}</button></form>
             {% if !t.active && !t.locked %}
-            <form method="post" action="{{ t.href }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm="{{ shell.t("Delete this theme and every template in it?") }}">{{ shell.t("Delete") }}</button></form>
+            <div class="lat-menu__divider"></div>
+            <form method="post" action="{{ t.href }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this theme and every template in it?") }}'>{{ shell.t("Delete") }}</button></form>
             {% endif %}
           </div>
-        </td>
-      </tr>
-      {% endfor %}
-      {% endif %}
-    </tbody>
-  </table>
-</div>
-
-<div class="lat-grid" style="margin-top:24px">
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("New theme") }}</div>
-    <form method="post" action="{{ base }}">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="new-code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
-          <input class="lat-input" id="new-code" name="code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="acme">
-          <p class="lat-field__help">{{ shell.t("Lowercase letters, digits and hyphens.") }}</p>
-        </div>
-        <div class="lat-field">
-          <label class="lat-field__label" for="new-name">{{ shell.t("Name") }}<span class="lat-field__req">*</span></label>
-          <input class="lat-input" id="new-name" name="name" required>
-        </div>
+        </details>
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
-    </form>
-  </div>
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("Import a theme from a zip") }}</div>
-    <form method="post" action="{{ base }}/import" enctype="multipart/form-data">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="import-code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
-          <input class="lat-input" id="import-code" name="code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="acme">
-        </div>
-        <div class="lat-field">
-          <label class="lat-field__label" for="import-new-file">{{ shell.t("Archive") }}<span class="lat-field__req">*</span></label>
-          <input class="lat-input" id="import-new-file" type="file" name="file" accept=".zip,application/zip" required>
-          <p class="lat-field__help">{{ shell.t("Its theme.yaml names and describes the theme.") }}</p>
-        </div>
-      </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Import") }}</button></div>
-    </form>
-  </div>
-  {% for t in themes %}
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.tfs("Copy or extend {name}", [("name", t.name.as_str())]) }}</div>
-    <form method="post" action="{{ t.href }}/duplicate">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="copy-{{ t.code }}">{{ shell.t("Copy as") }}</label>
-          <input class="lat-input" id="copy-{{ t.code }}" name="new_code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ t.code }}-copy">
-        </div>
-      </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Duplicate") }}</button></div>
-    </form>
-    <form method="post" action="{{ t.href }}/child">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="child-{{ t.code }}">{{ shell.t("Child theme code") }}</label>
-          <input class="lat-input" id="child-{{ t.code }}" name="new_code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ t.code }}-child">
-        </div>
-        <div class="lat-field">
-          <label class="lat-field__label" for="child-name-{{ t.code }}">{{ shell.t("Child theme name") }}</label>
-          <input class="lat-input" id="child-name-{{ t.code }}" name="name">
-        </div>
-      </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Create child") }}</button></div>
-    </form>
+    </div>
   </div>
   {% endfor %}
+  {% if themes.is_empty() %}<div class="lat-media-empty">{{ shell.t("No themes yet.") }}</div>{% endif %}
+  <div class="lat-themes__links">
+    <a href="#" data-lat-dialog="new-theme">{{ shell.t("Create a new blank theme") }}</a>
+    <a href="#" data-lat-dialog="import-theme">{{ shell.t("Import a theme from a zip") }}</a>
+  </div>
 </div>
+
+<dialog class="lat-dialog" id="new-theme">
+  <form method="post" action="{{ base }}">
+    {% let dialog_title = shell.t("New theme") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="new-name">{{ shell.t("Name") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="new-name" name="name" required autofocus>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="new-code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="new-code" name="code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="acme">
+        <p class="lat-field__help">{{ shell.t("Lowercase letters, digits and hyphens.") }}</p>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
+  </form>
+</dialog>
+<dialog class="lat-dialog" id="import-theme">
+  <form method="post" action="{{ base }}/import" enctype="multipart/form-data">
+    {% let dialog_title = shell.t("Import a theme") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="import-code">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="import-code" name="code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="acme">
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="import-new-file">{{ shell.t("Archive") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="import-new-file" type="file" name="file" accept=".zip,application/zip" required>
+        <p class="lat-field__help">{{ shell.t("Its theme.yaml names and describes the theme.") }}</p>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Import") }}</button></div>
+  </form>
+</dialog>
+{% for t in themes %}
+<dialog class="lat-dialog" id="duplicate-{{ t.code }}">
+  <form method="post" action="{{ t.href }}/duplicate">
+    {% let dialog_title = shell.tfs("Duplicate {name}", [("name", t.name.as_str())]) %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="copy-{{ t.code }}">{{ shell.t("Code of the copy") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="copy-{{ t.code }}" name="new_code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ t.code }}-copy">
+        <p class="lat-field__help">{{ shell.t("Every template is copied; the copy stands on its own.") }}</p>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Duplicate") }}</button></div>
+  </form>
+</dialog>
+<dialog class="lat-dialog" id="child-{{ t.code }}">
+  <form method="post" action="{{ t.href }}/child">
+    {% let dialog_title = shell.tfs("Child theme of {name}", [("name", t.name.as_str())]) %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="child-name-{{ t.code }}">{{ shell.t("Name") }}</label>
+        <input class="lat-input" id="child-name-{{ t.code }}" name="name">
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="child-{{ t.code }}">{{ shell.t("Code") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" id="child-{{ t.code }}" name="new_code" required pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ t.code }}-child">
+        <p class="lat-field__help">{{ shell.t("A child starts empty and falls back to its parent for every template it does not override.") }}</p>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create child") }}</button></div>
+  </form>
+</dialog>
+{% endfor %}

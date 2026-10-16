@@ -444,7 +444,7 @@ async fn a_page_save_checks_its_url_and_layout() {
     assert_eq!(saved.settings["hidden"], true);
     let (_, html) = get(&app, "/admin/themes/acme", &root).await;
     assert!(
-        html.contains("<code>/about</code>"),
+        html.contains(">/about</span>"),
         "the page's URL beside its path: {html}"
     );
 }

@@ -6,33 +6,45 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "A JSON object, such as a layout's description."
 msgstr ""
 
-#: templates/theme.html
+#: templates/themes.html
+msgid "A child starts empty and falls back to its parent for every template it does not override."
+msgstr ""
+
+#: templates/_theme_dialogs.html
 msgid "A zip as Export writes it: theme.yaml and one file per template under its kind's folder."
 msgstr ""
 
+#: templates/theme_actions.html
+#: templates/themes.html
+msgid "Activate"
+msgstr ""
+
+#: templates/theme.html
 #: templates/themes.html
 msgid "Active"
 msgstr ""
 
-#: templates/theme.html
-msgid "All themes"
+#: templates/_theme_dialogs.html
+#: templates/themes.html
+msgid "Archive"
 msgstr ""
 
 #: templates/theme.html
-#: templates/themes.html
-msgid "Archive"
+msgid "Author"
 msgstr ""
 
 #: templates/theme_template.html
 msgid "By"
 msgstr ""
 
-#: templates/theme_template.html
-msgid "Cancel"
+#: templates/themes.html
+msgid "By {name}"
 msgstr ""
 
+#: templates/_theme_dialogs.html
+#: templates/theme_template.html
 #: templates/themes.html
-msgid "Child theme code"
+msgid "Cancel"
 msgstr ""
 
 #: src/theme/admin/mod.rs
@@ -40,51 +52,58 @@ msgid "Child theme created."
 msgstr ""
 
 #: templates/themes.html
-msgid "Child theme name"
+msgid "Child theme of {name}"
 msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Choose a zip to import."
 msgstr ""
 
+#: templates/_dialog_head.html
+msgid "Close"
+msgstr ""
+
+#: templates/theme.html
 #: templates/themes.html
 msgid "Code"
+msgstr ""
+
+#: templates/themes.html
+msgid "Code of the copy"
 msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Components must be a JSON object keyed by alias."
 msgstr ""
 
-#: templates/theme.html
-msgid "Config"
-msgstr ""
-
-#: templates/themes.html
-msgid "Copy as"
-msgstr ""
-
-#: templates/themes.html
-msgid "Copy or extend {name}"
-msgstr ""
-
-#: templates/theme.html
+#: templates/_theme_dialogs.html
 #: templates/themes.html
 msgid "Create"
+msgstr ""
+
+#: templates/themes.html
+msgid "Create a child theme"
+msgstr ""
+
+#: templates/themes.html
+msgid "Create a new blank theme"
 msgstr ""
 
 #: templates/themes.html
 msgid "Create child"
 msgstr ""
 
-#: templates/theme_template.html
+#: templates/theme_actions.html
+#: templates/theme_template_actions.html
 #: templates/themes.html
 msgid "Delete"
 msgstr ""
 
-#: templates/theme_template.html
+#: templates/theme_template_actions.html
 msgid "Delete this template and its revisions?"
 msgstr ""
 
+#: templates/theme_actions.html
 #: templates/themes.html
 msgid "Delete this theme and every template in it?"
 msgstr ""
@@ -94,18 +113,30 @@ msgid "Duplicate"
 msgstr ""
 
 #: templates/themes.html
-msgid "Edit this"
+msgid "Duplicate {name}"
 msgstr ""
 
 #: templates/themes.html
 msgid "Editing"
 msgstr ""
 
-#: templates/theme.html
+#: templates/themes.html
+msgid "Every template is copied; the copy stands on its own."
+msgstr ""
+
+#: templates/theme_actions.html
+msgid "Export"
+msgstr ""
+
+#: templates/themes.html
 msgid "Export as zip"
 msgstr ""
 
-#: templates/theme.html
+#: templates/themes.html
+msgid "Extends {theme}"
+msgstr ""
+
+#: templates/_theme_dialogs.html
 msgid "Folders with a slash, lowercase letters, digits, dots, hyphens and underscores."
 msgstr ""
 
@@ -114,30 +145,47 @@ msgid "Give the new theme a code."
 msgstr ""
 
 #: templates/theme.html
+msgid "Homepage"
+msgstr ""
+
+#: templates/_theme_dialogs.html
 #: templates/themes.html
 msgid "Import"
+msgstr ""
+
+#: templates/themes.html
+msgid "Import a theme"
 msgstr ""
 
 #: templates/themes.html
 msgid "Import a theme from a zip"
 msgstr ""
 
-#: templates/theme.html
+#: templates/theme_actions.html
 msgid "Import a zip"
+msgstr ""
+
+#: templates/_theme_dialogs.html
+msgid "Import templates from a zip"
 msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Imported {imported} template(s), skipped {skipped}."
 msgstr ""
 
+#: templates/theme.html
+msgid "Inactive"
+msgstr ""
+
 #: templates/themes.html
 msgid "Its theme.yaml names and describes the theme."
 msgstr ""
 
-#: templates/theme.html
+#: templates/_theme_dialogs.html
 msgid "Kind"
 msgstr ""
 
+#: templates/theme_actions.html
 #: templates/themes.html
 msgid "Lock"
 msgstr ""
@@ -154,8 +202,9 @@ msgstr ""
 msgid "Maintenance mode"
 msgstr ""
 
+#: templates/theme_actions.html
 #: templates/themes.html
-msgid "Make active"
+msgid "Manage"
 msgstr ""
 
 #: src/theme/maintenance.rs
@@ -175,6 +224,15 @@ msgid "Name"
 msgstr ""
 
 #: templates/theme.html
+msgid "Name, author, description and the settings form."
+msgstr ""
+
+#: templates/_theme_nav.html
+msgid "New in {group}"
+msgstr ""
+
+#: templates/_theme_dialogs.html
+#: templates/theme_actions.html
 msgid "New template"
 msgstr ""
 
@@ -182,31 +240,44 @@ msgstr ""
 msgid "New theme"
 msgstr ""
 
+#: templates/themes.html
+msgid "No description yet: add one to theme.yaml."
+msgstr ""
+
 #: templates/theme_template.html
 msgid "No earlier versions."
 msgstr ""
 
 #: templates/themes.html
-msgid "No themes yet. Create one below."
+msgid "No themes yet."
 msgstr ""
 
-#: templates/theme.html
-msgid "None."
+#: templates/_theme_nav.html
+msgid "None yet."
 msgstr ""
 
 #: templates/theme_template.html
 msgid "Page"
 msgstr ""
 
-#: templates/themes.html
+#: templates/theme.html
 msgid "Parent"
 msgstr ""
 
-#: templates/theme.html
+#: templates/_theme_dialogs.html
 msgid "Path"
 msgstr ""
 
+#: templates/theme_actions.html
+#: templates/themes.html
+msgid "Preview"
+msgstr ""
+
 #: templates/theme.html
+msgid "Previewing"
+msgstr ""
+
+#: templates/_theme_dialogs.html
 msgid "Replace templates this theme already has"
 msgstr ""
 
@@ -236,12 +307,13 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: templates/themes.html
+#: templates/theme.html
 msgid "Status"
 msgstr ""
 
+#: templates/theme_actions.html
 #: templates/themes.html
-msgid "Stop editing"
+msgid "Stop previewing"
 msgstr ""
 
 #: src/theme/maintenance.rs
@@ -256,6 +328,11 @@ msgstr ""
 msgid "Template saved."
 msgstr ""
 
+#: templates/_theme_nav.html
+#: templates/themes.html
+msgid "Templates"
+msgstr ""
+
 #: src/theme/admin/mod.rs
 msgid "The archive is larger than 32 MB."
 msgstr ""
@@ -266,6 +343,10 @@ msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "The site now uses this theme."
+msgstr ""
+
+#: templates/theme.html
+msgid "Theme"
 msgstr ""
 
 #: src/theme/admin/mod.rs
@@ -305,6 +386,7 @@ msgstr ""
 msgid "This theme is locked: its config and templates cannot change until it is unlocked."
 msgstr ""
 
+#: templates/theme_actions.html
 #: templates/themes.html
 msgid "Unlock"
 msgstr ""
@@ -322,6 +404,6 @@ msgstr ""
 msgid "You are now editing this theme."
 msgstr ""
 
-#: templates/theme.html
+#: templates/_theme_nav.html
 msgid "from {theme}"
 msgstr ""

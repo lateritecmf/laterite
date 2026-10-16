@@ -1,0 +1,2 @@
+{% if may_manage %}<button type="button" class="lat-btn lat-btn--secondary lat-btn--sm" data-lat-dialog="new-folder"><span class="lat-btn__icon">{{ shell.icon("folder-plus")|safe }}</span>{{ shell.t("New folder") }}</button>{% endif %}
+{% if may_upload %}<button type="button" class="lat-btn lat-btn--primary lat-btn--sm" data-lat-dialog="upload"><span class="lat-btn__icon">{{ shell.icon("upload")|safe }}</span>{{ shell.t("Upload") }}</button>{% endif %}

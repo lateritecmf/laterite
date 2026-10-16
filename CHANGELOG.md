@@ -18,6 +18,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   (`medialib::signed_file_url`, key `backend.secret` or one generated once).
 - `lat media gc` and `lat media verify` (`laterite_media::{gc, verify}`), and
   `StorageDriver::signed_url` for a store that presigns.
+- `PageHead` with `Shell::page_with` (a back link and actions beside the title),
+  `dialog.lat-dialog` opened by `data-lat-dialog`, and the `lat-split`/`lat-pane` layout.
+
+### Changed
+
+- The Themes and Media screens: a theme selector with a Manage menu, a template
+  navigator beside the editor, and a media browser with a filter pane; forms open in dialogs.
 
 ## [0.9.15] - 2026-10-16
 

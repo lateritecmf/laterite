@@ -93,6 +93,94 @@ The admin's stylesheet is already on the page: `lat-card`, `lat-table`,
 `SessionHandle` extension carries `push_flash`; an `AdminError` renders the
 styled 404, 403 or 500.
 
+## Head a page
+
+```rust
+use laterite_admin::PageHead;
+
+let actions = Markup::from_template(&ActionsTemplate { shell: &shell })?;
+shell.page_with(
+    PageHead::new(t!("Places")).back(t!("Regions"), ctx.url("")).actions(actions),
+    body,
+)
+```
+
+```html
+<a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ export_href }}">{{ shell.t("Export") }}</a>
+<details class="lat-menu">
+  <summary class="lat-btn lat-btn--secondary lat-btn--sm">{{ shell.t("Manage") }} &#9662;</summary>
+  <div class="lat-menu__panel">
+    <button type="button" data-lat-dialog="new-place">{{ shell.t("New place") }}</button>
+    <div class="lat-menu__divider"></div>
+    <form method="post" action="{{ purge_href }}"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Purge every place?") }}'>{{ shell.t("Purge") }}</button></form>
+  </div>
+</details>
+```
+
+Method | Does
+--- | ---
+`PageHead::new(title)` | The heading.
+`.back(label, href)` | A link above the heading to the page this one sits under.
+`.actions(markup)` | Controls beside the heading: buttons, a `details.lat-menu`, dialog openers.
+`shell.page_with(head, body)` | The body under that head, inside the chrome.
+
+## Open a form in a dialog
+
+```html
+<button type="button" class="lat-btn lat-btn--primary lat-btn--sm" data-lat-dialog="new-place">{{ shell.t("New place") }}</button>
+<button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-lat-dialog="new-place" data-lat-dialog-set="kind=city">{{ shell.t("New city") }}</button>
+
+<dialog class="lat-dialog" id="new-place">
+  <form method="post" action="{{ base }}">
+    <div class="lat-dialog__head"><h2>{{ shell.t("New place") }}</h2><button type="button" class="lat-dialog__close" data-lat-dialog-close aria-label='{{ shell.t("Close") }}'>&times;</button></div>
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <div class="lat-field">
+        <label class="lat-field__label" for="kind">{{ shell.t("Kind") }}</label>
+        <select class="lat-input lat-select" id="kind" name="kind"><option value="city">{{ shell.t("City") }}</option></select>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="name">{{ shell.t("Name") }}</label>
+        <input class="lat-input" id="name" name="name" required autofocus>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
+  </form>
+</dialog>
+```
+
+Attribute | On | Does
+--- | --- | ---
+`data-lat-dialog="id"` | Any control | Opens the `dialog.lat-dialog` with that id and focuses its first field.
+`data-lat-dialog-set="field=value;other=value"` | The opener | Fills the named fields before opening.
+`data-lat-dialog-close` | A control inside | Closes the dialog. Escape and a click on the backdrop close it too.
+`.lat-dialog--wide` | The dialog | 760px wide.
+
+## Split a screen
+
+```html
+<div class="lat-split">
+  <nav class="lat-pane">
+    <div class="lat-pane__head">{{ shell.t("Regions") }}<button type="button" class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon" data-lat-dialog="new-region">{{ shell.icon("plus")|safe }}</button></div>
+    <ul class="lat-nav">
+      <li><a class="lat-nav__item is-active" href="{{ href }}"><span class="lat-nav__label">{{ shell.t("North") }}</span><span class="lat-nav__meta">12</span></a></li>
+    </ul>
+  </nav>
+  <div class="lat-pane">
+    <div class="lat-pane__bar"><nav class="lat-breadcrumb"><a href="{{ base }}">{{ shell.t("All") }}</a></nav><form method="get" action="{{ base }}"><input class="lat-input lat-listbar__search" type="search" name="q"></form></div>
+    <div class="lat-pane__body">{{ content|safe }}</div>
+    <div class="lat-pane__foot"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>
+  </div>
+</div>
+```
+
+Class | Renders
+--- | ---
+`lat-split` | A 260px pane beside the content; `lat-split--aside` puts a 340px pane after it. One column under 900px.
+`lat-pane` | A framed block; `lat-pane__head`, `lat-pane__bar`, `lat-pane__body`, `lat-pane__foot` stack inside it.
+`lat-nav`, `lat-nav__item`, `.is-active` | A list of links in a pane, with `lat-nav__label` and `lat-nav__meta`.
+`shell.icon(name)` | An icon from the framework's set, inline.
+
 ## Compose chrome
 
 ```rust

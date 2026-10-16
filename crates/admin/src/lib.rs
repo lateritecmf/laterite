@@ -453,8 +453,51 @@ pub struct Shell {
 #[template(path = "page.html")]
 struct PageTemplate {
     title: String,
+    /// A way back, shown above the title: its label and href.
+    back: Option<(String, String)>,
+    /// Controls that act on the page as a whole, beside the title.
+    actions: Option<html::Markup>,
     body: html::Markup,
     shell: Shell,
+}
+
+/// What a contributed page shows above its body: the title, a way back when
+/// the page sits under another, and the controls that act on the page as a
+/// whole (export, a menu of operations), which render beside the title.
+///
+/// ```ignore
+/// let head = PageHead::new(Text::dynamic(theme.name))
+///     .back(t!("Themes"), ctx.url(""))
+///     .actions(Markup::from_template(&ActionsTemplate { .. })?);
+/// shell.page_with(head, body)
+/// ```
+pub struct PageHead {
+    title: Text,
+    back: Option<(Text, String)>,
+    actions: Option<html::Markup>,
+}
+
+impl PageHead {
+    pub fn new(title: impl Into<Text>) -> Self {
+        Self {
+            title: title.into(),
+            back: None,
+            actions: None,
+        }
+    }
+
+    /// The page this one sits under, linked above the title.
+    pub fn back(mut self, label: impl Into<Text>, href: impl Into<String>) -> Self {
+        self.back = Some((label.into(), href.into()));
+        self
+    }
+
+    /// Controls beside the title: buttons, a `details.lat-menu`, or links that
+    /// open a `dialog.lat-dialog` through `data-lat-dialog`.
+    pub fn actions(mut self, actions: html::Markup) -> Self {
+        self.actions = Some(actions);
+        self
+    }
 }
 
 /// One per-page asset to load: a resolved URL and whether it is a stylesheet.
@@ -561,14 +604,16 @@ impl Shell {
         &self.site_url
     }
 
-    /// Inline SVG for a named icon, for chrome that is not a nav item.
     /// Whether a top-level tab is active, so the drawer nests the section
     /// entries under it; otherwise the drawer appends them after the tabs.
     pub(crate) fn sidebar_anchored(&self) -> bool {
         self.nav.iter().any(|n| n.active)
     }
 
-    pub(crate) fn icon(&self, name: &str) -> String {
+    /// Inline SVG for a named icon from the framework's set, for a template's
+    /// own chrome (`{{ shell.icon("folder")|safe }}`). An unknown name renders
+    /// the missing mark.
+    pub fn icon(&self, name: &str) -> String {
         icons::svg(&self.icon_set, &self.sprite_url, Some(name))
     }
 
@@ -637,8 +682,16 @@ impl Shell {
     /// body is a screen's own markup, built from its templates through
     /// [`html::Markup::from_template`].
     pub fn page(&self, title: &Text, body: html::Markup) -> Response {
+        self.page_with(PageHead::new(title.clone()), body)
+    }
+
+    /// A contributed page with a [`PageHead`]: the title, a way back and the
+    /// actions beside it, then `body` inside the chrome.
+    pub fn page_with(&self, head: PageHead, body: html::Markup) -> Response {
         render(PageTemplate {
-            title: self.tt(title),
+            title: self.tt(&head.title),
+            back: head.back.map(|(label, href)| (self.tt(&label), href)),
+            actions: head.actions,
             body,
             shell: self.clone(),
         })

@@ -1,98 +1,45 @@
-<div class="lat-toolbar__actions" style="margin:-8px 0 16px">
-  <code>{{ code }}</code>
-  <a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ base }}">{{ shell.t("All themes") }}</a>
-  <a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ theme_url }}/export">{{ shell.t("Export as zip") }}</a>
-</div>
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
-
-{% if let Some(fields) = settings %}
-<div class="lat-card lat-card--form">
-  <div class="lat-card__label">{{ shell.t("Settings") }}</div>
-  <form method="post" action="{{ theme_url }}/settings" data-lat-widget="form">
-    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-    {{ fields|safe }}
-    {% if !locked %}<div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
-  </form>
-</div>
-{% endif %}
-
-{% for g in groups %}
-<div class="lat-toolbar lat-toolbar--section"><h2>{{ g.label }}</h2></div>
-<div class="lat-tablewrap">
-  <table class="lat-table">
-    <tbody>
-      {% if g.rows.is_empty() %}
-      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("None.") }}</td></tr>
-      {% else %}
-      {% for r in g.rows %}
-      <tr>
-        <td><a href="{{ r.href }}">{{ r.path }}</a></td>
-        <td>{% if !r.url.is_empty() %}<code>{{ r.url }}</code>{% endif %}</td>
-        <td>{% if !r.from.is_empty() %}<span class="lat-help">{{ shell.tfs("from {theme}", [("theme", r.from.as_str())]) }}</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-      {% endif %}
-    </tbody>
-  </table>
-</div>
-{% endfor %}
-
-{% if !locked %}
-<div class="lat-grid" style="margin-top:24px">
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("New template") }}</div>
-    <form method="post" action="{{ theme_url }}/templates">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="new-kind">{{ shell.t("Kind") }}</label>
-          <select class="lat-select" id="new-kind" name="kind">
-            {% for k in kinds %}<option value="{{ k.0 }}">{{ k.1 }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="lat-field">
-          <label class="lat-field__label" for="new-path">{{ shell.t("Path") }}<span class="lat-field__req">*</span></label>
-          <input class="lat-input" id="new-path" name="path" required placeholder="home.htm">
-          <p class="lat-field__help">{{ shell.t("Folders with a slash, lowercase letters, digits, dots, hyphens and underscores.") }}</p>
-        </div>
+<div class="lat-split">
+  {% include "_theme_nav.html" %}
+  <div>
+    <div class="lat-pane">
+      <div class="lat-pane__head">{{ shell.t("Theme") }}</div>
+      <div class="lat-pane__body">
+        <dl class="lat-facts">
+          <div><dt>{{ shell.t("Code") }}</dt><dd><code>{{ code }}</code></dd></div>
+          {% if !parent.is_empty() %}<div><dt>{{ shell.t("Parent") }}</dt><dd>{{ parent }}</dd></div>{% endif %}
+          {% if !author.is_empty() %}<div><dt>{{ shell.t("Author") }}</dt><dd>{{ author }}</dd></div>{% endif %}
+          {% if !homepage.is_empty() %}<div><dt>{{ shell.t("Homepage") }}</dt><dd><a href="{{ homepage }}" target="_blank" rel="noopener noreferrer">{{ homepage }}</a></dd></div>{% endif %}
+          <div><dt>{{ shell.t("Status") }}</dt><dd>{% if active %}<span class="lat-status lat-status--on">{{ shell.t("Active") }}</span>{% else if editing %}<span class="lat-status lat-status--on">{{ shell.t("Previewing") }}</span>{% else %}<span class="lat-status lat-status--off">{{ shell.t("Inactive") }}</span>{% endif %}</dd></div>
+        </dl>
+        {% if !description.is_empty() %}<p class="lat-note" style="margin:0">{{ description }}</p>{% endif %}
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
-    </form>
-  </div>
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("Import a zip") }}</div>
-    <form method="post" action="{{ theme_url }}/import" enctype="multipart/form-data">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="import-file">{{ shell.t("Archive") }}</label>
-          <input class="lat-input" id="import-file" type="file" name="file" accept=".zip,application/zip" required>
-          <p class="lat-field__help">{{ shell.t("A zip as Export writes it: theme.yaml and one file per template under its kind's folder.") }}</p>
-        </div>
-        <div class="lat-field">
-          <label class="lat-field__label"><input type="checkbox" name="replace" value="1"> {{ shell.t("Replace templates this theme already has") }}</label>
-        </div>
+    </div>
+    {% if let Some(fields) = settings %}
+    <form class="lat-pane" method="post" action="{{ theme_url }}/settings" data-lat-widget="form">
+      <div class="lat-pane__head">{{ shell.t("Settings") }}</div>
+      <div class="lat-pane__body">
+        <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+        {{ fields|safe }}
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Import") }}</button></div>
+      {% if !locked %}<div class="lat-pane__foot"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
     </form>
-  </div>
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("Config") }}</div>
-    <form method="post" action="{{ theme_url }}/config">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="config">theme.yaml</label>
-          <textarea class="lat-input" id="config" name="config" rows="12" spellcheck="false" style="font-family:var(--font-mono)">{{ config }}</textarea>
-        </div>
+    {% endif %}
+    {% if locked %}
+    <div class="lat-pane">
+      <div class="lat-pane__head">theme.yaml</div>
+      <pre class="lat-editor" style="margin:0;border:0;background:transparent">{{ config }}</pre>
+    </div>
+    {% else %}
+    <form class="lat-pane" method="post" action="{{ theme_url }}/config">
+      <div class="lat-pane__head">theme.yaml</div>
+      <div class="lat-pane__body">
+        <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+        <textarea class="lat-input lat-editor" id="config" name="config" rows="12" spellcheck="false" aria-label="theme.yaml">{{ config }}</textarea>
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>
+      <div class="lat-pane__foot"><p class="lat-help">{{ shell.t("Name, author, description and the settings form.") }}</p><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>
     </form>
+    {% endif %}
   </div>
 </div>
-{% else %}
-<div class="lat-card" style="margin-top:24px">
-  <div class="lat-card__label">{{ shell.t("Config") }}</div>
-  <pre style="font-family:var(--font-mono);white-space:pre-wrap;margin:0">{{ config }}</pre>
-</div>
-{% endif %}
+{% include "_theme_dialogs.html" %}

@@ -307,6 +307,43 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   }, true);
 })();
 
+// Dialogs: a control carrying data-lat-dialog opens the <dialog> it names,
+// one carrying data-lat-dialog-close closes the dialog it sits in, and a click
+// on the backdrop closes too. Native, so Escape and focus containment need no
+// code here. `data-lat-dialog-set="field=value"` fills a field before opening,
+// so one dialog serves several openers (a New button per group).
+(function () {
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest) return;
+    var opener = e.target.closest('[data-lat-dialog]');
+    if (opener) {
+      var dialog = document.getElementById(opener.getAttribute('data-lat-dialog'));
+      if (!dialog || typeof dialog.showModal !== 'function') return;
+      e.preventDefault();
+      (opener.getAttribute('data-lat-dialog-set') || '').split(';').forEach(function (pair) {
+        var at = pair.indexOf('=');
+        if (at < 1) return;
+        var field = dialog.querySelector('[name="' + pair.slice(0, at).trim() + '"]');
+        if (field) field.value = pair.slice(at + 1).trim();
+      });
+      dialog.showModal();
+      var first = dialog.querySelector('[autofocus], input:not([type=hidden]):not([readonly]), select, textarea');
+      if (first) first.focus();
+      window.lat.emit(dialog, 'dialog:opened', {});
+      return;
+    }
+    var closer = e.target.closest('[data-lat-dialog-close]');
+    if (closer) {
+      var open = closer.closest('dialog');
+      if (open) open.close();
+      return;
+    }
+    // With no padding of its own, a click that lands on the dialog element
+    // itself landed on the backdrop.
+    if (e.target.matches && e.target.matches('dialog.lat-dialog')) e.target.close();
+  });
+})();
+
 // Dropdown dismissal. A <details> stays open until its own summary is clicked
 // again, which is not what a dropdown is expected to do: choosing an item or
 // clicking away should close it. Bound once at the document, so a menu that
@@ -325,7 +362,7 @@ document.addEventListener('htmx:sendError', latRequestFailed);
     var menu = e.target.closest('details.lat-menu');
     // Inside a panel only a link ends the interaction. Ticking a box in the
     // column picker is the operator still choosing, so it must stay open.
-    var chose = menu && e.target.closest('.lat-menu__panel') && e.target.closest('a');
+    var chose = menu && e.target.closest('.lat-menu__panel') && e.target.closest('a,button');
     closeAll(chose ? null : menu);
   });
 

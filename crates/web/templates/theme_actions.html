@@ -1,0 +1,21 @@
+<a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ theme_url }}/export"><span class="lat-btn__icon">{{ shell.icon("download")|safe }}</span>{{ shell.t("Export") }}</a>
+<details class="lat-menu">
+  <summary class="lat-btn lat-btn--secondary lat-btn--sm"><span class="lat-btn__icon">{{ shell.icon("wrench")|safe }}</span>{{ shell.t("Manage") }} &#9662;</summary>
+  <div class="lat-menu__panel">
+    {% if !active %}
+    <form method="post" action="{{ theme_url }}/activate"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button type="submit">{{ shell.t("Activate") }}</button></form>
+    {% endif %}
+    {% if editing || !active %}
+    <form method="post" action="{{ theme_url }}/edit"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button type="submit">{% if editing %}{{ shell.t("Stop previewing") }}{% else %}{{ shell.t("Preview") }}{% endif %}</button></form>
+    {% endif %}
+    {% if !locked %}
+    <button type="button" data-lat-dialog="new-template">{{ shell.t("New template") }}</button>
+    <button type="button" data-lat-dialog="import-zip">{{ shell.t("Import a zip") }}</button>
+    {% endif %}
+    <form method="post" action="{{ theme_url }}/lock"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="locked" value="{% if locked %}0{% else %}1{% endif %}"><button type="submit">{% if locked %}{{ shell.t("Unlock") }}{% else %}{{ shell.t("Lock") }}{% endif %}</button></form>
+    {% if !active && !locked %}
+    <div class="lat-menu__divider"></div>
+    <form method="post" action="{{ theme_url }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this theme and every template in it?") }}'>{{ shell.t("Delete") }}</button></form>
+    {% endif %}
+  </div>
+</details>

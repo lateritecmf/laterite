@@ -1,106 +1,119 @@
-<nav class="lat-breadcrumb" aria-label='{{ shell.t("Folder") }}'>
-  <a href="{{ base }}">{{ shell.t("Library") }}</a>
-  {% for c in crumbs %}<span aria-hidden="true">&rsaquo;</span><a href="{{ c.href }}">{{ c.name }}</a>{% endfor %}
-</nav>
-<div class="lat-listbar">
-  <form method="get" action="{{ base }}" class="lat-listbar__tools">
-    {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
-    <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}" placeholder='{{ shell.t("Search the library") }}' aria-label='{{ shell.t("Search") }}'>
-    <select class="lat-select" name="kind" aria-label='{{ shell.t("Kind") }}'>
-      <option value="">{{ shell.t("All kinds") }}</option>
-      {% for k in kinds %}<option value="{{ k.0 }}"{% if kind == k.0 %} selected{% endif %}>{{ k.1 }}</option>{% endfor %}
-    </select>
-    <select class="lat-select" name="sort" aria-label='{{ shell.t("Sort") }}'>
-      <option value="newest"{% if sort == "newest" %} selected{% endif %}>{{ shell.t("Newest first") }}</option>
-      <option value="oldest"{% if sort == "oldest" %} selected{% endif %}>{{ shell.t("Oldest first") }}</option>
-      <option value="name"{% if sort == "name" %} selected{% endif %}>{{ shell.t("By name") }}</option>
-      <option value="size"{% if sort == "size" %} selected{% endif %}>{{ shell.t("Largest first") }}</option>
-    </select>
-    <button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Apply") }}</button>
-  </form>
+<div class="lat-split">
+  <nav class="lat-pane" aria-label='{{ shell.t("Browse") }}'>
+    <div class="lat-pane__head">{{ shell.t("Display") }}</div>
+    <ul class="lat-nav">
+      {% for k in kind_links %}<li><a class="lat-nav__item{% if k.active %} is-active{% endif %}" href="{{ k.href }}">{{ shell.icon(k.icon)|safe }}<span class="lat-nav__label">{{ k.label }}</span></a></li>{% endfor %}
+    </ul>
+    <div class="lat-pane__head">{{ shell.t("Order by") }}</div>
+    <ul class="lat-nav">
+      {% for s in sort_links %}<li><a class="lat-nav__item{% if s.active %} is-active{% endif %}" href="{{ s.href }}"><span class="lat-nav__label">{{ s.label }}</span></a></li>{% endfor %}
+    </ul>
+    <div class="lat-pane__head">{{ shell.t("Folders") }}</div>
+    <ul class="lat-nav">
+      <li><a class="lat-nav__item{% if folder.is_none() && q.is_empty() %} is-active{% endif %}" href="{{ library_href }}">{{ shell.icon("home")|safe }}<span class="lat-nav__label">{{ shell.t("Library") }}</span></a></li>
+      {% for f in root_folders %}<li><a class="lat-nav__item{% if f.active %} is-active{% endif %}" href="{{ f.href }}">{{ shell.icon("folder")|safe }}<span class="lat-nav__label">{{ f.name }}</span></a></li>{% endfor %}
+    </ul>
+  </nav>
+  <div class="lat-pane">
+    <div class="lat-pane__bar">
+      <nav class="lat-breadcrumb" aria-label='{{ shell.t("Folder") }}'>
+        <a href="{{ library_href }}">{{ shell.t("Library") }}</a>
+        {% for c in crumbs %}<span aria-hidden="true">&rsaquo;</span><a href="{{ c.href }}">{{ c.name }}</a>{% endfor %}
+        {% if !q.is_empty() %}<span aria-hidden="true">&rsaquo;</span><span>{{ shell.tfs("Search: {q}", [("q", q.as_str())]) }}</span>{% endif %}
+      </nav>
+      {% if let Some(f) = folder %}{% if may_manage %}
+      <details class="lat-menu">
+        <summary class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon" title='{{ shell.t("This folder") }}' aria-label='{{ shell.t("This folder") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
+        <div class="lat-menu__panel">
+          <button type="button" data-lat-dialog="rename-folder">{{ shell.t("Rename folder") }}</button>
+          <form method="post" action="{{ base }}/folders/{{ f }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this empty folder?") }}'>{{ shell.t("Delete folder") }}</button></form>
+        </div>
+      </details>
+      {% endif %}{% endif %}
+      {% if total > 0 %}<span class="lat-help" style="margin:0">{{ shell.tf("{n} file(s)", [("n", total)]) }}</span>{% endif %}
+      <form method="get" action="{{ base }}" role="search">
+        {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
+        {% if !kind.is_empty() %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+        {% if !sort.is_empty() %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}" placeholder='{{ shell.t("Search the library") }}' aria-label='{{ shell.t("Search") }}'>
+        <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Search") }}</button>
+      </form>
+    </div>
+    {% if folders.is_empty() && files.is_empty() %}
+    <div class="lat-media-empty">{% if q.is_empty() %}{{ shell.t("No files here yet.") }}{% if may_upload %} {{ shell.t("Upload some, or add a folder.") }}{% endif %}{% else %}{{ shell.t("Nothing matches.") }}{% endif %}</div>
+    {% else %}
+    <div class="lat-media-grid">
+      {% for f in folders %}
+      <a class="lat-media-card lat-media-card--folder" href="{{ f.href }}" title="{{ f.name }}">
+        <span class="lat-media-card__thumb">{{ shell.icon("folder")|safe }}</span>
+        <span class="lat-media-card__name">{{ f.name }}</span>
+        <span class="lat-media-card__meta">{{ shell.t("Folder") }}</span>
+      </a>
+      {% endfor %}
+      {% for f in files %}
+      <a class="lat-media-card" href="{{ f.href }}" title="{{ f.name }}">
+        <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.url }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}</span>
+        <span class="lat-media-card__name">{{ f.name }}</span>
+        <span class="lat-media-card__meta">{{ f.size }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if pages > 1 %}
+    <div class="lat-pager">
+      {% if let Some(h) = prev_href %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ h }}">{{ shell.t("Previous") }}</a>{% endif %}
+      <span class="lat-help" style="margin:0">{{ shell.tf("Page {n} of {m}", [("n", page as i64), ("m", pages as i64)]) }}</span>
+      {% if let Some(h) = next_href %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ h }}">{{ shell.t("Next") }}</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 
-{% if !folders.is_empty() %}
-<div class="lat-media-folders">
-  {% for f in folders %}
-  <a class="lat-media-folder" href="{{ f.href }}"><span class="lat-media-folder__icon" aria-hidden="true">&#128193;</span><span>{{ f.name }}</span></a>
-  {% endfor %}
-</div>
-{% endif %}
-
-{% if total > 0 %}<p class="lat-help">{{ shell.tf("{n} file(s)", [("n", total)]) }}</p>{% endif %}
-{% if files.is_empty() %}
-<p class="lat-help">{% if q.is_empty() %}{{ shell.t("No files here yet.") }}{% else %}{{ shell.t("Nothing matches.") }}{% endif %}</p>
-{% else %}
-<div class="lat-media-grid">
-  {% for f in files %}
-  <a class="lat-media-card" href="{{ f.href }}" title="{{ f.name }}">
-    <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.url }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}</span>
-    <span class="lat-media-card__name">{{ f.name }}</span>
-    <span class="lat-media-card__meta">{{ f.size }}</span>
-  </a>
-  {% endfor %}
-</div>
-{% if pages > 1 %}
-<div class="lat-pager">
-  {% if let Some(h) = prev_href %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ h }}">{{ shell.t("Previous") }}</a>{% endif %}
-  <span class="lat-help">{{ shell.tf("Page {n} of {m}", [("n", page as i64), ("m", pages as i64)]) }}</span>
-  {% if let Some(h) = next_href %}<a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ h }}">{{ shell.t("Next") }}</a>{% endif %}
-</div>
-{% endif %}
-{% endif %}
-
-<div class="lat-grid" style="margin-top:24px">
-  {% if may_upload %}
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("Upload") }}</div>
-    <form method="post" action="{{ base }}/upload" enctype="multipart/form-data">
+{% if may_upload %}
+<dialog class="lat-dialog" id="upload">
+  <form method="post" action="{{ base }}/upload" enctype="multipart/form-data">
+    {% let dialog_title = shell.t("Upload files") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
       <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
       {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="media-files">{{ shell.t("Files") }}</label>
-          <input class="lat-input" id="media-files" type="file" name="file" multiple required>
-          <p class="lat-field__help">{{ shell.t("Into this folder. Identical files are stored once.") }}</p>
-        </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="media-files">{{ shell.t("Files") }}</label>
+        <input class="lat-input" id="media-files" type="file" name="file" multiple required>
+        <p class="lat-field__help">{% if crumbs.is_empty() %}{{ shell.t("Into the library. Identical files are stored once.") }}{% else %}{{ shell.t("Into this folder. Identical files are stored once.") }}{% endif %}</p>
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Upload") }}</button></div>
-    </form>
-  </div>
-  {% endif %}
-  {% if may_manage %}
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("New folder") }}</div>
-    <form method="post" action="{{ base }}/folders">
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Upload") }}</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% if may_manage %}
+<dialog class="lat-dialog" id="new-folder">
+  <form method="post" action="{{ base }}/folders">
+    {% let dialog_title = shell.t("New folder") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
       <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
       {% if let Some(f) = folder %}<input type="hidden" name="parent" value="{{ f }}">{% endif %}
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="folder-name">{{ shell.t("Name") }}</label>
-          <input class="lat-input" id="folder-name" name="name" required maxlength="120">
-        </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="folder-name">{{ shell.t("Name") }}</label>
+        <input class="lat-input" id="folder-name" name="name" required maxlength="120" autofocus>
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Create") }}</button></div>
-    </form>
-  </div>
-  {% if let Some(f) = folder %}
-  <div class="lat-card">
-    <div class="lat-card__label">{{ shell.t("This folder") }}</div>
-    <form method="post" action="{{ base }}/folders/{{ f }}/rename">
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create") }}</button></div>
+  </form>
+</dialog>
+{% if let Some(f) = folder %}
+<dialog class="lat-dialog" id="rename-folder">
+  <form method="post" action="{{ base }}/folders/{{ f }}/rename">
+    {% let dialog_title = shell.t("Rename folder") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
       <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <div class="lat-fields">
-        <div class="lat-field">
-          <label class="lat-field__label" for="rename-folder">{{ shell.t("Rename to") }}</label>
-          <input class="lat-input" id="rename-folder" name="name" required maxlength="120">
-        </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="rename-folder-name">{{ shell.t("Name") }}</label>
+        <input class="lat-input" id="rename-folder-name" name="name" value="{{ folder_name }}" required maxlength="120" autofocus>
       </div>
-      <div class="lat-actions"><button class="lat-btn lat-btn--secondary" type="submit">{{ shell.t("Rename") }}</button></div>
-    </form>
-    <form method="post" action="{{ base }}/folders/{{ f }}/delete" style="margin-top:12px">
-      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-      <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm='{{ shell.t("Delete this empty folder?") }}'>{{ shell.t("Delete folder") }}</button>
-    </form>
-  </div>
-  {% endif %}
-  {% endif %}
-</div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Rename") }}</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endif %}

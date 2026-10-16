@@ -1,0 +1,11 @@
+<nav class="lat-pane" aria-label='{{ shell.t("Templates") }}'>
+  {% for g in groups %}
+  <div class="lat-pane__head">{{ g.label }}{% if !locked %}<button type="button" class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon" data-lat-dialog="new-template" data-lat-dialog-set="kind={{ g.kind }}" title='{{ shell.tfs("New in {group}", [("group", g.label.as_str())]) }}' aria-label='{{ shell.tfs("New in {group}", [("group", g.label.as_str())]) }}'>{{ shell.icon("plus")|safe }}</button>{% endif %}</div>
+  <ul class="lat-nav">
+    {% for r in g.rows %}
+    <li><a class="lat-nav__item{% if r.active %} is-active{% endif %}" href="{{ r.href }}"{% if r.active %} aria-current="page"{% endif %}><span class="lat-nav__label">{{ r.path }}</span>{% if !r.url.is_empty() %}<span class="lat-nav__meta">{{ r.url }}</span>{% endif %}{% if !r.from.is_empty() %}<span class="lat-nav__meta" title='{{ shell.tfs("from {theme}", [("theme", r.from.as_str())]) }}'>{{ r.from }}</span>{% endif %}</a></li>
+    {% endfor %}
+    {% if g.rows.is_empty() %}<li class="lat-nav__empty">{{ shell.t("None yet.") }}</li>{% endif %}
+  </ul>
+  {% endfor %}
+</nav>

@@ -80,10 +80,6 @@ msgstr ""
 msgid "All"
 msgstr ""
 
-#: templates/media.html
-msgid "All kinds"
-msgstr ""
-
 #: templates/users_form.html
 msgid "Allow"
 msgstr ""
@@ -105,7 +101,6 @@ msgid "Application name"
 msgstr ""
 
 #: templates/list.html
-#: templates/media.html
 msgid "Apply"
 msgstr ""
 
@@ -141,10 +136,6 @@ msgstr ""
 msgid "Back to import"
 msgstr ""
 
-#: templates/media_file.html
-msgid "Back to the library"
-msgstr ""
-
 #: src/import/pages.rs
 msgid "Back to {resource}"
 msgstr ""
@@ -166,6 +157,10 @@ msgstr ""
 msgid "Branding"
 msgstr ""
 
+#: templates/media.html
+msgid "Browse"
+msgstr ""
+
 #: (descriptors)
 msgid "Browse the media library"
 msgstr ""
@@ -180,10 +175,6 @@ msgstr ""
 msgid "By"
 msgstr ""
 
-#: templates/media.html
-msgid "By name"
-msgstr ""
-
 #: templates/list.html
 msgid "CSV"
 msgstr ""
@@ -191,6 +182,7 @@ msgstr ""
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
 #: templates/base.html
+#: templates/media.html
 #: templates/settings_form.html
 #: templates/users_form.html
 #: templates/users_new.html
@@ -231,6 +223,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Client"
+msgstr ""
+
+#: templates/_dialog_head.html
+msgid "Close"
 msgstr ""
 
 #: templates/_roles_form_fields.html
@@ -357,7 +353,7 @@ msgstr ""
 
 #: src/relation.rs
 #: templates/list.html
-#: templates/media_file.html
+#: templates/media_file_actions.html
 msgid "Delete"
 msgstr ""
 
@@ -377,7 +373,7 @@ msgstr ""
 msgid "Delete this empty folder?"
 msgstr ""
 
-#: templates/media_file.html
+#: templates/media_file_actions.html
 msgid "Delete this file?"
 msgstr ""
 
@@ -427,6 +423,10 @@ msgstr ""
 #: templates/base.html
 #: templates/login.html
 msgid "Dismiss"
+msgstr ""
+
+#: templates/media.html
+msgid "Display"
 msgstr ""
 
 #: templates/preferences.html
@@ -588,6 +588,10 @@ msgstr ""
 msgid "Folder renamed."
 msgstr ""
 
+#: templates/media.html
+msgid "Folders"
+msgstr ""
+
 #: src/error.rs
 msgid "Forbidden"
 msgstr ""
@@ -643,6 +647,10 @@ msgid "Inherit"
 msgstr ""
 
 #: templates/media.html
+msgid "Into the library. Identical files are stored once."
+msgstr ""
+
+#: templates/media.html
 msgid "Into this folder. Identical files are stored once."
 msgstr ""
 
@@ -656,16 +664,11 @@ msgstr ""
 
 #: templates/import/index.html
 #: templates/import/run.html
-#: templates/media.html
 msgid "Kind"
 msgstr ""
 
 #: templates/preferences.html
 msgid "Language"
-msgstr ""
-
-#: templates/media.html
-msgid "Largest first"
 msgstr ""
 
 #: templates/preferences.html
@@ -805,6 +808,7 @@ msgid "New backend user"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_actions.html
 msgid "New folder"
 msgstr ""
 
@@ -814,10 +818,6 @@ msgstr ""
 
 #: src/relation.rs
 msgid "New {label}"
-msgstr ""
-
-#: templates/media.html
-msgid "Newest first"
 msgstr ""
 
 #: templates/_list_table.html
@@ -885,11 +885,7 @@ msgstr ""
 msgid "Nothing: every row makes a new record"
 msgstr ""
 
-#: templates/media.html
-msgid "Oldest first"
-msgstr ""
-
-#: templates/media_file.html
+#: templates/media_file_actions.html
 msgid "Open"
 msgstr ""
 
@@ -908,6 +904,10 @@ msgstr ""
 
 #: templates/_list_table.html
 msgid "Order"
+msgstr ""
+
+#: templates/media.html
+msgid "Order by"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -1019,7 +1019,7 @@ msgstr ""
 msgid "Recent imports"
 msgstr ""
 
-#: templates/media_file.html
+#: templates/media_file_actions.html
 msgid "Records still use this file. Delete it anyway?"
 msgstr ""
 
@@ -1048,7 +1048,7 @@ msgid "Rename"
 msgstr ""
 
 #: templates/media.html
-msgid "Rename to"
+msgid "Rename folder"
 msgstr ""
 
 #: (descriptors)
@@ -1167,6 +1167,10 @@ msgstr ""
 msgid "Search the library"
 msgstr ""
 
+#: templates/media.html
+msgid "Search: {q}"
+msgstr ""
+
 #: src/bulk.rs
 msgid "Select a record first."
 msgstr ""
@@ -1266,10 +1270,6 @@ msgstr ""
 
 #: templates/base.html
 msgid "Something went wrong. Please try again."
-msgstr ""
-
-#: templates/media.html
-msgid "Sort"
 msgstr ""
 
 #: templates/import/index.html
@@ -1525,11 +1525,20 @@ msgid "Updated"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_actions.html
 msgid "Upload"
+msgstr ""
+
+#: templates/media.html
+msgid "Upload files"
 msgstr ""
 
 #: (descriptors)
 msgid "Upload media"
+msgstr ""
+
+#: templates/media.html
+msgid "Upload some, or add a folder."
 msgstr ""
 
 #: templates/media_file.html

@@ -10,7 +10,7 @@ use laterite_admin::axum::{Extension, Router};
 use laterite_admin::html::Markup;
 use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
 use laterite_admin::VerifiedUpload;
-use laterite_admin::{FlashLevel, Permission, SessionHandle, Shell, ROLE_ADMIN};
+use laterite_admin::{FlashLevel, PageHead, Permission, SessionHandle, Shell, ROLE_ADMIN};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::{t, Text};
 use std::sync::Arc;
@@ -70,8 +70,12 @@ fn flash_error(session: &SessionHandle, e: &ThemeError) {
 }
 
 fn page<T: askama::Template>(shell: &Shell, title: Text, template: &T) -> Response {
+    page_with(shell, PageHead::new(title), template)
+}
+
+fn page_with<T: askama::Template>(shell: &Shell, head: PageHead, template: &T) -> Response {
     match Markup::from_template(template) {
-        Ok(body) => shell.page(&title, body),
+        Ok(body) => shell.page_with(head, body),
         Err(e) => {
             tracing::error!(error = %e, "rendering a theme page failed");
             shell.page(&t!("Themes"), Markup::empty())
@@ -79,10 +83,30 @@ fn page<T: askama::Template>(shell: &Shell, title: Text, template: &T) -> Respon
     }
 }
 
+/// Which theme is active, and which one this operator previews.
+async fn standing(ctx: &RouteCtx, user: &AuthenticatedUser) -> (Option<String>, Option<String>) {
+    let active = super::active_theme(ctx.db())
+        .await
+        .ok()
+        .flatten()
+        .map(|t| t.code);
+    // The operator's own choice alone: the active theme is what they edit
+    // otherwise, and the Active badge already says so.
+    let editing = laterite_admin::settings::load_for::<EditTheme>(ctx.db(), user.user.id)
+        .await
+        .ok()
+        .and_then(|e| e.code);
+    (active, editing)
+}
+
 /// A theme as the list shows it.
 struct ThemeRow {
     code: String,
     name: String,
+    /// The first letter of the name, for the thumbnail block.
+    initial: String,
+    author: String,
+    description: String,
     parent: String,
     active: bool,
     editing: bool,
@@ -104,18 +128,7 @@ async fn index(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
     let themes = store::list_themes(ctx.db()).await.unwrap_or_default();
-    let active = super::active_theme(ctx.db())
-        .await
-        .ok()
-        .flatten()
-        .map(|t| t.code);
-    // The operator's own choice alone: the active theme is what they edit
-    // otherwise, and the Active badge already says so.
-    let editing: Option<String> =
-        laterite_admin::settings::load_for::<EditTheme>(ctx.db(), user.user.id)
-            .await
-            .ok()
-            .and_then(|e| e.code);
+    let (active, editing) = standing(&ctx, &user).await;
     let rows = themes
         .into_iter()
         .map(|t| ThemeRow {
@@ -123,6 +136,15 @@ async fn index(
             active: active.as_deref() == Some(t.code.as_str()),
             editing: editing.as_deref() == Some(t.code.as_str()),
             parent: t.parent.clone().unwrap_or_default(),
+            initial: t
+                .config
+                .name
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().to_string())
+                .unwrap_or_default(),
+            author: t.config.author.clone(),
+            description: t.config.description.clone(),
             name: t.config.name.clone(),
             locked: t.locked,
             code: t.code,
@@ -426,20 +448,39 @@ struct TemplateRow {
     href: String,
     /// A page's URL pattern; empty for every other kind.
     url: String,
+    /// Whether this is the template open in the editor.
+    active: bool,
 }
 
 struct KindGroup {
+    kind: &'static str,
     label: String,
     rows: Vec<TemplateRow>,
+}
+
+/// The controls beside a theme's title.
+#[derive(askama::Template)]
+#[template(path = "theme_actions.html")]
+struct ActionsTemplate {
+    shell: Shell,
+    theme_url: String,
+    active: bool,
+    editing: bool,
+    locked: bool,
 }
 
 #[derive(askama::Template)]
 #[template(path = "theme.html")]
 struct ShowTemplate {
     shell: Shell,
-    base: String,
     theme_url: String,
     code: String,
+    parent: String,
+    author: String,
+    homepage: String,
+    description: String,
+    active: bool,
+    editing: bool,
     locked: bool,
     config: String,
     /// The settings fields over the theme's values, when its config (or an
@@ -466,6 +507,7 @@ async fn groups(
     ctx: &RouteCtx,
     shell: &Shell,
     chain: &[Theme],
+    current: Option<i64>,
 ) -> Result<Vec<KindGroup>, ThemeError> {
     let mut seen: std::collections::HashMap<(Kind, String), (String, i64, String)> =
         Default::default();
@@ -500,10 +542,12 @@ async fn groups(
                     },
                     href: ctx.url(&format!("{from}/templates/{id}")),
                     url: url.clone(),
+                    active: current == Some(*id),
                 })
                 .collect();
             rows.sort_by(|a, b| a.path.cmp(&b.path));
             KindGroup {
+                kind: kind.as_str(),
                 label: kind_label(shell, kind),
                 rows,
             }
@@ -515,6 +559,7 @@ async fn show(
     State(ctx): Ctx,
     Extension(shell): Extension<Shell>,
     Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path(code): Path<String>,
 ) -> Response {
     let chain = match store::chain(ctx.db(), &code).await {
@@ -524,7 +569,7 @@ async fn show(
             return back(&ctx, "");
         }
     };
-    let groups = match groups(&ctx, &shell, &chain).await {
+    let groups = match groups(&ctx, &shell, &chain, None).await {
         Ok(g) => g,
         Err(e) => {
             flash_error(&session, &e);
@@ -548,13 +593,31 @@ async fn show(
             }
         }
     };
-    page(
+    let (active, editing) = standing(&ctx, &user).await;
+    let active = active.as_deref() == Some(theme.code.as_str());
+    let editing = editing.as_deref() == Some(theme.code.as_str());
+    let actions = Markup::from_template(&ActionsTemplate {
+        shell: shell.clone(),
+        theme_url: ctx.url(&theme.code),
+        active,
+        editing,
+        locked: theme.locked,
+    })
+    .unwrap_or_else(|_| Markup::empty());
+    page_with(
         &shell,
-        Text::dynamic(theme.config.name.clone()),
+        PageHead::new(Text::dynamic(theme.config.name.clone()))
+            .back(t!("Themes"), ctx.url(""))
+            .actions(actions),
         &ShowTemplate {
-            base: ctx.url(""),
             theme_url: ctx.url(&theme.code),
             code: theme.code.clone(),
+            parent: theme.parent.clone().unwrap_or_default(),
+            author: theme.config.author.clone(),
+            homepage: theme.config.homepage.clone(),
+            description: theme.config.description.clone(),
+            active,
+            editing,
             locked: theme.locked,
             config: theme.config_source.clone(),
             settings,
@@ -910,14 +973,25 @@ struct RevisionRow {
 struct EditorTemplate {
     shell: Shell,
     theme_url: String,
-    theme_name: String,
     template_url: String,
+    path: String,
     locked: bool,
     settings: String,
     /// A page's settings as fields; none for every other kind.
     page_fields: Option<String>,
     markup: String,
     revisions: Vec<RevisionRow>,
+    groups: Vec<KindGroup>,
+    kinds: Vec<(&'static str, String)>,
+}
+
+/// The controls beside a template's title.
+#[derive(askama::Template)]
+#[template(path = "theme_template_actions.html")]
+struct TemplateActionsTemplate {
+    shell: Shell,
+    template_url: String,
+    locked: bool,
 }
 
 /// The template `id` under the theme `code`, or none: a template is reached
@@ -960,6 +1034,14 @@ async fn template(
     let revisions = store::revisions(ctx.db(), template.id)
         .await
         .unwrap_or_default();
+    let chain = store::chain(ctx.db(), &code).await.unwrap_or_default();
+    let groups = groups(&ctx, &shell, &chain, Some(template.id))
+        .await
+        .unwrap_or_default();
+    let kinds = Kind::ALL
+        .into_iter()
+        .map(|k| (k.as_str(), kind_label(&shell, k)))
+        .collect();
     let page_fields = if template.kind == Kind::Page {
         let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
         match ctx.value_form(&page_fields(&layouts, &components_help(&ctx)), &code) {
@@ -975,18 +1057,32 @@ async fn template(
     } else {
         None
     };
-    page(
+    let template_url = ctx.url(&format!("{code}/templates/{id}"));
+    let actions = Markup::from_template(&TemplateActionsTemplate {
+        shell: shell.clone(),
+        template_url: template_url.clone(),
+        locked: theme.locked,
+    })
+    .unwrap_or_else(|_| Markup::empty());
+    page_with(
         &shell,
-        Text::dynamic(engine::template_name(template.kind, &template.path)),
+        PageHead::new(Text::dynamic(template.path.clone()))
+            .back(
+                Text::dynamic(theme.config.name.clone()),
+                ctx.url(&theme.code),
+            )
+            .actions(actions),
         &EditorTemplate {
             theme_url: ctx.url(&theme.code),
-            theme_name: theme.config.name.clone(),
-            template_url: ctx.url(&format!("{code}/templates/{id}")),
+            template_url,
+            path: engine::template_name(template.kind, &template.path),
             locked: theme.locked,
             settings: serde_json::to_string_pretty(&template.settings).unwrap_or_default(),
             page_fields,
             markup: template.markup.clone(),
             revisions: revision_rows(&shell, revisions),
+            groups,
+            kinds,
             shell: shell.clone(),
         },
     )

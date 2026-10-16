@@ -1,60 +1,53 @@
-<div class="lat-toolbar__actions" style="margin:-8px 0 16px">
-  <a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ theme_url }}">{{ theme_name }}</a>
-</div>
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
-<form method="post" action="{{ template_url }}/save">
-  <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-  <div class="lat-fields">
-    <div class="lat-field">
-      <label class="lat-field__label" for="markup">{{ shell.t("Markup") }}</label>
-      <textarea class="lat-input" id="markup" name="markup" rows="24" spellcheck="false" style="font-family:var(--font-mono)"{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
-    </div>
-    {% if page_fields.is_none() %}
-    <div class="lat-field">
-      <label class="lat-field__label" for="settings">{{ shell.t("Settings") }}</label>
-      <textarea class="lat-input" id="settings" name="settings" rows="6" spellcheck="false" style="font-family:var(--font-mono)"{% if locked %} readonly{% endif %}>{{ settings }}</textarea>
-      <p class="lat-field__help">{{ shell.t("A JSON object, such as a layout's description.") }}</p>
-    </div>
-    {% endif %}
-  </div>
-  {% if let Some(fields) = page_fields %}
-  <div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Page") }}</h2></div>
-  {{ fields|safe }}
-  {% endif %}
-  {% if !locked %}
-  <div class="lat-actions">
-    <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
-    <a class="lat-btn lat-btn--ghost" href="{{ theme_url }}">{{ shell.t("Cancel") }}</a>
-  </div>
-  {% endif %}
-</form>
-{% if !locked %}
-<form method="post" action="{{ template_url }}/delete" style="margin-top:12px">
-  <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-  <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm="{{ shell.t("Delete this template and its revisions?") }}">{{ shell.t("Delete") }}</button>
-</form>
-{% endif %}
-
-<div class="lat-toolbar lat-toolbar--section"><h2>{{ shell.t("Revisions") }}</h2></div>
-<div class="lat-tablewrap">
-  <table class="lat-table">
-    <thead><tr><th>{{ shell.t("Saved") }}</th><th>{{ shell.t("By") }}</th><th></th></tr></thead>
-    <tbody>
-      {% if revisions.is_empty() %}
-      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No earlier versions.") }}</td></tr>
+<div class="lat-split">
+  {% include "_theme_nav.html" %}
+  <div>
+    <form class="lat-pane" method="post" action="{{ template_url }}/save">
+      <div class="lat-pane__head">{{ shell.t("Markup") }}<span class="lat-code">{{ path }}</span></div>
+      <div class="lat-pane__body">
+        <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+        <textarea class="lat-input lat-editor" id="markup" name="markup" rows="26" spellcheck="false" aria-label='{{ shell.t("Markup") }}'{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
+      </div>
+      {% if let Some(fields) = page_fields %}
+      <div class="lat-pane__head">{{ shell.t("Page") }}</div>
+      <div class="lat-pane__body">{{ fields|safe }}</div>
       {% else %}
-      {% for r in revisions %}
-      <tr>
-        <td>{{ r.saved_at }}</td>
-        <td>{{ r.saved_by }}</td>
-        <td class="lat-table__actions">
-          {% if !locked %}
-          <form method="post" action="{{ template_url }}/restore"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="revision" value="{{ r.id }}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Restore") }}</button></form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
+      <div class="lat-pane__head">{{ shell.t("Settings") }}</div>
+      <div class="lat-pane__body">
+        <textarea class="lat-input lat-editor" id="settings" name="settings" rows="6" spellcheck="false" aria-label='{{ shell.t("Settings") }}'{% if locked %} readonly{% endif %}>{{ settings }}</textarea>
+        <p class="lat-field__help" style="margin:8px 0 0">{{ shell.t("A JSON object, such as a layout's description.") }}</p>
+      </div>
       {% endif %}
-    </tbody>
-  </table>
+      {% if !locked %}
+      <div class="lat-pane__foot">
+        <a class="lat-btn lat-btn--ghost" href="{{ theme_url }}">{{ shell.t("Cancel") }}</a>
+        <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
+      </div>
+      {% endif %}
+    </form>
+    <div class="lat-pane">
+      <div class="lat-pane__head">{{ shell.t("Revisions") }}</div>
+      {% if revisions.is_empty() %}
+      <div class="lat-nav__empty" style="padding:14px 16px">{{ shell.t("No earlier versions.") }}</div>
+      {% else %}
+      <table class="lat-table">
+        <thead><tr><th>{{ shell.t("Saved") }}</th><th>{{ shell.t("By") }}</th><th></th></tr></thead>
+        <tbody>
+          {% for r in revisions %}
+          <tr>
+            <td>{{ r.saved_at }}</td>
+            <td>{{ r.saved_by }}</td>
+            <td class="lat-table__actions">
+              {% if !locked %}
+              <form method="post" action="{{ template_url }}/restore"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="revision" value="{{ r.id }}"><button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Restore") }}</button></form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </div>
 </div>
+{% include "_theme_dialogs.html" %}

@@ -1,0 +1,3 @@
+{% if !locked %}
+<form method="post" action="{{ template_url }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm='{{ shell.t("Delete this template and its revisions?") }}'>{{ shell.t("Delete") }}</button></form>
+{% endif %}
