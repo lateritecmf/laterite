@@ -258,6 +258,30 @@ pub async fn rename(db: &Db, id: i64, original_name: &str) -> Result<(), RecordE
     update_one(db, id, stmt).await
 }
 
+/// Points a record at other bytes: a crop or an edit that replaced the file.
+/// The hash, size, type and dimensions change; the metadata read from the
+/// old bytes is dropped, since the new ones carry none.
+pub async fn replace_blob(
+    db: &Db,
+    id: i64,
+    hash: &str,
+    size: i64,
+    content_type: &str,
+    width: Option<i64>,
+    height: Option<i64>,
+) -> Result<(), RecordError> {
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::Hash, hash)
+        .value(Media::Size, size)
+        .value(Media::ContentType, content_type)
+        .value(Media::Width, width)
+        .value(Media::Height, height)
+        .value(Media::Meta, "{}")
+        .to_owned();
+    update_one(db, id, stmt).await
+}
+
 /// Moves a record into a folder (`None` for the root).
 pub async fn move_to_folder(db: &Db, id: i64, folder_id: Option<i64>) -> Result<(), RecordError> {
     let stmt = Query::update()
@@ -282,23 +306,19 @@ pub async fn set_in_library(
     update_one(db, id, stmt).await
 }
 
-/// Records an image's size and what a reader found, after ingest.
-pub async fn set_dimensions(
+/// Records an image's size, read after ingest or measured later.
+pub fn set_dimensions(
     db: &Db,
     id: i64,
     width: Option<i64>,
     height: Option<i64>,
-    meta: Option<&serde_json::Value>,
-) -> Result<(), RecordError> {
-    let mut stmt = Query::update()
+) -> impl std::future::Future<Output = Result<(), RecordError>> + Send + '_ {
+    let stmt = Query::update()
         .table(Media::Table)
         .value(Media::Width, width)
         .value(Media::Height, height)
         .to_owned();
-    if let Some(meta) = meta {
-        stmt.value(Media::Meta, meta.to_string());
-    }
-    update_one(db, id, stmt).await
+    update_one(db, id, stmt)
 }
 
 /// The record with this hash on this disk, if any.

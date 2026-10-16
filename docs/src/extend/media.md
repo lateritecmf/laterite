@@ -258,6 +258,25 @@ Event | Detail
 --- | ---
 `lat:media:changed` | `{ids}`, after a pick, a removal or a clear.
 
+## Crop
+
+```
+POST /admin/media/<id>/crop   x=100&y=50&w=200&h=100&mode=new
+```
+
+Field | Meaning
+--- | ---
+`x`, `y`, `w`, `h` | The area kept, in the image's own pixels, clamped to it.
+`mode` | `new` (the default): a file named `<stem>-crop.<ext>` in the same folder. `replace`: this file's bytes, hash and size change and its variants are dropped.
+
+The format is kept (PNG, JPEG, WebP; anything else becomes PNG). The file page
+offers the dialog to an operator with `media.manage` on an image.
+
+```rust
+let out = laterite_media::image::crop(&bytes, Rect { x, y, width, height }, orientation)?;
+laterite_media::record::replace_blob(&db, id, &hash, size, &content_type, width, height).await?;
+```
+
 ## Variants
 
 ```rust

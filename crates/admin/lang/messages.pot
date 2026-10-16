@@ -108,6 +108,14 @@ msgstr ""
 msgid "Arrange media and folders"
 msgstr ""
 
+#: templates/media_file.html
+msgid "As the original"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Aspect"
+msgstr ""
+
 #: templates/setup.html
 msgid "At least {n} characters."
 msgstr ""
@@ -179,6 +187,7 @@ msgstr ""
 #: templates/_roles_form_fields.html
 #: templates/base.html
 #: templates/media.html
+#: templates/media_file.html
 #: templates/settings_form.html
 #: templates/users_form.html
 #: templates/users_new.html
@@ -349,6 +358,19 @@ msgstr ""
 msgid "Created {username}. Their temporary password, shown only now: {password}"
 msgstr ""
 
+#: templates/media_file.html
+#: templates/media_file_actions.html
+msgid "Crop"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Crop image"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Cropped copy saved."
+msgstr ""
+
 #: templates/preferences.html
 msgid "Current password"
 msgstr ""
@@ -474,6 +496,10 @@ msgstr ""
 
 #: templates/_list_rows.html
 msgid "Drag to reorder"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Draw the area to keep first."
 msgstr ""
 
 #: src/field.rs
@@ -623,6 +649,10 @@ msgstr ""
 msgid "Forgot your password? Ask an administrator to reset it."
 msgstr ""
 
+#: templates/media_file.html
+msgid "Free"
+msgstr ""
+
 #: src/medialib/mod.rs
 msgid "Give the file a name without slashes."
 msgstr ""
@@ -646,6 +676,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Hits"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Image cropped."
 msgstr ""
 
 #: templates/list.html
@@ -905,6 +939,10 @@ msgstr ""
 msgid "Nothing: every row makes a new record"
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "Only an image can be cropped."
+msgstr ""
+
 #: templates/media_file_actions.html
 msgid "Open"
 msgstr ""
@@ -1077,6 +1115,10 @@ msgstr ""
 msgid "Replace"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Replace this file"
+msgstr ""
+
 #: (descriptors)
 msgid "Request Log"
 msgstr ""
@@ -1163,6 +1205,10 @@ msgstr ""
 
 #: templates/_form_fields.html
 msgid "Save and continue editing"
+msgstr ""
+
+#: templates/media_file.html
+msgid "Save as a new file"
 msgstr ""
 
 #: templates/form.html
@@ -1407,6 +1453,10 @@ msgstr ""
 msgid "The application name shown across the admin."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "The crop could not be stored."
+msgstr ""
+
 #: src/import/run.rs
 msgid "The existing record could not be looked up."
 msgstr ""
@@ -1490,6 +1540,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "This device"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "This file's disk is not registered."
 msgstr ""
 
 #: templates/media.html
@@ -1664,6 +1718,10 @@ msgstr ""
 msgid "When"
 msgstr ""
 
+#: templates/media_file.html
+msgid "Whole image"
+msgstr ""
+
 #: templates/import/_run_status.html
 msgid "Would create"
 msgstr ""
@@ -1710,6 +1768,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your session ended after a period of inactivity. Sign in again."
+msgstr ""
+
+#: templates/media_file.html
+msgid "of"
 msgstr ""
 
 #: templates/_upload.html

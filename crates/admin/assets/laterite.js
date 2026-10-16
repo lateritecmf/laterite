@@ -636,6 +636,132 @@ window.lat.widget('media-field', function (root) {
   return { ids: ids, set: write };
 });
 
+// The crop tool: a box over the image that is dragged to move and pulled by
+// its handle to resize, kept inside the image and to the chosen aspect. The
+// box lives in displayed pixels; the hidden inputs carry the rectangle in the
+// image's own pixels, which is what the server crops.
+window.lat.widget('crop', function (root) {
+  var stage = root.querySelector('[data-crop-stage]');
+  var img = root.querySelector('[data-crop-image]');
+  var box = root.querySelector('[data-crop-box]');
+  var handle = root.querySelector('[data-crop-handle]');
+  var aspectSel = root.querySelector('[data-crop-aspect]');
+  var reset = root.querySelector('[data-crop-reset]');
+  var size = root.querySelector('[data-crop-size]');
+  var inputs = {
+    x: root.querySelector('[data-crop-x]'), y: root.querySelector('[data-crop-y]'),
+    w: root.querySelector('[data-crop-w]'), h: root.querySelector('[data-crop-h]'),
+  };
+  if (!stage || !img || !box) return;
+  var full = { w: parseInt(root.getAttribute('data-width') || '0', 10), h: parseInt(root.getAttribute('data-height') || '0', 10) };
+  var sel = { x: 0, y: 0, w: 0, h: 0 };
+  var aspect = 0;
+
+  function frame() {
+    var r = img.getBoundingClientRect();
+    var s = stage.getBoundingClientRect();
+    return { left: r.left - s.left, top: r.top - s.top, w: r.width, h: r.height };
+  }
+  function scale() {
+    var f = frame();
+    return f.w ? full.w / f.w : 1;
+  }
+  function clamp() {
+    var f = frame();
+    sel.w = Math.max(8, Math.min(sel.w, f.w));
+    sel.h = Math.max(8, Math.min(sel.h, f.h));
+    if (aspect) {
+      if (sel.w / sel.h > aspect) sel.w = sel.h * aspect; else sel.h = sel.w / aspect;
+    }
+    sel.x = Math.max(0, Math.min(sel.x, f.w - sel.w));
+    sel.y = Math.max(0, Math.min(sel.y, f.h - sel.h));
+  }
+  function draw() {
+    clamp();
+    var f = frame();
+    box.style.left = (f.left + sel.x) + 'px';
+    box.style.top = (f.top + sel.y) + 'px';
+    box.style.width = sel.w + 'px';
+    box.style.height = sel.h + 'px';
+    var k = scale();
+    var out = {
+      x: Math.round(sel.x * k), y: Math.round(sel.y * k),
+      w: Math.max(1, Math.round(sel.w * k)), h: Math.max(1, Math.round(sel.h * k)),
+    };
+    if (out.x + out.w > full.w) out.w = full.w - out.x;
+    if (out.y + out.h > full.h) out.h = full.h - out.y;
+    Object.keys(out).forEach(function (key) { if (inputs[key]) inputs[key].value = out[key]; });
+    if (size) size.textContent = out.w + ' \u00d7 ' + out.h;
+    window.lat.emit(root, 'crop:changed', out);
+  }
+  function whole() {
+    // A record measured before sizes were kept reads its size from the image.
+    if (!full.w || !full.h) full = { w: img.naturalWidth, h: img.naturalHeight };
+    var f = frame();
+    sel = { x: 0, y: 0, w: f.w, h: f.h };
+    if (aspect) {
+      if (f.w / f.h > aspect) { sel.w = f.h * aspect; sel.x = (f.w - sel.w) / 2; }
+      else { sel.h = f.w / aspect; sel.y = (f.h - sel.h) / 2; }
+    }
+    draw();
+  }
+
+  var drag = null;
+  function point(e) {
+    var s = stage.getBoundingClientRect();
+    return { x: e.clientX - s.left, y: e.clientY - s.top };
+  }
+  box.addEventListener('pointerdown', function (e) {
+    var p = point(e);
+    var f = frame();
+    drag = e.target === handle
+      ? { mode: 'size', px: p.x, py: p.y, w: sel.w, h: sel.h }
+      : { mode: 'move', px: p.x, py: p.y, x: sel.x, y: sel.y, f: f };
+    box.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  box.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var p = point(e);
+    if (drag.mode === 'move') {
+      sel.x = drag.x + (p.x - drag.px);
+      sel.y = drag.y + (p.y - drag.py);
+    } else {
+      sel.w = drag.w + (p.x - drag.px);
+      sel.h = drag.h + (p.y - drag.py);
+    }
+    draw();
+  });
+  ['pointerup', 'pointercancel'].forEach(function (name) {
+    box.addEventListener(name, function () { drag = null; });
+  });
+  // A new box drawn on the bare image.
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.target !== stage && e.target !== img) return;
+    var p = point(e);
+    var f = frame();
+    sel = { x: p.x - f.left, y: p.y - f.top, w: 8, h: 8 };
+    drag = { mode: 'size', px: p.x, py: p.y, w: 8, h: 8 };
+    box.setPointerCapture(e.pointerId);
+    draw();
+    e.preventDefault();
+  });
+  if (aspectSel) {
+    aspectSel.addEventListener('change', function () {
+      var v = aspectSel.value;
+      aspect = v === 'original' ? (full.h ? full.w / full.h : 0) : parseFloat(v) || 0;
+      whole();
+    });
+  }
+  if (reset) reset.addEventListener('click', whole);
+  // The stage lays out once the dialog is open, so the box is placed then.
+  var dialog = root.closest('dialog');
+  if (dialog) dialog.addEventListener('lat:dialog:opened', function () { setTimeout(whole, 0); });
+  if (img.complete) setTimeout(whole, 0); else img.addEventListener('load', whole);
+  window.addEventListener('resize', draw);
+  return { selection: function () { return sel; }, whole: whole };
+});
+
 // Dropdown dismissal. A <details> stays open until its own summary is clicked
 // again, which is not what a dropdown is expected to do: choosing an item or
 // clicking away should close it. Bound once at the document, so a menu that

@@ -587,3 +587,81 @@ fn wide_png(w: u32, h: u32) -> Vec<u8> {
     chunk(&mut out, b"IEND", &[]);
     out
 }
+
+/// A crop keeps the format, lands as a new file in the folder by default, and
+/// rewrites the original in place when asked, dropping its variants.
+#[tokio::test]
+async fn an_image_is_cropped_to_a_new_file_or_in_place() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let (status, _) = upload(&app, &root, &[], &[("wide.png", &wide_png(400, 200))]).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let listed = laterite_media::library::list(&db, &laterite_media::library::Listing::default())
+        .await
+        .unwrap();
+    let r = listed.items[0].clone();
+    let (status, _, _) = get(
+        &app,
+        &format!("/storage/media/{}/thumb/wide.png", r.hash),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a variant exists before the replace"
+    );
+
+    let (status, location) = post(
+        &app,
+        &format!("/admin/media/{}/crop", r.id),
+        &root,
+        "x=100&y=50&w=200&h=100&mode=new",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let new_id: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
+    assert_ne!(new_id, r.id);
+    let copy = record::find(&db, new_id).await.unwrap().unwrap();
+    assert_eq!(copy.original_name, "wide-crop.png");
+    assert_eq!((copy.width, copy.height), (Some(200), Some(100)));
+    assert_eq!(copy.content_type, "image/png");
+    assert_eq!(copy.folder_id, r.folder_id);
+    assert!(dir
+        .path()
+        .join("media")
+        .join(blob_path(&copy.hash))
+        .is_file());
+
+    let (status, location) = post(
+        &app,
+        &format!("/admin/media/{}/crop", r.id),
+        &root,
+        "x=0&y=0&w=100&h=100&mode=replace",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(location, format!("/admin/media/{}", r.id));
+    let same = record::find(&db, r.id).await.unwrap().unwrap();
+    assert_ne!(same.hash, r.hash, "new bytes, new hash");
+    assert_eq!((same.width, same.height), (Some(100), Some(100)));
+    assert!(
+        laterite_media::variant::list_for(&db, r.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "variants of the old bytes are gone"
+    );
+    assert!(
+        !dir.path().join("media").join(blob_path(&r.hash)).exists(),
+        "the old blob had no other record"
+    );
+    let (status, html, _) = get(&app, &format!("/admin/media/{}", r.id), Some(&root)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("Image cropped.") && html.contains(r#"id="crop-image""#),
+        "{html}"
+    );
+}

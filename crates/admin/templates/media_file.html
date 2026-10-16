@@ -64,3 +64,40 @@
     </div>
   </div>
 </div>
+{% if may_crop %}
+<dialog class="lat-dialog lat-dialog--pick" id="crop-image">
+  <form method="post" action="{{ file_href }}/crop" class="lat-crop" data-lat-widget="crop" data-width="{{ width }}" data-height="{{ height }}">
+    {% let dialog_title = shell.t("Crop image") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body lat-dialog__body--flush">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <input type="hidden" name="x" value="0" data-crop-x>
+      <input type="hidden" name="y" value="0" data-crop-y>
+      <input type="hidden" name="w" value="{{ width }}" data-crop-w>
+      <input type="hidden" name="h" value="{{ height }}" data-crop-h>
+      <div class="lat-pane__bar">
+        <label class="lat-crop__aspect">{{ shell.t("Aspect") }}
+          <select class="lat-input lat-select" data-crop-aspect aria-label='{{ shell.t("Aspect") }}'>
+            <option value="0">{{ shell.t("Free") }}</option>
+            <option value="1">1:1</option>
+            <option value="1.3333">4:3</option>
+            <option value="1.5">3:2</option>
+            <option value="1.7778">16:9</option>
+            <option value="original">{{ shell.t("As the original") }}</option>
+          </select>
+        </label>
+        <span class="lat-help" style="margin:0"><span data-crop-size>{{ width }} × {{ height }}</span> {{ shell.t("of") }} {{ width }} × {{ height }}</span>
+        <button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-crop-reset style="margin-left:auto">{{ shell.t("Whole image") }}</button>
+      </div>
+      <div class="lat-crop__stage" data-crop-stage>
+        <img src="{{ file.preview_url }}" alt="" draggable="false" data-crop-image>
+        <div class="lat-crop__box" data-crop-box><span class="lat-crop__handle" data-crop-handle></span></div>
+      </div>
+      <div class="lat-pane__bar">
+        <label class="lat-check"><input type="radio" name="mode" value="new" checked> {{ shell.t("Save as a new file") }}</label>
+        <label class="lat-check"><input type="radio" name="mode" value="replace"> {{ shell.t("Replace this file") }}</label>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Crop") }}</button></div>
+  </form>
+</dialog>
+{% endif %}

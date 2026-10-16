@@ -168,6 +168,7 @@ impl Screen for MediaScreen {
             .route("/{id}", get(file))
             .route("/{id}/update", post(update_file))
             .route("/{id}/move", post(move_file))
+            .route("/{id}/crop", post(crop_file))
             .route("/{id}/delete", post(delete_file))
             .with_state(state)
     }
@@ -644,6 +645,8 @@ struct FileActionsTemplate {
     file_href: String,
     may_delete: bool,
     linked: bool,
+    /// Whether the file is an image the operator may crop.
+    may_crop: bool,
 }
 
 struct FileView {
@@ -1292,6 +1295,10 @@ struct FolderChoice {
 struct FileTemplate {
     shell: Shell,
     file_href: String,
+    /// The image's size, for the crop dialog; zero for anything else.
+    width: i64,
+    height: i64,
+    may_crop: bool,
     file: FileView,
     original_name: String,
     title: String,
@@ -1317,9 +1324,19 @@ async fn file(
     Path(id): Path<i64>,
 ) -> Response {
     let ctx = &app.ctx;
-    let Some(r) = load(ctx, id).await else {
+    let Some(mut r) = load(ctx, id).await else {
         return AdminError::NotFound.into_response();
     };
+    // An image stored before sizes were recorded is measured the first time
+    // its page opens, so the crop dialog and the templates have its size.
+    if r.width.is_none() && r.kind() == Kind::Image && r.content_type != "image/svg+xml" {
+        let measured = measure(&app, &r).await;
+        if let Some((w, h)) = measured {
+            let _ = record::set_dimensions(ctx.db(), id, Some(w), Some(h)).await;
+            r.width = Some(w);
+            r.height = Some(h);
+        }
+    }
     let users: Vec<UserView> = link::users_of(ctx.db(), id)
         .await
         .unwrap_or_default()
@@ -1351,12 +1368,14 @@ async fn file(
     } else {
         user.permissions.allows(DELETE)
     };
+    let may_crop = user.permissions.allows(MANAGE) && view.is_image;
     let actions = Markup::from_template(&FileActionsTemplate {
         shell: shell.clone(),
         url: view.url.clone(),
         file_href: ctx.url(&id.to_string()),
         may_delete,
         linked,
+        may_crop,
     })
     .unwrap_or_else(|_| Markup::empty());
     page_with(
@@ -1373,6 +1392,9 @@ async fn file(
             .actions(actions),
         &FileTemplate {
             file_href: ctx.url(&id.to_string()),
+            width: r.width.unwrap_or(0),
+            height: r.height.unwrap_or(0),
+            may_crop,
             file: view,
             original_name: r.original_name.clone(),
             title: r.title.clone().unwrap_or_default(),
@@ -1390,6 +1412,25 @@ async fn file(
     )
 }
 
+/// An image's size read from its blob's header.
+async fn measure(app: &AppState, r: &MediaRecord) -> Option<(i64, i64)> {
+    use futures::TryStreamExt;
+    let driver = Arc::clone(&app.disks.by_name.get(&r.disk)?.0);
+    let path = blob_path(&r.hash);
+    let mut stream = driver.get(&path).await.ok()?;
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Ok(Some(chunk)) = stream.try_next().await {
+        bytes.extend_from_slice(&chunk);
+        // Every header this reader understands sits in the first kilobytes,
+        // except a JPEG whose metadata comes first; a megabyte covers both.
+        if bytes.len() > 1024 * 1024 {
+            break;
+        }
+    }
+    let (w, h) = laterite_media::image::header_dimensions(&bytes)?;
+    Some((i64::from(w), i64::from(h)))
+}
+
 /// The name of the folder a file sits in, for the way back; empty at the root.
 async fn ancestors_name(ctx: &RouteCtx, folder_id: Option<i64>) -> String {
     match folder_id {
@@ -1401,6 +1442,201 @@ async fn ancestors_name(ctx: &RouteCtx, folder_id: Option<i64>) -> String {
             .unwrap_or_default(),
         None => String::new(),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct CropForm {
+    #[serde(default)]
+    x: u32,
+    #[serde(default)]
+    y: u32,
+    #[serde(default)]
+    w: u32,
+    #[serde(default)]
+    h: u32,
+    /// `new` (the default) stores the crop as another file beside the
+    /// original; `replace` rewrites this file's bytes.
+    #[serde(default)]
+    mode: String,
+}
+
+/// Crops an image to the rectangle the operator drew, as a new file in the
+/// same folder or in place of the original.
+async fn crop_file(
+    State(app): App,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+    Form(form): Form<CropForm>,
+) -> Response {
+    if !user.permissions.allows(MANAGE) {
+        return forbidden();
+    }
+    let ctx = &app.ctx;
+    let here = ctx.url(&id.to_string());
+    let Some(r) = load(ctx, id).await else {
+        return AdminError::NotFound.into_response();
+    };
+    if r.kind() != Kind::Image || r.content_type == "image/svg+xml" {
+        session.push_flash(FlashLevel::Error, t!("Only an image can be cropped."));
+        return Redirect::to(&here).into_response();
+    }
+    if form.w == 0 || form.h == 0 {
+        session.push_flash(FlashLevel::Error, t!("Draw the area to keep first."));
+        return Redirect::to(&here).into_response();
+    }
+    let Some((driver, _)) = app.disks.by_name.get(&r.disk) else {
+        session.push_flash(FlashLevel::Error, t!("This file's disk is not registered."));
+        return Redirect::to(&here).into_response();
+    };
+    let mut bytes: Vec<u8> = Vec::with_capacity(usize::try_from(r.size).unwrap_or(0));
+    let mut stream = match driver.get(&blob_path(&r.hash)).await {
+        Ok(s) => s,
+        Err(_) => return AdminError::NotFound.into_response(),
+    };
+    use futures::TryStreamExt;
+    while let Ok(Some(chunk)) = stream.try_next().await {
+        bytes.extend_from_slice(&chunk);
+    }
+    let orientation = r
+        .meta
+        .get("orientation")
+        .and_then(|o| o.as_u64())
+        .and_then(|o| u8::try_from(o).ok())
+        .unwrap_or(1);
+    let rect = laterite_media::image::Rect {
+        x: form.x,
+        y: form.y,
+        width: form.w,
+        height: form.h,
+    };
+    let rendered = match tokio::task::spawn_blocking(move || {
+        laterite_media::image::crop(&bytes, rect, orientation)
+    })
+    .await
+    {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => {
+            session.push_flash(FlashLevel::Error, Text::dynamic(e.to_string()));
+            return Redirect::to(&here).into_response();
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "a crop task failed");
+            return AdminError::Internal(anyhow::anyhow!(e)).into_response();
+        }
+    };
+    let ingested = match ingest(
+        driver.as_ref(),
+        stream_of(rendered.bytes.clone()),
+        UPLOAD_LIMIT,
+    )
+    .await
+    {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::error!(error = %e, "a crop could not be stored");
+            session.push_flash(FlashLevel::Error, t!("The crop could not be stored."));
+            return Redirect::to(&here).into_response();
+        }
+    };
+    let (width, height) = (
+        Some(i64::from(rendered.width)),
+        Some(i64::from(rendered.height)),
+    );
+    if form.mode == "replace" {
+        let variants = variant::list_for(ctx.db(), id).await.unwrap_or_default();
+        let _ = variant::delete_for(ctx.db(), id).await;
+        for v in &variants {
+            let _ = driver.delete(&v.path).await;
+        }
+        let old_hash = r.hash.clone();
+        if let Err(e) = record::replace_blob(
+            ctx.db(),
+            id,
+            &ingested.hash,
+            ingested.size as i64,
+            &ingested.content_type,
+            width,
+            height,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "a crop could not be recorded");
+            return AdminError::Internal(anyhow::anyhow!(e)).into_response();
+        }
+        // The old bytes go when this was their last record.
+        let still_used = record::find_all_by_hash(ctx.db(), &old_hash)
+            .await
+            .map(|rs| rs.iter().any(|x| x.disk == r.disk))
+            .unwrap_or(true);
+        if !still_used && old_hash != ingested.hash {
+            let _ = driver.delete(&blob_path(&old_hash)).await;
+        }
+        ctx.audit(
+            &user,
+            "media.crop",
+            Some("media"),
+            Some(&id.to_string()),
+            Some(&r.original_name),
+            Some(&format!(
+                "{{\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"replaced\":true}}",
+                form.x, form.y, form.w, form.h
+            )),
+        )
+        .await;
+        session.push_flash(FlashLevel::Success, t!("Image cropped."));
+        return Redirect::to(&here).into_response();
+    }
+    let name = cropped_name(&r.original_name, rendered.extension);
+    let new_id = match record::create_with(
+        ctx.db(),
+        NewMedia {
+            disk: r.disk.clone(),
+            hash: ingested.hash,
+            size: ingested.size as i64,
+            content_type: ingested.content_type,
+            original_name: name.clone(),
+            in_library: true,
+            created_by: Some(user.user.id),
+        },
+        NewMediaExtra {
+            folder_id: r.folder_id,
+            width,
+            height,
+            meta: None,
+        },
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(error = %e, "a crop could not be recorded");
+            return AdminError::Internal(anyhow::anyhow!(e)).into_response();
+        }
+    };
+    ctx.audit(
+        &user,
+        "media.crop",
+        Some("media"),
+        Some(&new_id.to_string()),
+        Some(&name),
+        Some(&format!(
+            "{{\"from\":{id},\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
+            form.x, form.y, form.w, form.h
+        )),
+    )
+    .await;
+    session.push_flash(FlashLevel::Success, t!("Cropped copy saved."));
+    Redirect::to(&ctx.url(&new_id.to_string())).into_response()
+}
+
+/// `photo.jpg` cropped becomes `photo-crop.jpg`, in the crop's own format.
+fn cropped_name(original: &str, extension: &str) -> String {
+    let stem = match original.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => original,
+    };
+    format!("{stem}-crop.{extension}")
 }
 
 #[derive(serde::Deserialize)]

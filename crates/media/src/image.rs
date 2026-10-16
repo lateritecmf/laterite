@@ -141,6 +141,57 @@ pub fn render(bytes: &[u8], preset: &Preset, orientation: u8) -> Result<Rendered
     encode(&img, preset)
 }
 
+/// A rectangle of the source, in its oriented pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Crops `bytes` to `rect` (clamped to the image) in the source's own format:
+/// PNG stays PNG, JPEG stays JPEG, WebP stays WebP, anything else becomes
+/// PNG. Orientation is baked in first, so the rectangle is what the viewer
+/// saw. CPU-bound: call it from a blocking thread.
+pub fn crop(bytes: &[u8], rect: Rect, orientation: u8) -> Result<Rendered, ImageError> {
+    let (w, h) = header_dimensions(bytes).ok_or(ImageError::Unsupported)?;
+    if w > MAX_SIDE || h > MAX_SIDE || u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(ImageError::TooLarge {
+            width: w,
+            height: h,
+        });
+    }
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| ImageError::Decode(e.to_string()))?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_ALLOC);
+    reader.limits(limits);
+    let format = reader.format();
+    let decoder = reader
+        .into_decoder()
+        .map_err(|e| ImageError::Decode(e.to_string()))?;
+    let mut img =
+        DynamicImage::from_decoder(decoder).map_err(|e| ImageError::Decode(e.to_string()))?;
+    if let Some(o) = Orientation::from_exif(orientation) {
+        img.apply_orientation(o);
+    }
+    let x = rect.x.min(img.width().saturating_sub(1));
+    let y = rect.y.min(img.height().saturating_sub(1));
+    let width = rect.width.clamp(1, img.width() - x);
+    let height = rect.height.clamp(1, img.height() - y);
+    let cropped = img.crop_imm(x, y, width, height);
+    let keep = match format {
+        Some(image::ImageFormat::Jpeg) => Format::Jpeg,
+        Some(image::ImageFormat::WebP) => Format::WebP,
+        _ => Format::Png,
+    };
+    encode(&cropped, &Preset::new("crop").format(keep).quality(90))
+}
+
 fn fit(img: DynamicImage, preset: &Preset) -> DynamicImage {
     use image::imageops::FilterType::Lanczos3;
     let (sw, sh) = (img.width(), img.height());
@@ -258,6 +309,38 @@ mod tests {
         assert_eq!(clear.content_type, "image/png", "transparent: PNG");
         let webp = render(&src, &Preset::new("t").width(10).format(Format::WebP), 1).unwrap();
         assert_eq!(webp.content_type, "image/webp");
+    }
+
+    #[test]
+    fn a_crop_keeps_the_format_and_clamps_to_the_image() {
+        let src = png(400, 200);
+        let out = crop(
+            &src,
+            Rect {
+                x: 100,
+                y: 50,
+                width: 200,
+                height: 100,
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            (out.width, out.height, out.content_type),
+            (200, 100, "image/png")
+        );
+        let past = crop(
+            &src,
+            Rect {
+                x: 350,
+                y: 150,
+                width: 500,
+                height: 500,
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!((past.width, past.height), (50, 50));
     }
 
     #[test]
