@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-10-16
+
+The media library: folders, links and the browser, private-disk serving behind a
+signed URL with `lat media gc` and `verify`, named-preset variants, the `media`
+field with its picker, an S3-compatible disk behind a feature, cropping, and
+direct uploads through a quarantine prefix; the Themes and Media screens laid out
+on dialogs, panes and attached toolbars, with the uploader widget.
+
 ### Added
 
 - The media library: the Media tab with virtual folders, upload, search, a kind filter

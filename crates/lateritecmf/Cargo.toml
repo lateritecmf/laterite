@@ -1,6 +1,6 @@
 [package]
 name = "lateritecmf"
-version = "0.9.15"
+version = "0.9.16"
 description = "Laterite CMF: the one crate an application depends on, re-exporting the framework with its driver features"
 edition.workspace = true
 license.workspace = true
