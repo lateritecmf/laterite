@@ -205,6 +205,10 @@ msgstr ""
 msgid "Check the values and try again."
 msgstr ""
 
+#: templates/_upload.html
+msgid "Choose a file"
+msgstr ""
+
 #: src/import/pages.rs
 msgid "Choose a file to import."
 msgstr ""
@@ -217,6 +221,10 @@ msgstr ""
 msgid "Choose a section from the list to configure it."
 msgstr ""
 
+#: templates/_upload.html
+msgid "Choose files"
+msgstr ""
+
 #: templates/list.html
 msgid "Clear"
 msgstr ""
@@ -226,6 +234,7 @@ msgid "Client"
 msgstr ""
 
 #: templates/_dialog_head.html
+#: templates/media.html
 msgid "Close"
 msgstr ""
 
@@ -257,6 +266,18 @@ msgstr ""
 
 #: templates/import/index.html
 msgid "Continue"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Could not be recorded."
+msgstr ""
+
+#: templates/_upload.html
+msgid "Could not be stored"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Could not be stored."
 msgstr ""
 
 #: src/lib.rs
@@ -545,10 +566,6 @@ msgstr ""
 msgid "File saved."
 msgstr ""
 
-#: templates/media.html
-msgid "Files"
-msgstr ""
-
 #: templates/palette.html
 msgid "Find"
 msgstr ""
@@ -646,14 +663,6 @@ msgstr ""
 msgid "Inherit"
 msgstr ""
 
-#: templates/media.html
-msgid "Into the library. Identical files are stored once."
-msgstr ""
-
-#: templates/media.html
-msgid "Into this folder. Identical files are stored once."
-msgstr ""
-
 #: src/lib.rs
 msgid "Invalid username or password."
 msgstr ""
@@ -669,6 +678,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Language"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "Larger than the upload limit."
 msgstr ""
 
 #: templates/preferences.html
@@ -1293,6 +1306,10 @@ msgstr ""
 msgid "Stay signed in"
 msgstr ""
 
+#: templates/_upload.html
+msgid "Stored"
+msgstr ""
+
 #: (descriptors)
 msgid "Superuser"
 msgstr ""
@@ -1549,6 +1566,10 @@ msgstr ""
 msgid "Uploaded {n} file(s)."
 msgstr ""
 
+#: templates/_upload.html
+msgid "Uploading"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Use the deployment default"
 msgstr ""
@@ -1665,6 +1686,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your session ended after a period of inactivity. Sign in again."
+msgstr ""
+
+#: templates/_upload.html
+msgid "or drop it here"
 msgstr ""
 
 #: src/import/pages.rs

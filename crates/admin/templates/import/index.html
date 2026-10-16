@@ -4,8 +4,14 @@
     <div class="lat-fields">
       <div class="lat-field">
         <label class="lat-field__label" for="file">{{ shell.t("File") }}<span class="lat-field__req">*</span></label>
-        <input class="lat-input" type="file" id="file" name="file" accept=".csv,text/csv" required>
-        <p class="lat-help">{{ shell.t("A CSV file, read as UTF-8.") }} <a href="{{ template }}">{{ shell.t("Download a template with the right columns.") }}</a></p>
+        {% let upload_id = "file" %}
+        {% let upload_accept = ".csv,text/csv" %}
+        {% let upload_multiple = false %}
+        {% let upload_url = String::new() %}
+        {% let upload_fields = String::new() %}
+        {% let upload_hint = String::new() %}
+        {% include "_upload.html" %}
+        <p class="lat-help" style="margin-top:8px">{{ shell.t("A CSV file, read as UTF-8.") }} <a href="{{ template }}">{{ shell.t("Download a template with the right columns.") }}</a></p>
       </div>
       <div class="lat-field">
         <label class="lat-check"><input type="checkbox" name="titles" value="1" checked> {{ shell.t("The first row holds the column titles") }}</label>

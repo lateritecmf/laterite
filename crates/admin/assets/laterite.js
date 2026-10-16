@@ -344,6 +344,133 @@ document.addEventListener('htmx:sendError', latRequestFailed);
   });
 })();
 
+// The uploader: a drop zone over a file input. Given data-upload-url it sends
+// each picked or dropped file itself, one request per file, with the request
+// token first in the body as the upload guard requires and data-upload-fields
+// ("folder=3") before the file; a row per file shows progress and the outcome,
+// and the page reloads once every file is stored. Without the URL it is the
+// styled field of an ordinary form: it names what was picked and the form
+// submits as it always did.
+window.lat.widget('upload', function (root) {
+  var input = root.querySelector('input[type=file]');
+  var list = root.querySelector('.lat-upload__list');
+  var url = root.getAttribute('data-upload-url');
+  var form = root.closest('form');
+  if (!input || !list) return;
+  var words = {
+    uploading: root.getAttribute('data-lat-uploading') || 'Uploading',
+    stored: root.getAttribute('data-lat-stored') || 'Stored',
+    failed: root.getAttribute('data-lat-failed') || 'Could not be stored',
+  };
+  var pending = 0;
+  var failures = 0;
+
+  function size(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function row(file) {
+    var li = document.createElement('li');
+    li.className = 'lat-upload__item';
+    li.innerHTML =
+      '<span class="lat-upload__name"></span><span class="lat-upload__size"></span>' +
+      (url ? '<span class="lat-upload__bar"><i></i></span><span class="lat-upload__status"></span>' : '');
+    li.querySelector('.lat-upload__name').textContent = file.name;
+    li.querySelector('.lat-upload__size').textContent = size(file.size);
+    list.appendChild(li);
+    return li;
+  }
+
+  function finish(li, ok, text) {
+    li.classList.add(ok ? 'is-done' : 'is-failed');
+    li.querySelector('.lat-upload__status').textContent = text;
+    if (!ok) failures += 1;
+    pending -= 1;
+    window.lat.emit(root, ok ? 'upload:stored' : 'upload:failed', { name: li.querySelector('.lat-upload__name').textContent, reason: text });
+    if (pending === 0) {
+      window.lat.emit(root, 'upload:done', { failed: failures });
+      if (failures === 0) setTimeout(function () { location.reload(); }, 350);
+    }
+  }
+
+  function send(file, li) {
+    var body = new FormData();
+    var token = form && form.querySelector('input[name="_csrf"]');
+    if (token) body.append('_csrf', token.value);
+    (root.getAttribute('data-upload-fields') || '').split(';').forEach(function (pair) {
+      var at = pair.indexOf('=');
+      if (at > 0) body.append(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+    });
+    body.append(input.name || 'file', file, file.name);
+    var xhr = new XMLHttpRequest();
+    var bar = li.querySelector('.lat-upload__bar i');
+    var status = li.querySelector('.lat-upload__status');
+    status.textContent = words.uploading;
+    xhr.upload.addEventListener('progress', function (e) {
+      if (e.lengthComputable) bar.style.width = Math.round((e.loaded / e.total) * 100) + '%';
+    });
+    xhr.addEventListener('load', function () {
+      var out = null;
+      try { out = JSON.parse(xhr.responseText); } catch (e) { out = null; }
+      var stored = out && out.stored && out.stored[0];
+      var refused = out && out.refused && out.refused[0];
+      if (xhr.status === 200 && stored) finish(li, true, words.stored);
+      else finish(li, false, (refused && refused.reason) || words.failed);
+    });
+    xhr.addEventListener('error', function () { finish(li, false, words.failed); });
+    xhr.open('POST', url);
+    xhr.setRequestHeader('X-Requested-With', 'fetch');
+    xhr.send(body);
+  }
+
+  function take(files) {
+    var picked = Array.prototype.slice.call(files || []);
+    if (!picked.length) return;
+    if (!url) {
+      list.innerHTML = '';
+      picked.forEach(row);
+      window.lat.emit(root, 'upload:picked', { count: picked.length });
+      return;
+    }
+    if (!window.lat.emit(root, 'upload:before-send', { count: picked.length }, true)) return;
+    picked.forEach(function (file) {
+      pending += 1;
+      send(file, row(file));
+    });
+  }
+
+  if (url) {
+    // The zone sends, so the form's own button and requirement step aside.
+    input.required = false;
+    var submit = form && form.querySelector('[data-upload-submit]');
+    if (submit) submit.hidden = true;
+  }
+  input.addEventListener('change', function () {
+    take(input.files);
+    if (url) input.value = '';
+  });
+  ['dragenter', 'dragover'].forEach(function (name) {
+    root.addEventListener(name, function (e) { e.preventDefault(); root.classList.add('is-dragging'); });
+  });
+  ['dragleave', 'drop'].forEach(function (name) {
+    root.addEventListener(name, function (e) { e.preventDefault(); root.classList.remove('is-dragging'); });
+  });
+  root.addEventListener('drop', function (e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    if (url) {
+      take(files);
+    } else {
+      // Dropped into the field: the form submits them as if picked.
+      try { input.files = files; } catch (err) { /* an older engine: pick instead */ }
+      take(input.files);
+    }
+  });
+  return { take: take };
+});
+
 // Dropdown dismissal. A <details> stays open until its own summary is clicked
 // again, which is not what a dropdown is expected to do: choosing an item or
 // clicking away should close it. Bound once at the document, so a menu that

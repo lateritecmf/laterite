@@ -52,15 +52,46 @@ async fn receive(mut upload: VerifiedUpload) -> impl IntoResponse {
 ```
 
 ```html
-<form method="post" enctype="multipart/form-data">
-  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-  <input type="file" name="file">
+<form method="post" action="{{ action }}" enctype="multipart/form-data">
+  <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+  {% let upload_id = "file" %}
+  {% let upload_accept = ".csv" %}
+  {% let upload_multiple = false %}
+  {% let upload_url = String::new() %}
+  {% let upload_fields = String::new() %}
+  {% let upload_hint = shell.t("A CSV file.") %}
+  {% include "_upload.html" %}
+  <button class="lat-btn lat-btn--primary" type="submit" data-upload-submit>{{ shell.t("Upload") }}</button>
 </form>
 ```
 
 `_csrf` comes first in the form, or arrives as the `X-CSRF-Token` header. A
 route that parses the upload without `VerifiedUpload` has its response
 refused.
+
+Variable | Value
+--- | ---
+`upload_id` | The input's id, for its label.
+`upload_accept` | An `accept` list, or empty.
+`upload_multiple` | `true` for several files.
+`upload_url` | Empty: the form submits the file. A URL: the zone posts each file there itself, with `_csrf` first and `X-Requested-With: fetch`, shows its progress, and reloads once every file is stored.
+`upload_fields` | Fields sent before each file (`folder=3;kind=image`).
+`upload_hint` | A line under the prompt.
+`data-upload-submit` | On the form's button: hidden while the zone sends.
+
+A route the zone posts to answers JSON:
+
+```json
+{"stored": [{"id": 7, "name": "cover.png", "href": "/admin/media/7", "url": "/storage/media/<hash>/cover.png"}],
+ "refused": [{"name": "huge.mov", "reason": "Larger than the upload limit."}]}
+```
+
+Event | Detail
+--- | ---
+`lat:upload:picked` | `{count}`, in a form.
+`lat:upload:before-send` | `{count}`, cancelable.
+`lat:upload:stored`, `lat:upload:failed` | `{name, reason}` per file.
+`lat:upload:done` | `{failed}` once every file answered.
 
 ## Declare disks
 

@@ -1,0 +1,9 @@
+<div class="lat-upload" data-lat-widget="upload"{% if !upload_url.is_empty() %} data-upload-url="{{ upload_url }}" data-upload-fields="{{ upload_fields }}"{% endif %} data-lat-uploading='{{ shell.t("Uploading") }}' data-lat-stored='{{ shell.t("Stored") }}' data-lat-failed='{{ shell.t("Could not be stored") }}'>
+  <label class="lat-upload__zone">
+    <input class="lat-upload__input" type="file" id="{{ upload_id }}" name="file"{% if !upload_accept.is_empty() %} accept="{{ upload_accept }}"{% endif %}{% if upload_multiple %} multiple{% endif %} required>
+    <span class="lat-upload__icon" aria-hidden="true">{{ shell.icon("upload")|safe }}</span>
+    <span class="lat-upload__text"><strong>{% if upload_multiple %}{{ shell.t("Choose files") }}{% else %}{{ shell.t("Choose a file") }}{% endif %}</strong> {{ shell.t("or drop it here") }}</span>
+    {% if !upload_hint.is_empty() %}<span class="lat-upload__hint">{{ upload_hint }}</span>{% endif %}
+  </label>
+  <ul class="lat-upload__list" aria-live="polite"></ul>
+</div>

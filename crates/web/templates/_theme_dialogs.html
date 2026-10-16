@@ -26,8 +26,13 @@
       <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
       <div class="lat-field">
         <label class="lat-field__label" for="import-file">{{ shell.t("Archive") }}<span class="lat-field__req">*</span></label>
-        <input class="lat-input" id="import-file" type="file" name="file" accept=".zip,application/zip" required>
-        <p class="lat-field__help">{{ shell.t("A zip as Export writes it: theme.yaml and one file per template under its kind's folder.") }}</p>
+        {% let upload_id = "import-file" %}
+        {% let upload_accept = ".zip,application/zip" %}
+        {% let upload_multiple = false %}
+        {% let upload_url = String::new() %}
+        {% let upload_fields = String::new() %}
+        {% let upload_hint = shell.t("A zip as Export writes it: theme.yaml and one file per template under its kind's folder.") %}
+        {% include "_upload.html" %}
       </div>
       <div class="lat-field">
         <label class="lat-field__label"><input type="checkbox" name="replace" value="1"> {{ shell.t("Replace templates this theme already has") }}</label>

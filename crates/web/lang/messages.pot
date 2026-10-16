@@ -55,8 +55,16 @@ msgstr ""
 msgid "Child theme of {name}"
 msgstr ""
 
+#: templates/_upload.html
+msgid "Choose a file"
+msgstr ""
+
 #: src/theme/admin/mod.rs
 msgid "Choose a zip to import."
+msgstr ""
+
+#: templates/_upload.html
+msgid "Choose files"
 msgstr ""
 
 #: templates/_dialog_head.html
@@ -74,6 +82,10 @@ msgstr ""
 
 #: src/theme/admin/mod.rs
 msgid "Components must be a JSON object keyed by alias."
+msgstr ""
+
+#: templates/_upload.html
+msgid "Could not be stored"
 msgstr ""
 
 #: templates/_theme_dialogs.html
@@ -316,6 +328,10 @@ msgstr ""
 msgid "Stop previewing"
 msgstr ""
 
+#: templates/_upload.html
+msgid "Stored"
+msgstr ""
+
 #: src/theme/maintenance.rs
 msgid "Take the site down for visitors while you work on it."
 msgstr ""
@@ -391,6 +407,10 @@ msgstr ""
 msgid "Unlock"
 msgstr ""
 
+#: templates/_upload.html
+msgid "Uploading"
+msgstr ""
+
 #: src/theme/admin/mod.rs
 #: src/theme/maintenance.rs
 msgid "Website"
@@ -406,4 +426,8 @@ msgstr ""
 
 #: templates/_theme_nav.html
 msgid "from {theme}"
+msgstr ""
+
+#: templates/_upload.html
+msgid "or drop it here"
 msgstr ""

@@ -102,6 +102,7 @@
 *,*::before,*::after{box-sizing:border-box}
 html{color-scheme:light}
 html[data-theme="dark"]{color-scheme:dark}
+[hidden]{display:none!important}
 body{margin:0;background:var(--surface-page);color:var(--text-body);font-family:var(--font-body);font-size:var(--fs-14);line-height:var(--lh-normal);-webkit-font-smoothing:antialiased}
 h1,h2,h3,h4,h5{font-family:var(--font-display);color:var(--text-heading);letter-spacing:var(--ls-display);margin:0;font-weight:var(--fw-semibold);line-height:var(--lh-snug)}
 h1{font-size:var(--fs-32)}h2{font-size:var(--fs-24)}h3{font-size:var(--fs-18)}
@@ -717,6 +718,29 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-theme__controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .lat-theme__controls form{margin:0}
 .lat-themes__links{display:flex;gap:24px;flex-wrap:wrap;padding:18px 28px;border-top:1px solid var(--border-subtle);background:var(--surface-raised);font-size:var(--fs-13)}
+/* The uploader: a drop zone over the file input, the picked files listed with
+   their progress when the zone sends them itself. */
+.lat-upload{display:block}
+.lat-upload__zone{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:26px 16px;border:2px dashed var(--border-default);border-radius:var(--radius-card);background:var(--surface-raised);text-align:center;cursor:pointer;transition:var(--transition-control)}
+.lat-upload__zone:hover,.lat-upload.is-dragging .lat-upload__zone{border-color:var(--accent);background:var(--accent-subtle)}
+.lat-upload__zone:focus-within{border-color:var(--accent);box-shadow:var(--ring-focus)}
+.lat-upload__input{position:absolute;width:1px;height:1px;margin:0;opacity:0;overflow:hidden;clip:rect(0 0 0 0)}
+.lat-upload__icon{display:flex;color:var(--text-muted)}
+.lat-upload__icon svg{width:28px;height:28px}
+.lat-upload__text{font-size:var(--fs-13);color:var(--text-body)}
+.lat-upload__text strong{color:var(--accent);font-weight:var(--fw-semibold)}
+.lat-upload__hint{font-size:var(--fs-12);color:var(--text-muted)}
+.lat-upload__list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.lat-upload__list:empty{display:none}
+.lat-upload__item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);font-size:var(--fs-13)}
+.lat-upload__name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lat-upload__size{font-size:var(--fs-12);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.lat-upload__bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--border-subtle);overflow:hidden}
+.lat-upload__bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s linear}
+.lat-upload__item.is-done .lat-upload__bar i{background:var(--success);width:100%}
+.lat-upload__item.is-failed .lat-upload__bar i{background:var(--danger);width:100%}
+.lat-upload__status{grid-column:1/-1;font-size:var(--fs-12);color:var(--text-muted)}
+.lat-upload__item.is-failed .lat-upload__status{color:var(--danger)}
 /* The media library: a grid of folders and files with a thumbnail. */
 .lat-media-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));padding:14px}
 .lat-media-card{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);color:var(--text-body);text-decoration:none;min-width:0}

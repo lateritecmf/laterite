@@ -20,6 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `StorageDriver::signed_url` for a store that presigns.
 - `PageHead` with `Shell::page_with` (a back link and actions beside the title),
   `dialog.lat-dialog` opened by `data-lat-dialog`, and the `lat-split`/`lat-pane` layout.
+- The uploader (`_upload.html`, widget `upload`): a drop zone that sends each file itself
+  with progress, or stands as the file field of a form; the media upload answers it in JSON.
 
 ### Changed
 

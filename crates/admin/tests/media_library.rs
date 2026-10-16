@@ -427,3 +427,44 @@ async fn a_private_file_serves_only_behind_a_live_signature() {
         "the token is bound to its hash"
     );
 }
+
+/// The uploader widget sends one file per request and reads a JSON answer
+/// naming what was stored and what was refused, with no redirect.
+#[tokio::test]
+async fn the_uploader_gets_a_json_answer_per_file() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/media/upload")
+        .header("cookie", format!("{SESSION_COOKIE}={root}"))
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", "tok-123")
+        .header("x-requested-with", "fetch")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(multipart(&[], &[("dropped.png", &png(9))])))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["stored"][0]["name"], "dropped.png");
+    assert!(json["stored"][0]["url"]
+        .as_str()
+        .unwrap()
+        .starts_with("/storage/media/"));
+    assert_eq!(json["refused"].as_array().unwrap().len(), 0);
+    let (status, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("dropped.png") && html.contains("lat-upload__zone"),
+        "{html}"
+    );
+}

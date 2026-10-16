@@ -402,6 +402,10 @@ struct IndexTemplate {
     base: String,
     /// The library's root under the current kind and sort.
     library_href: String,
+    upload_url: String,
+    /// The fields the uploader sends before each file (`folder=3`).
+    upload_fields: String,
+    upload_hint: String,
     folder: Option<i64>,
     folder_name: String,
     crumbs: Vec<CrumbView>,
@@ -632,6 +636,13 @@ async fn index(
         PageHead::new(t!("Media")).actions(actions),
         &IndexTemplate {
             library_href: browse_href(&base, None, "", &kind_name, &sort_name, 1),
+            upload_url: format!("{base}/upload"),
+            upload_fields: folder_id.map(|f| format!("folder={f}")).unwrap_or_default(),
+            upload_hint: if crumbs.is_empty() {
+                shell.t("Into the library. Identical files are stored once.")
+            } else {
+                shell.t("Into this folder. Identical files are stored once.")
+            },
             folder_name,
             kind_links,
             sort_links,
@@ -667,19 +678,47 @@ fn forbidden() -> Response {
     AdminError::Forbidden.into_response()
 }
 
+/// One file the uploader stored, as its JSON answer names it.
+#[derive(serde::Serialize)]
+struct StoredFile {
+    id: i64,
+    name: String,
+    href: String,
+    url: String,
+}
+
+/// One file the uploader refused, and why.
+#[derive(serde::Serialize)]
+struct RefusedFile {
+    name: String,
+    reason: String,
+}
+
 async fn upload(
     State(app): App,
+    Extension(shell): Extension<Shell>,
     Extension(session): Extension<SessionHandle>,
     Extension(user): Extension<AuthenticatedUser>,
+    headers: HeaderMap,
     mut upload: VerifiedUpload,
 ) -> Response {
     if !user.permissions.allows(UPLOAD) {
         return forbidden();
     }
+    // The uploader widget sends one file per request and reads the answer;
+    // a plain form submit is redirected back to the folder with a flash.
+    let from_script = headers
+        .get("x-requested-with")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "fetch");
     let ctx = &app.ctx;
     let mut folder_id: Option<i64> = None;
-    let mut stored = 0usize;
-    let mut refused: Vec<String> = Vec::new();
+    let mut stored: Vec<StoredFile> = Vec::new();
+    let mut refused: Vec<RefusedFile> = Vec::new();
+    let refuse = |name: String, reason: Text| RefusedFile {
+        name,
+        reason: shell.tt(&reason),
+    };
     while let Ok(Some(mut field)) = upload.next_field().await {
         match field.name().unwrap_or_default() {
             "folder" => {
@@ -705,7 +744,7 @@ async fn upload(
                     bytes.extend_from_slice(&chunk);
                 }
                 if too_large {
-                    refused.push(name);
+                    refused.push(refuse(name, t!("Larger than the upload limit.")));
                     continue;
                 }
                 if bytes.is_empty() {
@@ -721,7 +760,7 @@ async fn upload(
                     Ok(i) => i,
                     Err(e) => {
                         tracing::error!(error = %e, "a library upload could not be stored");
-                        refused.push(name);
+                        refused.push(refuse(name, t!("Could not be stored.")));
                         continue;
                     }
                 };
@@ -746,7 +785,7 @@ async fn upload(
                     Ok(id) => id,
                     Err(e) => {
                         tracing::error!(error = %e, "a library record could not be written");
-                        refused.push(name);
+                        refused.push(refuse(name, t!("Could not be recorded.")));
                         continue;
                     }
                 };
@@ -759,27 +798,41 @@ async fn upload(
                     None,
                 )
                 .await;
-                stored += 1;
+                let url = match record::find(ctx.db(), id).await {
+                    Ok(Some(r)) => admin_url(&app, &r),
+                    _ => String::new(),
+                };
+                stored.push(StoredFile {
+                    id,
+                    name,
+                    href: ctx.url(&id.to_string()),
+                    url,
+                });
             }
             _ => {}
         }
     }
-    if stored > 0 {
+    if from_script {
+        return axum::Json(serde_json::json!({ "stored": stored, "refused": refused }))
+            .into_response();
+    }
+    if !stored.is_empty() {
         session.push_flash(
             FlashLevel::Success,
-            t!("Uploaded {n} file(s).", n = stored as i64),
+            t!("Uploaded {n} file(s).", n = stored.len() as i64),
         );
     }
     if !refused.is_empty() {
+        let names: Vec<&str> = refused.iter().map(|r| r.name.as_str()).collect();
         session.push_flash(
             FlashLevel::Error,
             Text::dynamic(format!(
                 "Could not store: {} (too large or unreadable).",
-                refused.join(", ")
+                names.join(", ")
             )),
         );
     }
-    if stored == 0 && refused.is_empty() {
+    if stored.is_empty() && refused.is_empty() {
         session.push_flash(FlashLevel::Error, t!("Choose a file to upload."));
     }
     back_to(ctx, folder_id)

@@ -74,8 +74,13 @@
       </div>
       <div class="lat-field">
         <label class="lat-field__label" for="import-new-file">{{ shell.t("Archive") }}<span class="lat-field__req">*</span></label>
-        <input class="lat-input" id="import-new-file" type="file" name="file" accept=".zip,application/zip" required>
-        <p class="lat-field__help">{{ shell.t("Its theme.yaml names and describes the theme.") }}</p>
+        {% let upload_id = "import-new-file" %}
+        {% let upload_accept = ".zip,application/zip" %}
+        {% let upload_multiple = false %}
+        {% let upload_url = String::new() %}
+        {% let upload_fields = String::new() %}
+        {% let upload_hint = shell.t("Its theme.yaml names and describes the theme.") %}
+        {% include "_upload.html" %}
       </div>
     </div>
     <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Import") }}</button></div>

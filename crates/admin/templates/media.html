@@ -76,13 +76,15 @@
     <div class="lat-dialog__body">
       <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
       {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
-      <div class="lat-field">
-        <label class="lat-field__label" for="media-files">{{ shell.t("Files") }}</label>
-        <input class="lat-input" id="media-files" type="file" name="file" multiple required>
-        <p class="lat-field__help">{% if crumbs.is_empty() %}{{ shell.t("Into the library. Identical files are stored once.") }}{% else %}{{ shell.t("Into this folder. Identical files are stored once.") }}{% endif %}</p>
-      </div>
+      {% let upload_id = "media-files" %}
+      {% let upload_accept = "" %}
+      {% let upload_multiple = true %}
+      {% let upload_url = upload_url %}
+      {% let upload_fields = upload_fields %}
+      {% let upload_hint = upload_hint %}
+      {% include "_upload.html" %}
     </div>
-    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Upload") }}</button></div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Close") }}</button><button class="lat-btn lat-btn--primary" type="submit" data-upload-submit>{{ shell.t("Upload") }}</button></div>
   </form>
 </dialog>
 {% endif %}
