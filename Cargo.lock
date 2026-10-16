@@ -1338,6 +1338,7 @@ dependencies = [
  "csv",
  "form_urlencoded",
  "futures",
+ "hmac",
  "ipnet",
  "laterite-auth",
  "laterite-core",
@@ -1348,6 +1349,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
+ "sha2",
  "sqlx",
  "tempfile",
  "thiserror 2.0.20",
@@ -1382,6 +1384,7 @@ name = "laterite-cli"
 version = "0.9.15"
 dependencies = [
  "anyhow",
+ "chrono",
  "chrono-tz",
  "clap",
  "dialoguer",
@@ -1389,6 +1392,7 @@ dependencies = [
  "laterite-admin",
  "laterite-auth",
  "laterite-core",
+ "laterite-media",
  "laterite-web",
  "proc-macro2",
  "rand",

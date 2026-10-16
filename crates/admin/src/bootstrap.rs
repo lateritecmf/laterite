@@ -484,6 +484,7 @@ impl Bootstrap {
         // a request could still use.
         tokio::spawn(purge_hourly(auth.clone()));
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
+        let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             trusted_proxies: config.backend.trusted_proxies.clone(),
@@ -493,6 +494,7 @@ impl Bootstrap {
             path: config.backend.path.clone(),
             origin: origin.clone(),
             storage_dir: config.backend.storage.clone(),
+            secret,
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -722,4 +724,26 @@ mod tests {
         assert!(skipped["acme.c"].contains("requires acme.b"));
         assert!(!skipped.contains_key("acme.d"));
     }
+}
+
+/// The settings code the generated signing key is kept under.
+const SIGNING_KEY: &str = "laterite.signing_key";
+
+/// The signing key: `backend.secret` when set, else the one generated at the
+/// first boot and kept in the settings table, so tokens survive a restart.
+async fn signing_key(db: &laterite_core::Db, configured: Option<&str>) -> anyhow::Result<Vec<u8>> {
+    if let Some(secret) = configured.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(secret.as_bytes().to_vec());
+    }
+    if let Some(serde_json::Value::String(hex)) =
+        crate::settings::store::get(db, SIGNING_KEY).await?
+    {
+        if let Some(key) = crate::routes::unhex(&hex).filter(|k| k.len() >= 16) {
+            return Ok(key);
+        }
+    }
+    let key = crate::random_key();
+    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    crate::settings::store::set(db, SIGNING_KEY, &serde_json::Value::String(hex)).await?;
+    Ok(key)
 }

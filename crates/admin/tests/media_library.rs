@@ -9,7 +9,10 @@ use laterite_auth::{
     password, store as auth_store, AuthConfig, AuthService, NewOperator, RequestContext,
 };
 use laterite_core::{CatalogStore, Db};
-use laterite_media::{folder, link, record, DiskReg, LocalDisk, Owner};
+use laterite_media::{
+    blob_path, folder, ingest, link, record, stream_of, DiskReg, LocalDisk, NewMedia,
+    NewMediaExtra, Owner,
+};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -23,6 +26,7 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
 fn app(db: &Db, root: &std::path::Path) -> Router {
     let mut config = AdminConfig::default();
     config.origin = "https://acme.test".to_string();
+    config.storage_dir = root.display().to_string();
     let mut registry = laterite_core::Registry::new();
     registry.set_owner(laterite_core::ModuleId::new("acme.app"));
     registry.add(DiskReg::new(
@@ -355,4 +359,71 @@ async fn files_upload_into_folders_and_serve_from_their_hash() {
     )
     .await;
     assert!(html.contains("still holds 1 file(s)"), "{html}");
+}
+
+/// A file on a private disk never serves bare. The admin's own link to it is
+/// signed, bound to the hash and timed; a tampered or retargeted token fails.
+#[tokio::test]
+async fn a_private_file_serves_only_behind_a_live_signature() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+
+    let private = LocalDisk::new(dir.path().join("private"));
+    let stored = ingest(&private, stream_of(b"secret report".to_vec()), 1 << 20)
+        .await
+        .unwrap();
+    assert!(dir
+        .path()
+        .join("private")
+        .join(blob_path(&stored.hash))
+        .is_file());
+    let id = record::create_with(
+        &db,
+        NewMedia {
+            disk: "private".into(),
+            hash: stored.hash.clone(),
+            size: stored.size as i64,
+            content_type: stored.content_type.clone(),
+            original_name: "report.txt".into(),
+            in_library: true,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap();
+
+    let bare = format!("/storage/media/{}/report.txt", stored.hash);
+    let (status, _, _) = get(&app, &bare, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "no token, no file");
+
+    let (status, html, _) = get(&app, &format!("/admin/media/{id}"), Some(&root)).await;
+    assert_eq!(status, StatusCode::OK);
+    let start = html.find(&format!("{bare}?e=")).expect("a signed link");
+    let end = html[start..].find('"').unwrap();
+    let signed = html[start..start + end]
+        .replace("&amp;", "&")
+        .replace("&#38;", "&");
+    let (status, body, headers) = get(&app, &signed, None).await;
+    assert_eq!(status, StatusCode::OK, "{signed}");
+    assert_eq!(body, "secret report");
+    assert_eq!(header(&headers, "cache-control"), Some("private, no-store"));
+
+    let (status, _, _) = get(&app, &format!("{signed}0"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "a changed signature");
+    let expired = signed.replacen("?e=", "?e=1", 1);
+    let (status, _, _) = get(&app, &expired, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "a changed expiry");
+    let other = ingest(&private, stream_of(b"another".to_vec()), 1 << 20)
+        .await
+        .unwrap();
+    let retargeted = signed.replace(&stored.hash, &other.hash);
+    let (status, _, _) = get(&app, &retargeted, None).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the token is bound to its hash"
+    );
 }

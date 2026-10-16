@@ -55,6 +55,26 @@ pub trait StorageDriver: Send + Sync + 'static {
     /// The blob's directly reachable URL, or `None` on a disk that has none.
     /// A private disk returns `None` and is served through the application.
     fn public_url(&self, path: &str) -> Option<String>;
+
+    /// A URL that serves `path` for `expires_in`, from a disk that can presign
+    /// (an object store); `None` when it cannot, and the application streams
+    /// the file itself behind its own token.
+    async fn signed_url(
+        &self,
+        path: &str,
+        expires_in: std::time::Duration,
+        disposition: Disposition,
+    ) -> Result<Option<String>, StorageError> {
+        let _ = (path, expires_in, disposition);
+        Ok(None)
+    }
+}
+
+/// How a served file is offered: shown in the page, or saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Disposition {
+    Inline,
+    Attachment,
 }
 
 /// Joins `path` under `root`, refusing anything that escapes it.

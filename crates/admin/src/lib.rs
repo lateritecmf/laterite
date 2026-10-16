@@ -205,6 +205,8 @@ pub(crate) struct AdminState {
     cookie_path: Arc<str>,
     /// The deployment's storage directory (`backend.storage`).
     storage_dir: Arc<str>,
+    /// The key tokens are signed with.
+    signing_key: Arc<Vec<u8>>,
     secure_cookie: bool,
     /// Networks whose `X-Forwarded-For` is believed. Parsed once at boot.
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
@@ -269,6 +271,7 @@ impl AdminState {
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
+            signing_key: Arc::new(random_key()),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,
@@ -352,6 +355,10 @@ pub struct AdminConfig {
     /// `backend.storage`). Uploaded import files go to `private` beneath it
     /// when the application registers no disk of that name.
     pub storage_dir: String,
+    /// The key tokens the admin mints are signed with (a private file's URL).
+    /// The default is a fresh random key, so such tokens outlive the process
+    /// only when the bootstrap supplies the configured or stored key.
+    pub secret: Vec<u8>,
 }
 
 impl Default for AdminConfig {
@@ -365,8 +372,17 @@ impl Default for AdminConfig {
             path: "/admin".to_string(),
             origin: String::new(),
             storage_dir: "storage".to_string(),
+            secret: random_key(),
         }
     }
+}
+
+/// Thirty-two random bytes: a signing key for one process.
+pub(crate) fn random_key() -> Vec<u8> {
+    use rand::RngCore;
+    let mut key = vec![0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key);
+    key
 }
 
 /// The chrome shared by every authenticated page: the top-nav links and the
@@ -1634,6 +1650,7 @@ pub fn router(
         column_types: Arc::new(column_types),
         plugin_defined,
         storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
+        signing_key: Arc::new(config.secret.clone()),
         cookie_path: if app_public.iter().any(|r| r.is_site()) {
             Arc::from("/")
         } else {
@@ -1710,6 +1727,7 @@ pub fn router(
             state.auth.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
+            state.signing_key.clone(),
             &state.storage_dir,
             &base,
             &admin_path,
@@ -1741,6 +1759,7 @@ pub fn router(
             state.auth.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
+            state.signing_key.clone(),
             &state.storage_dir,
             &base,
             &admin_path,
@@ -1894,6 +1913,7 @@ pub fn router(
             &state.auth,
             &state.field_types,
             &state.overrides,
+            &state.signing_key,
             &state.storage_dir,
             &admin_path,
             &state.origin,
@@ -1910,6 +1930,7 @@ pub fn router(
                 state.auth.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
+                state.signing_key.clone(),
                 &state.storage_dir,
                 "/",
                 &admin_path,
@@ -2010,6 +2031,7 @@ fn mount_public(
     auth: &AuthService,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
+    signing_key: &Arc<Vec<u8>>,
     storage_dir: &str,
     admin_path: &str,
     origin: &str,
@@ -2025,6 +2047,7 @@ fn mount_public(
             auth.clone(),
             field_types.clone(),
             overrides.clone(),
+            signing_key.clone(),
             storage_dir,
             &reg.path,
             admin_path,
@@ -4599,6 +4622,7 @@ mod tests {
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
+            signing_key: Arc::new(random_key()),
             secure_cookie: false,
             origin: Arc::from(""),
             timezone: Tz::UTC,

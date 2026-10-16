@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
 use axum::body::Body;
@@ -172,12 +173,41 @@ impl PublicRoute for Serve {
 }
 
 /// The URL a file serves at: its hash and a display name, under the serve route.
+/// A file on a private disk needs [`signed_file_url`] instead.
 pub fn file_url(record: &MediaRecord) -> String {
     format!(
         "/storage/media/{}/{}",
         record.hash,
         safe_name(&record.original_name)
     )
+}
+
+/// How long a signed URL the admin hands out stays valid.
+pub const SIGNED_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// The URL a file on a private disk serves at for `ttl`: [`file_url`] carrying
+/// an expiry and a signature over the hash and the expiry, checked by the
+/// serve route. The signature is bound to the hash, so it opens one file.
+pub fn signed_file_url(ctx: &RouteCtx, record: &MediaRecord, ttl: Duration) -> String {
+    let expires = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .saturating_add(ttl.as_secs());
+    let token = ctx.sign(token_message(&record.hash, expires).as_bytes());
+    format!("{}?e={expires}&t={token}", file_url(record))
+}
+
+fn token_message(hash: &str, expires: u64) -> String {
+    format!("media:{hash}:{expires}")
+}
+
+/// The URL for `record` as the admin shows it: signed when its disk is private.
+fn admin_url(app: &AppState, record: &MediaRecord) -> String {
+    match app.disks.by_name.get(&record.disk) {
+        Some((_, true)) => signed_file_url(&app.ctx, record, SIGNED_TTL),
+        _ => file_url(record),
+    }
 }
 
 /// A file name fit for a URL and a `Content-Disposition`: ASCII letters,
@@ -215,33 +245,65 @@ fn active_type(content_type: &str) -> bool {
     )
 }
 
+#[derive(serde::Deserialize, Default)]
+struct ServeQuery {
+    /// The expiry of a signed URL, seconds since the epoch.
+    e: Option<u64>,
+    /// The signature of a signed URL.
+    t: Option<String>,
+}
+
+/// Whether `query` carries a live signature for `hash`.
+fn token_valid(ctx: &RouteCtx, hash: &str, query: &ServeQuery) -> bool {
+    let (Some(expires), Some(token)) = (query.e, query.t.as_deref()) else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(u64::MAX);
+    expires > now && ctx.verify_signature(token_message(hash, expires).as_bytes(), token)
+}
+
 async fn serve(
     State(app): App,
     headers: HeaderMap,
     Path((hash, _name)): Path<(String, String)>,
+    Query(query): Query<ServeQuery>,
 ) -> Response {
     let records = match record::find_all_by_hash(app.ctx.db(), &hash).await {
         Ok(r) => r,
         Err(_) => return AdminError::NotFound.into_response(),
     };
-    // A hash may be stored on several disks; a private one never serves this way.
-    let Some((record, driver)) = records.iter().find_map(|r| {
-        app.disks
-            .by_name
-            .get(&r.disk)
-            .filter(|(_, private)| !private)
-            .map(|(d, _)| (r, Arc::clone(d)))
-    }) else {
-        return AdminError::NotFound.into_response();
+    // A hash may be stored on several disks. A public one serves it to anyone,
+    // cacheable for good; a private one only behind a live signature, and then
+    // never cached.
+    let on = |private: bool| {
+        records.iter().find_map(|r| {
+            app.disks
+                .by_name
+                .get(&r.disk)
+                .filter(|(_, p)| *p == private)
+                .map(|(d, _)| (r, Arc::clone(d)))
+        })
+    };
+    let (record, driver, private) = match on(false) {
+        Some((r, d)) => (r, d, false),
+        None => match on(true) {
+            Some((r, d)) if token_valid(&app.ctx, &hash, &query) => (r, d, true),
+            _ => return AdminError::NotFound.into_response(),
+        },
+    };
+    let cache_control = if private {
+        "private, no-store".to_string()
+    } else {
+        http_cache::IMMUTABLE.to_string()
     };
     let etag = format!("\"{}\"", record.hash);
-    if http_cache::matches_etag(&headers, &record.hash) {
+    if !private && http_cache::matches_etag(&headers, &record.hash) {
         return (
             StatusCode::NOT_MODIFIED,
-            [
-                (header::ETAG, etag),
-                (header::CACHE_CONTROL, http_cache::IMMUTABLE.to_string()),
-            ],
+            [(header::ETAG, etag), (header::CACHE_CONTROL, cache_control)],
         )
             .into_response();
     }
@@ -263,7 +325,7 @@ async fn serve(
             (header::CONTENT_TYPE, record.content_type.clone()),
             (header::CONTENT_LENGTH, record.size.to_string()),
             (header::ETAG, etag),
-            (header::CACHE_CONTROL, http_cache::IMMUTABLE.to_string()),
+            (header::CACHE_CONTROL, cache_control),
             (header::CONTENT_DISPOSITION, disposition),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
         ],
@@ -393,15 +455,14 @@ fn urlencoding(s: &str) -> String {
     out
 }
 
-fn file_view(ctx: &RouteCtx, shell: &Shell, r: &MediaRecord) -> FileView {
-    let _ = shell;
+fn file_view(app: &AppState, r: &MediaRecord) -> FileView {
     FileView {
         name: r.display_name().to_string(),
         kind: r.kind().as_str(),
         content_type: r.content_type.clone(),
         size: human_size(r.size),
-        url: file_url(r),
-        href: ctx.url(&r.id.to_string()),
+        url: admin_url(app, r),
+        href: app.ctx.url(&r.id.to_string()),
         is_image: r.kind() == Kind::Image && r.content_type != "image/svg+xml",
     }
 }
@@ -473,11 +534,7 @@ async fn index(
         },
     );
     let pages = (listed.total as u64).max(1).div_ceil(PER_PAGE);
-    let files = listed
-        .items
-        .iter()
-        .map(|r| file_view(ctx, &shell, r))
-        .collect();
+    let files = listed.items.iter().map(|r| file_view(&app, r)).collect();
     page_of(
         &shell,
         t!("Media"),
@@ -866,7 +923,7 @@ async fn file(
         (Some(w), Some(h)) => format!("{w} × {h}"),
         _ => String::new(),
     };
-    let view = file_view(ctx, &shell, &r);
+    let view = file_view(&app, &r);
     page_of(
         &shell,
         Text::dynamic(r.display_name().to_string()),

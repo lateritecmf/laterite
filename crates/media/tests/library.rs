@@ -4,7 +4,12 @@
 
 use laterite_core::Db;
 use laterite_media::library::{self, Listing, Sort};
-use laterite_media::{folder, link, record, FolderError, Kind, NewMedia, NewMediaExtra, Owner};
+use laterite_media::{
+    blob_path, folder, gc, ingest, link, record, stream_of, verify, FolderError, Kind, LocalDisk,
+    NewMedia, NewMediaExtra, Owner, StorageDriver,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 async fn db() -> (Db, laterite_core::testing::TestGuard) {
     laterite_core::testing::connect_test(&[laterite_media::migrations::migrations()]).await
@@ -221,4 +226,142 @@ async fn the_library_lists_by_folder_search_kind_and_sort() {
     let one = record::find(&db, cat).await.unwrap().unwrap();
     assert_eq!(one.folder_id, Some(photos.id));
     assert_eq!(one.meta, serde_json::json!({}));
+}
+
+async fn stored(db: &Db, disk: &LocalDisk, name: &str, bytes: &[u8], in_library: bool) -> i64 {
+    let out = ingest(disk, stream_of(bytes.to_vec()), 1 << 20)
+        .await
+        .unwrap();
+    record::create_with(
+        db,
+        NewMedia {
+            disk: "public".into(),
+            hash: out.hash,
+            size: out.size as i64,
+            content_type: out.content_type,
+            original_name: name.into(),
+            in_library,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Garbage is a record outside the library that nothing links to, past the
+/// grace; a blob goes only with its last record, and a disk not given keeps its.
+#[tokio::test]
+async fn gc_removes_unused_records_and_the_blobs_they_last_named() {
+    let (db, _g) = db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let disk = LocalDisk::new(dir.path());
+    let kept = stored(&db, &disk, "kept.txt", b"kept in the library", true).await;
+    let linked = stored(&db, &disk, "linked.txt", b"linked from a post", false).await;
+    let owner = Owner {
+        owner_type: "acme_posts",
+        owner_id: "1",
+        field: "cover",
+    };
+    link::set(&db, owner, &[linked]).await.unwrap();
+    let orphan_a = stored(&db, &disk, "orphan-a.txt", b"shared orphan bytes", false).await;
+    let orphan_b = stored(&db, &disk, "orphan-b.txt", b"shared orphan bytes", false).await;
+    let hash = record::find(&db, orphan_a).await.unwrap().unwrap().hash;
+    let elsewhere = record::create_with(
+        &db,
+        NewMedia {
+            disk: "s3".into(),
+            hash: format!("{:0>64}", 7),
+            size: 1,
+            content_type: "text/plain".into(),
+            original_name: "far.txt".into(),
+            in_library: false,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap();
+    let disks: HashMap<String, Arc<dyn StorageDriver>> = HashMap::from([(
+        "public".to_string(),
+        Arc::new(disk) as Arc<dyn StorageDriver>,
+    )]);
+
+    let young = gc::collect(&db, &disks, chrono::Duration::hours(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        young,
+        gc::GcReport::default(),
+        "inside the grace, nothing goes"
+    );
+
+    let report = gc::collect(&db, &disks, chrono::Duration::seconds(-5))
+        .await
+        .unwrap();
+    assert_eq!(report.records, 3);
+    assert_eq!(report.blobs, 1, "one blob for the two orphans");
+    assert_eq!(report.kept, [format!("s3:{:0>64}", 7)]);
+    assert!(record::find(&db, kept).await.unwrap().is_some());
+    assert!(record::find(&db, linked).await.unwrap().is_some());
+    assert!(record::find(&db, orphan_b).await.unwrap().is_none());
+    assert!(record::find(&db, elsewhere).await.unwrap().is_none());
+    assert!(!dir.path().join(blob_path(&hash)).exists());
+}
+
+/// Every blob is re-hashed; a lost, altered or short one is a named fault.
+#[tokio::test]
+async fn verify_names_the_records_whose_bytes_do_not_match() {
+    let (db, _g) = db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let disk = LocalDisk::new(dir.path());
+    let good = stored(&db, &disk, "good.txt", b"all is well", true).await;
+    let rotten = stored(&db, &disk, "rotten.txt", b"these bytes will change", true).await;
+    let rotten_hash = record::find(&db, rotten).await.unwrap().unwrap().hash;
+    std::fs::write(dir.path().join(blob_path(&rotten_hash)), b"changed").unwrap();
+    let lost = record::create_with(
+        &db,
+        NewMedia {
+            disk: "public".into(),
+            hash: format!("{:0>64}", 9),
+            size: 3,
+            content_type: "text/plain".into(),
+            original_name: "lost.txt".into(),
+            in_library: true,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap();
+    record::create_with(
+        &db,
+        NewMedia {
+            disk: "s3".into(),
+            hash: format!("{:0>64}", 8),
+            size: 3,
+            content_type: "text/plain".into(),
+            original_name: "far.txt".into(),
+            in_library: true,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap();
+    let disks: HashMap<String, Arc<dyn StorageDriver>> = HashMap::from([(
+        "public".to_string(),
+        Arc::new(disk) as Arc<dyn StorageDriver>,
+    )]);
+
+    let report = verify::run(&db, &disks).await.unwrap();
+    assert_eq!(report.ok, 1);
+    assert_eq!(report.skipped, 1);
+    let faults: Vec<(i64, &str)> = report
+        .faults
+        .iter()
+        .map(|f| (f.id, f.reason.split(':').next().unwrap()))
+        .collect();
+    assert_eq!(faults, [(rotten, "hash mismatch"), (lost, "missing")]);
+    assert!(record::find(&db, good).await.unwrap().is_some());
 }

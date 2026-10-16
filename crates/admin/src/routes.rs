@@ -30,6 +30,7 @@ pub struct RouteCtx {
     auth: AuthService,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
+    signing_key: Arc<Vec<u8>>,
     storage_dir: Arc<str>,
     base_path: Arc<str>,
     admin_path: Arc<str>,
@@ -46,6 +47,7 @@ impl RouteCtx {
         auth: AuthService,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
+        signing_key: Arc<Vec<u8>>,
         storage_dir: &str,
         base_path: &str,
         admin_path: &str,
@@ -59,6 +61,7 @@ impl RouteCtx {
             auth,
             field_types,
             overrides,
+            signing_key,
             storage_dir: Arc::from(storage_dir.trim_end_matches('/')),
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
@@ -131,6 +134,19 @@ impl RouteCtx {
     /// keeps files when the application registered no disk for it.
     pub fn storage_dir(&self) -> &str {
         &self.storage_dir
+    }
+
+    /// Signs `message` with the deployment's key (HMAC-SHA256, lowercase hex).
+    /// The key is `backend.secret`, else one generated at the first boot and
+    /// kept in the settings table.
+    pub fn sign(&self, message: &[u8]) -> String {
+        sign_with(&self.signing_key, message)
+    }
+
+    /// Whether `signature` is [`sign`](Self::sign) of `message`, compared in
+    /// constant time.
+    pub fn verify_signature(&self, message: &[u8], signature: &str) -> bool {
+        verify_with(&self.signing_key, message, signature)
     }
 
     pub fn db(&self) -> &Db {
@@ -287,6 +303,7 @@ impl RouteCtxBuilder {
             auth,
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),
+            Arc::new(crate::random_key()),
             "storage",
             &self.base_path,
             &self.admin_path,
@@ -511,5 +528,54 @@ mod tests {
         let reg = ScreenReg::new("/import", "acme.import", Arc::new(Noop));
         assert!(reg.nav_label.is_none());
         assert!(reg.in_menu("Import").nav_label.is_some());
+    }
+}
+
+pub(crate) fn sign_with(key: &[u8], message: &[u8]) -> String {
+    use hmac::Mac;
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).expect("any key length");
+    mac.update(message);
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+pub(crate) fn verify_with(key: &[u8], message: &[u8], signature: &str) -> bool {
+    use hmac::Mac;
+    let Some(given) = unhex(signature) else {
+        return false;
+    };
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).expect("any key length");
+    mac.update(message);
+    mac.verify_slice(&given).is_ok()
+}
+
+/// Bytes from lowercase or uppercase hex; `None` on an odd length or a stray
+/// character.
+pub(crate) fn unhex(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod signing_tests {
+    use super::*;
+
+    #[test]
+    fn a_signature_verifies_against_its_key_alone() {
+        let sig = sign_with(b"key-one", b"message");
+        assert_eq!(sig.len(), 64);
+        assert!(verify_with(b"key-one", b"message", &sig));
+        assert!(!verify_with(b"key-two", b"message", &sig));
+        assert!(!verify_with(b"key-one", b"other", &sig));
+        assert!(!verify_with(b"key-one", b"message", "zz"));
+        assert!(!verify_with(b"key-one", b"message", &sig[..62]));
     }
 }

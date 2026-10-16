@@ -16,6 +16,7 @@
 
 pub mod driver;
 pub mod folder;
+pub mod gc;
 pub mod ingest;
 pub mod kind;
 pub mod library;
@@ -24,8 +25,9 @@ pub mod local;
 pub mod migrations;
 pub mod record;
 pub mod variant;
+pub mod verify;
 
-pub use driver::{BlobMeta, ByteStream, StorageDriver, StorageError};
+pub use driver::{BlobMeta, ByteStream, Disposition, StorageDriver, StorageError};
 pub use folder::{Folder, FolderError};
 pub use ingest::{blob_path, ingest, stream_of, IngestError, Ingested};
 pub use kind::Kind;

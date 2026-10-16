@@ -15,7 +15,9 @@ laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }
 laterite-web = { workspace = true }
+laterite-media = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 chrono-tz = { workspace = true }
 clap = { workspace = true }
 iana-time-zone = { workspace = true }

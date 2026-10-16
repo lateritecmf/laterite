@@ -16,6 +16,7 @@ mod doctor;
 mod domain;
 mod i18n;
 mod make;
+mod media;
 mod new;
 mod plugin;
 mod project;
@@ -70,6 +71,11 @@ enum Command {
     Theme {
         #[command(subcommand)]
         command: theme::ThemeCommand,
+    },
+    /// Collect unused files and verify the stored ones.
+    Media {
+        #[command(subcommand)]
+        command: media::MediaCommand,
     },
 }
 
@@ -137,6 +143,10 @@ async fn main() -> Result<()> {
         Command::Theme { command } => {
             let db = connect(cli.database_url).await?;
             theme::run(command, db).await
+        }
+        Command::Media { command } => {
+            let db = connect(cli.database_url).await?;
+            media::run(command, db).await
         }
     }
 }

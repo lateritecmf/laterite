@@ -47,6 +47,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # maintained successor (YAML 1.2 with 1.1 compatibility).
 serde-saphyr = "1.3"
 sha2 = "0.10"
+hmac = "0.12"
 sea-query = { version = "0.32", features = [
     "backend-postgres",
     "backend-mysql",

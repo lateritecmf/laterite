@@ -14,7 +14,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `laterite_media::{folder, link, library}`: folders as rows with materialized
   paths, links by owner and field, and listings; `DiskReg::private`.
 - Every file serves at `/storage/media/<hash>/<name>` with an ETag, `immutable`
-  caching and `nosniff`.
+  caching and `nosniff`; a private disk's file only at a signed, timed URL
+  (`medialib::signed_file_url`, key `backend.secret` or one generated once).
+- `lat media gc` and `lat media verify` (`laterite_media::{gc, verify}`), and
+  `StorageDriver::signed_url` for a store that presigns.
 
 ## [0.9.15] - 2026-10-16
 

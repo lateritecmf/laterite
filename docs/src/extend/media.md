@@ -146,11 +146,47 @@ Header | Value
 `X-Content-Type-Options` | `nosniff`
 `Content-Disposition` | `inline`, or `attachment` for SVG, HTML, script and any `Other` kind.
 
-A record on a disk registered `.private()` is not served this way.
+A record on a disk registered `.private()` serves only at a signed URL:
 
 ```rust
 registry.add(DiskReg::new("vault", Arc::new(private)).private());
 let url = laterite_admin::medialib::file_url(&record);
+let timed = laterite_admin::medialib::signed_file_url(&ctx, &record, Duration::from_secs(3600));
+// /storage/media/<hash>/<name>?e=<expiry>&t=<signature>
+```
+
+Part | Value
+--- | ---
+`e` | Expiry, seconds since the epoch.
+`t` | HMAC-SHA256 over the hash and the expiry, with `backend.secret`.
+`Cache-Control` | `private, no-store`
+Bare, expired, altered or retargeted | 404
+
+The admin's own links to a private file carry a one-hour signature.
+
+## Collect and verify
+
+```sh
+lat media gc                 # files outside the library that nothing links to
+lat media gc --grace 1       # younger than one hour is left alone (default 24)
+lat media gc --dry-run       # list, remove nothing
+lat media verify             # re-hash every stored file against its record
+```
+
+Flag | Default | Meaning
+--- | --- | ---
+`--grace <hours>` | `24` | A record younger than this is never garbage.
+`--dry-run` | off | Prints `id`, disk, hash and name; removes nothing.
+`--storage <dir>` | `backend.storage` | Where the `media` and `private` disks live.
+
+A blob goes with the last record naming it. `verify` exits non-zero on a
+fault and prints one line per faulty record: missing, hash mismatch, or a
+size the row disagrees with. A record on a disk the command cannot reach (one
+the application registered itself) is skipped and counted. From code:
+
+```rust
+let report = laterite_media::gc::collect(&db, &disks, chrono::Duration::hours(24)).await?;
+let report = laterite_media::verify::run(&db, &disks).await?;
 ```
 
 ## Delete
@@ -174,8 +210,11 @@ impl StorageDriver for MyDisk {
     async fn delete(&self, path: &str) -> Result<(), StorageError>;
     async fn metadata(&self, path: &str) -> Result<Option<BlobMeta>, StorageError>;
     fn public_url(&self, path: &str) -> Option<String>;
+    async fn signed_url(&self, path: &str, expires_in: Duration, disposition: Disposition)
+        -> Result<Option<String>, StorageError>;
 }
 ```
 
 No `list()`: folders are database rows. Write to a temporary path and move
-into place.
+into place. `signed_url` defaults to `None`: the framework then streams the
+file itself behind its own token. A store that presigns returns the URL.

@@ -122,6 +122,10 @@ pub struct BackendConfig {
     /// Set the `Secure` attribute on the admin session cookie. Enable behind HTTPS
     /// in production; leave off for plain-HTTP local development.
     pub secure_cookie: bool,
+    /// The key the admin signs its tokens with (a private file's URL). Unset,
+    /// a key is generated at the first boot and kept in the settings table, so
+    /// set it when several instances share a database behind one hostname.
+    pub secret: Option<String>,
     /// The default display timezone for the admin (an IANA name like
     /// `Asia/Kolkata`). Storage is always UTC; this only affects how dates render.
     /// An operator's own preference overrides it (later); it falls back to UTC.
@@ -158,6 +162,7 @@ impl Default for BackendConfig {
     fn default() -> Self {
         Self {
             secure_cookie: false,
+            secret: None,
             timezone: "UTC".to_string(),
             paths: std::collections::BTreeMap::new(),
             path: "/admin".to_string(),
