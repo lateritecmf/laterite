@@ -1163,6 +1163,7 @@ async fn template(
     page_with(
         &shell,
         PageHead::new(Text::dynamic(template.path.clone()))
+            .assets(laterite_admin::CODE_EDITOR_ASSETS)
             .back(
                 Text::dynamic(theme.config.name.clone()),
                 ctx.url(&theme.code),

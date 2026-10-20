@@ -28,7 +28,7 @@ cd "$(dirname "$0")/.." || exit 2
 
 # Assets written for Laterite. A pattern here is a claim that we wrote the file
 # and owe nobody a notice, so keep it narrow: name files, not directories.
-ours='^(laterite\.(css|js)|theme-boot\.js|mark\.(svg|png)|NOTICE\.txt|fields/ref-picker\.(css|js))$'
+ours='^(laterite\.(css|js)|theme-boot\.js|mark\.(svg|png)|NOTICE\.txt|fields/(ref-picker|codeeditor)\.(css|js))$'
 
 # Third-party families, each of which must appear in a crate NOTICE. The left
 # side matches the path; the right side is the string that must be present.

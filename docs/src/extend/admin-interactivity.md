@@ -132,6 +132,11 @@ lat.on('repeater:before-add', function (detail, event) {
 
 // Drive an island through its controller.
 lat.get(document.querySelector('[data-lat-widget="repeater"]')).add();
+
+// A code editor: read, replace, focus.
+var code = lat.get(document.querySelector('[data-lat-widget="codeeditor"]'));
+code.set(code.get().trim());
+code.focus();
 ```
 
 Event | Detail | Cancelable
@@ -170,6 +175,27 @@ Helper | Does
 `lat.get(el)` | The controller of the island at or around `el`.
 `lat.scan(root)` | Starts the islands in markup a script added. Swapped content starts without it.
 `lat.confirm(text, labels, done)` | Asks in the admin's dialog. `done` hears `true` or `false`.
+
+## Code editor on a contributed screen
+
+```html
+<div data-lat-widget="codeeditor" data-language="yaml" style="--rows:16">
+  <textarea class="lat-input lat-editor" id="spec" name="spec" rows="16" data-lat-grow="off">{{ spec }}</textarea>
+</div>
+```
+
+```rust
+shell.page_with(PageHead::new("Specification").assets(laterite_admin::CODE_EDITOR_ASSETS), body)
+```
+
+Attribute | Values | Default
+--- | --- | ---
+`data-language` | `text`, `html`, `css`, `javascript`, `json`, `yaml`, `markdown`, `jinja` | `text`
+`data-line-numbers` | `off` | on
+`data-wrap` | `on` | off
+`--rows` | lines | `12`
+
+A `readonly` textarea gives a read-only editor. Without the script the textarea is the control.
 
 ## Write an island
 

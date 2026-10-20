@@ -892,6 +892,128 @@ struct RepeaterTmpl {
     data: RepeaterData,
 }
 
+/// The languages the code editor highlights. `text` is plain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeLanguage {
+    #[default]
+    Text,
+    Html,
+    Css,
+    Javascript,
+    Json,
+    Yaml,
+    Markdown,
+    Jinja,
+}
+
+impl CodeLanguage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Html => "html",
+            Self::Css => "css",
+            Self::Javascript => "javascript",
+            Self::Json => "json",
+            Self::Yaml => "yaml",
+            Self::Markdown => "markdown",
+            Self::Jinja => "jinja",
+        }
+    }
+}
+
+/// A code editor's own keys: the language it highlights, its height in rows,
+/// the gutter, soft wrapping, and what an empty one shows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CodeOptions {
+    #[serde(default)]
+    language: CodeLanguage,
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default = "yes")]
+    line_numbers: bool,
+    #[serde(default)]
+    wrap: bool,
+    #[serde(default)]
+    placeholder: Option<String>,
+}
+
+impl Default for CodeOptions {
+    fn default() -> Self {
+        Self {
+            language: CodeLanguage::Text,
+            rows: None,
+            line_numbers: true,
+            wrap: false,
+            placeholder: None,
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "fields/codeeditor.html")]
+struct CodeTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+    language: &'a str,
+    rows: Option<u16>,
+    line_numbers: bool,
+    wrap: bool,
+    placeholder: Option<&'a str>,
+}
+
+/// A code editor over a textarea: the textarea is the control the form
+/// submits, and the editor engine (loaded through [`FieldType::assets`])
+/// replaces it on the page.
+pub(crate) struct CodeEditorField;
+
+impl FieldType for CodeEditorField {
+    fn view_key(&self) -> &'static str {
+        "codeeditor"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["language", "rows", "line_numbers", "wrap", "placeholder"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: CodeOptions = if raw.is_null() {
+            CodeOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let mut vm = scalar_vm("codeeditor", cx);
+        let opts = cx.opts.get::<CodeOptions>().cloned().unwrap_or_default();
+        vm.data = serde_json::to_value(opts).unwrap_or_default();
+        vm
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let opts: CodeOptions = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&CodeTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+            language: opts.language.as_str(),
+            rows: opts.rows,
+            line_numbers: opts.line_numbers,
+            wrap: opts.wrap,
+            placeholder: opts.placeholder.as_deref(),
+        })
+        .unwrap_or_default()
+    }
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
+        crate::CODE_EDITOR_ASSETS.to_vec()
+    }
+}
+
 /// The framework's built-in field types. The text field is constructed with the
 /// built-in input-type registry it delegates to.
 pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
@@ -899,6 +1021,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
     vec![
         Arc::new(TextField::new(inputs)),
         Arc::new(TextareaField),
+        Arc::new(CodeEditorField),
         Arc::new(IdField),
         Arc::new(RepeaterField),
         Arc::new(SelectField),
@@ -2442,6 +2565,37 @@ mod tests {
             &cx("body", &value, &opts),
         );
         assert!(markup.as_str().contains("<textarea"));
+    }
+
+    #[test]
+    fn code_editor_wraps_a_textarea_in_its_island_and_declares_the_engine() {
+        let types = FieldRegistry::default();
+        let opts = CodeEditorField
+            .resolve_options(
+                &serde_json::json!({ "language": "jinja", "rows": 20 }),
+                &types,
+            )
+            .unwrap();
+        let value = FieldValue::Text("{{ page.title }}".to_string());
+        let markup = render_field(
+            &CodeEditorField,
+            &NoOverrides,
+            &scope(),
+            &cx("markup", &value, &opts),
+        );
+        let html = markup.as_str();
+        assert!(html.contains(r#"data-lat-widget="codeeditor""#), "{html}");
+        assert!(html.contains(r#"data-language="jinja""#), "{html}");
+        assert!(html.contains(r#"rows="20""#), "{html}");
+        assert!(html.contains("<textarea"), "{html}");
+        assert_eq!(
+            CodeEditorField.assets(&opts),
+            crate::CODE_EDITOR_ASSETS.to_vec()
+        );
+        // A language the engine does not know is a boot error, not a silent plain editor.
+        assert!(CodeEditorField
+            .resolve_options(&serde_json::json!({ "language": "cobol" }), &types)
+            .is_err());
     }
 
     #[test]

@@ -87,6 +87,7 @@ Type | Keys
 --- | ---
 `text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`, `counter`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
 `textarea` | `rows`, `placeholder`, `grow`, `counter`
+`codeeditor` | `language` (`text`, `html`, `css`, `javascript`, `json`, `yaml`, `markdown`, `jinja`), `rows`, `line_numbers`, `wrap`, `placeholder`
 `select` | `options`: a list of `{ value, label }`; `search`
 `radio` | `options`
 `checklist` | `options`, `select_all`, `search`, `expand`. See [Checklist](#checklist).
@@ -150,6 +151,8 @@ Key | On | Values | Default
 `enter` | A field | `submit`, `off`, `next` | The form's
 `counter` | `text`, `textarea` | `auto`, `true`, `false` | `auto`: with a `max_length` rule, shown once four fifths of it are used
 `grow` | `textarea` | `true`, `false` | `true`: as tall as its text, from `rows` up to most of the window
+`line_numbers` | `codeeditor` | `true`, `false` | `true`
+`wrap` | `codeeditor` | `true`, `false` | `false`: long lines scroll
 `reveal` | `password` | `true`, `false` | `true`: a button shows what was typed
 `search` | `select` | `auto`, `true`, `false` | `auto`: past 10 choices, the dropdown is searched. An option with an empty value is what clearing chooses.
 `display` | `repeater` | `auto`, `inline`, `list` | `auto`: past 3 fields a row, rows collapse to the line naming them

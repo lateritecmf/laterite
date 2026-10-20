@@ -49,6 +49,9 @@ const sections = [];
 for (const b of bundles) {
   const result = await build({
     entryPoints: [join(here, b.entry)],
+    // Metafile paths are relative to this directory whatever the caller's cwd,
+    // so the attribution below finds the same packages from the repository root.
+    absWorkingDir: here,
     bundle: true,
     minify: true,
     format: 'iife',

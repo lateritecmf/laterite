@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `codeeditor` field type (CodeMirror 6; `language`, `rows`, `line_numbers`, `wrap`) and
+  `PageHead::assets` with `CODE_EDITOR_ASSETS`; the theme template editor uses it.
+
 ## [0.9.17] - 2026-10-16
 
 Ordered hierarchies: one arrangement engine for every list modules insert into,

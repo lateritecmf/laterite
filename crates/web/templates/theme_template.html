@@ -6,7 +6,9 @@
       <div class="lat-pane__head">{{ shell.t("Markup") }}<span class="lat-code">{{ path }}</span></div>
       <div class="lat-pane__body">
         <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
-        <textarea class="lat-input lat-editor" id="markup" name="markup" rows="26" spellcheck="false" aria-label='{{ shell.t("Markup") }}'{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
+        <div class="lat-codeeditor" data-lat-widget="codeeditor" data-language="jinja" style="--rows:26">
+          <textarea class="lat-input lat-editor" id="markup" name="markup" rows="26" spellcheck="false" data-lat-grow="off" aria-label='{{ shell.t("Markup") }}'{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
+        </div>
       </div>
       {% if let Some(fields) = page_fields %}
       <div class="lat-pane__head">{{ shell.t("Page") }}</div>
@@ -14,7 +16,9 @@
       {% else %}
       <div class="lat-pane__head">{{ shell.t("Settings") }}</div>
       <div class="lat-pane__body">
-        <textarea class="lat-input lat-editor" id="settings" name="settings" rows="6" spellcheck="false" aria-label='{{ shell.t("Settings") }}'{% if locked %} readonly{% endif %}>{{ settings }}</textarea>
+        <div class="lat-codeeditor" data-lat-widget="codeeditor" data-language="json" style="--rows:6">
+          <textarea class="lat-input lat-editor" id="settings" name="settings" rows="6" spellcheck="false" data-lat-grow="off" aria-label='{{ shell.t("Settings") }}'{% if locked %} readonly{% endif %}>{{ settings }}</textarea>
+        </div>
         <p class="lat-field__help" style="margin:8px 0 0">{{ shell.t("A JSON object, such as a layout's description.") }}</p>
       </div>
       {% endif %}

@@ -489,6 +489,7 @@ pub struct PageHead {
     title: Text,
     back: Option<(Text, String)>,
     actions: Option<html::Markup>,
+    assets: Vec<&'static str>,
 }
 
 impl PageHead {
@@ -497,7 +498,20 @@ impl PageHead {
             title: title.into(),
             back: None,
             actions: None,
+            assets: Vec::new(),
         }
+    }
+
+    /// Widget assets this page needs beyond the core script and stylesheet,
+    /// by registry key (for example [`CODE_EDITOR_ASSETS`]), emitted in the
+    /// head after `laterite.js` in the order given.
+    pub fn assets(mut self, keys: &[&'static str]) -> Self {
+        for key in keys {
+            if !self.assets.contains(key) {
+                self.assets.push(key);
+            }
+        }
+        self
     }
 
     /// The page this one sits under, linked above the title.
@@ -702,12 +716,22 @@ impl Shell {
     /// A contributed page with a [`PageHead`]: the title, a way back and the
     /// actions beside it, then `body` inside the chrome.
     pub fn page_with(&self, head: PageHead, body: html::Markup) -> Response {
+        let mut shell = self.clone();
+        for key in &head.assets {
+            let url = shell.asset(key);
+            if !shell.assets.iter().any(|a| a.url == url) {
+                shell.assets.push(PageAsset {
+                    url,
+                    css: key.ends_with(".css"),
+                });
+            }
+        }
         render(PageTemplate {
             title: self.tt(&head.title),
             back: head.back.map(|(label, href)| (self.tt(&label), href)),
             actions: head.actions,
             body,
-            shell: self.clone(),
+            shell,
         })
     }
 
@@ -2298,6 +2322,17 @@ pub(crate) fn page_assets(
     out
 }
 
+/// The assets a code surface needs on its page: the CodeMirror engine built by
+/// `scripts/editor`, the island that mounts it over a textarea, and its
+/// stylesheet. The `codeeditor` field declares them itself; a contributed
+/// screen that writes the widget's markup by hand passes them to
+/// [`PageHead::assets`].
+pub const CODE_EDITOR_ASSETS: &[&str] = &[
+    "vendor/codeeditor.js",
+    "fields/codeeditor.js",
+    "fields/codeeditor.css",
+];
+
 /// The framework's built-in assets: the stylesheet, brand marks, webfonts, and
 /// the editor engines (built by `scripts/editor`, loaded only by a field that
 /// declares them).
@@ -2356,6 +2391,22 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
                 bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/codeeditor.js")),
+            },
+        ),
+        (
+            "fields/codeeditor.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/codeeditor.js")),
+            },
+        ),
+        (
+            "fields/codeeditor.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fields/codeeditor.css"
+                )),
             },
         ),
         (
@@ -4831,6 +4882,22 @@ mod tests {
         assert_eq!(
             resolve_locale_chain(Some(laterite_core::PSEUDO_LOCALE), None, "en", &loaded),
             vec![laterite_core::PSEUDO_LOCALE, "en"]
+        );
+    }
+
+    #[test]
+    fn page_head_assets_dedupe_and_keep_order() {
+        let head = PageHead::new("Specification")
+            .assets(CODE_EDITOR_ASSETS)
+            .assets(&["fields/codeeditor.js", "fields/ref-picker.js"]);
+        assert_eq!(
+            head.assets,
+            vec![
+                "vendor/codeeditor.js",
+                "fields/codeeditor.js",
+                "fields/codeeditor.css",
+                "fields/ref-picker.js"
+            ]
         );
     }
 

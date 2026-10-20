@@ -1,0 +1,3 @@
+<div class="lat-codeeditor" data-lat-widget="codeeditor" data-language="{{ language }}"{% if !line_numbers %} data-line-numbers="off"{% endif %}{% if wrap %} data-wrap="on"{% endif %}{% if let Some(r) = rows %} style="--rows:{{ r }}"{% endif %}>
+  <textarea class="lat-input lat-editor" id="{{ id }}" name="{{ name }}" spellcheck="false" data-lat-grow="off"{% if let Some(r) = rows %} rows="{{ r }}" style="--rows:{{ r }}"{% endif %}{% if let Some(p) = placeholder %} placeholder="{{ p }}"{% endif %}{% if required %} required{% endif %}>{{ value }}</textarea>
+</div>

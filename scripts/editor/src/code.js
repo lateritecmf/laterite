@@ -12,3 +12,5 @@ export { json } from '@codemirror/lang-json';
 export { yaml } from '@codemirror/lang-yaml';
 export { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
 export { jinja } from '@codemirror/lang-jinja';
+export { HighlightStyle } from '@codemirror/language';
+export { tags } from '@lezer/highlight';
