@@ -57,6 +57,13 @@ ASSETS = [
         "holder": "Copyright Big Sky Software",
         "url": "https://github.com/bigskysoftware/htmx",
     },
+    {
+        "name": "Editor engines: TipTap, ProseMirror, CodeMirror and their dependencies",
+        "version": "bundled by scripts/editor (every package listed in crates/admin/NOTICE)",
+        "license": "MIT",
+        "holder": "Copyright holders listed per package in crates/admin/NOTICE",
+        "url": "https://github.com/ueberdosis/tiptap, https://prosemirror.net, https://codemirror.net",
+    },
 ]
 
 # Licence texts our bundled assets need, which no crate source provides.

@@ -35,6 +35,8 @@ ours='^(laterite\.(css|js)|theme-boot\.js|mark\.(svg|png)|NOTICE\.txt|fields/ref
 attributed_patterns='fonts/ibm-plex:IBM Plex
 fonts/space-grotesk:Space Grotesk
 vendor/htmx:htmx
+vendor/richeditor:Editor engines
+vendor/codeeditor:Editor engines
 icons/:Lucide'
 
 fail=0

@@ -2298,7 +2298,9 @@ pub(crate) fn page_assets(
     out
 }
 
-/// The framework's built-in assets: the stylesheet, brand marks, and webfonts.
+/// The framework's built-in assets: the stylesheet, brand marks, webfonts, and
+/// the editor engines (built by `scripts/editor`, loaded only by a field that
+/// declares them).
 ///
 /// None of them declares a cache policy. Every one is referenced through
 /// [`asset_urls`], which names each by a digest of its bytes, and
@@ -2331,6 +2333,29 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
                 bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/htmx.min.js")),
+            },
+        ),
+        (
+            "vendor/richeditor.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/richeditor.js")),
+            },
+        ),
+        (
+            "vendor/richeditor.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/vendor/richeditor.css"
+                )),
+            },
+        ),
+        (
+            "vendor/codeeditor.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/codeeditor.js")),
             },
         ),
         (

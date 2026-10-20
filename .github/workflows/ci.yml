@@ -59,6 +59,25 @@ jobs:
             echo "Run scripts/gen-icons.py and commit the result." >&2
             exit 1
           fi
+      # The editor engines are built once from a lockfile and committed; the
+      # rebuild here must reproduce the committed bytes and the attribution
+      # section, so an upgrade cannot land without its notice.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/editor/package-lock.json
+      - name: The editor bundles must be rebuilt and committed
+        run: |
+          npm ci --prefix scripts/editor --no-audit --no-fund
+          node scripts/editor/build.mjs
+          drift="$(git status --porcelain -- crates/admin/assets/vendor crates/admin/NOTICE)"
+          if [ -n "$drift" ]; then
+            echo "The editor bundles are stale:" >&2
+            echo "$drift" >&2
+            echo "Run npm ci and node build.mjs in scripts/editor and commit the result." >&2
+            exit 1
+          fi
       - run: python3 scripts/gen-notice.py
       - name: The third-party notice must be regenerated and committed
         run: |
