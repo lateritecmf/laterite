@@ -1,0 +1,10 @@
+<div class="lat-richeditor" data-lat-widget="richeditor" data-pick="{{ data.pick_url }}"{% if let Some(r) = data.rows %} style="--rows:{{ r }}"{% endif %}{% for (k, v) in data.words %} data-w-{{ k }}="{{ v }}"{% endfor %}>
+  <div class="lat-richeditor__bar" role="toolbar" aria-label="{{ data.toolbar_label }}">
+    {% for b in data.buttons %}{% if b.kind == "sep" %}<span class="lat-richeditor__sep" aria-hidden="true"></span>{% else if b.kind == "format" %}<select class="lat-richeditor__format" data-rich-format aria-label="{{ b.label }}">{% for (v, l) in data.formats %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>{% else %}<button type="button" class="lat-richeditor__btn" data-rich-cmd="{{ b.cmd }}" aria-label="{{ b.label }}" title="{{ b.label }}" aria-pressed="false">{{ b.icon|safe }}</button>{% endif %}{% endfor %}
+  </div>
+  <div class="lat-richeditor__tablebar" data-rich-tablebar hidden>
+    {% for (c, l) in data.table_actions %}<button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-rich-table="{{ c }}">{{ l }}</button>{% endfor %}
+  </div>
+  <div class="lat-richeditor__body" data-rich-body></div>
+  <textarea class="lat-input lat-editor" id="{{ id }}" name="{{ name }}" data-lat-grow="off"{% if let Some(r) = data.rows %} rows="{{ r }}"{% endif %}{% if let Some(p) = data.placeholder %} placeholder="{{ p }}"{% endif %}{% if required %} required{% endif %}>{{ value }}</textarea>
+</div>

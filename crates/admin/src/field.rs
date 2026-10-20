@@ -94,6 +94,16 @@ pub struct FieldCx<'a> {
     /// through the caller, so without this they could only render from their
     /// source string, untranslated on every surface.
     pub i18n: &'a Translator,
+    /// The icon set and its sprite, behind [`FieldCx::icon`].
+    pub(crate) icons: crate::icons::Icons<'a>,
+}
+
+impl FieldCx<'_> {
+    /// Markup for a named icon from the framework's set, for a control with
+    /// iconed buttons (the rich editor's toolbar). Decorative: label the button.
+    pub fn icon(&self, name: &str) -> String {
+        self.icons.render(Some(name))
+    }
 }
 
 /// The serialisable payload both the built-in template and an override render,
@@ -799,6 +809,7 @@ fn render_row(
                 opts: &sub.opts,
                 base: cx.base,
                 i18n: cx.i18n,
+                icons: cx.icons,
             };
             let vm = sub.field_type.view_model(&sub_cx);
             RepeaterCell {
@@ -1014,6 +1025,274 @@ impl FieldType for CodeEditorField {
     }
 }
 
+/// The toolbar entries a rich editor offers, named in YAML through `toolbar`.
+const RICH_TOOLBAR_DEFAULT: &[&str] = &[
+    "format",
+    "bold",
+    "italic",
+    "underline",
+    "strike",
+    "|",
+    "bullet_list",
+    "ordered_list",
+    "|",
+    "link",
+    "image",
+    "table",
+    "rule",
+    "|",
+    "undo",
+    "redo",
+];
+
+/// A rich editor's own keys: its height in rows, what an empty one shows, and
+/// which toolbar entries it offers (any of `format`, `bold`, `italic`,
+/// `underline`, `strike`, `bullet_list`, `ordered_list`, `link`, `image`,
+/// `table`, `rule`, `undo`, `redo`, with `|` a separator).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RichOptions {
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default)]
+    toolbar: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RichButton {
+    /// `button`, `format` (the block-format select) or `sep`.
+    kind: String,
+    cmd: String,
+    label: String,
+    icon: String,
+}
+
+/// The rich editor's view-model payload: the picker endpoint, the toolbar with
+/// its icons and words already localized, and the words its dialogs use.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RichData {
+    pick_url: String,
+    rows: Option<u16>,
+    placeholder: Option<String>,
+    toolbar_label: String,
+    buttons: Vec<RichButton>,
+    formats: Vec<(String, String)>,
+    table_actions: Vec<(String, String)>,
+    words: Vec<(String, String)>,
+}
+
+#[derive(Template)]
+#[template(path = "fields/richeditor.html")]
+struct RichTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+    data: &'a RichData,
+}
+
+/// A rich-text editor over a textarea that holds the document as HTML. The
+/// server keeps the HTML to the editor's schema on save ([`crate::richtext`])
+/// and links the library files the document refers to.
+pub(crate) struct RichEditorField;
+
+impl RichEditorField {
+    fn button(cx: &FieldCx<'_>, name: &str) -> Option<RichButton> {
+        let (label, icon) = match name {
+            "bold" => (laterite_core::t!("Bold"), "bold"),
+            "italic" => (laterite_core::t!("Italic"), "italic"),
+            "underline" => (laterite_core::t!("Underline"), "underline"),
+            "strike" => (laterite_core::t!("Strikethrough"), "strikethrough"),
+            "bullet_list" => (laterite_core::t!("Bulleted list"), "list"),
+            "ordered_list" => (laterite_core::t!("Numbered list"), "list-ordered"),
+            "link" => (laterite_core::t!("Link"), "link"),
+            "image" => (laterite_core::t!("Image"), "image"),
+            "table" => (laterite_core::t!("Table"), "table"),
+            "rule" => (laterite_core::t!("Horizontal rule"), "minus"),
+            "undo" => (laterite_core::t!("Undo"), "undo-2"),
+            "redo" => (laterite_core::t!("Redo"), "redo-2"),
+            "format" => {
+                return Some(RichButton {
+                    kind: "format".into(),
+                    cmd: "format".into(),
+                    label: cx.i18n.t(&laterite_core::t!("Format")),
+                    icon: String::new(),
+                })
+            }
+            "|" => {
+                return Some(RichButton {
+                    kind: "sep".into(),
+                    cmd: String::new(),
+                    label: String::new(),
+                    icon: String::new(),
+                })
+            }
+            _ => return None,
+        };
+        Some(RichButton {
+            kind: "button".into(),
+            cmd: name.to_string(),
+            label: cx.i18n.t(&label),
+            icon: cx.icon(icon),
+        })
+    }
+}
+
+impl FieldType for RichEditorField {
+    fn view_key(&self) -> &'static str {
+        "richeditor"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["rows", "placeholder", "toolbar"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: RichOptions = if raw.is_null() {
+            RichOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        if let Some(names) = &opts.toolbar {
+            if let Some(bad) = names
+                .iter()
+                .find(|n| !RICH_TOOLBAR_DEFAULT.contains(&n.as_str()))
+            {
+                return Err(OptionsError(format!(
+                    "unknown toolbar entry `{bad}`; expected one of {}",
+                    RICH_TOOLBAR_DEFAULT.join(", ")
+                )));
+            }
+        }
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let mut vm = scalar_vm("richeditor", cx);
+        let opts = cx.opts.get::<RichOptions>().cloned().unwrap_or_default();
+        let t = |s: &str| cx.i18n.t(&laterite_core::Text::dynamic(s));
+        let names: Vec<String> = opts
+            .toolbar
+            .clone()
+            .unwrap_or_else(|| RICH_TOOLBAR_DEFAULT.iter().map(|s| s.to_string()).collect());
+        let data = RichData {
+            pick_url: format!("{}/media/pick", cx.base),
+            rows: opts.rows,
+            placeholder: opts.placeholder,
+            toolbar_label: cx.i18n.t(&laterite_core::t!("Formatting")),
+            buttons: names.iter().filter_map(|n| Self::button(cx, n)).collect(),
+            formats: vec![
+                (
+                    "paragraph".into(),
+                    cx.i18n.t(&laterite_core::t!("Paragraph")),
+                ),
+                ("h1".into(), cx.i18n.t(&laterite_core::t!("Heading 1"))),
+                ("h2".into(), cx.i18n.t(&laterite_core::t!("Heading 2"))),
+                ("h3".into(), cx.i18n.t(&laterite_core::t!("Heading 3"))),
+                ("h4".into(), cx.i18n.t(&laterite_core::t!("Heading 4"))),
+                ("blockquote".into(), cx.i18n.t(&laterite_core::t!("Quote"))),
+                (
+                    "code_block".into(),
+                    cx.i18n.t(&laterite_core::t!("Code block")),
+                ),
+            ],
+            table_actions: vec![
+                ("row_after".into(), cx.i18n.t(&laterite_core::t!("Add row"))),
+                (
+                    "col_after".into(),
+                    cx.i18n.t(&laterite_core::t!("Add column")),
+                ),
+                (
+                    "row_delete".into(),
+                    cx.i18n.t(&laterite_core::t!("Delete row")),
+                ),
+                (
+                    "col_delete".into(),
+                    cx.i18n.t(&laterite_core::t!("Delete column")),
+                ),
+                (
+                    "header_row".into(),
+                    cx.i18n.t(&laterite_core::t!("Header row")),
+                ),
+                (
+                    "table_delete".into(),
+                    cx.i18n.t(&laterite_core::t!("Delete table")),
+                ),
+            ],
+            words: vec![
+                ("link-title".into(), cx.i18n.t(&laterite_core::t!("Link"))),
+                ("url".into(), cx.i18n.t(&laterite_core::t!("URL"))),
+                (
+                    "new-tab".into(),
+                    cx.i18n.t(&laterite_core::t!("Open in a new tab")),
+                ),
+                (
+                    "remove-link".into(),
+                    cx.i18n.t(&laterite_core::t!("Remove link")),
+                ),
+                ("apply".into(), cx.i18n.t(&laterite_core::t!("Apply"))),
+                ("cancel".into(), cx.i18n.t(&laterite_core::t!("Cancel"))),
+                (
+                    "library-title".into(),
+                    cx.i18n.t(&laterite_core::t!("Choose from the library")),
+                ),
+                (
+                    "library-use".into(),
+                    cx.i18n.t(&laterite_core::t!("Use selected")),
+                ),
+            ],
+        };
+        let _ = t;
+        vm.data = serde_json::to_value(data).unwrap_or_default();
+        vm
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let data: RichData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&RichTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+            data: &data,
+        })
+        .unwrap_or_default()
+    }
+    /// An empty editor submits `<p></p>`; the rules see it as empty.
+    fn submitted(&self, field: &SubmittedField<'_>, _opts: &ResolvedOptions) -> Option<String> {
+        field.value().map(|v| {
+            if crate::richtext::is_blank(v) {
+                String::new()
+            } else {
+                v.to_string()
+            }
+        })
+    }
+    /// Stores the document cleaned to the editor's schema; a blank one as empty.
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(field.value().map(|v| {
+            let clean = crate::richtext::clean(v);
+            AttrValue::Text(if crate::richtext::is_blank(&clean) {
+                String::new()
+            } else {
+                clean
+            })
+        }))
+    }
+    fn linked_media(&self, submitted: Option<&str>, _opts: &ResolvedOptions) -> Option<Vec<i64>> {
+        submitted.map(crate::richtext::media_ids)
+    }
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
+        crate::RICH_EDITOR_ASSETS.to_vec()
+    }
+}
+
 /// The framework's built-in field types. The text field is constructed with the
 /// built-in input-type registry it delegates to.
 pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
@@ -1022,6 +1301,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(TextField::new(inputs)),
         Arc::new(TextareaField),
         Arc::new(CodeEditorField),
+        Arc::new(RichEditorField),
         Arc::new(IdField),
         Arc::new(RepeaterField),
         Arc::new(SelectField),
@@ -2469,6 +2749,16 @@ impl FieldType for RefPickerField {
     }
 }
 
+/// The framework's icon set for a test's field context, leaked so the borrow
+/// outlives the call; a test process is short-lived.
+#[cfg(test)]
+fn test_icons() -> crate::icons::Icons<'static> {
+    crate::icons::Icons::new(
+        Box::leak(Box::new(laterite_core::icons::IconSet::new())),
+        "/admin/assets/icons.svg",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2503,6 +2793,7 @@ mod tests {
             opts,
             base: "/admin",
             i18n,
+            icons: test_icons(),
         }
     }
 
@@ -2595,6 +2886,36 @@ mod tests {
         // A language the engine does not know is a boot error, not a silent plain editor.
         assert!(CodeEditorField
             .resolve_options(&serde_json::json!({ "language": "cobol" }), &types)
+            .is_err());
+    }
+
+    #[test]
+    fn rich_editor_renders_its_toolbar_and_cleans_what_it_stores() {
+        let types = FieldRegistry::default();
+        let opts = RichEditorField
+            .resolve_options(
+                &serde_json::json!({ "toolbar": ["bold", "|", "link"] }),
+                &types,
+            )
+            .unwrap();
+        let value = FieldValue::Text("<p>Hi</p>".to_string());
+        let markup = render_field(
+            &RichEditorField,
+            &NoOverrides,
+            &scope(),
+            &cx("body", &value, &opts),
+        );
+        let html = markup.as_str();
+        assert!(html.contains(r#"data-lat-widget="richeditor""#), "{html}");
+        assert!(html.contains(r#"data-rich-cmd="bold""#), "{html}");
+        assert!(html.contains(r#"data-rich-cmd="link""#), "{html}");
+        assert!(!html.contains(r#"data-rich-cmd="image""#), "{html}");
+        assert!(html.contains("icons.svg#lat-bold"), "{html}");
+        // The stored HTML travels in the textarea, escaped, never as markup.
+        assert!(html.contains("<textarea"), "{html}");
+        assert!(!html.contains("<p>Hi</p>"), "{html}");
+        assert!(RichEditorField
+            .resolve_options(&serde_json::json!({ "toolbar": ["blink"] }), &types)
             .is_err());
     }
 
@@ -3023,6 +3344,7 @@ mod repeater_tests {
             opts: &options(),
             base: "/admin",
             i18n: &Translator::new("en"),
+            icons: test_icons(),
         };
         let html = RepeaterField
             .render_default(&RepeaterField.view_model(&cx))
@@ -3063,6 +3385,7 @@ mod repeater_tests {
             opts,
             base: "/admin",
             i18n: &Translator::new("en"),
+            icons: test_icons(),
         };
         RepeaterField
             .render_default(&RepeaterField.view_model(&cx))
@@ -3192,6 +3515,7 @@ mod repeater_tests {
             opts: &options(),
             base: "/admin",
             i18n: &i18n,
+            icons: test_icons(),
         };
         let html = RepeaterField
             .render_default(&RepeaterField.view_model(&cx))
@@ -3344,6 +3668,36 @@ mod save_contract_tests {
             f.to_attr(&SubmittedField::new("f", &one(None)), &none(), Mode::Update)
                 .unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn rich_text_is_cleaned_on_save_and_blank_when_empty() {
+        let f = RichEditorField;
+        let dirty = one(Some(
+            r#"<p onclick="x()">Hi</p><script>1</script><img src="/a.png" data-media="4">"#,
+        ));
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &dirty), &none(), Mode::Create)
+                .unwrap(),
+            Some(AttrValue::Text(
+                r#"<p>Hi</p><img src="/a.png" data-media="4">"#.into()
+            ))
+        );
+        assert_eq!(
+            f.linked_media(Some(r#"<img data-media="4">"#), &none()),
+            Some(vec![4])
+        );
+        // An empty editor submits a paragraph; the rules and the store see nothing.
+        let blank = one(Some("<p></p>"));
+        assert_eq!(
+            f.submitted(&SubmittedField::new("f", &blank), &none()),
+            Some(String::new())
+        );
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &blank), &none(), Mode::Create)
+                .unwrap(),
+            Some(AttrValue::Text(String::new()))
         );
     }
 

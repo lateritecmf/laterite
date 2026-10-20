@@ -531,74 +531,21 @@ window.lat.widget('upload', function (root) {
 // fragment. Folder links and the search inside the fragment refetch it; a
 // tile click chooses (one file closes the dialog, several toggle and a
 // footer button confirms). With no script the hidden input keeps its ids.
-window.lat.widget('media-field', function (root) {
-  var input = root.querySelector('[data-mediafield-value]');
-  var tiles = root.querySelector('[data-mediafield-tiles]');
-  var pickBtn = root.querySelector('[data-mediafield-pick]');
-  var clearBtn = root.querySelector('[data-mediafield-clear]');
-  if (!input || !tiles || !pickBtn) return;
-  var max = parseInt(root.getAttribute('data-max') || '1', 10);
-  var multiple = max !== 1;
+// The library picker: a dialog that browses the media library through the
+// `/media/pick` fragments (folders, search, kind) and hands the chosen files
+// to `onDone(items)`, each `{ id, name, kind, thumb, url, is_image }`. One
+// click chooses in single mode; in multiple mode tiles toggle and "Use
+// selected" finishes. Shared by the media field and the rich editor's image
+// button, so there is one way to choose a file.
+window.lat.mediaPicker = function (opts) {
+  var multiple = !!opts.multiple;
   var words = {
-    select: root.getAttribute('data-lat-select') || 'Select',
-    replace: root.getAttribute('data-lat-replace') || 'Replace',
-    use: root.getAttribute('data-lat-use') || 'Use selected',
-    title: root.getAttribute('data-lat-title') || 'Choose from the library',
-    cancel: document.body.getAttribute('data-lat-cancel') || 'Cancel',
+    title: opts.words.title || 'Choose from the library',
+    use: opts.words.use || 'Use selected',
+    cancel: opts.words.cancel || document.body.getAttribute('data-lat-cancel') || 'Cancel'
   };
   var dialog = null;
   var chosen = [];
-
-  function ids() {
-    return input.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-  }
-  function write(list) {
-    input.value = list.join(',');
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    pickBtn.textContent = list.length && !multiple ? words.replace : words.select;
-    if (clearBtn) clearBtn.hidden = list.length === 0;
-    window.lat.emit(root, 'media:changed', { ids: list.slice() });
-  }
-  function tile(item) {
-    var el = document.createElement('div');
-    el.className = 'lat-mediafield__tile';
-    el.setAttribute('data-id', item.id);
-    el.innerHTML =
-      '<span class="lat-media-card__thumb"></span>' +
-      '<span class="lat-media-card__name"></span>' +
-      '<button type="button" class="lat-mediafield__remove">&times;</button>';
-    var thumb = el.querySelector('.lat-media-card__thumb');
-    if (item.is_image) {
-      var img = document.createElement('img');
-      img.src = item.thumb;
-      img.alt = '';
-      thumb.appendChild(img);
-    } else {
-      var kind = document.createElement('span');
-      kind.className = 'lat-media-card__kind';
-      kind.textContent = item.kind;
-      thumb.appendChild(kind);
-    }
-    el.querySelector('.lat-media-card__name').textContent = item.name;
-    el.querySelector('.lat-media-card__name').title = item.name;
-    el.querySelector('.lat-mediafield__remove').addEventListener('click', function () {
-      el.remove();
-      write(ids().filter(function (id) { return id !== String(item.id); }));
-    });
-    return el;
-  }
-  function draw(items) {
-    tiles.innerHTML = '';
-    items.forEach(function (item) { tiles.appendChild(tile(item)); });
-  }
-  function load() {
-    var list = ids();
-    if (!list.length) { draw([]); return; }
-    fetch(root.getAttribute('data-resolve') + '?ids=' + encodeURIComponent(list.join(',')), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(draw)
-      .catch(function () { draw([]); });
-  }
 
   function box() {
     if (dialog) return dialog;
@@ -659,6 +606,84 @@ window.lat.widget('media-field', function (root) {
       });
   }
   function finish(items) {
+    if (items.length) opts.onDone(items);
+    chosen = [];
+    if (dialog) dialog.close();
+  }
+  return {
+    open: function (url) { chosen = []; show(url); },
+    close: function () { if (dialog) dialog.close(); }
+  };
+};
+
+window.lat.widget('media-field', function (root) {
+  var input = root.querySelector('[data-mediafield-value]');
+  var tiles = root.querySelector('[data-mediafield-tiles]');
+  var pickBtn = root.querySelector('[data-mediafield-pick]');
+  var clearBtn = root.querySelector('[data-mediafield-clear]');
+  if (!input || !tiles || !pickBtn) return;
+  var max = parseInt(root.getAttribute('data-max') || '1', 10);
+  var multiple = max !== 1;
+  var words = {
+    select: root.getAttribute('data-lat-select') || 'Select',
+    replace: root.getAttribute('data-lat-replace') || 'Replace',
+    use: root.getAttribute('data-lat-use') || 'Use selected',
+    title: root.getAttribute('data-lat-title') || 'Choose from the library',
+    cancel: document.body.getAttribute('data-lat-cancel') || 'Cancel',
+  };
+
+  function ids() {
+    return input.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  function write(list) {
+    input.value = list.join(',');
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    pickBtn.textContent = list.length && !multiple ? words.replace : words.select;
+    if (clearBtn) clearBtn.hidden = list.length === 0;
+    window.lat.emit(root, 'media:changed', { ids: list.slice() });
+  }
+  function tile(item) {
+    var el = document.createElement('div');
+    el.className = 'lat-mediafield__tile';
+    el.setAttribute('data-id', item.id);
+    el.innerHTML =
+      '<span class="lat-media-card__thumb"></span>' +
+      '<span class="lat-media-card__name"></span>' +
+      '<button type="button" class="lat-mediafield__remove">&times;</button>';
+    var thumb = el.querySelector('.lat-media-card__thumb');
+    if (item.is_image) {
+      var img = document.createElement('img');
+      img.src = item.thumb;
+      img.alt = '';
+      thumb.appendChild(img);
+    } else {
+      var kind = document.createElement('span');
+      kind.className = 'lat-media-card__kind';
+      kind.textContent = item.kind;
+      thumb.appendChild(kind);
+    }
+    el.querySelector('.lat-media-card__name').textContent = item.name;
+    el.querySelector('.lat-media-card__name').title = item.name;
+    el.querySelector('.lat-mediafield__remove').addEventListener('click', function () {
+      el.remove();
+      write(ids().filter(function (id) { return id !== String(item.id); }));
+    });
+    return el;
+  }
+  function draw(items) {
+    tiles.innerHTML = '';
+    items.forEach(function (item) { tiles.appendChild(tile(item)); });
+  }
+  function load() {
+    var list = ids();
+    if (!list.length) { draw([]); return; }
+    fetch(root.getAttribute('data-resolve') + '?ids=' + encodeURIComponent(list.join(',')), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(draw)
+      .catch(function () { draw([]); });
+  }
+
+  function finish(items) {
     var current = multiple ? ids() : [];
     var merged = current.slice();
     var existing = {};
@@ -675,14 +700,16 @@ window.lat.widget('media-field', function (root) {
       tiles.appendChild(tile(items[0]));
     }
     write(merged);
-    chosen = [];
-    if (dialog) dialog.close();
   }
+  var picker = window.lat.mediaPicker({
+    multiple: multiple,
+    words: { title: words.title, use: words.use, cancel: words.cancel },
+    onDone: finish
+  });
 
   pickBtn.addEventListener('click', function () {
-    chosen = [];
     var mode = root.getAttribute('data-mode');
-    show(root.getAttribute('data-pick') + (mode && mode !== 'file' ? '?mode=' + mode : ''));
+    picker.open(root.getAttribute('data-pick') + (mode && mode !== 'file' ? '?mode=' + mode : ''));
   });
   if (clearBtn) {
     clearBtn.addEventListener('click', function () { draw([]); write([]); });

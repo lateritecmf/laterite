@@ -99,7 +99,7 @@ icons = [
 
 [content]
 # What a CMS edits. The largest group by design: this is the subject matter.
-# 34 icons.
+# 37 icons.
 icons = [
   "bold",
   "book-open",
@@ -121,6 +121,7 @@ icons = [
   "italic",
   "link",
   "list-ordered",  # mirror
+  "minus",
   "music",
   "newspaper",
   "notebook-pen",
@@ -130,6 +131,8 @@ icons = [
   "quote",  # mirror
   "square-pen",
   "star",  # fillable
+  "strikethrough",
+  "table",
   "tag",
   "tags",
   "type",

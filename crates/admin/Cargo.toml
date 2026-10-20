@@ -11,6 +11,7 @@ laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
 laterite-media = { workspace = true }
 anyhow = { workspace = true }
+ammonia = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }

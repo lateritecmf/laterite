@@ -850,6 +850,7 @@ impl PreparedForm {
             opts: &pf.opts,
             base: &shell.base,
             i18n: shell.i18n(),
+            icons: crate::icons::Icons::new(&shell.icon_set, &shell.sprite_url),
         };
         let ft = state.field_types.get(&f.field_type)?;
         let scope = OverrideScope {
@@ -1554,6 +1555,7 @@ fn build(
                 opts: &pf.opts,
                 base: &shell.base,
                 i18n: shell.i18n(),
+                icons: crate::icons::Icons::new(&shell.icon_set, &shell.sprite_url),
             };
             // The type is registered (prepare validated it); the lookup here is
             // only to render.
@@ -1859,6 +1861,7 @@ pub(crate) fn value_views(
                         opts: &opts,
                         base: &shell.base,
                         i18n: shell.i18n(),
+                        icons: crate::icons::Icons::new(&shell.icon_set, &shell.sprite_url),
                     };
                     let scope = OverrideScope {
                         surface: Surface::Field,

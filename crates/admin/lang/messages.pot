@@ -165,6 +165,10 @@ msgstr ""
 msgid "Belongs in"
 msgstr ""
 
+#: src/field.rs
+msgid "Bold"
+msgstr ""
+
 #: (descriptors)
 msgid "Branding"
 msgstr ""
@@ -180,6 +184,10 @@ msgstr ""
 #: templates/login.html
 #: templates/setup.html
 msgid "Build sites. Ship solid."
+msgstr ""
+
+#: src/field.rs
+msgid "Bulleted list"
 msgstr ""
 
 #: templates/import/index.html
@@ -657,6 +665,14 @@ msgstr ""
 msgid "Forgot your password? Ask an administrator to reset it."
 msgstr ""
 
+#: src/field.rs
+msgid "Format"
+msgstr ""
+
+#: src/field.rs
+msgid "Formatting"
+msgstr ""
+
 #: templates/media_file.html
 msgid "Free"
 msgstr ""
@@ -686,6 +702,14 @@ msgstr ""
 msgid "Hits"
 msgstr ""
 
+#: src/field.rs
+msgid "Horizontal rule"
+msgstr ""
+
+#: src/field.rs
+msgid "Image"
+msgstr ""
+
 #: src/medialib/mod.rs
 msgid "Image cropped."
 msgstr ""
@@ -713,6 +737,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Invalid username or password."
+msgstr ""
+
+#: src/field.rs
+msgid "Italic"
 msgstr ""
 
 #: templates/import/index.html
@@ -753,6 +781,10 @@ msgstr ""
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Library"
+msgstr ""
+
+#: src/field.rs
+msgid "Link"
 msgstr ""
 
 #: templates/list.html
@@ -955,6 +987,10 @@ msgstr ""
 msgid "Nothing: every row makes a new record"
 msgstr ""
 
+#: src/field.rs
+msgid "Numbered list"
+msgstr ""
+
 #: src/medialib/mod.rs
 msgid "Only an image can be cropped."
 msgstr ""
@@ -1097,6 +1133,10 @@ msgstr ""
 
 #: templates/media_file_actions.html
 msgid "Records still use this file. Delete it anyway?"
+msgstr ""
+
+#: src/field.rs
+msgid "Redo"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -1397,6 +1437,10 @@ msgstr ""
 msgid "Stored"
 msgstr ""
 
+#: src/field.rs
+msgid "Strikethrough"
+msgstr ""
+
 #: (descriptors)
 msgid "Superuser"
 msgstr ""
@@ -1408,6 +1452,10 @@ msgstr ""
 #: templates/import/index.html
 #: templates/import/match.html
 msgid "Tab"
+msgstr ""
+
+#: src/field.rs
+msgid "Table"
 msgstr ""
 
 #: (descriptors)
@@ -1621,6 +1669,14 @@ msgstr ""
 
 #: templates/media_file.html
 msgid "URL"
+msgstr ""
+
+#: src/field.rs
+msgid "Underline"
+msgstr ""
+
+#: src/field.rs
+msgid "Undo"
 msgstr ""
 
 #: templates/users_form.html

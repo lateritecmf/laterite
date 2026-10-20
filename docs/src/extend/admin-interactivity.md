@@ -133,6 +133,10 @@ lat.on('repeater:before-add', function (detail, event) {
 // Drive an island through its controller.
 lat.get(document.querySelector('[data-lat-widget="repeater"]')).add();
 
+// A rich editor: the same three, plus the engine for anything else.
+var rich = lat.get(document.querySelector('[data-lat-widget="richeditor"]'));
+rich.editor.commands.insertContent('<p>Hello</p>');
+
 // A code editor: read, replace, focus.
 var code = lat.get(document.querySelector('[data-lat-widget="codeeditor"]'));
 code.set(code.get().trim());
@@ -196,6 +200,24 @@ Attribute | Values | Default
 `--rows` | lines | `12`
 
 A `readonly` textarea gives a read-only editor. Without the script the textarea is the control.
+
+## Choose from the library
+
+```js
+var picker = lat.mediaPicker({
+  multiple: false,
+  words: { title: 'Choose from the library', use: 'Use selected', cancel: 'Cancel' },
+  onDone: function (items) { console.log(items[0].id, items[0].url); }
+});
+picker.open('/admin/media/pick?mode=image');
+```
+
+Option | Values
+--- | ---
+`multiple` | `true`, `false`
+`words` | `title`, `use`, `cancel`
+`onDone(items)` | each item: `id`, `name`, `kind`, `thumb`, `url`, `is_image`
+`open(url)` | the picker fragment, with `?mode=image` for images alone
 
 ## Write an island
 

@@ -38,6 +38,7 @@ pub mod picker;
 pub mod plugins;
 pub mod relation;
 pub(crate) mod requestlog;
+mod richtext;
 mod roles;
 mod routemap;
 pub mod routes;
@@ -2333,6 +2334,16 @@ pub const CODE_EDITOR_ASSETS: &[&str] = &[
     "fields/codeeditor.css",
 ];
 
+/// The assets a rich-text surface needs on its page: the TipTap engine and its
+/// base stylesheet built by `scripts/editor`, the island that mounts it, and
+/// the island's stylesheet. The `richeditor` field declares them itself.
+pub const RICH_EDITOR_ASSETS: &[&str] = &[
+    "vendor/richeditor.js",
+    "vendor/richeditor.css",
+    "fields/richeditor.js",
+    "fields/richeditor.css",
+];
+
 /// The framework's built-in assets: the stylesheet, brand marks, webfonts, and
 /// the editor engines (built by `scripts/editor`, loaded only by a field that
 /// declares them).
@@ -2391,6 +2402,22 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
                 bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/codeeditor.js")),
+            },
+        ),
+        (
+            "fields/richeditor.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/richeditor.js")),
+            },
+        ),
+        (
+            "fields/richeditor.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fields/richeditor.css"
+                )),
             },
         ),
         (

@@ -16,8 +16,8 @@ pub struct Icon {
     pub mirror: bool,
 }
 
-/// Every icon the framework ships, sorted by name. 197 of them.
-pub static ICONS: [Icon; 197] = [
+/// Every icon the framework ships, sorted by name. 200 of them.
+pub static ICONS: [Icon; 200] = [
     Icon {
         name: "activity",
         group: "objects",
@@ -852,6 +852,13 @@ pub static ICONS: [Icon; 197] = [
         mirror: false,
     },
     Icon {
+        name: "minus",
+        group: "content",
+        body: r##"<path d="M5 12h14" />"##,
+        fillable: false,
+        mirror: false,
+    },
+    Icon {
         name: "monitor",
         group: "chrome",
         body: r##"<rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" />"##,
@@ -1167,9 +1174,23 @@ pub static ICONS: [Icon; 197] = [
         mirror: false,
     },
     Icon {
+        name: "strikethrough",
+        group: "content",
+        body: r##"<path d="M16 4H9a3 3 0 0 0-2.83 4" /> <path d="M14 12a4 4 0 0 1 0 8H6" /> <line x1="4" x2="20" y1="12" y2="12" />"##,
+        fillable: false,
+        mirror: false,
+    },
+    Icon {
         name: "sun",
         group: "chrome",
         body: r##"<circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" />"##,
+        fillable: false,
+        mirror: false,
+    },
+    Icon {
+        name: "table",
+        group: "content",
+        body: r##"<path d="M12 3v18" /> <rect width="18" height="18" x="3" y="3" rx="2" /> <path d="M3 9h18" /> <path d="M3 15h18" />"##,
         fillable: false,
         mirror: false,
     },
@@ -1521,6 +1542,7 @@ pub mod names {
     pub const MESSAGE_CIRCLE: &str = "message-circle";
     pub const MESSAGE_SQUARE: &str = "message-square";
     pub const MIC: &str = "mic";
+    pub const MINUS: &str = "minus";
     pub const MONITOR: &str = "monitor";
     pub const MOON: &str = "moon";
     pub const MUSIC: &str = "music";
@@ -1566,7 +1588,9 @@ pub mod names {
     pub const SQUARE_PEN: &str = "square-pen";
     pub const STAR: &str = "star";
     pub const STORE: &str = "store";
+    pub const STRIKETHROUGH: &str = "strikethrough";
     pub const SUN: &str = "sun";
+    pub const TABLE: &str = "table";
     pub const TABLET: &str = "tablet";
     pub const TAG: &str = "tag";
     pub const TAGS: &str = "tags";
