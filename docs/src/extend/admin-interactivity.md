@@ -137,6 +137,9 @@ lat.get(document.querySelector('[data-lat-widget="repeater"]')).add();
 var rich = lat.get(document.querySelector('[data-lat-widget="richeditor"]'));
 rich.editor.commands.insertContent('<p>Hello</p>');
 
+// A markdown editor: the same, plus the Preview tab.
+lat.get(document.querySelector('[data-lat-widget="markdown"]')).preview();
+
 // A code editor: read, replace, focus.
 var code = lat.get(document.querySelector('[data-lat-widget="codeeditor"]'));
 code.set(code.get().trim());

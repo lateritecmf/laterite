@@ -1293,6 +1293,168 @@ impl FieldType for RichEditorField {
     }
 }
 
+/// A markdown editor's own keys: its height in rows, what an empty one shows,
+/// and whether the Preview tab is offered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MarkdownOptions {
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default = "yes")]
+    preview: bool,
+}
+
+impl Default for MarkdownOptions {
+    fn default() -> Self {
+        Self {
+            rows: None,
+            placeholder: None,
+            preview: true,
+        }
+    }
+}
+
+/// The markdown editor's view-model payload: its endpoints, the toolbar with
+/// icons and words localized, and the words its island uses.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct MarkdownData {
+    preview_url: Option<String>,
+    pick_url: String,
+    rows: Option<u16>,
+    placeholder: Option<String>,
+    toolbar_label: String,
+    write: String,
+    preview: String,
+    buttons: Vec<RichButton>,
+    words: Vec<(String, String)>,
+}
+
+#[derive(Template)]
+#[template(path = "fields/markdown.html")]
+struct MarkdownTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+    data: &'a MarkdownData,
+}
+
+/// A markdown editor over a textarea that holds the text as written; the site
+/// renders it with [`laterite_core::markdown`], and so does the Preview tab.
+pub(crate) struct MarkdownField;
+
+impl FieldType for MarkdownField {
+    fn view_key(&self) -> &'static str {
+        "markdown"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["rows", "placeholder", "preview"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: MarkdownOptions = if raw.is_null() {
+            MarkdownOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let mut vm = scalar_vm("markdown", cx);
+        let opts = cx
+            .opts
+            .get::<MarkdownOptions>()
+            .cloned()
+            .unwrap_or_default();
+        let button = |cmd: &str, label: laterite_core::Text, icon: &str| RichButton {
+            kind: "button".into(),
+            cmd: cmd.into(),
+            label: cx.i18n.t(&label),
+            icon: cx.icon(icon),
+        };
+        let data = MarkdownData {
+            preview_url: opts
+                .preview
+                .then(|| format!("{}/markdown/preview", cx.base)),
+            pick_url: format!("{}/media/pick", cx.base),
+            rows: opts.rows,
+            placeholder: opts.placeholder,
+            toolbar_label: cx.i18n.t(&laterite_core::t!("Formatting")),
+            write: cx.i18n.t(&laterite_core::t!("Write")),
+            preview: cx.i18n.t(&laterite_core::t!("Preview")),
+            buttons: vec![
+                button("heading", laterite_core::t!("Heading"), "heading"),
+                button("bold", laterite_core::t!("Bold"), "bold"),
+                button("italic", laterite_core::t!("Italic"), "italic"),
+                button("quote", laterite_core::t!("Quote"), "quote"),
+                button("code", laterite_core::t!("Code"), "code"),
+                button("link", laterite_core::t!("Link"), "link"),
+                button("image", laterite_core::t!("Image"), "image"),
+                button("bullet_list", laterite_core::t!("Bulleted list"), "list"),
+                button(
+                    "ordered_list",
+                    laterite_core::t!("Numbered list"),
+                    "list-ordered",
+                ),
+                button("table", laterite_core::t!("Table"), "table"),
+            ],
+            words: vec![
+                (
+                    "bold-text".into(),
+                    cx.i18n.t(&laterite_core::t!("bold text")),
+                ),
+                (
+                    "italic-text".into(),
+                    cx.i18n.t(&laterite_core::t!("italic text")),
+                ),
+                (
+                    "link-text".into(),
+                    cx.i18n.t(&laterite_core::t!("link text")),
+                ),
+                ("column".into(), cx.i18n.t(&laterite_core::t!("Column"))),
+                (
+                    "nothing".into(),
+                    cx.i18n.t(&laterite_core::t!("Nothing to preview.")),
+                ),
+                (
+                    "preview-failed".into(),
+                    cx.i18n
+                        .t(&laterite_core::t!("The preview could not be rendered.")),
+                ),
+                (
+                    "library-title".into(),
+                    cx.i18n.t(&laterite_core::t!("Choose from the library")),
+                ),
+                (
+                    "library-use".into(),
+                    cx.i18n.t(&laterite_core::t!("Use selected")),
+                ),
+                ("cancel".into(), cx.i18n.t(&laterite_core::t!("Cancel"))),
+            ],
+        };
+        vm.data = serde_json::to_value(data).unwrap_or_default();
+        vm
+    }
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let data: MarkdownData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&MarkdownTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+            data: &data,
+        })
+        .unwrap_or_default()
+    }
+    fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
+        crate::MARKDOWN_ASSETS.to_vec()
+    }
+}
+
 /// The framework's built-in field types. The text field is constructed with the
 /// built-in input-type registry it delegates to.
 pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
@@ -1302,6 +1464,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(TextareaField),
         Arc::new(CodeEditorField),
         Arc::new(RichEditorField),
+        Arc::new(MarkdownField),
         Arc::new(IdField),
         Arc::new(RepeaterField),
         Arc::new(SelectField),
@@ -2917,6 +3080,40 @@ mod tests {
         assert!(RichEditorField
             .resolve_options(&serde_json::json!({ "toolbar": ["blink"] }), &types)
             .is_err());
+    }
+
+    #[test]
+    fn markdown_renders_its_tabs_and_offers_no_preview_when_told() {
+        let types = FieldRegistry::default();
+        let value = FieldValue::Text("# Hi".to_string());
+        let opts = MarkdownField
+            .resolve_options(&serde_json::Value::Null, &types)
+            .unwrap();
+        let html = render_field(
+            &MarkdownField,
+            &NoOverrides,
+            &scope(),
+            &cx("body", &value, &opts),
+        );
+        let html = html.as_str();
+        assert!(html.contains(r#"data-lat-widget="markdown""#), "{html}");
+        assert!(
+            html.contains(r#"data-preview="/admin/markdown/preview""#),
+            "{html}"
+        );
+        assert!(html.contains(r#"data-md-tab="preview""#), "{html}");
+        assert!(html.contains("icons.svg#lat-heading"), "{html}");
+        assert_eq!(MarkdownField.assets(&opts), crate::MARKDOWN_ASSETS.to_vec());
+        let opts = MarkdownField
+            .resolve_options(&serde_json::json!({ "preview": false }), &types)
+            .unwrap();
+        let html = render_field(
+            &MarkdownField,
+            &NoOverrides,
+            &scope(),
+            &cx("body", &value, &opts),
+        );
+        assert!(!html.as_str().contains("data-md-tab"), "{}", html.as_str());
     }
 
     #[test]

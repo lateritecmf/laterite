@@ -296,6 +296,9 @@ impl Engine {
             ))
         });
         env.add_function("media", media);
+        env.add_filter("markdown", |text: String| -> Value {
+            Value::from_safe_string(laterite_core::markdown::render(&text))
+        });
         env.add_filter("variant", |url: String, preset: String| -> Value {
             Value::from_safe_string(variant(url, preset))
         });
@@ -557,16 +560,7 @@ fn component(state: &State, alias: String) -> Result<Value, minijinja::Error> {
 pub fn render_content(path: &str, body: &str) -> String {
     let ext = path.rsplit('.').next().unwrap_or_default();
     match ext {
-        "md" | "markdown" => {
-            let mut options = pulldown_cmark::Options::empty();
-            options.insert(pulldown_cmark::Options::ENABLE_TABLES);
-            options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
-            options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
-            let parser = pulldown_cmark::Parser::new_ext(body, options);
-            let mut html = String::with_capacity(body.len() * 2);
-            pulldown_cmark::html::push_html(&mut html, parser);
-            html
-        }
+        "md" | "markdown" => laterite_core::markdown::render(body),
         "htm" | "html" => body.to_string(),
         _ => minijinja::HtmlEscape(body).to_string(),
     }

@@ -88,6 +88,7 @@ Type | Keys
 `text` | `input` (`text`, `email`, `tel`, `number`, `url`), `placeholder`, `counter`. A `number` input adds `min`, `max`, `step`; a `url` input adds `copy`.
 `textarea` | `rows`, `placeholder`, `grow`, `counter`
 `richeditor` | `rows`, `placeholder`, `toolbar`: a list from `format`, `bold`, `italic`, `underline`, `strike`, `bullet_list`, `ordered_list`, `link`, `image`, `table`, `rule`, `undo`, `redo`, `|`. Stores HTML kept to that set; an image from the library is linked to the record
+`markdown` | `rows`, `placeholder`, `preview`. Stores the markdown as written; the site renders it with the `markdown` filter
 `codeeditor` | `language` (`text`, `html`, `css`, `javascript`, `json`, `yaml`, `markdown`, `jinja`), `rows`, `line_numbers`, `wrap`, `placeholder`
 `select` | `options`: a list of `{ value, label }`; `search`
 `radio` | `options`
@@ -153,6 +154,7 @@ Key | On | Values | Default
 `counter` | `text`, `textarea` | `auto`, `true`, `false` | `auto`: with a `max_length` rule, shown once four fifths of it are used
 `grow` | `textarea` | `true`, `false` | `true`: as tall as its text, from `rows` up to most of the window
 `toolbar` | `richeditor` | a list of entries | every entry, in the order above
+`preview` | `markdown` | `true`, `false` | `true`: a Preview tab rendered by the server
 `line_numbers` | `codeeditor` | `true`, `false` | `true`
 `wrap` | `codeeditor` | `true`, `false` | `false`: long lines scroll
 `reveal` | `password` | `true`, `false` | `true`: a button shows what was typed

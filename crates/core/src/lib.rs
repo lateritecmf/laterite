@@ -14,6 +14,7 @@ pub mod events;
 pub mod i18n;
 pub mod icons;
 pub mod listeners;
+pub mod markdown;
 pub mod migration;
 pub mod module;
 pub mod pagination;

@@ -1,0 +1,28 @@
+.lat-markdown{position:relative;border:1px solid var(--border-input);border-radius:var(--radius-control);background:var(--surface-input);transition:var(--transition-control)}
+.lat-markdown:focus-within{border-color:var(--accent);box-shadow:var(--ring-focus)}
+.lat-markdown:not(.is-ready) .lat-markdown__bar,.lat-markdown:not(.is-ready) .lat-markdown__body,.lat-markdown:not(.is-ready) .lat-markdown__preview{display:none}
+.lat-markdown:not(.is-ready){border:0;background:transparent;box-shadow:none}
+.lat-markdown__bar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:6px 8px;border-bottom:1px solid var(--border-subtle);background:var(--surface-toolbar);border-radius:var(--radius-control) var(--radius-control) 0 0}
+.lat-markdown__tabs{display:flex;gap:2px;margin-right:6px}
+.lat-markdown__tab{height:30px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--text-muted);font:inherit;font-size:var(--fs-13);font-weight:var(--fw-medium);cursor:pointer}
+.lat-markdown__tab:hover{color:var(--text-heading);background:var(--accent-quiet)}
+.lat-markdown__tab.is-on{background:var(--surface-card);color:var(--text-heading);border-color:var(--border-subtle);box-shadow:var(--shadow-sm)}
+.lat-markdown__spacer{flex:1}
+.lat-markdown__btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--text-muted);cursor:pointer;transition:var(--transition-control)}
+.lat-markdown__btn:hover{background:var(--accent-quiet);color:var(--text-heading)}
+.lat-markdown__btn:disabled{opacity:.35;cursor:default;background:transparent}
+.lat-markdown__btn .lat-icon{width:16px;height:16px}
+.lat-markdown__body .cm-editor{font-family:var(--font-mono);font-size:var(--fs-13);line-height:1.6;color:var(--text-body);min-height:calc(var(--rows,12) * 1.6em + 24px);max-height:min(70vh,1400px);background:transparent}
+.lat-markdown__body .cm-editor.cm-focused{outline:none}
+.lat-markdown__body .cm-scroller{overflow:auto;font-family:inherit;line-height:inherit}
+.lat-markdown__body .cm-content{padding:12px 0;caret-color:var(--text-body)}
+.lat-markdown__body .cm-line{padding:0 16px}
+.lat-markdown__body .cm-activeLine{background:var(--accent-quiet)}
+.lat-markdown__body .cm-selectionBackground,.lat-markdown__body .cm-editor.cm-focused .cm-selectionBackground,.lat-markdown__body .cm-content ::selection{background:var(--accent-subtle)}
+.lat-markdown__body .cm-cursor{border-left-color:var(--text-body)}
+.lat-markdown__body .cm-placeholder{color:var(--text-subtle)}
+.lat-markdown__body .cm-panels{background:var(--surface-toolbar);color:var(--text-body);border-color:var(--border-subtle)}
+.lat-markdown__body .cm-panel input,.lat-markdown__body .cm-panel button{font:inherit;font-family:var(--font-body);font-size:var(--fs-12);color:var(--text-body);background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-sm);padding:2px 8px;margin:2px}
+.lat-markdown__preview{min-height:calc(var(--rows,12) * 1.6em + 24px);max-height:min(70vh,1400px);overflow:auto;padding:14px 16px}
+.lat-markdown__preview[aria-busy="true"]{opacity:.5}
+.lat-markdown__empty{color:var(--text-subtle);font-style:italic}

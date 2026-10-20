@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `richeditor` field type (TipTap over ProseMirror; `rows`, `placeholder`, `toolbar`): HTML kept to
   the editor's schema on save, library images linked to the record, `lat.mediaPicker` shared.
+- `markdown` field type (CodeMirror 6 with a server-rendered Preview tab), `laterite_core::markdown::render`
+  as the one renderer, and a `markdown` filter for themes.
 - `codeeditor` field type (CodeMirror 6; `language`, `rows`, `line_numbers`, `wrap`) and
   `PageHead::assets` with `CODE_EDITOR_ASSETS`; the theme template editor uses it.
 

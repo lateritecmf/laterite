@@ -1106,6 +1106,10 @@ msgstr ""
 msgid "Prev"
 msgstr ""
 
+#: src/field.rs
+msgid "Preview"
+msgstr ""
+
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Previous"
@@ -1817,6 +1821,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Would update"
+msgstr ""
+
+#: src/field.rs
+msgid "Write"
 msgstr ""
 
 #: templates/base.html

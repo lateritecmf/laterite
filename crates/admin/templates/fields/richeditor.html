@@ -5,6 +5,6 @@
   <div class="lat-richeditor__tablebar" data-rich-tablebar hidden>
     {% for (c, l) in data.table_actions %}<button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-rich-table="{{ c }}">{{ l }}</button>{% endfor %}
   </div>
-  <div class="lat-richeditor__body" data-rich-body></div>
+  <div class="lat-richeditor__body lat-prose" data-rich-body></div>
   <textarea class="lat-input lat-editor" id="{{ id }}" name="{{ name }}" data-lat-grow="off"{% if let Some(r) = data.rows %} rows="{{ r }}"{% endif %}{% if let Some(p) = data.placeholder %} placeholder="{{ p }}"{% endif %}{% if required %} required{% endif %}>{{ value }}</textarea>
 </div>

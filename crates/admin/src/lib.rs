@@ -2010,6 +2010,10 @@ pub fn router(
             &format!("{admin_path}/preferences/menu/moves"),
             post(menu_moves_update),
         )
+        .route(
+            &format!("{admin_path}/markdown/preview"),
+            post(markdown_preview),
+        )
         .route(&format!("{admin_path}/palette"), get(palette::palette))
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
@@ -2344,6 +2348,16 @@ pub const RICH_EDITOR_ASSETS: &[&str] = &[
     "fields/richeditor.css",
 ];
 
+/// The assets a markdown surface needs on its page: the CodeMirror engine, the
+/// code editor's stylesheet (its colour variables), the markdown island and its
+/// stylesheet. The `markdown` field declares them itself.
+pub const MARKDOWN_ASSETS: &[&str] = &[
+    "vendor/codeeditor.js",
+    "fields/codeeditor.css",
+    "fields/markdown.js",
+    "fields/markdown.css",
+];
+
 /// The framework's built-in assets: the stylesheet, brand marks, webfonts, and
 /// the editor engines (built by `scripts/editor`, loaded only by a field that
 /// declares them).
@@ -2418,6 +2432,20 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
                 bytes: std::borrow::Cow::Borrowed(include_bytes!(
                     "../assets/fields/richeditor.css"
                 )),
+            },
+        ),
+        (
+            "fields/markdown.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/markdown.js")),
+            },
+        ),
+        (
+            "fields/markdown.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/markdown.css")),
             },
         ),
         (
@@ -3963,6 +3991,19 @@ async fn menu_moves_update(
     }
     session.push_flash(session::FlashLevel::Success, t!("Menu saved."));
     Redirect::to(&format!("{}/preferences", state.admin_path)).into_response()
+}
+
+/// Renders an operator's markdown for the `markdown` field's Preview tab,
+/// with the renderer the site uses, so the preview is what the site shows.
+async fn markdown_preview(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let text = form.get("text").map(String::as_str).unwrap_or_default();
+    if text.len() > 1 << 20 {
+        return (axum::http::StatusCode::PAYLOAD_TOO_LARGE, "text over 1 MiB").into_response();
+    }
+    Html(laterite_core::markdown::render(text)).into_response()
 }
 
 /// Keeps the operator's own order for the top bar (`order`: the tabs' keys,

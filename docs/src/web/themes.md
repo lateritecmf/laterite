@@ -353,6 +353,7 @@ Name | Gives
 `url(<path>)` | The absolute URL of a path on the site, from the deployment's origin.
 `media(<file>)`, `media(<file>, preset="card")` | The URL of a media value (a URL, or an object with `url` as `theme::media_value` builds), under a preset when one is named.
 `<url>\|variant("card")` | A media URL rewritten to the named preset.
+`<text>\|markdown` | Markdown rendered to HTML: CommonMark with tables, strikethrough, footnotes, task lists and `{#id}` heading attributes; raw HTML passes through.
 `theme` | `code`, `name`, `author`, `homepage`, `description` of the theme rendered.
 
 HTML is escaped in every template but an asset. A printed undefined value is an error; `{% if page.sub %}` on an undefined value is not. A render spends at most five million instructions.
