@@ -2870,12 +2870,22 @@ fn cell_markup(
     let control = form
         .control(state, field, &dom_id, value, shell)
         .unwrap_or_default();
+    // The column's label names the control for a screen reader; the table
+    // header is not associated with an input inside a cell.
+    let label = form
+        .config
+        .fields
+        .iter()
+        .find(|f| f.name == field)
+        .map(|f| shell.tt(&f.label))
+        .unwrap_or_else(|| field.to_string());
     let action = format!("{path}/{id}/cell");
     let mut html = format!(
-        r#"<form class="lat-cell{}" method="post" action="{action}" hx-post="{action}" hx-trigger="change, submit" hx-target="this" hx-swap="outerHTML" data-lat-widget="cell" data-lat-enter-scope><input type="hidden" name="_csrf" value="{}"><input type="hidden" name="field" value="{}">{control}<button class="lat-btn lat-btn--ghost lat-btn--sm lat-cell__save" type="submit">{}</button>"#,
+        r#"<form class="lat-cell{}" method="post" action="{action}" hx-post="{action}" hx-trigger="change, submit" hx-target="this" hx-swap="outerHTML" data-lat-widget="cell" data-lat-enter-scope><input type="hidden" name="_csrf" value="{}"><input type="hidden" name="field" value="{}"><label class="lat-visually-hidden" for="{dom_id}">{}</label>{control}<button class="lat-btn lat-btn--ghost lat-btn--sm lat-cell__save" type="submit">{}</button>"#,
         if error.is_some() { " is-invalid" } else { "" },
         crate::form::escape_attr(&shell.csrf_token),
         crate::form::escape_attr(field),
+        crate::form::escape_attr(&label),
         shell.tt(&laterite_core::t!("Save")),
     );
     if let Some(message) = error {

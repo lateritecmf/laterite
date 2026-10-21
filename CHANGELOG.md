@@ -12,9 +12,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Security headers on every admin response (a content security policy with no inline script,
   `nosniff`, frame, referrer, permissions and opener policies; HSTS with `secure_cookie`).
 - A skip link, a focus-trapped drawer, and single-tab-stop toolbars with arrow-key movement.
+- Labels on editable cells, value-form fields and the palette input; arrow keys in the Insert menus.
 
 ### Fixed
 
+- Text tokens under the 4.5 contrast ratio raised (hint text, accent, attention) and dark mode given
+  readable success, danger and info tones.
 - Flash toasts, danger buttons, list footers, editable cells and the error page restyled to the
   palette; settings list inline, larger tap targets and split panes kept to the screen on phones;
   media filters after the content.

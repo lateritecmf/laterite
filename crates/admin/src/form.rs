@@ -1726,6 +1726,8 @@ struct FormTemplate {
 /// the help, and the wrapper's layout classes and behaviour attributes.
 pub struct ValueFieldView {
     pub label: String,
+    /// The control's DOM id, which the label points at.
+    pub id: String,
     pub help: Option<String>,
     /// The control, rendered by the field's own type.
     pub control: String,
@@ -1875,6 +1877,7 @@ pub(crate) fn value_views(
             };
             ValueFieldView {
                 label,
+                id: f.name.clone(),
                 help: f.help.as_ref().map(|h| shell.tt(h)),
                 control,
                 layout: layout_classes(f.span, f.break_row),

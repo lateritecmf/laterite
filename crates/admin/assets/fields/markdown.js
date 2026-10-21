@@ -171,7 +171,15 @@
         document.addEventListener('click', function (e) {
           if (!menuBox.hidden && !menuBox.contains(e.target) && !anchor.contains(e.target)) menuBox.hidden = true;
         });
-        menuBox.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menuBox.hidden = true; anchor.focus(); } });
+        menuBox.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { menuBox.hidden = true; anchor.focus(); return; }
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+          var items = Array.prototype.slice.call(menuBox.querySelectorAll('button'));
+          var at = items.indexOf(document.activeElement);
+          if (!items.length) return;
+          e.preventDefault();
+          items[e.key === 'ArrowDown' ? (at + 1) % items.length : (at - 1 + items.length) % items.length].focus();
+        });
       }
       if (!menuBox.hidden) { menuBox.hidden = true; return; }
       var paint = function () {

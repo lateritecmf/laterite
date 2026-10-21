@@ -202,7 +202,7 @@ Attribute | Values | Default
 `data-wrap` | `on` | off
 `--rows` | lines | `12`
 
-A `readonly` textarea gives a read-only editor. Without the script the textarea is the control.
+A `readonly` textarea gives a read-only editor. Without the script the textarea is the control. Tab indents inside the editor; Escape, then Tab, leaves it. A toolbar is one tab stop: the arrow keys move along it, Home and End jump to its ends.
 
 ## Choose from the library
 

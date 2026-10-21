@@ -1988,7 +1988,7 @@ window.lat.widget('palette', function (button) {
   overlay.innerHTML =
     '<div class="lat-palette__backdrop" data-palette-close></div>' +
     '<div class="lat-palette__panel">' +
-    '<input class="lat-palette__input" type="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list">' +
+    '<input class="lat-palette__input" type="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="' + (button.getAttribute('data-palette-placeholder') || 'Go to').replace(/"/g, '&quot;') + '">' +
     '<ul class="lat-palette__list" role="listbox"></ul>' +
     '</div>';
   document.body.appendChild(overlay);
