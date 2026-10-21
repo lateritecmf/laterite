@@ -6,7 +6,8 @@
   <title>{{ self.t("Set up") }} {{ brand }}</title>
   <link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">
   <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
-  {% include "_theme_boot.html" %}
+  {# Colour mode: blocking on purpose, so a dark-mode operator sees no white flash. #}
+  <script src="{{ self.asset("theme-boot.js") }}"></script>
 </head>
 <body>
   <div class="lat-login">

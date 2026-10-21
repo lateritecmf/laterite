@@ -2499,6 +2499,13 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             },
         ),
         (
+            "theme-boot.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(laterite_core::theme::BOOT_JS.as_bytes()),
+            },
+        ),
+        (
             "vendor/htmx.min.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",

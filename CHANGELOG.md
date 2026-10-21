@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- The colour-mode boot script is served as a file and loaded blocking, so the admin's content
+  security policy admits no inline script at all.
+
 ### Added
 
 - Dashboard widgets: `laterite_admin::widget::Widget` with `AdminRegistry::add_widget`, permission per
