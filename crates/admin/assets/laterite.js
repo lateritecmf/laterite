@@ -14,10 +14,46 @@ function latCycleMode() {
   if (e) e.textContent = latModeGlyph(n);
 }
 
+// The drawer: opened by the burger and closed by it, the backdrop or Escape.
+// Focus moves to the first link when it opens and back to the burger when it
+// closes, and Tab stays inside while it is open.
+var latDrawerOpener = null;
 function latToggleMenu() {
   var m = document.getElementById('lat-menu');
-  if (m) m.classList.toggle('is-open');
+  if (!m) return;
+  var open = !m.classList.contains('is-open');
+  m.classList.toggle('is-open', open);
+  var burger = document.querySelector('[data-lat-drawer][aria-controls="lat-menu"]');
+  if (burger) burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) {
+    latDrawerOpener = document.activeElement;
+    var first = m.querySelector('a, button');
+    if (first) first.focus();
+  } else if (latDrawerOpener && latDrawerOpener.focus) {
+    latDrawerOpener.focus();
+    latDrawerOpener = null;
+  }
 }
+document.addEventListener('keydown', function (e) {
+  var m = document.getElementById('lat-menu');
+  if (!m || !m.classList.contains('is-open')) return;
+  if (e.key === 'Escape') { e.preventDefault(); latToggleMenu(); return; }
+  if (e.key !== 'Tab') return;
+  var items = m.querySelectorAll('a, button');
+  if (!items.length) return;
+  var first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+// The chrome's own controls bind here, never through an inline handler: the
+// content security policy allows no inline script.
+document.addEventListener('click', function (e) {
+  if (!e.target.closest) return;
+  var dismiss = e.target.closest('[data-lat-dismiss]');
+  if (dismiss) { latDismissFlash(dismiss); return; }
+  if (e.target.closest('[data-lat-drawer]')) { latToggleMenu(); return; }
+  if (e.target.closest('[data-lat-mode]')) { latCycleMode(); }
+});
 function flashText(toast) {
   var label = toast.querySelector('.lat-flash__text');
   return label ? label.textContent : '';
@@ -2041,3 +2077,41 @@ window.lat.widget('palette', function (button) {
     }
   });
 });
+
+// Toolbars: one tab stop each, the arrow keys moving between controls, Home
+// and End jumping to the ends, so a long toolbar is not a long row of stops.
+(function () {
+  function controls(bar) {
+    return Array.prototype.filter.call(bar.querySelectorAll('button, select, a[href], input'), function (c) {
+      return !c.disabled && !c.hidden && c.offsetParent !== null;
+    });
+  }
+  function arm(bar) {
+    if (bar.getAttribute('data-lat-toolbar') === '1') return;
+    bar.setAttribute('data-lat-toolbar', '1');
+    var items = controls(bar);
+    items.forEach(function (c, i) { c.setAttribute('tabindex', i === 0 ? '0' : '-1'); });
+    bar.addEventListener('focusin', function (e) {
+      controls(bar).forEach(function (c) { c.setAttribute('tabindex', c === e.target ? '0' : '-1'); });
+    });
+    bar.addEventListener('keydown', function (e) {
+      if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].indexOf(e.key) === -1) return;
+      if (e.target.tagName === 'SELECT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+      var list = controls(bar);
+      var at = list.indexOf(e.target);
+      if (at === -1) return;
+      e.preventDefault();
+      var next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1
+        : e.key === 'ArrowRight' ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+      list[next].focus();
+    });
+  }
+  function all(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('[role="toolbar"]').forEach(arm);
+  }
+  document.addEventListener('DOMContentLoaded', function () { all(document); });
+  document.addEventListener('htmx:load', function (e) { all(e.target); });
+  document.addEventListener('lat:richeditor:ready', function (e) { all(e.target); });
+  document.addEventListener('lat:markdown:ready', function (e) { all(e.target); });
+})();

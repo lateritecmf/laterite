@@ -68,7 +68,7 @@ Every `[auth]` and `[backend]` key is optional.
 
 Key | Description
 --- | ---
-`secure_cookie` | Sets the Secure flag on cookies. `true` behind HTTPS.
+`secure_cookie` | Sets the Secure flag on cookies and sends `Strict-Transport-Security` (one year, subdomains included). `true` behind HTTPS.
 `timezone` | Default display timezone until an operator picks their own. See [Dates and Timezones](dates-and-timezones.md).
 `locale` | Default admin UI language. Falls back to `en`.
 `path` | URL path the admin mounts under.

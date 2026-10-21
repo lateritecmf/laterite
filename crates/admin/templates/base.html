@@ -13,18 +13,19 @@
   {% endfor %}
 </head>
 <body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
+  <a class="lat-skip" href="#lat-content">{{ shell.t("Skip to content") }}</a>
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">
     {% for f in shell.flash %}
     <div class="lat-flash {{ f.level.class() }}" data-lat-widget="flash"{% if f.sticky %} data-lat-persist{% endif %}>
       <span class="lat-flash__text">{{ f.text }}</span>
-      <button type="button" class="lat-flash__close" aria-label='{{ shell.t("Dismiss") }}' onclick="latDismissFlash(this)">&times;</button>
+      <button type="button" class="lat-flash__close" aria-label='{{ shell.t("Dismiss") }}' data-lat-dismiss>&times;</button>
     </div>
     {% endfor %}
   </div>
   {% endif %}
   <header class="lat-topnav">
-    <button class="lat-topnav__burger" type="button" onclick="latToggleMenu()" aria-label='{{ shell.t("Menu") }}'>&#9776;</button>
+    <button class="lat-topnav__burger" type="button" data-lat-drawer aria-controls="lat-menu" aria-expanded="false" aria-label='{{ shell.t("Menu") }}'>&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
       <img src="{{ shell.asset("mark.png") }}" alt="">
       <span class="lat-topnav__wordmark">{{ shell.brand }}</span>
@@ -40,7 +41,7 @@
          title='{{ shell.t("View the site") }}' aria-label='{{ shell.t("View the site") }}'>{{ shell.icon("external-link")|safe }}</a>
       <a class="lat-topnav__out lat-palette__open" href="{{ shell.base }}/palette" data-lat-widget="palette" data-palette-url="{{ shell.base }}/palette" data-palette-placeholder='{{ shell.t("Go to a page, a setting or a record") }}' data-palette-empty='{{ shell.t("Nothing matches.") }}'
          title='{{ shell.t("Go to (Ctrl+K)") }}' aria-label='{{ shell.t("Go to") }}'>{{ shell.icon("search")|safe }}</a>
-      <button class="lat-modebtn" type="button" onclick="latCycleMode()" title='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}'><span id="lat-mode-ico">◐</span></button>
+      <button class="lat-modebtn" type="button" data-lat-mode title='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}'><span id="lat-mode-ico">◐</span></button>
       <details class="lat-usermenu">
         <summary class="lat-avatar" title="{{ shell.full_name }}">{{ shell.initial }}</summary>
         <div class="lat-usermenu__panel">
@@ -53,7 +54,7 @@
     </div>
   </header>
   <div class="lat-drawer" id="lat-menu">
-    <div class="lat-drawer__backdrop" onclick="latToggleMenu()"></div>
+    <div class="lat-drawer__backdrop" data-lat-drawer></div>
     <nav class="lat-drawer__panel">
       <div class="lat-drawer__brand"><img src="{{ shell.asset("mark.png") }}" alt=""><span>{{ shell.brand }}</span></div>
       {% for item in shell.nav %}<a class="lat-drawer__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
@@ -80,7 +81,7 @@
       {% endfor %}
     </aside>
     {% endif %}
-    <main class="lat-main">
+    <main class="lat-main" id="lat-content" tabindex="-1">
       <div class="lat-page">
         {% if shell.crumbs.len() > 1 %}
         <nav class="lat-breadcrumb" aria-label='{{ shell.t("You are here") }}'>{% for c in shell.crumbs %}{% if !loop.first %}<span aria-hidden="true">&rsaquo;</span>{% endif %}<a href="{{ c.href }}">{{ c.label }}</a>{% endfor %}</nav>

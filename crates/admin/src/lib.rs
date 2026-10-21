@@ -2130,6 +2130,7 @@ pub fn router(
         }
         None => app.fallback(not_found_fallback),
     };
+    let secure = state.secure_cookie;
     app
         // The CSRF origin gate wraps every route (login and setup included); the
         // panic layer is outermost so it catches everything.
@@ -2162,11 +2163,73 @@ pub fn router(
                 axum::http::HeaderValue::from_static("HX-Request"),
             ),
         )
+        // The browser-side hardening every admin response carries. The policy
+        // allows no inline script, so the chrome binds its handlers from
+        // `laterite.js` and a module never adds an inline handler; inline styles
+        // stay allowed because the editor engines inject theirs at runtime.
+        // Images and uploads may reach a presigning disk on another origin.
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::CONTENT_SECURITY_POLICY,
+                axum::http::HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+            ),
+        )
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::X_CONTENT_TYPE_OPTIONS,
+                axum::http::HeaderValue::from_static("nosniff"),
+            ),
+        )
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::X_FRAME_OPTIONS,
+                axum::http::HeaderValue::from_static("SAMEORIGIN"),
+            ),
+        )
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::REFERRER_POLICY,
+                axum::http::HeaderValue::from_static("same-origin"),
+            ),
+        )
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                axum::http::HeaderName::from_static("permissions-policy"),
+                axum::http::HeaderValue::from_static(
+                    "camera=(), microphone=(), geolocation=(), payment=()",
+                ),
+            ),
+        )
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                axum::http::HeaderName::from_static("cross-origin-opener-policy"),
+                axum::http::HeaderValue::from_static("same-origin"),
+            ),
+        )
+        // Only where the deployment says it is served over TLS: a plain
+        // development server must not pin browsers to HTTPS.
+        .layer(
+            tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+                header::STRICT_TRANSPORT_SECURITY,
+                if secure {
+                    Some(axum::http::HeaderValue::from_static(
+                        "max-age=31536000; includeSubDomains",
+                    ))
+                } else {
+                    None
+                },
+            ),
+        )
         .layer(tower_http::catch_panic::CatchPanicLayer::custom(
             handle_panic,
         ))
         .with_state(state)
 }
+
+/// The admin's content security policy: no inline script, assets and calls
+/// from the panel's own origin, images and uploads also from any HTTPS origin
+/// (a presigning disk), frames and forms from the panel alone.
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self'; connect-src 'self' https:; frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'";
 
 /// Fallback for unmatched admin URLs: a styled 404.
 /// The styled 404, counted in the request log first.

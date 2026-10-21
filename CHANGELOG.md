@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Security headers on every admin response (a content security policy with no inline script,
+  `nosniff`, frame, referrer, permissions and opener policies; HSTS with `secure_cookie`).
+- A skip link, a focus-trapped drawer, and single-tab-stop toolbars with arrow-key movement.
+
 ### Fixed
 
 - Flash toasts, danger buttons, list footers, editable cells and the error page restyled to the

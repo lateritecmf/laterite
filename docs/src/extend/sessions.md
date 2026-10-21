@@ -26,6 +26,32 @@ form includes it:
 A failed gate renders a `403` "Request blocked" page. Login and first-run
 setup have no session and pass on origin alone.
 
+## Response headers
+
+Every admin response carries these; a handler that sets one of its own keeps its value.
+
+Header | Value
+--- | ---
+`Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self'; connect-src 'self' https:; frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'`
+`X-Content-Type-Options` | `nosniff`
+`X-Frame-Options` | `SAMEORIGIN`
+`Referrer-Policy` | `same-origin`
+`Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=()`
+`Cross-Origin-Opener-Policy` | `same-origin`
+`Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, with `secure_cookie = true`
+
+A screen binds its behaviour from a script file and a `data-` attribute, never an inline handler:
+
+```html
+<button type="button" data-acme-refresh>Refresh</button>
+```
+
+```js
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-acme-refresh]')) location.reload();
+});
+```
+
 ## Flash a message
 
 ```rust

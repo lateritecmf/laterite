@@ -1402,6 +1402,10 @@ msgstr ""
 msgid "Size"
 msgstr ""
 
+#: templates/base.html
+msgid "Skip to content"
+msgstr ""
+
 #: templates/import/_run_status.html
 #: templates/import/index.html
 msgid "Skipped"

@@ -17,7 +17,7 @@
   <div class="lat-flashes" role="status" aria-live="polite">
     <div class="lat-flash is-info" data-lat-widget="flash" data-lat-persist>
       <span class="lat-flash__text">{{ message }}</span>
-      <button type="button" class="lat-flash__close" aria-label='{{ self.t("Dismiss") }}' onclick="latDismissFlash(this)">&times;</button>
+      <button type="button" class="lat-flash__close" aria-label='{{ self.t("Dismiss") }}' data-lat-dismiss>&times;</button>
     </div>
   </div>
   {% endif %}
