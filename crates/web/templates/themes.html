@@ -10,7 +10,7 @@
         {% if t.locked %}<span class="lat-status lat-status--off">{{ shell.t("Locked") }}</span>{% endif %}
       </div>
       <p class="lat-theme__author"><code>{{ t.code }}</code>{% if !t.author.is_empty() %} &middot; {{ shell.tfs("By {name}", [("name", t.author.as_str())]) }}{% endif %}{% if !t.parent.is_empty() %} &middot; {{ shell.tfs("Extends {theme}", [("theme", t.parent.as_str())]) }}{% endif %}</p>
-      <p class="lat-theme__desc">{% if t.description.is_empty() %}{{ shell.t("No description yet: add one to theme.yaml.") }}{% else %}{{ t.description }}{% endif %}</p>
+      <p class="lat-theme__desc">{% if t.description.is_empty() %}{{ shell.t("No description yet: add one under Manage, Properties.") }}{% else %}{{ t.description }}{% endif %}</p>
       <div class="lat-theme__controls">
         {% if t.active %}
         <button class="lat-btn lat-btn--secondary lat-btn--sm" type="button" disabled><span class="lat-btn__icon">{{ shell.icon("star")|safe }}</span>{{ shell.t("Active") }}</button>

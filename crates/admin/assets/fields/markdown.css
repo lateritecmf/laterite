@@ -30,3 +30,4 @@
 .lat-markdown__menuitem{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-body);font:inherit;font-size:var(--fs-13);cursor:pointer}
 .lat-markdown__menuitem:hover,.lat-markdown__menuitem:focus{background:var(--accent-quiet);color:var(--accent);outline:none}
 .lat-markdown__menuhead{padding:8px 10px 4px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-subtle)}
+@media (max-width:768px),(pointer:coarse){.lat-markdown__btn,.lat-markdown__tab{height:36px}.lat-markdown__btn{width:36px}.lat-markdown__menu{right:0;left:0;min-width:0}}

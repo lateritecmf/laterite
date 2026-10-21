@@ -5,6 +5,14 @@
 {% if shell.sidebar.is_empty() %}
 <div class="lat-card"><p style="color:var(--text-muted);margin:0">{{ shell.t("No settings have been registered.") }}</p></div>
 {% else %}
-<p style="color:var(--text-muted);max-width:52ch">{{ shell.t("Choose a section from the list to configure it.") }}</p>
+<div class="lat-settings-inline">
+  <div class="lat-card">
+    {% for group in shell.sidebar %}
+    <div class="lat-settings-inline__group">{{ group.name }}</div>
+    {% for entry in group.items %}<a class="lat-settings-inline__item" href="{{ entry.path }}">{{ entry.icon|safe }}<span><span class="lat-settings-inline__label">{{ entry.label }}</span>{% if !entry.description.is_empty() %}<br><span class="lat-settings-inline__desc">{{ entry.description }}</span>{% endif %}</span></a>{% endfor %}
+    {% endfor %}
+  </div>
+</div>
+<p class="lat-settings-choose" style="color:var(--text-muted);max-width:52ch">{{ shell.t("Choose a section from the list to configure it.") }}</p>
 {% endif %}
 {% endblock %}

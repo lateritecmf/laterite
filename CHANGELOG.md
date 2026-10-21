@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- Flash toasts, danger buttons, list footers, editable cells and the error page restyled to the
+  palette; settings list inline and larger tap targets on phones; media filters after the content.
+
 ## [0.9.18] - 2026-10-21
 
 The editors: rich text over TipTap and ProseMirror, markdown and code over

@@ -32,3 +32,4 @@
 .lat-snippet__props{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:8px 0 0;font-size:var(--fs-12)}
 .lat-snippet__props dt{color:var(--text-muted)}
 .lat-snippet__props dd{margin:0;color:var(--text-body);overflow-wrap:anywhere}
+@media (max-width:768px),(pointer:coarse){.lat-richeditor__btn{width:36px;height:36px}.lat-richeditor__format{height:36px}.lat-richeditor__menu{right:0;left:0;min-width:0}}

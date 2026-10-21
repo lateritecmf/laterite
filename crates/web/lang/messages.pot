@@ -272,7 +272,7 @@ msgid "New theme"
 msgstr ""
 
 #: templates/themes.html
-msgid "No description yet: add one to theme.yaml."
+msgid "No description yet: add one under Manage, Properties."
 msgstr ""
 
 #: templates/theme_template.html
