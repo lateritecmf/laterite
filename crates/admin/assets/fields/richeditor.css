@@ -20,3 +20,15 @@
 .lat-richeditor__body .ProseMirror p.is-editor-empty:first-child::before{content:attr(data-placeholder);float:left;height:0;color:var(--text-subtle);pointer-events:none}
 .lat-richeditor__body .ProseMirror-gapcursor:after{border-top-color:var(--text-body)}
 .lat-richeditor__linkform .lat-check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:var(--fs-13)}
+.lat-richeditor__menu,.lat-markdown__menu{position:absolute;z-index:30;top:44px;right:8px;min-width:220px;max-height:320px;overflow:auto;padding:4px;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-control);box-shadow:var(--shadow-md)}
+.lat-richeditor__menuitem,.lat-markdown__menuitem{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-body);font:inherit;font-size:var(--fs-13);cursor:pointer}
+.lat-richeditor__menuitem:hover,.lat-richeditor__menuitem:focus,.lat-markdown__menuitem:hover,.lat-markdown__menuitem:focus{background:var(--accent-quiet);color:var(--accent);outline:none}
+.lat-richeditor__menuhead,.lat-markdown__menuhead{padding:8px 10px 4px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-subtle)}
+.lat-snippet{margin:0;padding:10px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-sunken);cursor:default}
+.lat-snippet.is-selected{outline:2px solid var(--accent);outline-offset:2px}
+.lat-snippet__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lat-snippet__name{font-weight:var(--fw-semibold);font-size:var(--fs-13);color:var(--text-heading)}
+.lat-snippet__name::before{content:"";display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:2px;background:var(--accent)}
+.lat-snippet__props{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:8px 0 0;font-size:var(--fs-12)}
+.lat-snippet__props dt{color:var(--text-muted)}
+.lat-snippet__props dd{margin:0;color:var(--text-body);overflow-wrap:anywhere}

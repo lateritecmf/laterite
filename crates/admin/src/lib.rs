@@ -20,6 +20,7 @@ mod bulk;
 pub mod checklist;
 mod clientip;
 pub mod descriptor;
+pub mod editor;
 mod error;
 mod export;
 pub mod field;
@@ -108,6 +109,10 @@ pub trait AdminRegistry {
     fn add_nav(&mut self, item: nav::NavItem);
     /// Changes another module's resource before it mounts. See [`ResourceHook`].
     fn add_resource_hook(&mut self, hook: ResourceHook);
+    /// Adds an entry to a surface's Insert menu. See [`editor::EditorCommand`].
+    fn add_editor_command(&mut self, command: editor::EditorCommand);
+    /// Adds a source of snippets for rich text and markdown. See [`editor::SnippetSource`].
+    fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -134,6 +139,12 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_resource_hook(&mut self, hook: ResourceHook) {
         self.add(hook);
+    }
+    fn add_editor_command(&mut self, command: editor::EditorCommand) {
+        self.add(command);
+    }
+    fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>) {
+        self.add(editor::SnippetSourceReg(source));
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -2014,6 +2025,7 @@ pub fn router(
             &format!("{admin_path}/markdown/preview"),
             post(markdown_preview),
         )
+        .route(&format!("{admin_path}/editor/menu"), get(editor_menu))
         .route(&format!("{admin_path}/palette"), get(palette::palette))
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
@@ -4004,6 +4016,41 @@ async fn markdown_preview(
         return (axum::http::StatusCode::PAYLOAD_TOO_LARGE, "text over 1 MiB").into_response();
     }
     Html(laterite_core::markdown::render(text)).into_response()
+}
+
+/// The Insert menu of a surface: the commands modules registered for it,
+/// localized, and the snippets every source lists now.
+async fn editor_menu(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(_user): Extension<AuthenticatedUser>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(surface) = query.get("surface").and_then(|k| editor::Surface::parse(k)) else {
+        return (axum::http::StatusCode::BAD_REQUEST, "unknown surface").into_response();
+    };
+    let registry = &state.plugin_defined;
+    let mut menu = editor::Menu::default();
+    for cmd in editor::commands(
+        registry.items::<editor::EditorCommand>().into_iter(),
+        surface,
+    ) {
+        let (html, text) = match &cmd.insert {
+            editor::Insert::Html(h) => (Some(h.clone()), None),
+            editor::Insert::Text(t) => (None, Some(t.clone())),
+        };
+        menu.commands.push(editor::MenuCommand {
+            key: cmd.key.clone(),
+            label: shell.tt(&cmd.label),
+            html,
+            text,
+        });
+    }
+    for source in registry.items::<editor::SnippetSourceReg>() {
+        menu.snippets.extend(source.0.list(&state.db).await);
+    }
+    menu.snippets.sort_by(|a, b| a.name.cmp(&b.name));
+    axum::Json(menu).into_response()
 }
 
 /// Keeps the operator's own order for the top bar (`order`: the tabs' keys,

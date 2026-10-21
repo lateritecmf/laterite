@@ -26,3 +26,7 @@
 .lat-markdown__preview{min-height:calc(var(--rows,12) * 1.6em + 24px);max-height:min(70vh,1400px);overflow:auto;padding:14px 16px}
 .lat-markdown__preview[aria-busy="true"]{opacity:.5}
 .lat-markdown__empty{color:var(--text-subtle);font-style:italic}
+.lat-markdown__menu{position:absolute;z-index:30;top:44px;right:8px;min-width:220px;max-height:320px;overflow:auto;padding:4px;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-control);box-shadow:var(--shadow-md)}
+.lat-markdown__menuitem{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-body);font:inherit;font-size:var(--fs-13);cursor:pointer}
+.lat-markdown__menuitem:hover,.lat-markdown__menuitem:focus{background:var(--accent-quiet);color:var(--accent);outline:none}
+.lat-markdown__menuhead{padding:8px 10px 4px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-subtle)}

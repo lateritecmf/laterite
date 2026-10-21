@@ -353,6 +353,7 @@ Name | Gives
 `url(<path>)` | The absolute URL of a path on the site, from the deployment's origin.
 `media(<file>)`, `media(<file>, preset="card")` | The URL of a media value (a URL, or an object with `url` as `theme::media_value` builds), under a preset when one is named.
 `<url>\|variant("card")` | A media URL rewritten to the named preset.
+`<html>\|content` | Snippets in stored HTML expanded (see Snippets below); `content(<path>)` does the same for a block.
 `<text>\|markdown` | Markdown rendered to HTML: CommonMark with tables, strikethrough, footnotes, task lists and `{#id}` heading attributes; raw HTML passes through.
 `theme` | `code`, `name`, `author`, `homepage`, `description` of the theme rendered.
 
@@ -575,3 +576,44 @@ theme::set_edit_theme(&db, operator_id, None).await?;
 ```
 
 `ThemeSettings` (code `laterite.theme`) holds the active theme; `EditTheme` (code `laterite.theme.edit`) is each operator's preference.
+
+## Snippets
+
+A partial becomes a snippet, an insertable block in the rich and markdown
+editors, through the `snippet` key of its settings.
+
+```json
+{
+  "snippet": {
+    "code": "youtube",
+    "name": "YouTube video",
+    "description": "Embeds a video by its URL",
+    "properties": [
+      { "code": "url", "title": "Video URL", "type": "string" },
+      { "code": "size", "title": "Size", "type": "dropdown", "options": "sm:Small | lg:Large", "default": "sm" },
+      { "code": "autoplay", "title": "Autoplay", "type": "checkbox", "default": false }
+    ]
+  }
+}
+```
+
+```twig
+{# partials/snippets/youtube.htm #}
+<iframe src="https://www.youtube.com/embed/{{ url|replace("https://www.youtube.com/watch?v=", "") }}{% if autoplay %}?autoplay=1{% endif %}" class="video video--{{ size }}"></iframe>
+```
+
+```twig
+{{ post.body|content }}
+```
+
+Key | Values | Default
+--- | --- | ---
+`code` | letters, digits, `.`, `-`, `_` | required
+`name`, `description` | shown in the Insert menu | `description` optional
+`properties[].code` | the variable name in the partial | required
+`properties[].title` | the dialog's label | required
+`properties[].type` | `string`, `dropdown`, `checkbox` | `string`
+`properties[].default` | the value when unset | none
+`properties[].options` | `value:Label \| value2:Label2` for a dropdown | none
+
+The editor stores `<figure data-snippet="youtube" data-properties="{...}"></figure>`; `\|content` renders the partial with each property as a variable beside `this` and `head`. A snippet no partial declares renders as an HTML comment naming it.

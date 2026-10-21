@@ -45,6 +45,7 @@ pub(crate) fn clean(html: &str) -> String {
             "tr",
             "th",
             "td",
+            "figure",
         ]))
         .tag_attributes(HashMap::from([
             ("a", HashSet::from(["href", "title", "target"])),
@@ -56,6 +57,7 @@ pub(crate) fn clean(html: &str) -> String {
             ("th", HashSet::from(["colspan", "rowspan", "colwidth"])),
             ("td", HashSet::from(["colspan", "rowspan", "colwidth"])),
             ("code", HashSet::from(["class"])),
+            ("figure", HashSet::from(["data-snippet", "data-properties"])),
         ]))
         .generic_attributes(HashSet::new())
         .url_relative(ammonia::UrlRelative::PassThrough)
@@ -69,9 +71,28 @@ pub(crate) fn clean(html: &str) -> String {
             if attribute == "data-media" && value.parse::<i64>().is_err() {
                 return None;
             }
+            // A snippet is named by a code and configured by a JSON object.
+            if attribute == "data-snippet" && !is_code(value) {
+                return None;
+            }
+            if attribute == "data-properties"
+                && serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value)
+                    .is_err()
+            {
+                return None;
+            }
             Some(value.into())
         });
     builder.clean(html).to_string()
+}
+
+/// A snippet code: letters, digits, dots, hyphens and underscores.
+fn is_code(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 100
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 /// Whether cleaned rich text holds nothing an author would call content: no
@@ -79,7 +100,11 @@ pub(crate) fn clean(html: &str) -> String {
 /// a `required` rule has to see as empty.
 pub(crate) fn is_blank(html: &str) -> bool {
     let lower = html.to_ascii_lowercase();
-    if lower.contains("<img") || lower.contains("<hr") || lower.contains("<table") {
+    if lower.contains("<img")
+        || lower.contains("<hr")
+        || lower.contains("<table")
+        || lower.contains("<figure")
+    {
         return false;
     }
     let text = html.replace("&nbsp;", " ").replace("&#160;", " ");
@@ -136,6 +161,18 @@ mod tests {
             clean,
             r#"<pre><code class="language-rust">fn</code></pre><code>x</code><img src="a.png">"#
         );
+    }
+
+    #[test]
+    fn a_snippet_keeps_its_code_and_a_json_object_and_nothing_else() {
+        let clean = clean(
+            r#"<figure data-snippet="acme.map" data-properties="{&quot;zoom&quot;:3}" onclick="x()"></figure><figure data-snippet="bad code" data-properties="nope"></figure>"#,
+        );
+        assert_eq!(
+            clean,
+            r#"<figure data-snippet="acme.map" data-properties="{&quot;zoom&quot;:3}"></figure><figure></figure>"#
+        );
+        assert!(!is_blank(r#"<figure data-snippet="a"></figure>"#));
     }
 
     #[test]

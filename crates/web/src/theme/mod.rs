@@ -33,6 +33,7 @@ pub mod page;
 pub mod router;
 mod schema;
 pub mod site;
+pub mod snippet;
 pub mod store;
 
 pub use engine::{check, variant, Engine, EngineCache, RenderError};
@@ -86,6 +87,7 @@ impl Module for ThemeModule {
         registry.add_settings(maintenance::settings_item());
         registry.add_screen(admin::screen());
         registry.add_public_route(site::route());
+        registry.add_snippet_source(std::sync::Arc::new(snippet::Source));
     }
 }
 

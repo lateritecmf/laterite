@@ -735,6 +735,10 @@ msgstr ""
 msgid "Inherit"
 msgstr ""
 
+#: src/field.rs
+msgid "Insert"
+msgstr ""
+
 #: src/lib.rs
 msgid "Invalid username or password."
 msgstr ""

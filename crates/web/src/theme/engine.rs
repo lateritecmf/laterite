@@ -214,6 +214,7 @@ impl Engine {
         let mut content: HashMap<String, String> = HashMap::new();
         let mut page_rows: HashMap<String, (serde_json::Value, String)> = HashMap::new();
         let mut layout_settings: HashMap<String, serde_json::Value> = HashMap::new();
+        let mut snippets = super::snippet::Index::default();
         // Ancestors first, so a nearer theme's row replaces a farther one's.
         for theme in chain.iter().rev() {
             for t in store::list_templates(db, theme.id, None).await? {
@@ -228,12 +229,17 @@ impl Engine {
                         layout_settings.insert(t.path.clone(), t.settings);
                         sources.insert(template_name(t.kind, &t.path), t.markup);
                     }
+                    Kind::Partial => {
+                        snippets.add_partial(&t.path, &t.settings);
+                        sources.insert(template_name(t.kind, &t.path), t.markup);
+                    }
                     _ => {
                         sources.insert(template_name(t.kind, &t.path), t.markup);
                     }
                 }
             }
         }
+        let snippets = Arc::new(snippets);
         // A page with settings that do not parse is left out of the routes
         // but still compiles, so the editor can open it.
         let mut routes = RouteTable::default();
@@ -264,9 +270,10 @@ impl Engine {
         let mut env = base_environment();
         env.add_global("theme", Value::from(Serde(theme_value(&theme))));
         let content = Arc::new(content);
+        let block_snippets = Arc::clone(&snippets);
         env.add_function(
             "content",
-            move |name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
                 let Some(body) = content.get(&name) else {
                     return Err(minijinja::Error::new(
                         ErrorKind::TemplateNotFound,
@@ -283,9 +290,18 @@ impl Engine {
                     );
                 }
                 kwargs.assert_all_used()?;
-                Ok(Value::from_safe_string(render_content(&name, &text)))
+                let html = render_content(&name, &text);
+                Ok(Value::from_safe_string(expand_snippets(
+                    state,
+                    &block_snippets,
+                    &html,
+                )))
             },
         );
+        let value_snippets = Arc::clone(&snippets);
+        env.add_filter("content", move |state: &State, html: String| -> Value {
+            Value::from_safe_string(expand_snippets(state, &value_snippets, &html))
+        });
         env.add_function("partial", partial);
         env.add_function("component", component);
         let code = theme.code.clone();
@@ -513,6 +529,41 @@ fn partial(state: &State, name: String, kwargs: Kwargs) -> Result<Value, minijin
     Ok(Value::from_safe_string(
         template.render(Value::from_pairs(pairs))?,
     ))
+}
+
+/// `html|content`: every `<figure data-snippet>` becomes the declaring
+/// partial, rendered with the figure's properties as variables beside the
+/// request's `this` and `head`. A snippet nobody declares leaves a comment.
+fn expand_snippets(state: &State, index: &super::snippet::Index, html: &str) -> String {
+    if !html.contains("data-snippet") {
+        return html.to_string();
+    }
+    super::snippet::expand(html, |code, props| {
+        let (path, decl) = index.get(code)?;
+        let template = state
+            .env()
+            .get_template(&template_name(Kind::Partial, path))
+            .ok()?;
+        let mut pairs: Vec<(String, Value)> = ["this", "head"]
+            .into_iter()
+            .filter_map(|key| state.lookup(key).map(|v| (key.to_string(), v)))
+            .collect();
+        for prop in &decl.properties {
+            let value = props
+                .get(&prop.code)
+                .cloned()
+                .or_else(|| prop.default.clone())
+                .unwrap_or(serde_json::Value::Null);
+            pairs.push((prop.code.clone(), Value::from(Serde(value))));
+        }
+        match template.render(Value::from_pairs(pairs)) {
+            Ok(out) => Some(out),
+            Err(e) => {
+                tracing::warn!(snippet = code, error = %e, "snippet failed to render");
+                Some(format!("<!-- snippet {code}: failed to render -->"))
+            }
+        }
+    })
 }
 
 /// `component("post")`: renders the theme's `partials/post/default.htm`, else

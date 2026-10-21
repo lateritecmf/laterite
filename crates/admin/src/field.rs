@@ -1040,6 +1040,7 @@ const RICH_TOOLBAR_DEFAULT: &[&str] = &[
     "image",
     "table",
     "rule",
+    "insert",
     "|",
     "undo",
     "redo",
@@ -1048,7 +1049,7 @@ const RICH_TOOLBAR_DEFAULT: &[&str] = &[
 /// A rich editor's own keys: its height in rows, what an empty one shows, and
 /// which toolbar entries it offers (any of `format`, `bold`, `italic`,
 /// `underline`, `strike`, `bullet_list`, `ordered_list`, `link`, `image`,
-/// `table`, `rule`, `undo`, `redo`, with `|` a separator).
+/// `table`, `rule`, `insert`, `undo`, `redo`, with `|` a separator).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct RichOptions {
     #[serde(default)]
@@ -1073,6 +1074,7 @@ struct RichButton {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct RichData {
     pick_url: String,
+    menu_url: String,
     rows: Option<u16>,
     placeholder: Option<String>,
     toolbar_label: String,
@@ -1110,6 +1112,7 @@ impl RichEditorField {
             "image" => (laterite_core::t!("Image"), "image"),
             "table" => (laterite_core::t!("Table"), "table"),
             "rule" => (laterite_core::t!("Horizontal rule"), "minus"),
+            "insert" => (laterite_core::t!("Insert"), "blocks"),
             "undo" => (laterite_core::t!("Undo"), "undo-2"),
             "redo" => (laterite_core::t!("Redo"), "redo-2"),
             "format" => {
@@ -1179,6 +1182,7 @@ impl FieldType for RichEditorField {
             .unwrap_or_else(|| RICH_TOOLBAR_DEFAULT.iter().map(|s| s.to_string()).collect());
         let data = RichData {
             pick_url: format!("{}/media/pick", cx.base),
+            menu_url: format!("{}/editor/menu?surface=richeditor", cx.base),
             rows: opts.rows,
             placeholder: opts.placeholder,
             toolbar_label: cx.i18n.t(&laterite_core::t!("Formatting")),
@@ -1222,6 +1226,16 @@ impl FieldType for RichEditorField {
                 ),
             ],
             words: vec![
+                (
+                    "insert-title".into(),
+                    cx.i18n.t(&laterite_core::t!("Insert")),
+                ),
+                ("snippets".into(), cx.i18n.t(&laterite_core::t!("Snippets"))),
+                (
+                    "nothing-to-insert".into(),
+                    cx.i18n.t(&laterite_core::t!("Nothing to insert.")),
+                ),
+                ("edit".into(), cx.i18n.t(&laterite_core::t!("Edit"))),
                 ("link-title".into(), cx.i18n.t(&laterite_core::t!("Link"))),
                 ("url".into(), cx.i18n.t(&laterite_core::t!("URL"))),
                 (
@@ -1321,6 +1335,7 @@ impl Default for MarkdownOptions {
 struct MarkdownData {
     preview_url: Option<String>,
     pick_url: String,
+    menu_url: String,
     rows: Option<u16>,
     placeholder: Option<String>,
     toolbar_label: String,
@@ -1381,6 +1396,7 @@ impl FieldType for MarkdownField {
                 .preview
                 .then(|| format!("{}/markdown/preview", cx.base)),
             pick_url: format!("{}/media/pick", cx.base),
+            menu_url: format!("{}/editor/menu?surface=markdown", cx.base),
             rows: opts.rows,
             placeholder: opts.placeholder,
             toolbar_label: cx.i18n.t(&laterite_core::t!("Formatting")),
@@ -1401,8 +1417,18 @@ impl FieldType for MarkdownField {
                     "list-ordered",
                 ),
                 button("table", laterite_core::t!("Table"), "table"),
+                button("insert", laterite_core::t!("Insert"), "blocks"),
             ],
             words: vec![
+                (
+                    "insert-title".into(),
+                    cx.i18n.t(&laterite_core::t!("Insert")),
+                ),
+                ("snippets".into(), cx.i18n.t(&laterite_core::t!("Snippets"))),
+                (
+                    "nothing-to-insert".into(),
+                    cx.i18n.t(&laterite_core::t!("Nothing to insert.")),
+                ),
                 (
                     "bold-text".into(),
                     cx.i18n.t(&laterite_core::t!("bold text")),

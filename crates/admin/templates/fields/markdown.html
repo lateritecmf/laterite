@@ -1,4 +1,4 @@
-<div class="lat-markdown" data-lat-widget="markdown" data-pick="{{ data.pick_url }}"{% if let Some(u) = data.preview_url %} data-preview="{{ u }}"{% endif %}{% if let Some(r) = data.rows %} style="--rows:{{ r }}"{% endif %}{% for (k, v) in data.words %} data-w-{{ k }}="{{ v }}"{% endfor %}>
+<div class="lat-markdown" data-lat-widget="markdown" data-pick="{{ data.pick_url }}" data-menu="{{ data.menu_url }}"{% if let Some(u) = data.preview_url %} data-preview="{{ u }}"{% endif %}{% if let Some(r) = data.rows %} style="--rows:{{ r }}"{% endif %}{% for (k, v) in data.words %} data-w-{{ k }}="{{ v }}"{% endfor %}>
   <div class="lat-markdown__bar" role="toolbar" aria-label="{{ data.toolbar_label }}">
     {% if data.preview_url.is_some() %}<div class="lat-markdown__tabs" role="tablist"><button type="button" class="lat-markdown__tab is-on" role="tab" aria-selected="true" data-md-tab="write">{{ data.write }}</button><button type="button" class="lat-markdown__tab" role="tab" aria-selected="false" data-md-tab="preview">{{ data.preview }}</button></div>{% endif %}
     <span class="lat-markdown__spacer"></span>

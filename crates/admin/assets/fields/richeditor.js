@@ -29,6 +29,91 @@
     }
   });
 
+  // A snippet: a block the site expands at render. It carries a code and a
+  // JSON object of properties, and shows in the editor as a card.
+  var SnippetNode = R.Node.create({
+    name: 'snippet',
+    group: 'block',
+    atom: true,
+    draggable: true,
+    selectable: true,
+    addAttributes: function () {
+      return {
+        code: {
+          default: '',
+          parseHTML: function (el) { return el.getAttribute('data-snippet') || ''; },
+          renderHTML: function (attrs) { return { 'data-snippet': attrs.code }; }
+        },
+        properties: {
+          default: {},
+          parseHTML: function (el) {
+            try { return JSON.parse(el.getAttribute('data-properties') || '{}') || {}; } catch (e) { return {}; }
+          },
+          renderHTML: function (attrs) { return { 'data-properties': JSON.stringify(attrs.properties || {}) }; }
+        }
+      };
+    },
+    parseHTML: function () { return [{ tag: 'figure[data-snippet]' }]; },
+    renderHTML: function (p) { return ['figure', R.mergeAttributes(p.HTMLAttributes)]; },
+    addNodeView: function () {
+      return function (p) {
+        // The widget this editor belongs to lends its words and dialog.
+        var widget = p.editor.options.element.closest('.lat-richeditor') || {};
+        var ctx = widget.latRich || { word: function (k) { return k; }, askProperties: null };
+        var dom = document.createElement('figure');
+        dom.className = 'lat-snippet';
+        dom.contentEditable = 'false';
+        dom.setAttribute('data-snippet', p.node.attrs.code);
+        var head = document.createElement('div');
+        head.className = 'lat-snippet__head';
+        var name = document.createElement('span');
+        name.className = 'lat-snippet__name';
+        var edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'lat-btn lat-btn--ghost lat-btn--sm';
+        var props = document.createElement('dl');
+        props.className = 'lat-snippet__props';
+        head.appendChild(name); head.appendChild(edit);
+        dom.appendChild(head); dom.appendChild(props);
+        var paint = function (node) {
+          var def = snippetDefs[node.attrs.code];
+          name.textContent = def ? def.name : node.attrs.code;
+          edit.textContent = ctx.word('edit');
+          edit.hidden = !def || !def.properties.length;
+          props.innerHTML = '';
+          Object.keys(node.attrs.properties || {}).forEach(function (k) {
+            var dt = document.createElement('dt'); dt.textContent = (def && label(def, k)) || k;
+            var dd = document.createElement('dd'); dd.textContent = String(node.attrs.properties[k]);
+            props.appendChild(dt); props.appendChild(dd);
+          });
+        };
+        paint(p.node);
+        edit.addEventListener('click', function () {
+          var def = snippetDefs[p.node.attrs.code];
+          if (!def || !ctx.askProperties) return;
+          ctx.askProperties(def, p.node.attrs.properties, function (values) {
+            var pos = p.getPos();
+            p.editor.chain().focus().command(function (c) {
+              c.tr.setNodeMarkup(pos, undefined, { code: def.code, properties: values });
+              return true;
+            }).run();
+          });
+        });
+        return {
+          dom: dom,
+          update: function (node) { if (node.type.name !== 'snippet') return false; paint(node); return true; },
+          selectNode: function () { dom.classList.add('is-selected'); },
+          deselectNode: function () { dom.classList.remove('is-selected'); }
+        };
+      };
+    }
+  });
+  var snippetDefs = {};
+  function label(def, code) {
+    for (var i = 0; i < def.properties.length; i++) if (def.properties[i].code === code) return def.properties[i].title;
+    return null;
+  }
+
   var FORMATS = {
     paragraph: function (c) { return c.setParagraph(); },
     h1: function (c) { return c.toggleHeading({ level: 1 }); },
@@ -71,6 +156,7 @@
         LibraryImage,
         R.Placeholder.configure({ placeholder: area.placeholder || '' }),
         R.Table.configure({ resizable: false }), R.TableRow, R.TableHeader, R.TableCell,
+        SnippetNode,
         Submit
       ],
       onUpdate: function () {
@@ -171,6 +257,164 @@
       linkDialog.querySelector('[name=href]').focus();
     }
 
+    // The properties dialog a snippet asks with: a field per declared
+    // property, built from the menu's definitions.
+    var propDialog = null;
+    function askProperties(def, current, done) {
+      if (propDialog) propDialog.remove();
+      propDialog = document.createElement('dialog');
+      propDialog.className = 'lat-dialog';
+      var form = document.createElement('form');
+      form.method = 'dialog';
+      form.innerHTML =
+        '<div class="lat-dialog__head"><h2></h2><button type="button" class="lat-dialog__close" data-lat-dialog-close aria-label="' + word('cancel') + '">&times;</button></div>' +
+        '<div class="lat-dialog__body" data-props></div>' +
+        '<div class="lat-dialog__actions"><button type="button" class="lat-btn lat-btn--ghost" data-lat-dialog-close></button><button type="submit" class="lat-btn lat-btn--primary"></button></div>';
+      form.querySelector('h2').textContent = def.name;
+      form.querySelector('.lat-dialog__actions [data-lat-dialog-close]').textContent = word('cancel');
+      form.querySelector('[type=submit]').textContent = word('apply');
+      var body = form.querySelector('[data-props]');
+      if (def.description) {
+        var desc = document.createElement('p');
+        desc.className = 'lat-field__help';
+        desc.textContent = def.description;
+        body.appendChild(desc);
+      }
+      def.properties.forEach(function (prop, i) {
+        var value = current && current[prop.code] !== undefined ? current[prop.code] : prop.default;
+        var field = document.createElement('div');
+        field.className = 'lat-field';
+        var id = 'lat-snippet-prop-' + i;
+        if (prop.kind === 'checkbox') {
+          field.innerHTML = '<label class="lat-check"><input type="checkbox"> <span></span></label>';
+          field.querySelector('input').checked = !!value && value !== '0' && value !== 'false';
+          field.querySelector('input').name = prop.code;
+          field.querySelector('span').textContent = prop.title;
+        } else if (prop.kind === 'dropdown') {
+          field.innerHTML = '<label class="lat-field__label" for="' + id + '"></label><select class="lat-input" id="' + id + '"></select>';
+          field.querySelector('label').textContent = prop.title;
+          var select = field.querySelector('select');
+          select.name = prop.code;
+          (prop.options || []).forEach(function (pair) {
+            var opt = document.createElement('option');
+            opt.value = pair[0]; opt.textContent = pair[1];
+            if (String(value) === pair[0]) opt.selected = true;
+            select.appendChild(opt);
+          });
+        } else {
+          field.innerHTML = '<label class="lat-field__label" for="' + id + '"></label><input class="lat-input" type="text" id="' + id + '">';
+          field.querySelector('label').textContent = prop.title;
+          field.querySelector('input').name = prop.code;
+          field.querySelector('input').value = value === undefined || value === null ? '' : String(value);
+        }
+        body.appendChild(field);
+      });
+      propDialog.appendChild(form);
+      document.body.appendChild(propDialog);
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var values = {};
+        def.properties.forEach(function (prop) {
+          var el = form.elements[prop.code];
+          if (!el) return;
+          values[prop.code] = prop.kind === 'checkbox' ? el.checked : el.value;
+        });
+        propDialog.close();
+        done(values);
+      });
+      propDialog.showModal();
+      var first = form.querySelector('input:not([type=checkbox]), select, input');
+      if (first) first.focus();
+    }
+
+    root.latRich = { word: word, askProperties: askProperties };
+
+    // The Insert menu: commands modules registered for this surface, then the
+    // snippets the sources list now, fetched when first opened.
+    var menuBox = null;
+    var menuData = null;
+    function openInsert(anchor) {
+      if (!menuBox) {
+        menuBox = document.createElement('div');
+        menuBox.className = 'lat-richeditor__menu';
+        menuBox.setAttribute('role', 'menu');
+        root.appendChild(menuBox);
+        document.addEventListener('click', function (e) {
+          if (!menuBox.hidden && !menuBox.contains(e.target) && !anchor.contains(e.target)) menuBox.hidden = true;
+        });
+        menuBox.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menuBox.hidden = true; anchor.focus(); } });
+      }
+      if (!menuBox.hidden) { menuBox.hidden = true; return; }
+      var paint = function () {
+        menuBox.innerHTML = '';
+        var any = false;
+        (menuData.commands || []).forEach(function (cmd) {
+          any = true;
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'lat-richeditor__menuitem'; b.setAttribute('role', 'menuitem');
+          b.textContent = cmd.label;
+          b.addEventListener('click', function () {
+            menuBox.hidden = true;
+            if (cmd.html) chain().insertContent(cmd.html).run();
+          });
+          menuBox.appendChild(b);
+        });
+        if ((menuData.snippets || []).length) {
+          any = true;
+          var h = document.createElement('div');
+          h.className = 'lat-richeditor__menuhead';
+          h.textContent = word('snippets');
+          menuBox.appendChild(h);
+          menuData.snippets.forEach(function (def) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'lat-richeditor__menuitem'; b.setAttribute('role', 'menuitem');
+            b.textContent = def.name;
+            if (def.description) b.title = def.description;
+            b.addEventListener('click', function () {
+              menuBox.hidden = true;
+              var insert = function (values) {
+                chain().insertContent({ type: 'snippet', attrs: { code: def.code, properties: values } }).run();
+              };
+              if (def.properties.length) askProperties(def, null, insert); else insert({});
+            });
+            menuBox.appendChild(b);
+          });
+        }
+        if (!any) {
+          var none = document.createElement('div');
+          none.className = 'lat-richeditor__menuhead';
+          none.textContent = word('nothing-to-insert');
+          menuBox.appendChild(none);
+        }
+        menuBox.hidden = false;
+        var first = menuBox.querySelector('button');
+        if (first) first.focus();
+      };
+      if (menuData) { paint(); return; }
+      fetch(root.getAttribute('data-menu'), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.ok ? r.json() : { commands: [], snippets: [] }; })
+        .catch(function () { return { commands: [], snippets: [] }; })
+        .then(function (data) {
+          menuData = data;
+          (data.snippets || []).forEach(function (def) { snippetDefs[def.code] = def; });
+          // Cards drawn before the definitions arrived learn their names.
+          editor.view.updateState(editor.view.state);
+          paint();
+        });
+    }
+    // Definitions for the cards of a document that already holds snippets.
+    if (root.getAttribute('data-menu') && editor.getHTML().indexOf('data-snippet') !== -1) {
+      fetch(root.getAttribute('data-menu'), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) return;
+          menuData = data;
+          (data.snippets || []).forEach(function (def) { snippetDefs[def.code] = def; });
+          editor.view.updateState(editor.view.state);
+        })
+        .catch(function () {});
+    }
+
     // The library picker, shared with the media field.
     var picker = window.lat.mediaPicker ? window.lat.mediaPicker({
       multiple: false,
@@ -196,6 +440,7 @@
         chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
       },
       rule: function () { chain().setHorizontalRule().run(); },
+      insert: function () { if (buttons.insert) openInsert(buttons.insert); },
       undo: function () { chain().undo().run(); },
       redo: function () { chain().redo().run(); }
     };
