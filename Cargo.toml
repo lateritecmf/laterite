@@ -10,13 +10,13 @@ repository = "https://github.com/lateritecmf/laterite"
 [workspace.dependencies]
 # Path plus version: the path is used for local builds within the workspace, and
 # the version is what cargo emits as the crates.io dependency when publishing.
-laterite-core = { path = "crates/core", version = "0.9.18" }
-laterite-media = { path = "crates/media", version = "0.9.18" }
-laterite-macros = { path = "crates/macros", version = "0.9.18" }
-laterite-auth = { path = "crates/auth", version = "0.9.18" }
-laterite-admin = { path = "crates/admin", version = "0.9.18" }
-laterite-web = { path = "crates/web", version = "0.9.18" }
-lateritecmf = { path = "crates/lateritecmf", version = "0.9.18" }
+laterite-core = { path = "crates/core", version = "0.9.19" }
+laterite-media = { path = "crates/media", version = "0.9.19" }
+laterite-macros = { path = "crates/macros", version = "0.9.19" }
+laterite-auth = { path = "crates/auth", version = "0.9.19" }
+laterite-admin = { path = "crates/admin", version = "0.9.19" }
+laterite-web = { path = "crates/web", version = "0.9.19" }
+lateritecmf = { path = "crates/lateritecmf", version = "0.9.19" }
 anyhow = "1"
 ammonia = "4.2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.19] - 2026-10-21
+
+The admin verified at phone and tablet widths and from the keyboard, with a
+visual pass over every component: toasts on the dark surface, outline danger
+buttons, banded list footers, quiet editable cells, contrast tokens, labels,
+a skip link, a focus-trapped drawer, roving toolbars, and browser hardening
+headers on every response.
+
 ### Added
 
 - Security headers on every admin response (a content security policy with no inline script,
