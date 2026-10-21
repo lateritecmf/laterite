@@ -27,6 +27,7 @@
 - [Related Records](extend/relations.md)
 - [Admin Interactivity](extend/admin-interactivity.md)
 - [Editor Surfaces](extend/editor.md)
+- [Dashboard Widgets](extend/widgets.md)
 - [Search and Matching](extend/search.md)
 - [Extending Fields, Writes and Lifecycles](extend/seams.md)
 - [Model Listeners](extend/model-listeners.md)

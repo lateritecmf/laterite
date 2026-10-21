@@ -2120,3 +2120,21 @@ window.lat.widget('palette', function (button) {
   document.addEventListener('lat:richeditor:ready', function (e) { all(e.target); });
   document.addEventListener('lat:markdown:ready', function (e) { all(e.target); });
 })();
+
+// The dashboard's Manage dialog: the arrows move a row, and the form posts the
+// rows in the order they stand, which is the order the widgets take.
+window.lat.widget('dashlist', function (form) {
+  form.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-move]') : null;
+    if (!btn) return;
+    var row = btn.closest('.lat-dashlist__row');
+    var list = row && row.parentNode;
+    if (!list) return;
+    if (btn.getAttribute('data-move') === 'up' && row.previousElementSibling) {
+      list.insertBefore(row, row.previousElementSibling);
+    } else if (btn.getAttribute('data-move') === 'down' && row.nextElementSibling) {
+      list.insertBefore(row.nextElementSibling, row);
+    }
+    btn.focus();
+  });
+});

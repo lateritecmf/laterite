@@ -49,6 +49,8 @@ mod sql;
 pub mod ui;
 mod upload;
 mod users;
+pub mod widget;
+mod widgets;
 
 /// The axum a contributed route must build against.
 ///
@@ -113,6 +115,8 @@ pub trait AdminRegistry {
     fn add_editor_command(&mut self, command: editor::EditorCommand);
     /// Adds a source of snippets for rich text and markdown. See [`editor::SnippetSource`].
     fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>);
+    /// Adds a dashboard widget. See [`widget::Widget`].
+    fn add_widget(&mut self, widget: widget::WidgetReg);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -145,6 +149,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>) {
         self.add(editor::SnippetSourceReg(source));
+    }
+    fn add_widget(&mut self, widget: widget::WidgetReg) {
+        self.add(widget);
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -256,6 +263,9 @@ pub(crate) struct AdminState {
     /// The column-type registry: resolves a list column's type key to its cell
     /// rendering. Sibling to `field_types`; shares the override resolver.
     column_types: Arc<list::ColumnRegistry>,
+    /// The dashboard's widgets: the framework's own and the modules', the
+    /// latter replacing a built-in that shares its code.
+    widgets: Arc<Vec<widget::WidgetReg>>,
     /// Contributions the framework does not consume, readable by a module's own
     /// routes through `RouteCtx`.
     plugin_defined: Arc<laterite_core::Registry>,
@@ -300,6 +310,7 @@ impl AdminState {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            widgets: Arc::new(widgets::builtin()),
             plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
@@ -1482,6 +1493,8 @@ pub struct Contributions {
     /// Changes to other modules' resources, applied before they mount. See
     /// [`ResourceHook`].
     pub resource_hooks: Vec<ResourceHook>,
+    /// Dashboard widgets a module contributes. See [`widget::Widget`].
+    pub widgets: Vec<widget::WidgetReg>,
     /// Everything the framework itself does not consume: the contribution types
     /// modules define for each other. Kept whole so a contributed route can read
     /// them through [`routes::RouteCtx::contributions`], which is what makes a
@@ -1505,6 +1518,7 @@ pub fn router(
         listeners: app_listeners,
         field_types: app_field_types,
         column_types: app_column_types,
+        widgets: app_widgets,
         icons: app_icons,
         screens: app_screens,
         public_routes: app_public,
@@ -1805,6 +1819,14 @@ pub fn router(
             .as_str(),
     );
     let icons_arc = Arc::new(icon_set);
+    let mut widget_regs = widgets::builtin();
+    for reg in app_widgets {
+        if let Some(at) = widget_regs.iter().position(|w| w.code() == reg.code()) {
+            widget_regs[at] = reg;
+        } else {
+            widget_regs.push(reg);
+        }
+    }
     let state = AdminState {
         auth,
         db,
@@ -1825,6 +1847,7 @@ pub fn router(
         brand_cache: Arc::new(RwLock::new(None)),
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
+        widgets: Arc::new(widget_regs),
         plugin_defined,
         storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
         signing_key: Arc::new(config.secret.clone()),
@@ -2026,6 +2049,18 @@ pub fn router(
             post(markdown_preview),
         )
         .route(&format!("{admin_path}/editor/menu"), get(editor_menu))
+        .route(
+            &format!("{admin_path}/dashboard/widget/{{code}}"),
+            get(dashboard_widget),
+        )
+        .route(
+            &format!("{admin_path}/dashboard/layout"),
+            post(dashboard_layout_update),
+        )
+        .route(
+            &format!("{admin_path}/dashboard/layout/reset"),
+            post(dashboard_layout_reset),
+        )
         .route(&format!("{admin_path}/palette"), get(palette::palette))
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
@@ -3844,13 +3879,171 @@ async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
 }
 
 async fn dashboard(
+    State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Response {
+    let layout = laterite_auth::store::user_preference(&state.db, user.user.id, widget::PREFERENCE)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|json| widget::Layout::parse(&json));
+    let deployment = state.order.get(widget::HIERARCHY).map(Vec::as_slice);
+    let allows = |p: &str| user.permissions.allows(p);
+    let available = widget::available(&state.widgets, deployment, &allows);
+    let shown = widget::resolve(layout.as_ref(), &available);
+    let failed = shell.tt(&t!("This widget could not be shown."));
+    let mut widgets = Vec::with_capacity(shown.len());
+    for (reg, size) in &shown {
+        let cx = widget::WidgetCx {
+            state: &state,
+            shell: &shell,
+            user: &user,
+            size: *size,
+        };
+        let body = reg.widget.render(&cx).await;
+        widgets.push(widget::frame(
+            reg,
+            *size,
+            &shell.base,
+            &shell.tt(&reg.widget.label()),
+            body,
+            &failed,
+        ));
+    }
+    let available = available
+        .iter()
+        .map(|reg| {
+            let placed = shown.iter().find(|(r, _)| r.code() == reg.code());
+            AvailableWidgetView {
+                code: reg.code().to_string(),
+                label: shell.tt(&reg.widget.label()),
+                description: reg
+                    .widget
+                    .description()
+                    .map(|d| shell.tt(&d))
+                    .unwrap_or_default(),
+                shown: placed.is_some(),
+                size: placed
+                    .map(|(_, s)| *s)
+                    .unwrap_or_else(|| reg.widget.size())
+                    .key()
+                    .to_string(),
+            }
+        })
+        .collect();
     render(DashboardTemplate {
-        username: user.user.username,
         shell,
+        widgets,
+        available,
     })
+}
+
+/// One widget's body again, for a refresh interval or a size change.
+async fn dashboard_widget(
+    State(state): State<AdminState>,
+    Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(code): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(reg) = state.widgets.iter().find(|w| w.code() == code) else {
+        return AdminError::NotFound.into_response();
+    };
+    if let Some(p) = reg.widget.permission() {
+        if !user.permissions.allows(p) {
+            return AdminError::Forbidden.into_response();
+        }
+    }
+    let size = query
+        .get("size")
+        .and_then(|s| widget::Size::parse(s))
+        .unwrap_or_else(|| reg.widget.size());
+    let cx = widget::WidgetCx {
+        state: &state,
+        shell: &shell,
+        user: &user,
+        size,
+    };
+    match reg.widget.render(&cx).await {
+        Ok(markup) => Html(markup.into_string()).into_response(),
+        Err(e) => {
+            tracing::warn!(widget = reg.code(), error = %e, "widget failed to render");
+            Html(format!(
+                r#"<p class="lat-widget__failed">{}</p>"#,
+                form::escape_attr(&shell.tt(&t!("This widget could not be shown.")))
+            ))
+            .into_response()
+        }
+    }
+}
+
+/// Saves the operator's own dashboard: the ticked widgets in the order the
+/// form lists them, each at its chosen width. Unknown codes are dropped.
+async fn dashboard_layout_update(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    body: String,
+) -> Response {
+    let mut layout = widget::Layout::default();
+    let mut sizes: HashMap<String, widget::Size> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for (key, value) in form_urlencoded::parse(body.as_bytes()) {
+        if key == "widget" {
+            if state.widgets.iter().any(|w| w.code() == value) {
+                order.push(value.to_string());
+            }
+        } else if let Some(code) = key.strip_prefix("size:") {
+            if let Some(size) = widget::Size::parse(&value) {
+                sizes.insert(code.to_string(), size);
+            }
+        }
+    }
+    for code in order {
+        let size = sizes.get(&code).copied().unwrap_or_default();
+        layout.widgets.push(widget::Placed { code, size });
+    }
+    let json = serde_json::to_string(&layout).unwrap_or_default();
+    if let Err(e) = laterite_auth::store::set_user_preference(
+        &state.db,
+        user.user.id,
+        widget::PREFERENCE,
+        &json,
+    )
+    .await
+    {
+        tracing::error!(error = %e, "failed to save the dashboard layout");
+        session.push_flash(FlashLevel::Error, t!("The dashboard could not be saved."));
+    } else {
+        session.push_flash(FlashLevel::Success, t!("Dashboard saved."));
+    }
+    Redirect::to(&state.admin_path).into_response()
+}
+
+/// Forgets the operator's own dashboard, back to the default arrangement.
+async fn dashboard_layout_reset(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+) -> Response {
+    if let Err(e) =
+        laterite_auth::store::clear_user_preference(&state.db, user.user.id, widget::PREFERENCE)
+            .await
+    {
+        tracing::error!(error = %e, "failed to reset the dashboard layout");
+    }
+    session.push_flash(FlashLevel::Success, t!("Dashboard reset."));
+    Redirect::to(&state.admin_path).into_response()
+}
+
+/// A widget in the Manage dialog's list.
+struct AvailableWidgetView {
+    code: String,
+    label: String,
+    description: String,
+    shown: bool,
+    size: String,
 }
 
 /// Whether an operator may see a settings item: items with no permission are
@@ -4674,7 +4867,9 @@ impl LoginTemplate {
 #[template(path = "dashboard.html")]
 struct DashboardTemplate {
     shell: Shell,
-    username: String,
+    /// Each widget's frame and body, already rendered.
+    widgets: Vec<String>,
+    available: Vec<AvailableWidgetView>,
 }
 
 #[derive(Template)]
@@ -5170,6 +5365,7 @@ mod tests {
             brand_cache: Arc::new(RwLock::new(None)),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
+            widgets: Arc::new(widgets::builtin()),
             plugin_defined: Arc::new(laterite_core::Registry::new()),
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),

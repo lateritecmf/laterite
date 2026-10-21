@@ -1,0 +1,10 @@
+{% if rows.is_empty() %}
+<p class="lat-widget__muted">{{ empty }}</p>
+{% else %}
+<ul class="lat-activity">
+  {% for r in rows %}
+  <li class="lat-activity__row"><span class="lat-activity__when">{{ r.when }}</span><span class="lat-activity__who">{{ r.who }}</span><span class="lat-activity__what"><code>{{ r.action }}</code>{% if !r.target.is_empty() %} {{ r.target }}{% endif %}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+<p class="lat-widget__foot"><a href="{{ all_href }}">{{ all }} &rarr;</a></p>

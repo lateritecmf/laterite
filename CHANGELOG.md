@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard widgets: `laterite_admin::widget::Widget` with `AdminRegistry::add_widget`, permission per
+  widget, sizes, timed refresh; each operator arranges their own under Manage widgets. Four built in.
+
 ## [0.9.19] - 2026-10-21
 
 The admin verified at phone and tablet widths and from the keyboard, with a

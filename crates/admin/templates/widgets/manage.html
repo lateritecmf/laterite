@@ -1,0 +1,5 @@
+<div class="lat-grid lat-grid--tight">
+  {% for (label, href, open) in cards %}
+  <a class="lat-card lat-card--link" href="{{ href }}"><span class="lat-card__title">{{ label }}</span><span class="lat-card__hint">{{ open }} &rarr;</span></a>
+  {% endfor %}
+</div>

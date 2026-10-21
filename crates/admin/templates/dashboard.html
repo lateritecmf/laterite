@@ -1,20 +1,50 @@
 {% extends "base.html" %}
 {% block title %}{{ shell.t("Dashboard") }} - {{ shell.brand }}{% endblock %}
 {% block content %}
-<div class="lat-card" style="margin-bottom:24px">
-  <div class="lat-card__label">{{ shell.t("Welcome") }}</div>
-  <h2 style="margin:0 0 4px">{{ shell.full_name }}</h2>
-  <p style="color:var(--text-muted);margin:0">{{ shell.tfs("Signed in as {name}.", [("name", username.as_str())]) }}</p>
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Dashboard") }}</h1>
+  <div class="lat-toolbar__actions" style="margin-left:auto">
+    <button type="button" class="lat-btn lat-btn--secondary lat-btn--sm" data-lat-dialog="dashboard-manage">{{ shell.icon("sliders-horizontal")|safe }}<span>{{ shell.t("Manage widgets") }}</span></button>
+  </div>
 </div>
-<div class="lat-card__label" style="margin-bottom:10px">{{ shell.t("Manage") }}</div>
-<div class="lat-grid">
-  {% for item in shell.nav %}
-  {% if item.path != shell.base %}
-  <a class="lat-card" href="{{ item.path }}" style="text-decoration:none;color:inherit">
-    <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-16);color:var(--text-heading)">{{ item.label }}</div>
-    <div style="color:var(--text-muted);font-size:var(--fs-13);margin-top:4px">{{ shell.tfs("Open {label}", [("label", item.label.as_str())]) }} &rarr;</div>
-  </a>
-  {% endif %}
-  {% endfor %}
+{% if widgets.is_empty() %}
+<div class="lat-card"><p style="color:var(--text-muted);margin:0">{{ shell.t("No widgets are shown. Choose some under Manage widgets.") }}</p></div>
+{% else %}
+<div class="lat-dash">
+  {% for w in widgets %}{{ w|safe }}{% endfor %}
 </div>
+{% endif %}
+<dialog class="lat-dialog" id="dashboard-manage">
+  {% let dialog_title = shell.t("Manage widgets") %}
+  {% include "_dialog_head.html" %}
+  <form method="post" action="{{ shell.base }}/dashboard/layout" data-lat-widget="dashlist">
+    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+    <div class="lat-dialog__body">
+      <p class="lat-field__help" style="margin:0 0 12px">{{ shell.t("Tick the widgets you want, set their width, and move them with the arrows. Only you see this dashboard.") }}</p>
+      <ul class="lat-dashlist">
+        {% for a in available %}
+        <li class="lat-dashlist__row" data-code="{{ a.code }}">
+          <label class="lat-check"><input type="checkbox" name="widget" value="{{ a.code }}"{% if a.shown %} checked{% endif %}></label>
+          <div class="lat-dashlist__label">{{ a.label }}{% if !a.description.is_empty() %}<span>{{ a.description }}</span>{% endif %}</div>
+          <select class="lat-input lat-select lat-dashlist__size" name="size:{{ a.code }}" aria-label='{{ shell.t("Width") }}'>
+            <option value="third"{% if a.size == "third" %} selected{% endif %}>{{ shell.t("Third") }}</option>
+            <option value="half"{% if a.size == "half" %} selected{% endif %}>{{ shell.t("Half") }}</option>
+            <option value="full"{% if a.size == "full" %} selected{% endif %}>{{ shell.t("Full") }}</option>
+          </select>
+          <span class="lat-dashlist__move">
+            <button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-move="up" aria-label='{{ shell.t("Move up") }}'>&uarr;</button>
+            <button type="button" class="lat-btn lat-btn--ghost lat-btn--sm" data-move="down" aria-label='{{ shell.t("Move down") }}'>&darr;</button>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="lat-dialog__actions">
+      <button type="submit" class="lat-btn lat-btn--ghost" formaction="{{ shell.base }}/dashboard/layout/reset">{{ shell.t("Reset to default") }}</button>
+      <span style="flex:1"></span>
+      <button type="button" class="lat-btn lat-btn--ghost" data-lat-dialog-close>{{ shell.t("Cancel") }}</button>
+      <button type="submit" class="lat-btn lat-btn--primary">{{ shell.t("Save") }}</button>
+    </div>
+  </form>
+</dialog>
 {% endblock %}

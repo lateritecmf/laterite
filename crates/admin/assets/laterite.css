@@ -851,3 +851,41 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-skip{position:absolute;left:16px;top:-100px;z-index:300;padding:10px 14px;border-radius:var(--radius-control);background:var(--accent);color:var(--text-on-accent);font-weight:var(--fw-semibold);text-decoration:none;transition:top var(--dur-fast) var(--ease-standard)}
 .lat-skip:focus{top:12px;outline:2px solid var(--text-on-accent);outline-offset:2px}
 .lat-main:focus{outline:none}
+/* Dashboard: a six-column grid of widgets, each a card with a heading band. */
+.lat-dash{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px;align-items:start}
+.lat-widget{grid-column:span 3;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
+.lat-widget--third{grid-column:span 2}
+.lat-widget--half{grid-column:span 3}
+.lat-widget--full{grid-column:span 6}
+.lat-widget__title{margin:0;padding:10px 16px;border-bottom:1px solid var(--border-subtle);background:var(--surface-toolbar);font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-muted)}
+.lat-widget__body{padding:16px}
+.lat-widget__name{margin:0 0 4px;font-family:var(--font-display);font-size:var(--fs-20);font-weight:var(--fw-semibold);color:var(--text-heading)}
+.lat-widget__muted{margin:0;color:var(--text-muted);font-size:var(--fs-13)}
+.lat-widget__failed{margin:0;padding:10px 12px;border-radius:var(--radius-md);background:var(--attention-subtle);color:var(--attention-text);font-size:var(--fs-13)}
+.lat-widget__foot{margin:12px 0 0;font-size:var(--fs-13)}
+.lat-grid--tight{gap:12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.lat-card--link{display:block;text-decoration:none;color:inherit;transition:var(--transition-control)}
+.lat-card--link:hover{border-color:var(--accent);box-shadow:var(--shadow-md)}
+.lat-card__title{display:block;font-family:var(--font-display);font-weight:var(--fw-semibold);font-size:var(--fs-15);color:var(--text-heading)}
+.lat-card__hint{display:block;margin-top:4px;color:var(--text-muted);font-size:var(--fs-12)}
+.lat-activity{list-style:none;margin:0;padding:0}
+.lat-activity__row{display:grid;grid-template-columns:max-content max-content 1fr;gap:12px;padding:7px 0;border-top:1px solid var(--border-subtle);font-size:var(--fs-13)}
+.lat-activity__row:first-child{border-top:0;padding-top:0}
+.lat-activity__when{color:var(--text-subtle);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lat-activity__who{color:var(--text-muted);white-space:nowrap}
+.lat-activity__what{min-width:0;overflow-wrap:anywhere}
+.lat-activity__what code{font-size:var(--fs-12)}
+.lat-facts--stack{display:grid;gap:10px;margin:0}
+.lat-facts--stack>div{min-width:0}
+.lat-facts--stack dt{font-size:var(--fs-11);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-subtle)}
+.lat-facts--stack dd{margin:2px 0 0;color:var(--text-body)}
+.lat-dashlist{list-style:none;margin:0;padding:0;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden}
+.lat-dashlist__row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--border-subtle);background:var(--surface-card)}
+.lat-dashlist__row:first-child{border-top:0}
+.lat-dashlist__label{flex:1;min-width:0}
+.lat-dashlist__label span{display:block;font-size:var(--fs-12);color:var(--text-muted)}
+.lat-dashlist__size{width:auto;height:var(--control-h-sm);padding:0 28px 0 8px;font-size:var(--fs-12)}
+.lat-dashlist__move{display:inline-flex;gap:2px}
+.lat-dashlist__move .lat-btn{width:28px;padding:0}
+@media (max-width:900px){.lat-widget,.lat-widget--third,.lat-widget--half{grid-column:span 6}}
+@media (max-width:768px){.lat-activity__row{grid-template-columns:1fr;gap:2px}}

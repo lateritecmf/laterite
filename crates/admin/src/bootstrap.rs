@@ -467,6 +467,7 @@ impl Bootstrap {
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();
+        let widgets = contributions.take::<crate::widget::WidgetReg>();
         // Owned, so each icon is namespaced to the module that contributed it.
         let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
@@ -536,6 +537,7 @@ impl Bootstrap {
             crate::Contributions {
                 nav,
                 resource_hooks,
+                widgets,
                 resources,
                 settings,
                 permissions,
