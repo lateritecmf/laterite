@@ -14,6 +14,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Brand settings: logo and browser icon from the library, an accent colour applied through the
+  palette variables, a default colour mode, the sign-in prompt, tagline, background and panel, and
+  a custom stylesheet cleaned on display. A `color` input for text fields.
 - Dashboard widgets: `laterite_admin::widget::Widget` with `AdminRegistry::add_widget`, permission per
   widget, sizes, timed refresh; each operator arranges their own under Manage widgets. Four built in.
 

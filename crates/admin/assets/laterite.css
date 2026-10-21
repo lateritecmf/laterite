@@ -889,3 +889,12 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-dashlist__move .lat-btn{width:28px;padding:0}
 @media (max-width:900px){.lat-widget,.lat-widget--third,.lat-widget--half{grid-column:span 6}}
 @media (max-width:768px){.lat-activity__row{grid-template-columns:1fr;gap:2px}}
+/* Brand: a logo from the library sits where the mark does, scaled to the bar. */
+.lat-topnav__brand img,.lat-drawer__brand img{max-height:28px;width:auto}
+.lat-login__brand img{max-height:40px;width:auto}
+.lat-login__hero--image{background-size:cover;background-position:center}
+.lat-login__hero--image .lat-hero-blob{display:none}
+.lat-login__hero--image .lat-hero__caption{background:linear-gradient(transparent,rgba(20,12,8,.72));padding-top:80px}
+.lat-login--plain .lat-login__hero{display:none}
+.lat-login--plain .lat-login__form{width:100%;flex:1 1 auto}
+.lat-login--plain .lat-login__inner{margin:0 auto}

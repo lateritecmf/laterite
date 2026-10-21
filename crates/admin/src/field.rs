@@ -1724,6 +1724,17 @@ impl InputType for UrlInput {
     }
 }
 
+/// A colour, picked with the browser's own control and stored as `#rrggbb`.
+struct ColorInput;
+impl InputType for ColorInput {
+    fn key(&self) -> &'static str {
+        "color"
+    }
+    fn html_type(&self) -> &'static str {
+        "color"
+    }
+}
+
 pub(crate) fn builtin_input_types() -> Vec<Arc<dyn InputType>> {
     vec![
         Arc::new(TextInput),
@@ -1731,6 +1742,7 @@ pub(crate) fn builtin_input_types() -> Vec<Arc<dyn InputType>> {
         Arc::new(TelInput),
         Arc::new(NumberInput),
         Arc::new(UrlInput),
+        Arc::new(ColorInput),
     ]
 }
 

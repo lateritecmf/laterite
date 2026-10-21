@@ -52,6 +52,10 @@ msgid "A temporary password is generated and shown to you once. The new user mus
 msgstr ""
 
 #: (descriptors)
+msgid "Accent colour"
+msgstr ""
+
+#: (descriptors)
 msgid "Access Log"
 msgstr ""
 
@@ -94,6 +98,10 @@ msgstr ""
 
 #: templates/media_file.html
 msgid "Alt text"
+msgstr ""
+
+#: (descriptors)
+msgid "An image behind the panel beside the form."
 msgstr ""
 
 #: templates/list.html
@@ -185,6 +193,10 @@ msgstr ""
 msgid "Browse the media library"
 msgstr ""
 
+#: (descriptors)
+msgid "Browser icon"
+msgstr ""
+
 #: templates/login.html
 #: templates/setup.html
 msgid "Build sites. Ship solid."
@@ -192,6 +204,10 @@ msgstr ""
 
 #: src/field.rs
 msgid "Bulleted list"
+msgstr ""
+
+#: (descriptors)
+msgid "Buttons, links and the active section take this colour."
 msgstr ""
 
 #: templates/import/index.html
@@ -279,6 +295,7 @@ msgid "Code is not allowed here."
 msgstr ""
 
 #: templates/base.html
+#: (descriptors)
 msgid "Colour mode"
 msgstr ""
 
@@ -390,6 +407,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Current password"
+msgstr ""
+
+#: (descriptors)
+msgid "Custom stylesheet"
 msgstr ""
 
 #: templates/dashboard.html
@@ -822,6 +843,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Locked out"
+msgstr ""
+
+#: (descriptors)
+msgid "Logo"
 msgstr ""
 
 #: src/widgets.rs
@@ -1293,6 +1318,10 @@ msgstr ""
 msgid "Rows read"
 msgstr ""
 
+#: (descriptors)
+msgid "Rules added to every admin page. Imports and scripts are removed."
+msgstr ""
+
 #: templates/import/index.html
 msgid "Run"
 msgstr ""
@@ -1401,11 +1430,19 @@ msgid "Show password"
 msgstr ""
 
 #: (descriptors)
+msgid "Show the panel beside the sign-in form"
+msgstr ""
+
+#: (descriptors)
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
 msgstr ""
 
 #: templates/preferences.html
 msgid "Shown in"
+msgstr ""
+
+#: (descriptors)
+msgid "Shown in the top bar and on the sign-in page in place of the mark. Keep it on a public disk."
 msgstr ""
 
 #: templates/login.html
@@ -1423,6 +1460,18 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Sign out every other device"
+msgstr ""
+
+#: (descriptors)
+msgid "Sign-in background"
+msgstr ""
+
+#: (descriptors)
+msgid "Sign-in prompt"
+msgstr ""
+
+#: (descriptors)
+msgid "Sign-in tagline"
 msgstr ""
 
 #: templates/preferences.html
@@ -1571,10 +1620,6 @@ msgstr ""
 msgid "The admin renders in this language. It only changes the interface, not your content."
 msgstr ""
 
-#: (descriptors)
-msgid "The application name shown across the admin."
-msgstr ""
-
 #: src/medialib/mod.rs
 msgid "The crop could not be stored."
 msgstr ""
@@ -1624,8 +1669,20 @@ msgstr ""
 msgid "The latest changes from the audit log."
 msgstr ""
 
+#: (descriptors)
+msgid "The line above the sign-in form."
+msgstr ""
+
+#: (descriptors)
+msgid "The line on the panel beside the form."
+msgstr ""
+
 #: src/lib.rs
 msgid "The menu is back in its default order."
+msgstr ""
+
+#: (descriptors)
+msgid "The name, mark, colours and sign-in page of the admin."
 msgstr ""
 
 #: src/lib.rs
@@ -1654,6 +1711,10 @@ msgstr ""
 
 #: src/error.rs
 msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: (descriptors)
+msgid "The tab icon; a square PNG or SVG."
 msgstr ""
 
 #: src/medialib/mod.rs
@@ -1861,6 +1922,10 @@ msgstr ""
 
 #: src/widgets.rs
 msgid "Welcome"
+msgstr ""
+
+#: (descriptors)
+msgid "What an operator sees before choosing their own."
 msgstr ""
 
 #: templates/media_file.html

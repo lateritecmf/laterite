@@ -254,7 +254,7 @@ pub(crate) struct AdminState {
     /// The resolved brand name, cached across requests so the brand setting is
     /// not read from the database on every page. Invalidated when the setting is
     /// saved. `None` means "not resolved yet".
-    brand_cache: Arc<RwLock<Option<String>>>,
+    brand_cache: Arc<RwLock<Option<Arc<settings::brand::Brand>>>>,
     /// Each registered asset's content-named path. See [`asset_urls`].
     asset_urls: Arc<AssetUrls>,
     /// The field-type registry (built-ins plus contributions): resolves a form
@@ -323,18 +323,15 @@ impl AdminState {
     /// The brand name shown across the admin: the [`settings::BrandSetting`]
     /// `app_name` when set, otherwise the configured application name. The
     /// resolved value is cached until [`AdminState::invalidate_brand`] clears it.
-    async fn brand(&self) -> String {
+    async fn brand(&self) -> Arc<settings::brand::Brand> {
         {
             let cached = self.brand_cache.read().unwrap().clone();
-            if let Some(name) = cached {
-                return name;
+            if let Some(brand) = cached {
+                return brand;
             }
         }
-        let resolved = match settings::store::load::<settings::BrandSetting>(&self.db).await {
-            Ok(brand) if !brand.app_name.trim().is_empty() => brand.app_name,
-            _ => self.app_name.clone(),
-        };
-        *self.brand_cache.write().unwrap() = Some(resolved.clone());
+        let resolved = Arc::new(settings::brand::Brand::resolve(&self.db, &self.app_name).await);
+        *self.brand_cache.write().unwrap() = Some(Arc::clone(&resolved));
         resolved
     }
 
@@ -440,6 +437,8 @@ pub struct Shell {
     /// (the brand setting, or the configured application name). See
     /// [`AdminState::brand`].
     brand: String,
+    /// The rest of the brand a page shows: mark, icon, stylesheet, mode.
+    brand_look: Arc<settings::brand::Brand>,
     nav: Vec<NavView>,
     full_name: String,
     initial: String,
@@ -572,7 +571,7 @@ impl Shell {
     #[allow(clippy::too_many_arguments)]
     fn new(
         base: &str,
-        brand: String,
+        brand: Arc<settings::brand::Brand>,
         nav: &[nav::NavNode],
         user: &AuthenticatedUser,
         default_tz: Tz,
@@ -636,7 +635,8 @@ impl Shell {
             sprite_url,
             site_url,
             base: base.to_string(),
-            brand,
+            brand: brand.name.clone(),
+            brand_look: brand,
             nav,
             crumbs,
             full_name,
@@ -717,6 +717,23 @@ impl Shell {
         &self.csrf_token
     }
 
+    /// The brand's logo from the library, when one is set.
+    pub fn brand_logo(&self) -> Option<&str> {
+        self.brand_look.logo_url.as_deref()
+    }
+    /// The brand's browser icon from the library, when one is set.
+    pub fn brand_favicon(&self) -> Option<&str> {
+        self.brand_look.favicon_url.as_deref()
+    }
+    /// The brand's stylesheet body: the accent's variables and the custom rules.
+    pub fn brand_css(&self) -> &str {
+        &self.brand_look.css
+    }
+    /// The colour mode an operator starts in: `auto`, `light` or `dark`.
+    pub fn mode_default(&self) -> &str {
+        &self.brand_look.mode
+    }
+
     /// A UTC timestamp as stored (RFC 3339), shown in this operator's timezone.
     /// Text that does not parse is shown as it is.
     pub fn datetime(&self, utc: &str) -> String {
@@ -788,6 +805,7 @@ impl Shell {
             site_url: "http://localhost".to_string(),
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
+            brand_look: Arc::new(settings::brand::Brand::of_name("Laterite")),
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
@@ -3528,7 +3546,8 @@ async fn login_form(
             render(LoginTemplate {
                 base: state.admin_path.to_string(),
                 asset_urls: state.asset_urls.clone(),
-                brand: state.brand().await,
+                brand: state.brand().await.name.clone(),
+                look: state.brand().await,
                 error: None,
                 notice,
                 i18n,
@@ -3589,7 +3608,8 @@ async fn login_submit(
             render(LoginTemplate {
                 base: state.admin_path.to_string(),
                 asset_urls: state.asset_urls.clone(),
-                brand: state.brand().await,
+                brand: state.brand().await.name.clone(),
+                look: state.brand().await,
                 error: Some(i18n.t(&t!("Invalid username or password."))),
                 notice: None,
                 i18n,
@@ -3838,7 +3858,7 @@ async fn setup_submit(
 /// default so the first administrator can accept or change it.
 fn setup_view(
     admin_path: &str,
-    brand: String,
+    brand: Arc<settings::brand::Brand>,
     default_tz: Tz,
     error: Option<Text>,
     i18n: Translator,
@@ -3857,7 +3877,8 @@ fn setup_view(
     SetupTemplate {
         base: admin_path.to_string(),
         asset_urls,
-        brand,
+        brand: brand.name.clone(),
+        look: brand,
         zones,
         error: error.map(|e| i18n.t(&e)),
         min_password: min_password as i64,
@@ -4838,6 +4859,7 @@ struct LoginTemplate {
     /// Each asset's content-named path; see [`Shell::asset`].
     asset_urls: Arc<AssetUrls>,
     brand: String,
+    look: Arc<settings::brand::Brand>,
     error: Option<String>,
     /// Why the previous session ended, when the redirect said.
     notice: Option<String>,
@@ -4887,6 +4909,7 @@ struct SetupTemplate {
     /// Each asset's content-named path; see [`Shell::asset`].
     asset_urls: Arc<AssetUrls>,
     brand: String,
+    look: Arc<settings::brand::Brand>,
     zones: Vec<TzOption>,
     error: Option<String>,
     /// The pre-auth translator, as on [`LoginTemplate`].
@@ -5382,7 +5405,7 @@ mod tests {
         };
 
         // With no brand setting, the configured application name is the brand.
-        assert_eq!(state.brand().await, "Configured Name");
+        assert_eq!(state.brand().await.name, "Configured Name");
 
         // A brand setting overrides the configured name (cache re-reads after
         // invalidation).
@@ -5390,24 +5413,26 @@ mod tests {
             &db,
             &settings::BrandSetting {
                 app_name: "Acme Corp".to_string(),
+                ..Default::default()
             },
         )
         .await
         .unwrap();
         state.invalidate_brand();
-        assert_eq!(state.brand().await, "Acme Corp");
+        assert_eq!(state.brand().await.name, "Acme Corp");
 
         // A blank brand setting falls back to the configured name.
         settings::store::save(
             &db,
             &settings::BrandSetting {
                 app_name: "   ".to_string(),
+                ..Default::default()
             },
         )
         .await
         .unwrap();
         state.invalidate_brand();
-        assert_eq!(state.brand().await, "Configured Name");
+        assert_eq!(state.brand().await.name, "Configured Name");
     }
 
     fn settings_item(code: &str, permission: Option<&str>) -> settings::SettingsItem {

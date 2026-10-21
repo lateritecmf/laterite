@@ -109,3 +109,22 @@ Setting | Where
 --- | ---
 Branding: name, colour-mode default, logo | **Settings → Branding**
 Preferences: an operator's own timezone | **Preferences**. See [Dates and Timezones](dates-and-timezones.md).
+
+## Branding
+
+Settings › Branding, saved by an operator with `backend.manage_branding`.
+
+Field | Takes | Effect
+--- | --- | ---
+Application name | text | the brand in the top bar, drawer, sign-in page and titles; blank keeps `app.name`
+Logo | a library image | shown in place of the mark, scaled to 28px high (40px on the sign-in page)
+Browser icon | a library image | the tab icon
+Accent colour | `#rrggbb` | `--accent`, its pressed shades and tints, and link colours
+Colour mode | `auto`, `light`, `dark` | what an operator sees before choosing their own
+Sign-in prompt | text | the line above the sign-in form
+Sign-in tagline | text | the line on the panel beside the form
+Sign-in background | a library image | behind that panel
+Show the panel | on, off | off leaves the form alone, centred
+Custom stylesheet | CSS | added to every admin page; `@import`, scripts and closing tags are removed
+
+Library images must sit on a public disk: a private disk's signed URL would expire in the page.

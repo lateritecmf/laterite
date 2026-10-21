@@ -207,6 +207,7 @@ async fn brand_setting_overrides_the_configured_name() {
         &db,
         &BrandSetting {
             app_name: "Override Co".to_string(),
+            ..Default::default()
         },
     )
     .await

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="{{ self.locale() }}" data-theme="light">
+<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ self.t("Sign in") }} - {{ brand }}</title>
-  <link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">
+  {% if let Some(icon) = look.favicon_url %}<link rel="icon" href="{{ icon }}">{% else %}<link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">{% endif %}
   <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
+  {% if !look.css.is_empty() %}<style id="lat-brand">{{ look.css|safe }}</style>{% endif %}
   {# Colour mode: blocking on purpose, so a dark-mode operator sees no white flash. #}
   <script src="{{ self.asset("theme-boot.js") }}"></script>
   <script defer src="{{ self.asset("laterite.js") }}"></script>
@@ -22,15 +23,15 @@
     </div>
   </div>
   {% endif %}
-  <div class="lat-login">
+  <div class="lat-login{% if !look.login_hero %} lat-login--plain{% endif %}">
     <div class="lat-login__form">
       <div class="lat-login__inner">
         <div class="lat-login__brand">
-          <img src="{{ self.asset("mark.png") }}" alt="">
+          {% if let Some(logo) = look.logo_url %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ self.asset("mark.png") }}" alt="">{% endif %}
           <h1>{{ brand }}</h1>
         </div>
         <h2 class="lat-login__title">{{ self.t("Admin panel") }}</h2>
-        <p class="lat-login__lead">{{ self.t("Sign in to continue.") }}</p>
+        <p class="lat-login__lead">{% if let Some(prompt) = look.login_prompt %}{{ prompt }}{% else %}{{ self.t("Sign in to continue.") }}{% endif %}</p>
         {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
         <form method="post" action="{{ base }}/login">
           <div class="lat-field">
@@ -48,13 +49,13 @@
       </div>
       <a class="lat-poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ self.asset("mark.png") }}" alt="" width="14" height="14">{{ self.t("Powered by Laterite") }}</a>
     </div>
-    <div class="lat-login__hero" aria-hidden="true">
+    <div class="lat-login__hero{% if look.login_background_url.is_some() %} lat-login__hero--image{% endif %}" aria-hidden="true"{% if let Some(bg) = look.login_background_url %} style="background-image:url('{{ bg }}')"{% endif %}>
       <div class="lat-hero-blob lat-hero-blob--1"></div>
       <div class="lat-hero-blob lat-hero-blob--2"></div>
       <div class="lat-hero-blob lat-hero-blob--3"></div>
       <div class="lat-hero__caption">
         <div class="lat-hero__eyebrow">{{ self.t("Open source Rust web framework") }}</div>
-        <div class="lat-hero__tag">{{ self.t("Build sites. Ship solid.") }}</div>
+        <div class="lat-hero__tag">{% if let Some(tag) = look.login_tagline %}{{ tag }}{% else %}{{ self.t("Build sites. Ship solid.") }}{% endif %}</div>
       </div>
     </div>
   </div>
