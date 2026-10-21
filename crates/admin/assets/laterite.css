@@ -836,6 +836,8 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
    sort headers included, and panes that are filters follow the content. */
 @media (max-width:768px),(pointer:coarse){.lat-rowactions .lat-btn--icon{width:36px;height:36px}.lat-rowactions{gap:4px}.lat-tree__toggle{width:28px;height:28px}.lat-sort{display:inline-flex;align-items:center;min-height:36px}.lat-check input{width:18px;height:18px}.lat-btn--sm{height:var(--control-h)}.lat-pager .lat-btn--sm{height:36px}.lat-nav__item{min-height:40px}}
 @media (max-width:900px){.lat-split--filters>:first-child{order:2}}
+.lat-split>*{min-width:0}
+@media (max-width:768px),(pointer:coarse){.lat-checklist__parent{width:18px;height:18px}}
 .lat-settings-inline{display:none}
 @media (max-width:992px){.lat-settings-inline{display:block}.lat-settings-inline+p,.lat-settings-choose{display:none}}
 .lat-settings-inline .lat-card{padding:0;overflow:hidden}
