@@ -216,6 +216,9 @@ document.addEventListener('htmx:sendError', latRequestFailed);
     if (!bar) {
       bar = document.createElement('div');
       bar.className = 'lat-progress';
+      // A decoration for sighted readers; the busy state is announced on the
+      // document while a request is in flight.
+      bar.setAttribute('aria-hidden', 'true');
       document.body.appendChild(bar);
     }
     return bar;
@@ -226,12 +229,14 @@ document.addEventListener('htmx:sendError', latRequestFailed);
     var b = element();
     b.classList.remove('is-done');
     b.classList.add('is-active');
+    document.body.setAttribute('aria-busy', 'true');
   });
   document.addEventListener('htmx:afterRequest', function () {
     inflight = Math.max(0, inflight - 1);
     if (inflight > 0) return;
     var b = element();
     b.classList.add('is-done');
+    document.body.removeAttribute('aria-busy');
     timer = setTimeout(function () { b.classList.remove('is-active', 'is-done'); }, 220);
   });
 })();
