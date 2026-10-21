@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.18] - 2026-10-21
+
+The editors: rich text over TipTap and ProseMirror, markdown and code over
+CodeMirror 6, built once from a lockfile into bundles the admin ships, with
+schema-clean HTML on save, a server-rendered markdown preview, and an Insert
+menu that modules and themes extend with commands and snippets.
+
 ### Added
 
 - `richeditor` field type (TipTap over ProseMirror; `rows`, `placeholder`, `toolbar`): HTML kept to
