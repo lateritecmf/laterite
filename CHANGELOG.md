@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.20] - 2026-10-22
+
+The Admin polish slice: dashboard widgets each operator arranges, brand marks
+and colours with a customised sign-in, skins, a parameters store, a context
+side panel, checked uploads with a cleaned SVG, and snippets backed by
+components.
+
 ### Fixed
 
 - The colour-mode boot script is served as a file and loaded blocking, so the admin's content
