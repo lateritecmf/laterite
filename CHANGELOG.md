@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- The context side panel folds at phone and tablet widths as documented, and a colour input is
+  a swatch, not a full-width bar.
+
 ## [0.9.20] - 2026-10-22
 
 The Admin polish slice: dashboard widgets each operator arranges, brand marks

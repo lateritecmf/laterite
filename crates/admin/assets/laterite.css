@@ -202,6 +202,7 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-field__help{margin:0 0 10px;font-size:var(--fs-12);color:var(--text-muted);flex-basis:100%}
 .lat-field__opt{color:var(--text-muted);font-weight:var(--fw-regular);font-size:var(--fs-12)}
 .lat-input{width:100%;height:var(--control-h);padding:0 12px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);outline:none;transition:var(--transition-control)}
+.lat-input[type=color]{width:64px;padding:4px 6px;cursor:pointer}
 .lat-input:focus{border-color:var(--accent);box-shadow:var(--ring-focus)}
 .lat-input:disabled{background:var(--surface-input-disabled);cursor:not-allowed}
 /* A select is a .lat-input with the browser's own chrome removed and our
@@ -620,9 +621,6 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
 @media (max-width:1100px){.lat-fields>.lat-field--1,.lat-fields>.lat-field--2,.lat-fields>.lat-field--3{grid-column:span 6}}
 @media (max-width:768px){.lat-fields>.lat-field{grid-column:span 12}}
 @media (max-width:992px){
-.lat-withaside{display:block}
-.lat-aside{margin-bottom:16px}
-.lat-aside__fold>summary{display:flex}
 .lat-topnav__burger{display:flex}
 .lat-topnav__nav{display:none}
 .lat-topnav__brand{padding-left:6px}
@@ -710,6 +708,12 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-aside__summary::before{content:"";width:0;height:0;border:5px solid transparent;border-left-color:var(--text-muted);margin-right:2px;transition:transform var(--dur-fast) var(--ease-standard)}
 .lat-aside__fold[open]>.lat-aside__summary::before{transform:rotate(90deg)}
 .lat-aside__fold[open]>.lat-aside__summary{margin-bottom:10px}
+/* Unlayered like the rules above it, so the fold wins the cascade. */
+@media (max-width:992px){
+.lat-withaside{display:block}
+.lat-aside{margin-bottom:16px}
+.lat-aside__fold>summary{display:flex}
+}
 .lat-pane{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
 .lat-pane__head{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 14px;border-bottom:1px solid var(--border-subtle);font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-muted)}
 .lat-pane__head+.lat-pane__head,.lat-nav+.lat-pane__head,.lat-pane__body+.lat-pane__head{border-top:1px solid var(--border-subtle)}
