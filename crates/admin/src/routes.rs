@@ -29,6 +29,7 @@ pub struct RouteCtx {
     db: Db,
     auth: AuthService,
     parameters: laterite_core::parameters::Parameters,
+    upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
     signing_key: Arc<Vec<u8>>,
@@ -47,6 +48,7 @@ impl RouteCtx {
         db: Db,
         auth: AuthService,
         parameters: laterite_core::parameters::Parameters,
+        upload_extensions: Arc<Vec<String>>,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
         signing_key: Arc<Vec<u8>>,
@@ -62,6 +64,7 @@ impl RouteCtx {
             db,
             auth,
             parameters,
+            upload_extensions,
             field_types,
             overrides,
             signing_key,
@@ -131,6 +134,14 @@ impl RouteCtx {
     /// does for its own.
     pub async fn record_unserved(&self, method: &str, path: &str, status: u16) {
         crate::requestlog::record(&self.db, method, path, status).await;
+    }
+
+    /// The file extensions an upload may carry (`backend.upload_extensions`,
+    /// else [`laterite_media::sanitize::DEFAULT_EXTENSIONS`]), lowercased. A
+    /// screen that takes files checks a name with
+    /// [`laterite_media::sanitize::extension_allowed`] before storing it.
+    pub fn upload_extensions(&self) -> &[String] {
+        &self.upload_extensions
     }
 
     /// The deployment's storage directory (`backend.storage`), where a module
@@ -311,6 +322,7 @@ impl RouteCtxBuilder {
             self.db.clone(),
             auth,
             laterite_core::parameters::Parameters::new(self.db),
+            Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),
             Arc::new(crate::random_key()),

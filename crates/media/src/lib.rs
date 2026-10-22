@@ -28,6 +28,7 @@ pub mod preset;
 pub mod record;
 #[cfg(feature = "s3")]
 pub mod s3;
+pub mod sanitize;
 pub mod variant;
 pub mod verify;
 

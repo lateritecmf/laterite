@@ -93,6 +93,37 @@ Event | Detail
 `lat:upload:stored`, `lat:upload:failed` | `{name, reason}` per file.
 `lat:upload:done` | `{failed}` once every file answered.
 
+## Check what comes in
+
+```toml
+# config/default.toml
+[backend]
+upload_extensions = ["jpg", "jpeg", "png", "webp", "svg", "pdf", "css"]
+```
+
+```rust
+use laterite_media::sanitize;
+
+if !sanitize::extension_allowed(&name, ctx.upload_extensions()) {
+    return refused(t!("This file type is not allowed."));
+}
+let bytes = match sanitize::svg(&bytes) {
+    Some(drawing) => drawing.into_bytes(),
+    None if sanitize::is_svg(&bytes) => return refused(t!("The image could not be read.")),
+    None => bytes,
+};
+```
+
+Function | Does
+--- | ---
+`extension_allowed(name, list)` | The name's extension, lowercased, is in the list. A name with none is refused.
+`is_svg(head)` | The leading bytes are an SVG document, past any prolog, comment or doctype.
+`svg(bytes)` | The SVG as a drawing: script, foreign content, event handlers, external references and `javascript:` URLs removed; `style` cleaned; the namespace present. `None` when it is not an SVG.
+`css(text)` | A stylesheet without imports, script URLs, expressions, bindings or a closing tag.
+`DEFAULT_EXTENSIONS` | The list when `upload_extensions` is empty: images, documents, audio, video, fonts, archives.
+
+The library's own upload, direct upload and media field run these checks; an SVG is stored cleaned and sniffed as `image/svg+xml`.
+
 ## Declare disks
 
 ```rust

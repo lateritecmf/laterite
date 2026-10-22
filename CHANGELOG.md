@@ -25,6 +25,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `namespace::group.item` keys, cached per process through `RouteCtx::parameters`.
 - `PageHead::aside`: a context side panel beside a page's body that folds under its label at
   phone and tablet widths. The theme pages list their templates in it.
+- Uploads are checked against `backend.upload_extensions` (a default list of media, document,
+  font and archive types) and an SVG is cleaned to a drawing (`laterite_media::sanitize`).
 
 ## [0.9.19] - 2026-10-21
 

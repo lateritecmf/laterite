@@ -17,6 +17,8 @@ image = { workspace = true }
 img-parts = { workspace = true }
 # Content types are sniffed from the bytes, never taken from the client.
 infer = "0.16"
+# An SVG upload is cleaned to a drawing before it is stored.
+ammonia = { workspace = true }
 # The schema identifier enum uses sea-query's `Iden` derive, whose generated code
 # names the `sea_query` crate directly. The framework re-exports the types through
 # `strata`, but the derive still needs the crate as a direct dependency.

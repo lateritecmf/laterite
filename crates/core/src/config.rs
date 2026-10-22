@@ -168,6 +168,10 @@ pub struct BackendConfig {
     /// The admin skin by code: `standard` (the default), `compact`, or one a
     /// module registered. An unknown code aborts the boot.
     pub skin: String,
+    /// The file extensions an upload may carry (`["jpg", "png", "pdf"]`).
+    /// Empty, the admin's default list applies: images, documents, audio,
+    /// video, fonts and archives, with no scripts, markup or stylesheets.
+    pub upload_extensions: Vec<String>,
 }
 
 impl Default for BackendConfig {
@@ -183,6 +187,7 @@ impl Default for BackendConfig {
             trusted_proxies: Vec::new(),
             storage: "storage".to_string(),
             skin: "standard".to_string(),
+            upload_extensions: Vec::new(),
         }
     }
 }

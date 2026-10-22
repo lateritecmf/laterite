@@ -60,6 +60,10 @@ pub fn blob_path(hash: &str) -> String {
 /// Never `application/octet-stream` for something recognised, and never the
 /// sender's claim: the bytes are the only honest source.
 fn sniff(head: &[u8]) -> String {
+    // An SVG is known by its root element, before a prolog reads as plain XML.
+    if crate::sanitize::is_svg(head) {
+        return "image/svg+xml".to_string();
+    }
     infer::get(head)
         .map(|t| t.mime_type().to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string())

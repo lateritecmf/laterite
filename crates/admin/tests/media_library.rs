@@ -750,3 +750,59 @@ async fn a_direct_upload_is_promoted_from_quarantine() {
         "a path outside quarantine"
     );
 }
+
+#[tokio::test]
+async fn a_name_outside_the_allow_list_is_refused_and_an_svg_is_cleaned() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 4 4\" onload=\"alert(1)\"><script>alert(1)</script><rect width=\"4\" height=\"4\" fill=\"#c44\"/></svg>";
+    let (status, _) = upload(
+        &app,
+        &root,
+        &[],
+        &[
+            ("tool.exe", b"MZ not really"),
+            ("logo.svg", svg),
+            ("broken.svg", b"<svg>\xff\xfe not text"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let listed = laterite_media::library::list(
+        &db,
+        &laterite_media::library::Listing {
+            per_page: 50,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let names: Vec<&str> = listed
+        .items
+        .iter()
+        .map(|r| r.original_name.as_str())
+        .collect();
+    assert_eq!(names, vec!["logo.svg"], "{names:?}");
+    let logo = &listed.items[0];
+    assert_eq!(logo.content_type, "image/svg+xml");
+    let (status, body, headers) = get(
+        &app,
+        &format!("/storage/media/{}/logo.svg", logo.hash),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(header(&headers, "content-type")
+        .unwrap()
+        .starts_with("image/svg+xml"));
+    assert!(
+        !body.contains("<script") && !body.contains("onload"),
+        "{body}"
+    );
+    assert!(
+        body.contains("fill=\"#c44\"") && body.contains("xmlns=\"http://www.w3.org/2000/svg\""),
+        "{body}"
+    );
+}

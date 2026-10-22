@@ -217,29 +217,10 @@ fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
     Some((v(0)?, v(2)?, v(4)?))
 }
 
-/// A custom stylesheet with what cannot be allowed in a `<style>` removed:
-/// imports, script URLs, legacy expressions and bindings, and a closing tag
-/// that would end the element. Capped at 64 KiB.
+/// A custom stylesheet cleaned of what cannot be allowed in a `<style>`. See
+/// [`laterite_media::sanitize::css`].
 pub(crate) fn clean_css(css: &str) -> String {
-    let mut out = String::with_capacity(css.len().min(65536));
-    for line in css.lines().take(2000) {
-        let lower = line.to_ascii_lowercase();
-        if lower.contains("@import")
-            || lower.contains("expression(")
-            || lower.contains("javascript:")
-            || lower.contains("-moz-binding")
-            || lower.contains("behavior:")
-            || lower.contains("</")
-        {
-            continue;
-        }
-        if out.len() + line.len() > 65536 {
-            break;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out.trim().to_string()
+    laterite_media::sanitize::css(css)
 }
 
 #[cfg(test)]

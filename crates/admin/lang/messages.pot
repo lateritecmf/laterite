@@ -1665,6 +1665,10 @@ msgstr ""
 msgid "The framework version and the database behind this panel."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "The image could not be read."
+msgstr ""
+
 #: src/widgets.rs
 msgid "The latest changes from the audit log."
 msgstr ""
@@ -1743,6 +1747,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "This device"
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "This file type is not allowed."
 msgstr ""
 
 #: src/medialib/mod.rs

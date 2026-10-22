@@ -22,6 +22,7 @@ use laterite_auth::AuthenticatedUser;
 use laterite_core::{t, Module, Text};
 use laterite_media::library::{Listing, Sort};
 use laterite_media::preset::{self, Preset};
+use laterite_media::sanitize;
 use laterite_media::{
     blob_path, folder, ingest, link, record, stream_of, variant, DiskReg, Kind, LocalDisk,
     MediaRecord, NewMedia, NewMediaExtra, StorageDriver, Variants,
@@ -297,6 +298,16 @@ pub fn safe_name(name: &str) -> String {
     } else {
         out
     }
+}
+
+/// An upload's bytes as they may be stored: an SVG cleaned to a drawing, or
+/// nothing when it claims to be one and cannot be read; anything else as it
+/// came.
+fn admit(bytes: Vec<u8>) -> Option<Vec<u8>> {
+    if sanitize::is_svg(&bytes[..bytes.len().min(4096)]) {
+        return sanitize::svg(&bytes).map(String::into_bytes);
+    }
+    Some(bytes)
 }
 
 /// A content type the browser may run script from, served as a download.
@@ -1033,6 +1044,17 @@ async fn upload(
                 if bytes.is_empty() {
                     continue;
                 }
+                if !sanitize::extension_allowed(&name, ctx.upload_extensions()) {
+                    refused.push(refuse(name, t!("This file type is not allowed.")));
+                    continue;
+                }
+                let bytes = match admit(bytes) {
+                    Some(bytes) => bytes,
+                    None => {
+                        refused.push(refuse(name, t!("The image could not be read.")));
+                        continue;
+                    }
+                };
                 // Metadata goes before the hash, so two copies of one photo
                 // with different EXIF still share a blob.
                 let prepared = laterite_media::image::prepare(bytes::Bytes::from(bytes));
@@ -1155,6 +1177,10 @@ async fn direct_start(
         return axum::Json(serde_json::json!({ "direct": false, "reason": "too large" }))
             .into_response();
     }
+    if !sanitize::extension_allowed(&form.name, app.ctx.upload_extensions()) {
+        return axum::Json(serde_json::json!({ "direct": false, "reason": "not allowed" }))
+            .into_response();
+    }
     let content_type = if form.content_type.is_empty() {
         "application/octet-stream".to_string()
     } else {
@@ -1250,6 +1276,14 @@ async fn direct_complete(
     while let Ok(Some(chunk)) = stream.try_next().await {
         bytes.extend_from_slice(&chunk);
     }
+    if !sanitize::extension_allowed(&form.name, ctx.upload_extensions()) {
+        let _ = disk.delete(path).await;
+        return refused(t!("This file type is not allowed."));
+    }
+    let Some(bytes) = admit(bytes) else {
+        let _ = disk.delete(path).await;
+        return refused(t!("The image could not be read."));
+    };
     let prepared = laterite_media::image::prepare(bytes::Bytes::from(bytes));
     let ingested = match ingest(
         disk.as_ref(),

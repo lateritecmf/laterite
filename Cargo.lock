@@ -2278,6 +2278,7 @@ dependencies = [
 name = "laterite-media"
 version = "0.9.19"
 dependencies = [
+ "ammonia",
  "async-trait",
  "aws-config",
  "aws-credential-types",

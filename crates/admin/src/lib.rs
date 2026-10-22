@@ -226,6 +226,8 @@ pub(crate) struct AdminState {
     db: Db,
     /// The parameters store behind its per-process cache.
     parameters: laterite_core::parameters::Parameters,
+    /// The extensions an upload may carry, lowercased.
+    upload_extensions: Arc<Vec<String>>,
     nav: Arc<nav::NavTree>,
     /// The menu entries the tree was built from (after the deployment's
     /// moves), for an operator whose own moves need a tree of their own.
@@ -306,6 +308,7 @@ impl AdminState {
         Self {
             auth,
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
+            upload_extensions: Arc::new(upload_extensions(&[])),
             db,
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
@@ -404,6 +407,9 @@ pub struct AdminConfig {
     /// The skin by code (default `standard`; `compact` is also built in). A
     /// module's skin is selected by its code. See [`skin`].
     pub skin: String,
+    /// The file extensions an upload may carry; empty means
+    /// [`laterite_media::sanitize::DEFAULT_EXTENSIONS`]. Compared lowercased.
+    pub upload_extensions: Vec<String>,
     /// Arrangement overrides by hierarchy (`backend.order`): the keys of the
     /// top bar, a section or the settings index in the wanted order.
     pub order: std::collections::BTreeMap<String, Vec<String>>,
@@ -427,6 +433,7 @@ impl Default for AdminConfig {
             origin: String::new(),
             storage_dir: "storage".to_string(),
             skin: "standard".to_string(),
+            upload_extensions: Vec::new(),
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
             secret: random_key(),
@@ -1929,6 +1936,7 @@ pub fn router(
     let state = AdminState {
         auth,
         parameters: laterite_core::parameters::Parameters::new(db.clone()),
+        upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
         db,
         nav: Arc::new(nav),
         nav_items: Arc::new(nav_items),
@@ -2028,6 +2036,7 @@ pub fn router(
             state.db.clone(),
             state.auth.clone(),
             state.parameters.clone(),
+            state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
             state.signing_key.clone(),
@@ -2061,6 +2070,7 @@ pub fn router(
             state.db.clone(),
             state.auth.clone(),
             state.parameters.clone(),
+            state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
             state.signing_key.clone(),
@@ -2237,6 +2247,7 @@ pub fn router(
             &state.db,
             &state.auth,
             &state.parameters,
+            &state.upload_extensions,
             &state.field_types,
             &state.overrides,
             &state.signing_key,
@@ -2255,6 +2266,7 @@ pub fn router(
                 state.db.clone(),
                 state.auth.clone(),
                 state.parameters.clone(),
+                state.upload_extensions.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
                 state.signing_key.clone(),
@@ -2420,6 +2432,7 @@ fn mount_public(
     db: &Db,
     auth: &AuthService,
     parameters: &laterite_core::parameters::Parameters,
+    upload_extensions: &Arc<Vec<String>>,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
     signing_key: &Arc<Vec<u8>>,
@@ -2437,6 +2450,7 @@ fn mount_public(
             db.clone(),
             auth.clone(),
             parameters.clone(),
+            upload_extensions.clone(),
             field_types.clone(),
             overrides.clone(),
             signing_key.clone(),
@@ -2521,6 +2535,25 @@ impl AdminAsset {
 pub struct AssetReg {
     pub key: &'static str,
     pub asset: AdminAsset,
+}
+
+/// The upload allow-list as the route context carries it: the configured
+/// extensions lowercased and trimmed of a leading dot, or the media crate's
+/// default list when none are configured.
+pub(crate) fn upload_extensions(configured: &[String]) -> Vec<String> {
+    let listed: Vec<String> = configured
+        .iter()
+        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect();
+    if listed.is_empty() {
+        laterite_media::sanitize::DEFAULT_EXTENSIONS
+            .iter()
+            .map(|e| e.to_string())
+            .collect()
+    } else {
+        listed
+    }
 }
 
 /// The parameter the first-run setup writes when the first administrator is
@@ -5556,6 +5589,7 @@ mod tests {
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
+            upload_extensions: Arc::new(upload_extensions(&[])),
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
