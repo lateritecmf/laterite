@@ -22,7 +22,7 @@ use laterite_core::Db;
 use minijinja::value::{Kwargs, Serde, Value};
 use minijinja::{AutoEscape, Environment, ErrorKind, State, UndefinedBehavior};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
@@ -100,6 +100,9 @@ pub struct Engine {
     layout_settings: HashMap<String, serde_json::Value>,
     /// Each page's whole settings bag, by name.
     page_bags: HashMap<String, serde_json::Value>,
+    /// Snippet codes the `content` filter leaves for the page's final pass,
+    /// because a component renders them.
+    component_snippets: Arc<HashSet<String>>,
 }
 
 /// A page's source as the environment compiles it, with a map from each
@@ -208,6 +211,18 @@ impl Engine {
         code: &str,
         configure: impl FnOnce(&mut Environment<'static>),
     ) -> Result<Engine, ThemeError> {
+        Engine::build_for(db, code, HashSet::new(), configure).await
+    }
+
+    /// Like [`Engine::build_with`], naming the snippet codes a component
+    /// renders: the `content` filter leaves those figures in place for
+    /// [`super::site::finish_page`].
+    pub async fn build_for(
+        db: &Db,
+        code: &str,
+        component_snippets: HashSet<String>,
+        configure: impl FnOnce(&mut Environment<'static>),
+    ) -> Result<Engine, ThemeError> {
         let chain = store::chain(db, code).await?;
         let stamp = stamp_of(&chain);
         let mut sources: HashMap<String, String> = HashMap::new();
@@ -240,6 +255,9 @@ impl Engine {
             }
         }
         let snippets = Arc::new(snippets);
+        let component_snippets = Arc::new(component_snippets);
+        let block_keep = Arc::clone(&component_snippets);
+        let value_keep = Arc::clone(&component_snippets);
         // A page with settings that do not parse is left out of the routes
         // but still compiles, so the editor can open it.
         let mut routes = RouteTable::default();
@@ -294,13 +312,14 @@ impl Engine {
                 Ok(Value::from_safe_string(expand_snippets(
                     state,
                     &block_snippets,
+                    &block_keep,
                     &html,
                 )))
             },
         );
         let value_snippets = Arc::clone(&snippets);
         env.add_filter("content", move |state: &State, html: String| -> Value {
-            Value::from_safe_string(expand_snippets(state, &value_snippets, &html))
+            Value::from_safe_string(expand_snippets(state, &value_snippets, &value_keep, &html))
         });
         env.add_function("partial", partial);
         env.add_function("component", component);
@@ -356,7 +375,14 @@ impl Engine {
             page_paths,
             layout_settings,
             page_bags,
+            component_snippets,
         })
+    }
+
+    /// The snippet codes a component renders, left in place by the `content`
+    /// filter for [`super::site::finish_page`].
+    pub fn component_snippets(&self) -> &HashSet<String> {
+        &self.component_snippets
     }
 
     /// The theme this engine renders.
@@ -533,17 +559,32 @@ fn partial(state: &State, name: String, kwargs: Kwargs) -> Result<Value, minijin
 
 /// `html|content`: every `<figure data-snippet>` becomes the declaring
 /// partial, rendered with the figure's properties as variables beside the
-/// request's `this` and `head`. A snippet nobody declares leaves a comment.
-fn expand_snippets(state: &State, index: &super::snippet::Index, html: &str) -> String {
+/// request's `this` and `head`. A figure a component renders is kept for the
+/// page's final pass; a snippet nobody declares leaves a comment.
+fn expand_snippets(
+    state: &State,
+    index: &super::snippet::Index,
+    keep: &HashSet<String>,
+    html: &str,
+) -> String {
+    use super::snippet::Expanded;
     if !html.contains("data-snippet") {
         return html.to_string();
     }
-    super::snippet::expand(html, |code, props| {
-        let (path, decl) = index.get(code)?;
-        let template = state
+    super::snippet::expand_with(html, |code, props| {
+        let Some((path, decl)) = index.get(code) else {
+            return if keep.contains(code) {
+                Expanded::Keep
+            } else {
+                Expanded::Missing
+            };
+        };
+        let Ok(template) = state
             .env()
             .get_template(&template_name(Kind::Partial, path))
-            .ok()?;
+        else {
+            return Expanded::Missing;
+        };
         let mut pairs: Vec<(String, Value)> = ["this", "head"]
             .into_iter()
             .filter_map(|key| state.lookup(key).map(|v| (key.to_string(), v)))
@@ -557,10 +598,10 @@ fn expand_snippets(state: &State, index: &super::snippet::Index, html: &str) -> 
             pairs.push((prop.code.clone(), Value::from(Serde(value))));
         }
         match template.render(Value::from_pairs(pairs)) {
-            Ok(out) => Some(out),
+            Ok(out) => Expanded::Html(out),
             Err(e) => {
                 tracing::warn!(snippet = code, error = %e, "snippet failed to render");
-                Some(format!("<!-- snippet {code}: failed to render -->"))
+                Expanded::Html(format!("<!-- snippet {code}: failed to render -->"))
             }
         }
     })
@@ -649,6 +690,18 @@ impl EngineCache {
         code: &str,
         configure: impl FnOnce(&mut Environment<'static>),
     ) -> Result<Arc<Engine>, ThemeError> {
+        self.get_for(db, code, HashSet::new(), configure).await
+    }
+
+    /// Like [`EngineCache::get_with`], naming the snippet codes a component
+    /// renders; see [`Engine::build_for`].
+    pub async fn get_for(
+        &self,
+        db: &Db,
+        code: &str,
+        component_snippets: HashSet<String>,
+        configure: impl FnOnce(&mut Environment<'static>),
+    ) -> Result<Arc<Engine>, ThemeError> {
         let chain = store::chain(db, code).await?;
         let stamp = stamp_of(&chain);
         if let Some(engine) = self.engines.read().expect("engine cache").get(code) {
@@ -656,7 +709,7 @@ impl EngineCache {
                 return Ok(Arc::clone(engine));
             }
         }
-        let engine = Arc::new(Engine::build_with(db, code, configure).await?);
+        let engine = Arc::new(Engine::build_for(db, code, component_snippets, configure).await?);
         self.engines
             .write()
             .expect("engine cache")

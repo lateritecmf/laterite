@@ -85,9 +85,14 @@ impl Module for ThemeModule {
         registry.add_permission(maintenance::permission());
         registry.add_settings(admin::settings_item());
         registry.add_settings(maintenance::settings_item());
-        registry.add_screen(admin::screen());
+        // The components offered as snippets are known once every module
+        // has registered, so the screen fills this list as it mounts and the
+        // Insert menu reads it.
+        let components = std::sync::Arc::new(std::sync::OnceLock::new());
+        registry.add_screen(admin::screen_with(std::sync::Arc::clone(&components)));
         registry.add_public_route(site::route());
         registry.add_snippet_source(std::sync::Arc::new(snippet::Source));
+        registry.add_snippet_source(std::sync::Arc::new(snippet::ComponentSource { components }));
     }
 }
 

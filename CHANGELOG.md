@@ -27,6 +27,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   phone and tablet widths. The theme pages list their templates in it.
 - Uploads are checked against `backend.upload_extensions` (a default list of media, document,
   font and archive types) and an SVG is cleaned to a drawing (`laterite_media::sanitize`).
+- Component-backed snippets: `ComponentReg::snippet` lists a component in the Insert menu and a
+  page runs it where its figure stood. A partial declares its snippet through fields.
 
 ## [0.9.19] - 2026-10-21
 

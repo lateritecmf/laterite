@@ -60,7 +60,7 @@ Field | Values
 `SnippetPropertyKind` | `String`, `Dropdown` (with `options` as `(value, label)` pairs), `Checkbox`
 `list(db)` | asked when an editor opens its Insert menu, so the list may change while the application runs
 
-An inserted snippet is stored as `<figure data-snippet="<code>" data-properties="{...}"></figure>`. A theme declares snippets on its partials and renders them with the `content` filter; see [Themes](../web/themes.md#snippets). A module that lists snippets from a source renders them on its own pages the same way.
+An inserted snippet is stored as `<figure data-snippet="<code>" data-properties="{...}"></figure>`. A theme declares snippets on its partials and renders them with the `content` filter; a component is offered with `ComponentReg::snippet` and runs after the page renders; see [Themes](../web/themes.md#snippets). A module that lists snippets from a source renders them on its own pages the same way.
 
 The menu both surfaces read:
 

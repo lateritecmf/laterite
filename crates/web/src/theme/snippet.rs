@@ -109,7 +109,7 @@ impl Declaration {
     }
 }
 
-fn is_code(value: &str) -> bool {
+pub(crate) fn is_code(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 100
         && value
@@ -153,13 +153,23 @@ impl Index {
     }
 }
 
+/// What expanding one figure yields.
+pub enum Expanded {
+    /// Markup to stand where the figure stood.
+    Html(String),
+    /// The figure as it is, for a later pass.
+    Keep,
+    /// An HTML comment naming the snippet, so a missing one is visible in the
+    /// source and nothing else on the page breaks.
+    Missing,
+}
+
 /// Expands every `<figure data-snippet="…" data-properties="…">…</figure>` in
-/// `html` through `render(code, properties)`; a snippet that renders `None`
-/// leaves an HTML comment naming it, so a missing partial is visible in the
-/// source and nothing else on the page breaks.
-pub fn expand(
+/// `html` through `render(code, properties)`; see [`Expanded`] for what the
+/// closure may answer.
+pub fn expand_with(
     html: &str,
-    mut render: impl FnMut(&str, &serde_json::Map<String, serde_json::Value>) -> Option<String>,
+    mut render: impl FnMut(&str, &serde_json::Map<String, serde_json::Value>) -> Expanded,
 ) -> String {
     const OPEN: &str = "<figure";
     const CLOSE: &str = "</figure>";
@@ -186,12 +196,35 @@ pub fn expand(
             .unwrap_or_default();
         out.push_str(&rest[..at]);
         match render(&code, &props) {
-            Some(rendered) => out.push_str(&rendered),
-            None => out.push_str(&format!("<!-- snippet {code}: not found -->")),
+            Expanded::Html(rendered) => out.push_str(&rendered),
+            Expanded::Keep => out.push_str(&rest[at..at + OPEN.len() + gt + 1 + end]),
+            Expanded::Missing => out.push_str(&format!("<!-- snippet {code}: not found -->")),
         }
         rest = &body_and_rest[end..];
     }
     out.push_str(rest);
+    out
+}
+
+/// Expands every figure through `render`; a snippet that renders `None`
+/// leaves an HTML comment naming it.
+pub fn expand(
+    html: &str,
+    mut render: impl FnMut(&str, &serde_json::Map<String, serde_json::Value>) -> Option<String>,
+) -> String {
+    expand_with(html, |code, props| match render(code, props) {
+        Some(rendered) => Expanded::Html(rendered),
+        None => Expanded::Missing,
+    })
+}
+
+/// Every figure's snippet code and properties, in document order.
+pub fn collect(html: &str) -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
+    let mut out = Vec::new();
+    expand_with(html, |code, props| {
+        out.push((code.to_string(), props.clone()));
+        Expanded::Keep
+    });
     out
 }
 
@@ -215,6 +248,21 @@ fn attr(attrs: &str, name: &str) -> Option<String> {
             .replace("&gt;", ">")
             .replace("&amp;", "&"),
     )
+}
+
+/// The components offered as snippets, for the admin's Insert menu. The
+/// list is set when the Themes screen mounts and the registered components
+/// are in hand.
+#[derive(Default)]
+pub struct ComponentSource {
+    pub components: std::sync::Arc<std::sync::OnceLock<Vec<Snippet>>>,
+}
+
+#[laterite_core::strata::async_trait]
+impl SnippetSource for ComponentSource {
+    async fn list(&self, _db: &Db) -> Vec<Snippet> {
+        self.components.get().cloned().unwrap_or_default()
+    }
 }
 
 /// The active theme chain's snippets, for the admin's Insert menu.
@@ -289,6 +337,24 @@ mod tests {
             out,
             r#"<p>a</p><div>map 3</div><figure class="plain"><img src="x"></figure><!-- snippet gone: not found -->"#
         );
+    }
+
+    #[test]
+    fn a_kept_figure_survives_and_collect_lists_every_figure() {
+        let html = "<p>a</p><figure data-snippet=\"x\" data-properties=\"{&quot;n&quot;:1}\"></figure><figure data-snippet=\"y\"></figure>";
+        let kept = expand_with(html, |code, _| match code {
+            "x" => Expanded::Keep,
+            _ => Expanded::Html("<b>y</b>".into()),
+        });
+        assert_eq!(
+            kept,
+            "<p>a</p><figure data-snippet=\"x\" data-properties=\"{&quot;n&quot;:1}\"></figure><b>y</b>"
+        );
+        let found = collect(html);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].0, "x");
+        assert_eq!(found[0].1["n"], 1);
+        assert_eq!(found[1].0, "y");
     }
 
     #[test]

@@ -92,6 +92,20 @@ pub async fn build_with(
             extras,
         )
         .map_err(ThemeError::Template)?;
+        let html = site::finish_page(
+            &engine,
+            components,
+            db,
+            &theme,
+            name,
+            &Params::new(),
+            &url,
+            false,
+            &origin,
+            html,
+        )
+        .await
+        .map_err(ThemeError::Template)?;
         out.page(&url, &html)?;
         if url == "/404" {
             out.file("404.html", &html)?;

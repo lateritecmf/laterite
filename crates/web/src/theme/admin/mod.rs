@@ -25,7 +25,15 @@ pub fn permission() -> Permission {
 
 /// The screen, as the module registers it: the Themes tab.
 pub fn screen() -> ScreenReg {
-    ScreenReg::new("/themes", PERMISSION, Arc::new(ThemeScreen))
+    screen_with(Arc::new(std::sync::OnceLock::new()))
+}
+
+/// The screen, filling `components` as it mounts with the components offered
+/// as snippets, for a [`super::snippet::Source`] that shares the list.
+pub fn screen_with(
+    components: Arc<std::sync::OnceLock<Vec<laterite_admin::editor::Snippet>>>,
+) -> ScreenReg {
+    ScreenReg::new("/themes", PERMISSION, Arc::new(ThemeScreen { components }))
         .menu(laterite_admin::nav::Placement::hidden())
 }
 
@@ -43,10 +51,18 @@ pub fn settings_item() -> laterite_admin::settings::SettingsItem {
 }
 
 /// The Themes screen.
-pub struct ThemeScreen;
+pub struct ThemeScreen {
+    components: Arc<std::sync::OnceLock<Vec<laterite_admin::editor::Snippet>>>,
+}
 
 impl Screen for ThemeScreen {
     fn mount(&self, ctx: &RouteCtx) -> Router {
+        let offered: Vec<laterite_admin::editor::Snippet> = ctx
+            .contributions::<super::component::ComponentReg>()
+            .into_iter()
+            .filter_map(super::component::snippet_of)
+            .collect();
+        let _ = self.components.set(offered);
         let state = Arc::new(ctx.clone());
         Router::new()
             .route("/", get(index).post(create))
@@ -435,6 +451,134 @@ fn page_fields(layouts: &[String], components_help: &str) -> Vec<laterite_admin:
         FormField::switch("hidden", t!("Hidden: shown only while previewing")),
         FormField::textarea("components", t!("Components")).help(components_help),
     ]
+}
+
+/// A partial's snippet declaration as fields.
+fn snippet_fields() -> Vec<laterite_admin::form::FormField> {
+    use laterite_admin::form::FormField;
+    vec![
+        FormField::text("code", t!("Code")).help(t!(
+            "Letters, digits, dots, hyphens and underscores. Empty: the partial is not a snippet."
+        )),
+        FormField::text("name", t!("Name")),
+        FormField::textarea("description", t!("Description")),
+        FormField::repeater(
+            "properties",
+            t!("Properties"),
+            vec![
+                FormField::text("code", t!("Code")).required(),
+                FormField::text("title", t!("Title")).required(),
+                FormField::select(
+                    "type",
+                    t!("Type"),
+                    vec![
+                        ("string", "Text"),
+                        ("dropdown", "Dropdown"),
+                        ("checkbox", "Checkbox"),
+                    ],
+                ),
+                FormField::text("default", t!("Default")),
+                FormField::text("options", t!("Options"))
+                    .help(t!("value:Label | value2:Label2, for a dropdown")),
+            ],
+        ),
+    ]
+}
+
+/// The declaration as the fields show it: every default as text.
+fn snippet_bag(settings: &serde_json::Value) -> serde_json::Value {
+    let mut bag = settings
+        .get("snippet")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(rows) = bag.get_mut("properties").and_then(|p| p.as_array_mut()) {
+        for row in rows {
+            if let Some(obj) = row.as_object_mut() {
+                let text = match obj.get("default") {
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(serde_json::Value::Null) | None => String::new(),
+                    Some(v) => v.to_string(),
+                };
+                obj.insert("default".into(), serde_json::Value::String(text));
+            }
+        }
+    }
+    bag
+}
+
+/// The fields as a declaration: `None` when the code is blank (the partial is
+/// not a snippet); an error names what is wrong.
+fn snippet_from_fields(
+    fields: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<serde_json::Value>, Text> {
+    let text = |v: Option<&serde_json::Value>| {
+        v.and_then(|v| v.as_str())
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let code = text(fields.get("code"));
+    if code.is_empty() {
+        return Ok(None);
+    }
+    if !super::snippet::is_code(&code) {
+        return Err(t!(
+            "A snippet code holds letters, digits, dots, hyphens and underscores."
+        ));
+    }
+    let name = text(fields.get("name"));
+    if name.is_empty() {
+        return Err(t!("A snippet needs a name."));
+    }
+    let mut declaration = serde_json::json!({ "code": code, "name": name });
+    let description = text(fields.get("description"));
+    if !description.is_empty() {
+        declaration["description"] = description.into();
+    }
+    let mut properties = Vec::new();
+    for row in fields
+        .get("properties")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let row = row.as_object().cloned().unwrap_or_default();
+        let code = text(row.get("code"));
+        if code.is_empty() {
+            continue;
+        }
+        if !super::snippet::is_code(&code) {
+            return Err(t!(
+                "A property code holds letters, digits, dots, hyphens and underscores."
+            ));
+        }
+        let kind = text(row.get("type"));
+        let kind = if matches!(kind.as_str(), "dropdown" | "checkbox") {
+            kind
+        } else {
+            "string".to_string()
+        };
+        let mut property = serde_json::json!({
+            "code": code,
+            "title": text(row.get("title")),
+            "type": kind,
+        });
+        let default = text(row.get("default"));
+        if !default.is_empty() {
+            property["default"] = if kind == "checkbox" {
+                serde_json::Value::Bool(matches!(default.as_str(), "true" | "1" | "on" | "yes"))
+            } else {
+                default.into()
+            };
+        }
+        let options = text(row.get("options"));
+        if !options.is_empty() {
+            property["options"] = options.into();
+        }
+        properties.push(property);
+    }
+    declaration["properties"] = properties.into();
+    Ok(Some(declaration))
 }
 
 /// The bag as the fields show it: `components` as pretty JSON text.
@@ -1091,8 +1235,9 @@ struct EditorTemplate {
     path: String,
     locked: bool,
     settings: String,
-    /// A page's settings as fields; none for every other kind.
-    page_fields: Option<String>,
+    /// A page's or a partial's settings as fields, under a heading; none for
+    /// every other kind.
+    fields: Option<(String, String)>,
     markup: String,
     revisions: Vec<RevisionRow>,
     kinds: Vec<(&'static str, String)>,
@@ -1155,20 +1300,35 @@ async fn template(
         .into_iter()
         .map(|k| (k.as_str(), kind_label(&shell, k)))
         .collect();
-    let page_fields = if template.kind == Kind::Page {
-        let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
-        match ctx.value_form(&page_fields(&layouts, &components_help(&ctx)), &code) {
-            Ok(form) => Some(
-                form.render(&bag_for_fields(&template.settings), &shell)
+    // A page's and a partial's settings are fields; any other kind's are the
+    // JSON box.
+    let fields = match template.kind {
+        Kind::Page => {
+            let layouts = layouts_of(&ctx, &code).await.unwrap_or_default();
+            match ctx.value_form(&page_fields(&layouts, &components_help(&ctx)), &code) {
+                Ok(form) => Some((
+                    shell.t("Page"),
+                    form.render(&bag_for_fields(&template.settings), &shell)
+                        .into_string(),
+                )),
+                Err(text) => {
+                    session.push_flash(FlashLevel::Error, text);
+                    None
+                }
+            }
+        }
+        Kind::Partial => match ctx.value_form(&snippet_fields(), &code) {
+            Ok(form) => Some((
+                shell.t("Snippet"),
+                form.render(&snippet_bag(&template.settings), &shell)
                     .into_string(),
-            ),
+            )),
             Err(text) => {
                 session.push_flash(FlashLevel::Error, text);
                 None
             }
-        }
-    } else {
-        None
+        },
+        _ => None,
     };
     let template_url = ctx.url(&format!("{code}/templates/{id}"));
     let actions = Markup::from_template(&TemplateActionsTemplate {
@@ -1194,7 +1354,7 @@ async fn template(
             path: engine::template_name(template.kind, &template.path),
             locked: theme.locked,
             settings: serde_json::to_string_pretty(&template.settings).unwrap_or_default(),
-            page_fields,
+            fields,
             markup: template.markup.clone(),
             revisions: revision_rows(&shell, revisions),
             kinds,
@@ -1257,6 +1417,32 @@ async fn save_template(
                 return back(&ctx, &here);
             }
         }
+    } else if template.kind == Kind::Partial {
+        let collected = ctx
+            .value_form(&snippet_fields(), &code)
+            .and_then(|f| f.collect(&form));
+        let fields = match collected {
+            Ok(serde_json::Value::Object(fields)) => fields,
+            Ok(_) => serde_json::Map::new(),
+            Err(text) => {
+                session.push_flash(FlashLevel::Error, text);
+                return back(&ctx, &here);
+            }
+        };
+        let mut bag = template.settings.as_object().cloned().unwrap_or_default();
+        match snippet_from_fields(&fields) {
+            Ok(Some(declaration)) => {
+                bag.insert("snippet".into(), declaration);
+            }
+            Ok(None) => {
+                bag.remove("snippet");
+            }
+            Err(text) => {
+                session.push_flash(FlashLevel::Error, text);
+                return back(&ctx, &here);
+            }
+        }
+        serde_json::Value::Object(bag)
     } else {
         let raw = form.get("settings").map(String::as_str).unwrap_or("{}");
         match serde_json::from_str(raw.trim()) {

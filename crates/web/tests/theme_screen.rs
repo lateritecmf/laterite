@@ -508,3 +508,82 @@ async fn the_properties_dialog_keeps_the_rest_of_the_config() {
     let (_, html) = get(&app, "/admin/themes/acme", &root).await;
     assert!(html.contains("A theme needs a name."), "{html}");
 }
+
+/// A partial declares its snippet through fields, not a JSON box: the
+/// declaration lands under `snippet`, a blank code removes it, and a bad code
+/// is refused without a save.
+#[tokio::test]
+async fn a_partial_declares_its_snippet_through_the_form() {
+    let (db, _g) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    post(&app, "/admin/themes", &root, "code=acme&name=Acme+Site").await;
+    let created = store::find_theme(&db, "acme").await.unwrap().unwrap();
+    post(
+        &app,
+        "/admin/themes/acme/templates",
+        &root,
+        "kind=partial&path=snippets%2Fyoutube.htm",
+    )
+    .await;
+    let t = store::find_template(&db, created.id, Kind::Partial, "snippets/youtube.htm")
+        .await
+        .unwrap()
+        .unwrap();
+    let editor = format!("/admin/themes/acme/templates/{}", t.id);
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(
+        html.contains("Snippet")
+            && html.contains("name=\"code\"")
+            && !html.contains("name=\"settings\""),
+        "{html}"
+    );
+    let body = concat!(
+        "markup=%3Ciframe%3E&code=youtube&name=YouTube+video&description=Embeds+a+video",
+        "&properties%5B0%5D%5Bcode%5D=url&properties%5B0%5D%5Btitle%5D=Video+URL&properties%5B0%5D%5Btype%5D=string",
+        "&properties%5B1%5D%5Bcode%5D=autoplay&properties%5B1%5D%5Btitle%5D=Autoplay&properties%5B1%5D%5Btype%5D=checkbox&properties%5B1%5D%5Bdefault%5D=true",
+        "&properties%5B2%5D%5Bcode%5D=size&properties%5B2%5D%5Btitle%5D=Size&properties%5B2%5D%5Btype%5D=dropdown&properties%5B2%5D%5Boptions%5D=sm%3ASmall+%7C+lg%3ALarge&properties%5B2%5D%5Bdefault%5D=sm"
+    );
+    let (status, _) = post(&app, &format!("{editor}/save"), &root, body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let saved = store::template(&db, t.id).await.unwrap().unwrap();
+    let snippet = &saved.settings["snippet"];
+    assert_eq!(snippet["code"], "youtube");
+    assert_eq!(snippet["name"], "YouTube video");
+    assert_eq!(snippet["description"], "Embeds a video");
+    assert_eq!(snippet["properties"][0]["code"], "url");
+    assert_eq!(snippet["properties"][1]["default"], true);
+    assert_eq!(snippet["properties"][2]["options"], "sm:Small | lg:Large");
+    assert_eq!(snippet["properties"][2]["default"], "sm");
+    let (_, html) = get(&app, &editor, &root).await;
+    assert!(
+        html.contains("name=\"properties[0][code]\"") && html.contains("value=\"url\""),
+        "{html}"
+    );
+    // A code that is not a code is refused and nothing changes.
+    let (status, _) = post(
+        &app,
+        &format!("{editor}/save"),
+        &root,
+        "markup=%3Ciframe%3E&code=bad+code&name=X",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let kept = store::template(&db, t.id).await.unwrap().unwrap();
+    assert_eq!(kept.settings["snippet"]["code"], "youtube");
+    // A blank code withdraws the snippet.
+    let (status, _) = post(
+        &app,
+        &format!("{editor}/save"),
+        &root,
+        "markup=%3Ciframe%3E&code=",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let withdrawn = store::template(&db, t.id).await.unwrap().unwrap();
+    assert!(
+        withdrawn.settings.get("snippet").is_none(),
+        "{}",
+        withdrawn.settings
+    );
+}

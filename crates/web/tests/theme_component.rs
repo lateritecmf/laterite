@@ -330,3 +330,83 @@ async fn the_editor_takes_components_as_json_and_checks_them() {
     let saved = store::template(&db, t.id).await.unwrap().unwrap();
     assert_eq!(saved.settings["components"], serde_json::json!({}));
 }
+
+/// `acme.posts` offered as a snippet: an author inserts it in content, the
+/// page runs it where the figure stood, and the Insert menu lists it.
+#[tokio::test]
+async fn a_component_offered_as_a_snippet_expands_in_content_and_is_listed() {
+    let (db, _g) = test_db().await;
+    let offered = Arc::new(std::sync::OnceLock::new());
+    let app = {
+        let mut config = AdminConfig::default();
+        config.origin = "https://acme.test".to_string();
+        let mut contributions = Contributions::default();
+        contributions.permissions.push(theme::admin::permission());
+        contributions
+            .screens
+            .push(theme::admin::screen_with(Arc::clone(&offered)));
+        contributions.public_routes.push(site::route());
+        let mut registry = laterite_core::Registry::new();
+        registry.set_owner(laterite_core::ModuleId::new("acme.blog"));
+        registry.add(
+            ComponentReg::new("acme.posts", "Posts", Arc::new(Posts))
+                .snippet("Latest posts", Some("The newest posts, as a list")),
+        );
+        contributions.plugin_defined = Arc::new(registry);
+        router(
+            AuthService::new(db.clone(), AuthConfig::default()),
+            db.clone(),
+            contributions,
+            config,
+            Arc::new(CatalogStore::default()),
+        )
+    };
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Content,
+        "body.htm",
+        None,
+        "<p>before</p><figure data-snippet=\"acme.posts\" data-properties=\"{&quot;limit&quot;:&quot;2&quot;}\"></figure><p>after</p><figure data-snippet=\"nobody\"></figure>",
+        None,
+    )
+    .await
+    .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "home.htm",
+        Some(serde_json::json!({"url": "/"})),
+        "{{ content(\"body.htm\") }}",
+        None,
+    )
+    .await
+    .unwrap();
+    theme::set_active_theme(&db, "base").await.unwrap();
+    let (status, html) = get(&app, "/").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        html,
+        "<p>before</p><ul><li>post-1</li><li>post-2</li></ul><p>after</p><!-- snippet nobody: not found -->"
+    );
+    // The Insert menu lists the component beside the theme's own snippets.
+    let listed = laterite_admin::editor::SnippetSource::list(
+        &theme::snippet::ComponentSource {
+            components: offered,
+        },
+        &db,
+    )
+    .await;
+    let posts = listed
+        .iter()
+        .find(|s| s.code == "acme.posts")
+        .expect("the component is offered");
+    assert_eq!(posts.name, "Latest posts");
+    assert_eq!(posts.properties.len(), 2);
+    assert_eq!(posts.properties[0].code, "limit");
+    assert_eq!(posts.properties[0].default, Some(serde_json::json!(3)));
+}

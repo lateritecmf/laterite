@@ -15,6 +15,18 @@ msgid "A person or a company"
 msgstr ""
 
 #: src/theme/admin/mod.rs
+msgid "A property code holds letters, digits, dots, hyphens and underscores."
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "A snippet code holds letters, digits, dots, hyphens and underscores."
+msgstr ""
+
+#: src/theme/admin/mod.rs
+msgid "A snippet needs a name."
+msgstr ""
+
+#: src/theme/admin/mod.rs
 msgid "A theme needs a name."
 msgstr ""
 
@@ -285,10 +297,6 @@ msgstr ""
 
 #: templates/_theme_nav.html
 msgid "None yet."
-msgstr ""
-
-#: templates/theme_template.html
-msgid "Page"
 msgstr ""
 
 #: templates/theme.html

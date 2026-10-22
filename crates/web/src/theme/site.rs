@@ -10,12 +10,13 @@
 //! assets serve under `/themes/<code>/assets/<path>` with an ETag.
 
 use super::admin::PERMISSION;
-use super::component::{self, ComponentReg};
+use super::component::{self, ComponentContext, ComponentReg};
 use super::engine::{template_name, Engine, EngineCache, RenderError};
 use super::maintenance::{self, MaintenanceSettings};
 use super::markup::{self, Markup, MarkupReg};
 use super::page::PageSettings;
 use super::router::Params;
+use super::snippet::Expanded;
 use super::{Kind, Theme};
 use laterite_admin::axum::extract::State;
 use laterite_admin::axum::http::{header, HeaderMap, Method, StatusCode, Uri};
@@ -24,8 +25,10 @@ use laterite_admin::axum::routing::get;
 use laterite_admin::axum::Router;
 use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx};
 use laterite_admin::{http_cache, AdminError};
+use laterite_core::Db;
 use minijinja::value::{Serde, Value};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// The site, as the module registers it.
@@ -55,13 +58,7 @@ impl PublicRoute for Site {
         let components = ctx
             .contributions::<ComponentReg>()
             .into_iter()
-            .map(|r| {
-                Arc::new(ComponentReg::new(
-                    r.code.clone(),
-                    r.label.clone(),
-                    Arc::clone(&r.component),
-                ))
-            })
+            .map(|r| Arc::new(r.clone()))
             .collect();
         let state = Arc::new(SiteState {
             ctx: ctx.clone(),
@@ -231,14 +228,19 @@ async fn serve(
         return AdminError::NotFound.into_response();
     };
     let origin = ctx.base_url().trim_end_matches('/').to_string();
+    let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
     let engine = match site
         .engines
-        .get_with(ctx.db(), &theme.code, |env| {
-            markup::install_all(&site.markup, env);
-            let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
-            component::install_markup(&regs, env);
-            add_url(env, origin.clone());
-        })
+        .get_for(
+            ctx.db(),
+            &theme.code,
+            component::snippet_codes(&regs),
+            |env| {
+                markup::install_all(&site.markup, env);
+                component::install_markup(&regs, env);
+                add_url(env, origin.clone());
+            },
+        )
         .await
     {
         Ok(engine) => engine,
@@ -283,7 +285,6 @@ async fn serve(
             }
         }
     };
-    let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
     let rendered = match run_components(
         &engine,
         &regs,
@@ -296,7 +297,7 @@ async fn serve(
     )
     .await
     {
-        Ok(extras) => render_page_with(
+        Ok(extras) => match render_page_with(
             &engine,
             &theme,
             &name,
@@ -305,7 +306,24 @@ async fn serve(
             preview,
             ctx.base_url(),
             extras,
-        ),
+        ) {
+            Ok(body) => {
+                finish_page(
+                    &engine,
+                    &regs,
+                    ctx.db(),
+                    &theme,
+                    &name,
+                    &params,
+                    &path,
+                    preview,
+                    ctx.base_url(),
+                    body,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        },
         Err(e) => Err(RenderError {
             template: None,
             line: None,
@@ -415,6 +433,33 @@ pub fn render_page_with(
     origin: &str,
     extras: Vec<(String, serde_json::Value)>,
 ) -> Result<String, RenderError> {
+    let (this, head) = page_values(engine, theme, name, params, path, preview, origin);
+    let mut pairs: Vec<(String, Value)> = extras
+        .into_iter()
+        .map(|(k, v)| (k, Value::from(Serde(v))))
+        .collect();
+    pairs.push(("this".to_string(), this));
+    pairs.push(("head".to_string(), head));
+    let ctx = Value::from_pairs(pairs);
+    let path = engine.page_path(name).unwrap_or(name);
+    let template = engine
+        .env()
+        .get_template(&template_name(Kind::Page, path))?;
+    template
+        .render(ctx)
+        .map_err(|e| engine.author_line(e.into()))
+}
+
+/// The `this` and `head` values of a page render.
+fn page_values(
+    engine: &Engine,
+    theme: &Theme,
+    name: &str,
+    params: &Params,
+    path: &str,
+    preview: bool,
+    origin: &str,
+) -> (Value, Value) {
     let settings = engine.page(name).cloned().unwrap_or_default();
     let layout = settings.layout.clone();
     let this = Value::from(Serde(This {
@@ -432,18 +477,97 @@ pub fn render_page_with(
         preview,
     }));
     let head = head_tags(engine, &settings, &this, origin, path);
-    let mut pairs: Vec<(String, Value)> = extras
-        .into_iter()
-        .map(|(k, v)| (k, Value::from(Serde(v))))
-        .collect();
-    pairs.push(("this".to_string(), this));
-    pairs.push(("head".to_string(), Value::from_safe_string(head)));
-    let ctx = Value::from_pairs(pairs);
-    let path = engine.page_path(name).unwrap_or(name);
-    let template = engine
-        .env()
-        .get_template(&template_name(Kind::Page, path))?;
-    template
-        .render(ctx)
-        .map_err(|e| engine.author_line(e.into()))
+    (this, Value::from_safe_string(head))
+}
+
+/// The rendered page with every component-backed snippet expanded: a
+/// `<figure data-snippet>` naming a component offered as a snippet runs it
+/// with the figure's properties and renders its markup (the theme's
+/// `partials/<code>/default.htm`, else the component's own) in the page's
+/// context, once per distinct figure. A page without one is returned as it
+/// is; a component that fails leaves a comment naming it.
+#[allow(clippy::too_many_arguments)]
+pub async fn finish_page(
+    engine: &Engine,
+    regs: &[&ComponentReg],
+    db: &Db,
+    theme: &Theme,
+    name: &str,
+    params: &Params,
+    path: &str,
+    preview: bool,
+    origin: &str,
+    html: String,
+) -> Result<String, RenderError> {
+    if !html.contains("data-snippet") {
+        return Ok(html);
+    }
+    let figures = super::snippet::collect(&html);
+    let (this, head) = page_values(engine, theme, name, params, path, preview, origin);
+    let mut rendered: HashMap<(String, String), String> = HashMap::new();
+    for (code, props) in &figures {
+        if !engine.component_snippets().contains(code) {
+            continue;
+        }
+        let Some(reg) = regs.iter().find(|r| r.code == *code && r.snippet.is_some()) else {
+            continue;
+        };
+        let key = (
+            code.clone(),
+            serde_json::Value::Object(props.clone()).to_string(),
+        );
+        if rendered.contains_key(&key) {
+            continue;
+        }
+        let properties = component::snippet_properties(&reg.component.properties(), props);
+        let cx = ComponentContext {
+            db,
+            properties: &properties,
+            params,
+            path,
+            theme: &theme.code,
+            preview,
+        };
+        let out = match reg.component.run(&cx).await {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::warn!(snippet = %code, error = %e, "a snippet's component failed");
+                rendered.insert(key, format!("<!-- snippet {code}: failed to run -->"));
+                continue;
+            }
+        };
+        let own = template_name(Kind::Partial, &format!("{code}/default.htm"));
+        let template = match engine
+            .env()
+            .get_template(&own)
+            .or_else(|_| engine.env().get_template(&component::template_name(code)))
+        {
+            Ok(t) => t,
+            Err(_) => {
+                rendered.insert(key, format!("<!-- snippet {code}: no markup -->"));
+                continue;
+            }
+        };
+        let data = Value::from(Serde(out.data));
+        let pairs = vec![
+            ("this".to_string(), this.clone()),
+            ("head".to_string(), head.clone()),
+            (code.clone(), data.clone()),
+            ("component".to_string(), data),
+        ];
+        let body = template
+            .render(Value::from_pairs(pairs))
+            .map_err(|e| engine.author_line(e.into()))?;
+        rendered.insert(key, body);
+    }
+    Ok(super::snippet::expand_with(&html, |code, props| {
+        let key = (
+            code.to_string(),
+            serde_json::Value::Object(props.clone()).to_string(),
+        );
+        match rendered.get(&key) {
+            Some(body) => Expanded::Html(body.clone()),
+            None => Expanded::Keep,
+        }
+    }))
 }

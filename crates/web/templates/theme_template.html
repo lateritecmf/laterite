@@ -7,8 +7,8 @@
           <textarea class="lat-input lat-editor" id="markup" name="markup" rows="26" spellcheck="false" data-lat-grow="off" aria-label='{{ shell.t("Markup") }}'{% if locked %} readonly{% endif %}>{{ markup }}</textarea>
         </div>
       </div>
-      {% if let Some(fields) = page_fields %}
-      <div class="lat-pane__head">{{ shell.t("Page") }}</div>
+      {% if let Some((label, fields)) = fields %}
+      <div class="lat-pane__head">{{ label }}</div>
       <div class="lat-pane__body">{{ fields|safe }}</div>
       {% else %}
       <div class="lat-pane__head">{{ shell.t("Settings") }}</div>

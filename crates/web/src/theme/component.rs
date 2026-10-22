@@ -25,8 +25,9 @@
 
 use super::router::Params;
 use super::ThemeError;
+use laterite_admin::editor::{Snippet, SnippetProperty, SnippetPropertyKind};
 use laterite_core::Db;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 /// What a component property holds.
@@ -133,10 +134,20 @@ pub trait Component: Send + Sync + 'static {
 /// A registered component: its `vendor.name` code, a label for the editor,
 /// and the unit.
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct ComponentReg {
     pub code: String,
     pub label: String,
     pub component: Arc<dyn Component>,
+    /// Set when authors may insert the component as a snippet.
+    pub snippet: Option<SnippetInfo>,
+}
+
+/// How a component shows in the editors' Insert menu.
+#[derive(Debug, Clone)]
+pub struct SnippetInfo {
+    pub name: String,
+    pub description: Option<String>,
 }
 
 impl ComponentReg {
@@ -149,8 +160,89 @@ impl ComponentReg {
             code: code.into(),
             label: label.into(),
             component,
+            snippet: None,
         }
     }
+
+    /// Offers the component to authors as a snippet: its properties become
+    /// the dialog's fields, and a `<figure data-snippet="<code>">` in content
+    /// runs it and renders its markup where the figure stood.
+    pub fn snippet(mut self, name: impl Into<String>, description: Option<&str>) -> Self {
+        self.snippet = Some(SnippetInfo {
+            name: name.into(),
+            description: description.map(str::to_string),
+        });
+        self
+    }
+}
+
+/// The component as the Insert menu lists it, when it is a snippet.
+pub fn snippet_of(reg: &ComponentReg) -> Option<Snippet> {
+    let info = reg.snippet.as_ref()?;
+    Some(Snippet {
+        code: reg.code.clone(),
+        name: info.name.clone(),
+        description: info.description.clone(),
+        properties: reg
+            .component
+            .properties()
+            .iter()
+            .map(|p| SnippetProperty {
+                code: p.name.clone(),
+                title: p.label.clone(),
+                kind: match p.kind {
+                    PropertyKind::Bool => SnippetPropertyKind::Checkbox,
+                    PropertyKind::Text | PropertyKind::Number => SnippetPropertyKind::String,
+                },
+                default: p.default.clone(),
+                options: Vec::new(),
+            })
+            .collect(),
+    })
+}
+
+/// The codes of the components offered as snippets.
+pub fn snippet_codes(regs: &[&ComponentReg]) -> HashSet<String> {
+    regs.iter()
+        .filter(|r| r.snippet.is_some())
+        .map(|r| r.code.clone())
+        .collect()
+}
+
+/// A figure's properties as the component runs with them: the declared
+/// defaults, then the figure's values read to the declared kinds (the dialog
+/// stores text).
+pub fn snippet_properties(
+    defs: &[PropertyDef],
+    given: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for def in defs {
+        if let Some(default) = &def.default {
+            out.insert(def.name.clone(), default.clone());
+        }
+    }
+    for def in defs {
+        let Some(value) = given.get(&def.name) else {
+            continue;
+        };
+        let typed = match (def.kind, value) {
+            (PropertyKind::Number, serde_json::Value::String(s)) => {
+                let s = s.trim();
+                s.parse::<i64>()
+                    .map(serde_json::Value::from)
+                    .ok()
+                    .or_else(|| s.parse::<f64>().ok().map(serde_json::Value::from))
+                    .unwrap_or(serde_json::Value::Null)
+            }
+            (PropertyKind::Bool, serde_json::Value::String(s)) => {
+                serde_json::Value::Bool(matches!(s.trim(), "true" | "1" | "on" | "yes"))
+            }
+            _ => value.clone(),
+        };
+        out.insert(def.name.clone(), typed);
+    }
+    out
 }
 
 /// The environment name of a component's default markup.
