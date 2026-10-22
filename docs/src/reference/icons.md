@@ -10,13 +10,11 @@ SettingsItem::new("acme.blog", "Blog", fields).icon("newspaper")
 ```
 
 An unknown name is refused when the application boots, with the nearest
-matches suggested, so a typo is caught before anybody sees a wrong glyph.
+matches suggested.
 
 ## Adding one that is not here
 
-The set is curated rather than exhaustive: upstream ships over two thousand
-glyphs, and shipping all of them would cost every consumer to serve almost
-nobody. A plugin registers what it needs:
+The set is a subset of upstream. A plugin registers what it needs:
 
 ```rust,ignore
 registry.add_icon(IconReg::new(
@@ -25,17 +23,17 @@ registry.add_icon(IconReg::new(
 ));
 ```
 
-It is namespaced to your module automatically, so two plugins cannot
-collide, and you reference it as `vendor.package:map-pin-house`.
+It is namespaced to your module and referenced as
+`vendor.package:map-pin-house`.
 
 ## Flags
 
-**Fillable** icons are closed shapes that read correctly filled, which is how
-a state is shown: a filled star means favourited. Filling is a render option,
-never part of the name, so there is no `star-solid`.
+**Fillable** icons are closed shapes that read correctly filled, for a state
+such as a favourited star. Filling is a render option, never part of the
+name: there is no `star-solid`.
 
-**Mirrored** icons flip under a right-to-left layout because their direction
-carries meaning. A clock does not mirror; a chevron does.
+**Mirrored** icons flip under a right-to-left layout. A clock does not
+mirror; a chevron does.
 
 ## chrome (48)
 

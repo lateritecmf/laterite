@@ -1,0 +1,157 @@
+# Settings Models
+
+A settings model is a struct an operator edits from the admin panel.
+
+## Define one
+
+```rust
+use laterite_admin::settings::SettingsModel;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct SiteSettings {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub tagline: String,
+    #[serde(default)]
+    pub maintenance_mode: bool,
+}
+
+impl SettingsModel for SiteSettings {
+    const CODE: &'static str = "acme.site";
+}
+```
+
+Derive `Serialize`, `Deserialize` and `Default`, and give every field
+`#[serde(default)]`. `CODE` is the model's key: namespace it to your
+application and never change it.
+
+## Read and write
+
+```rust
+let settings: SiteSettings = laterite_admin::settings::load(&db).await?;
+
+let settings = SiteSettings { title: "Acme".into(), ..Default::default() };
+laterite_admin::settings::save(&db, &settings).await?;
+```
+
+`load` returns `Default` when nothing is saved. `save` upserts the whole
+struct. By code, untyped:
+
+```rust
+let value = laterite_admin::settings::get(&db, SiteSettings::CODE).await?;
+laterite_admin::settings::set(&db, "acme.site", &value.unwrap_or_default()).await?;
+```
+
+## Edit it in the admin
+
+Register a `SettingsItem` from your module's `register`:
+
+```rust
+use laterite_admin::form::FormField;
+use laterite_admin::settings::SettingsItem;
+
+registry.add_settings(
+    SettingsItem::new("acme.site", "Site", vec![
+        FormField::text("title", "Site title"),
+        FormField::text("tagline", "Tagline"),
+        FormField::switch("maintenance_mode", "Maintenance mode"),
+    ])
+    .description("Public site title, tagline, and a maintenance switch.")
+    .category("General")
+    .order(10)
+    .icon("sliders-horizontal")
+    .permission("acme.manage_site"),
+);
+```
+
+One screen lists every item by category; one form edits each.
+
+Builder | Description
+--- | ---
+`new(code, label, fields)` | The model's `CODE`, the menu label, and its fields.
+`description(text)` | Under the label in the settings index. At most 72 characters.
+`hint(text)` | Above the form.
+`category(text)` | Groups items in the index, in order of first appearance.
+`slot(n)` | The band (`laterite_core::arrange::slot`); `application` unless set.
+`order(n)` | Sort within the band.
+`icon(name)` | An [icon](../reference/icons.md). An unknown name stops the boot.
+`permission(code)` | Hides the item from operators without the grant.
+`link(path)` | Places an existing screen in the settings menu, with no form.
+`confirm_leave(false)` | Leaving the screen with changes unsaved does not ask.
+
+Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
+`textarea`, `switch`, `select`, `date`, `repeater`, and any registered type
+through `FormField::of(name, label, "vendor.type")`. A type that refuses its
+input refuses the save.
+
+A type's keys go through `options`; a dependency through its builder:
+
+```rust
+FormField::textarea("notice", "Notice").options(serde_json::json!({ "rows": 4, "grow": false }))
+FormField::text("slug", "Slug").preset("title", PresetShape::Slug)
+FormField::date("send_at", "Send date").trigger(Trigger::new("show", "is_delayed", "checked"))
+```
+
+## Keep a value per operator
+
+```rust
+use laterite_admin::settings::{load_for, save_for, PreferencesModel, SettingsItem};
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Desk {
+    #[serde(default)]
+    pub greeting: String,
+    #[serde(default)]
+    pub compact: bool,
+}
+
+impl PreferencesModel for Desk {
+    const CODE: &'static str = "acme.desk";
+}
+
+registry.add_settings(
+    SettingsItem::new("acme.desk", "My desk", vec![
+        FormField::text("greeting", "Greeting"),
+        FormField::switch("compact", "Compact rows"),
+    ])
+    .description("How the desk greets you.")
+    .per_operator(),
+);
+
+let desk: Desk = load_for(&db, user.user.id).await?;
+save_for(&db, user.user.id, &Desk { compact: true, ..desk }).await?;
+```
+
+Item | Description
+--- | ---
+`PreferencesModel` | The same shape as `SettingsModel`; `CODE` is the key, one value per operator.
+`.per_operator()` | Keeps the item once per operator and lists it on their Preferences page, under More, at `/preferences/<code>`. The permission still applies; the category is not used.
+`load_for`, `save_for` | One operator's model, or the default when they have none; a write for one operator.
+`get_for`, `set_for` | The same, as raw JSON.
+Audit | A deployment setting's save is audited; an operator's own preference is not.
+
+## Link a screen into the settings menu
+
+```rust
+registry.add_settings(
+    SettingsItem::new("acme.pages", "Pages", Vec::new())
+        .description("Manage site pages.")
+        .category("Content")
+        .icon("folder")
+        .link("/pages"),
+);
+```
+
+The path is under the admin mount. Any request at or under it renders the
+settings sidebar with the item active. The built-in Users and Roles register
+this way.
+
+## Change a model later
+
+Change | Migration
+--- | ---
+Add a field | None. A missing key deserializes to the field's default.
+Remove a field | None. A stale key is ignored.
+Rename a field | Read the old key, write the new one. Never reuse a `CODE` for an incompatible model.

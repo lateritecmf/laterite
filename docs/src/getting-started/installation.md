@@ -41,76 +41,12 @@ lat serve --listen 0.0.0.0:3000
 ```
 
 Runs from anywhere inside the application. An override sets
-`<PREFIX>__SERVER__LISTEN`; see [Configuration](configuration.md).
+`<PREFIX>__SERVER__LISTEN`; see [Application and Server](../configuration/application.md).
 
-## What it generates
+## See what it generates
 
-```text
-acme/
-├── Cargo.toml
-├── README.md
-├── .gitignore
-├── config/
-│   ├── default.toml     # committed defaults
-│   └── local.toml       # git-ignored; the database URL
-├── src/
-│   ├── main.rs
-│   └── migrations/      # the application's module and its migrations
-└── storage/             # runtime data
-```
-
-`src/main.rs`:
-
-```toml
-[dependencies]
-lateritecmf = { version = "0.9", features = ["postgres"] }
-laterite-core = "0.9"
-```
-
-```rust
-use lateritecmf::prelude::*;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    Bootstrap::new("config")
-        .module(migrations::AppModule)
-        // .extend(|router, ctx| router.merge(my_api(ctx.db())))
-        .serve()
-        .await
-}
-```
-
-`src/migrations/mod.rs` defines the application's module:
-
-```rust
-use lateritecmf::prelude::*;
-
-impl Module for AppModule {
-    fn id(&self) -> ModuleId {
-        ModuleId::new(MODULE_ID)
-    }
-    fn migrations(&self) -> MigrationSet {
-        migrations()
-    }
-    fn register(&self, registry: &mut Registry) {
-        // registry.add_resource(..);
-        // registry.add_permission(..);
-        // registry.add_settings(..);
-    }
-    async fn boot(&self, cx: &BootCx<'_>) -> CoreResult<()> {
-        // A sweep, a seed or a check, with cx.db and cx.registry.
-        Ok(())
-    }
-}
-```
-
-Method | Runs | Does
---- | --- | ---
-`migrations` | Before `register`, in dependency order. | Applies the module's own migrations.
-`register` | Once every module has migrated. | Contributes resources, [settings models](../extend/settings.md), [permissions](../extend/permissions.md), menu entries, hooks.
-`boot` | Once every module has registered, before anything is served. | Anything that needs the database and the whole registry. An error aborts the boot; a plugin's error quarantines the plugin.
-
-`Bootstrap::extend` merges the application's own routes onto the admin router.
+The layout, `main.rs`, the module file and the configuration files:
+[Directory Structure](directory-structure.md).
 
 ## Set the brand
 
@@ -119,8 +55,8 @@ Method | Runs | Does
 name = "Acme Blog"
 ```
 
-Shown across the admin. **Settings → Branding** overrides it; with both blank
-the brand is `Laterite`.
+Shown across the admin. [Branding](../admin/branding.md) overrides it; with both
+blank the brand is `Laterite`.
 
 ## Check the setup
 
