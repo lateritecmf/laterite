@@ -28,7 +28,7 @@ cd "$(dirname "$0")/.." || exit 2
 
 # Assets written for Laterite. A pattern here is a claim that we wrote the file
 # and owe nobody a notice, so keep it narrow: name files, not directories.
-ours='^(laterite\.(css|js)|theme-boot\.js|mark\.(svg|png)|NOTICE\.txt|fields/(ref-picker|codeeditor|richeditor|markdown)\.(css|js))$'
+ours='^(laterite\.(css|js)|theme-boot\.js|mark\.(svg|png)|NOTICE\.txt|skins/[a-z-]+\.css|fields/(ref-picker|codeeditor|richeditor|markdown)\.(css|js))$'
 
 # Third-party families, each of which must appear in a crate NOTICE. The left
 # side matches the path; the right side is the string that must be present.
@@ -42,7 +42,10 @@ icons/:Lucide'
 fail=0
 unaccounted=''
 
-paths=$(grep -rhoE 'include_(bytes|str)!\("[^"]+"\)' --include='*.rs' crates/ 2>/dev/null \
+# Doc-comment lines are examples, not bundling: a path quoted there is skipped.
+paths=$(grep -rhE 'include_(bytes|str)!\("[^"]+"\)' --include='*.rs' crates/ 2>/dev/null \
+        | grep -vE '^[[:space:]]*//' \
+        | grep -oE 'include_(bytes|str)!\("[^"]+"\)' \
         | sed -E 's/include_(bytes|str)!\("//; s/"\)//' \
         | sed -E 's#^\.\./assets/##' \
         | sort -u)

@@ -122,7 +122,24 @@ Method | Does
 `PageHead::new(title)` | The heading.
 `.back(label, href)` | A link above the heading to the page this one sits under.
 `.actions(markup)` | Controls in the band under the heading: buttons, a `details.lat-menu`, dialog openers.
+`.aside(label, markup)` | A context side panel beside the body, `--side-panel-w` wide (350px); folded under `label` below 992px.
 `shell.page_with(head, body)` | The body under that head, inside the chrome.
+
+```rust
+let panel = Markup::from_template(&RegionsTemplate { shell: &shell, regions })?;
+shell.page_with(
+    PageHead::new(t!("Places")).aside(t!("Regions"), panel),
+    body,
+)
+```
+
+```html
+<nav class="lat-pane" aria-label='{{ shell.t("Regions") }}'>
+  <ul class="lat-nav">
+    {% for r in regions %}<li><a class="lat-nav__item{% if r.active %} is-active{% endif %}" href="{{ r.href }}">{{ r.name }}</a></li>{% endfor %}
+  </ul>
+</nav>
+```
 
 ## Open a form in a dialog
 
@@ -176,7 +193,7 @@ Attribute | On | Does
 
 Class | Renders
 --- | ---
-`lat-split` | A 260px pane beside the content; `lat-split--aside` puts a 340px pane after it. One column under 900px.
+`lat-split` | A 260px pane beside the content inside a body; `lat-split--aside` puts a 340px pane after it. One column under 900px. For a panel beside the whole page, `PageHead::aside` above.
 `lat-pane` | A framed block; `lat-pane__head`, `lat-pane__bar`, `lat-pane__body`, `lat-pane__foot` stack inside it.
 `lat-nav`, `lat-nav__item`, `.is-active` | A list of links in a pane, with `lat-nav__label` and `lat-nav__meta`.
 `shell.icon(name)` | An icon from the framework's set, inline.

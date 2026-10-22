@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}">
+<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}" data-lat-skin="{{ skin.code }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ self.t("Set up") }} {{ brand }}</title>
   {% if let Some(icon) = look.favicon_url %}<link rel="icon" href="{{ icon }}">{% else %}<link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">{% endif %}
   <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
+  {% if let Some(url) = skin.stylesheet %}<link rel="stylesheet" href="{{ url }}">{% endif %}
   {% if !look.css.is_empty() %}<style id="lat-brand">{{ look.css|safe }}</style>{% endif %}
   {# Colour mode: blocking on purpose, so a dark-mode operator sees no white flash. #}
   <script src="{{ self.asset("theme-boot.js") }}"></script>

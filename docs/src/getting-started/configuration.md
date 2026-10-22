@@ -74,6 +74,7 @@ Key | Description
 `path` | URL path the admin mounts under.
 `trusted_proxies` | CIDR ranges. `X-Forwarded-For` is read only from a peer inside one; the client is the rightmost address not itself a trusted proxy. Empty records the peer address.
 `paths` | Remounts a module's screens, or one screen, at another path. Two claims on one path abort the boot.
+`skin` | The admin skin by code: `standard` (default), `compact`, or one a module registered. See [Skins](../extend/skins.md).
 `storage` | The directory files the admin keeps are stored under, relative to the working directory unless absolute. Uploaded import files go to `private` beneath it.
 `order` | Arrangement overrides by hierarchy: `"backend.nav"`, `"backend.nav.<section>"`, `"backend.settings"` or a plugin's own, each a list of keys in the wanted order. See [Navigation](../extend/navigation.md).
 `menu` | Entries moved out of their home, keyed by entry: `{ in, slot, order, category }`. See [Navigation](../extend/navigation.md).

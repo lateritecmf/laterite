@@ -155,3 +155,62 @@ Change | Migration
 Add a field | None. A missing key deserializes to the field's default.
 Remove a field | None. A stale key is ignored.
 Rename a field | Read the old key, write the new one. Never reuse a `CODE` for an incompatible model.
+
+## Keep internal state in a parameter
+
+A parameter is a JSON value a module writes for itself, under a `namespace::group.item` key. The settings store above holds what an operator edits; the parameters store holds what code records.
+
+```rust
+use laterite_core::parameters;
+
+parameters::set(ctx.db(), "acme.blog::sync.cursor", &cursor).await?;
+let cursor: Option<Cursor> = parameters::get(ctx.db(), "acme.blog::sync.cursor").await?;
+let removed = parameters::reset(ctx.db(), "acme.blog::sync.cursor").await?;
+```
+
+Function | Does
+--- | ---
+`get::<T>(db, key)` | `Ok(None)` when unset.
+`get_value(db, key)` | The raw `serde_json::Value`.
+`set(db, key, &value)` | Replaces any value held.
+`reset(db, key)` | Removes it; `true` when one was set.
+
+Key part | Holds
+--- | ---
+`namespace` | The owning module's id: `acme.blog`.
+`group` | A family of items: `sync`.
+`item` | The item; may contain dots.
+
+A malformed key is `CoreError::Validation`.
+
+### Through the cache
+
+```rust
+let parameters = ctx.parameters();
+parameters.set("acme.blog::sync.cursor", &cursor).await?;
+let page: u32 = parameters.get_or("acme.blog::sync.page", 1).await?;
+parameters.forget("acme.blog::sync.cursor");
+```
+
+Method | Does
+--- | ---
+`get`, `get_or`, `set`, `reset` | As the functions, through the cache.
+`forget(key)` | The next read hits the table.
+`clear()` | Drops every entry.
+`with_ttl(duration)` | On `Parameters::new(db)`; the default is five minutes.
+
+A read within the lifetime returns the remembered value; a write or reset through the handle refreshes it; another process's write is seen once the entry ages out.
+
+### Written by the framework
+
+Key | Value
+--- | ---
+`laterite.backend::setup.completed_at` | RFC 3339, written when the first administrator is created. The constant is `laterite_admin::SETUP_COMPLETED_AT`.
+
+### In an application's module list
+
+```rust
+use laterite_core::parameters::ParametersModule;
+```
+
+`laterite_admin::builtin_modules()` includes it; an application composing its own list adds `ParametersModule`.

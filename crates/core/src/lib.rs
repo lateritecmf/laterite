@@ -18,6 +18,7 @@ pub mod markdown;
 pub mod migration;
 pub mod module;
 pub mod pagination;
+pub mod parameters;
 pub mod query;
 pub mod record;
 pub mod registry;

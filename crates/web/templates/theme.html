@@ -1,7 +1,4 @@
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
-<div class="lat-split">
-  {% include "_theme_nav.html" %}
-  <div>
     <div class="lat-pane">
       <div class="lat-pane__head">{{ shell.t("Theme") }}</div>
       <div class="lat-pane__body">
@@ -26,8 +23,6 @@
       {% if !locked %}<div class="lat-pane__foot"><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button></div>{% endif %}
     </form>
     {% endif %}
-  </div>
-</div>
 {% include "_theme_dialogs.html" %}
 {% if !locked %}
 <dialog class="lat-dialog" id="theme-properties">

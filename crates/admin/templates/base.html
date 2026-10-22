@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="{{ shell.locale() }}" data-theme="light" data-lat-mode="{{ shell.mode_default() }}">
+<html lang="{{ shell.locale() }}" data-theme="light" data-lat-mode="{{ shell.mode_default() }}" data-lat-skin="{{ shell.skin_code() }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ shell.brand }}{% endblock %}</title>
   {% if let Some(icon) = shell.brand_favicon() %}<link rel="icon" href="{{ icon }}">{% else %}<link rel="icon" type="image/svg+xml" href="{{ shell.asset("mark.svg") }}">{% endif %}
   <link rel="stylesheet" href="{{ shell.asset("laterite.css") }}">
+  {% if let Some(url) = shell.skin_css() %}<link rel="stylesheet" href="{{ url }}">{% endif %}
   {% if !shell.brand_css().is_empty() %}<style id="lat-brand">{{ shell.brand_css()|safe }}</style>{% endif %}
   {# Colour mode: blocking on purpose, so a dark-mode operator sees no white flash. #}
   <script src="{{ shell.asset("theme-boot.js") }}"></script>

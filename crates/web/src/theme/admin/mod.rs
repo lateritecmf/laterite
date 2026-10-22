@@ -482,6 +482,24 @@ struct KindGroup {
     rows: Vec<TemplateRow>,
 }
 
+/// The template list in the context side panel of a theme's pages.
+#[derive(askama::Template)]
+#[template(path = "_theme_nav.html")]
+struct NavTemplate {
+    shell: Shell,
+    groups: Vec<KindGroup>,
+    locked: bool,
+}
+
+fn nav_panel(shell: &Shell, groups: Vec<KindGroup>, locked: bool) -> Markup {
+    Markup::from_template(&NavTemplate {
+        shell: shell.clone(),
+        groups,
+        locked,
+    })
+    .unwrap_or_else(|_| Markup::empty())
+}
+
 /// The controls beside a theme's title.
 #[derive(askama::Template)]
 #[template(path = "theme_actions.html")]
@@ -511,7 +529,6 @@ struct ShowTemplate {
     /// The settings fields over the theme's values, when its config (or an
     /// ancestor's) declares a form.
     settings: Option<String>,
-    groups: Vec<KindGroup>,
     kinds: Vec<(&'static str, String)>,
 }
 
@@ -629,11 +646,13 @@ async fn show(
         locked: theme.locked,
     })
     .unwrap_or_else(|_| Markup::empty());
+    let nav = nav_panel(&shell, groups, theme.locked);
     page_with(
         &shell,
         PageHead::new(Text::dynamic(theme.config.name.clone()))
             .back(t!("Themes"), ctx.url(""))
-            .actions(actions),
+            .actions(actions)
+            .aside(t!("Templates"), nav),
         &ShowTemplate {
             theme_url: ctx.url(&theme.code),
             code: theme.code.clone(),
@@ -647,7 +666,6 @@ async fn show(
             locked: theme.locked,
             preview: theme.config.preview.clone().unwrap_or_default(),
             settings,
-            groups,
             kinds,
             shell: shell.clone(),
         },
@@ -1077,7 +1095,6 @@ struct EditorTemplate {
     page_fields: Option<String>,
     markup: String,
     revisions: Vec<RevisionRow>,
-    groups: Vec<KindGroup>,
     kinds: Vec<(&'static str, String)>,
 }
 
@@ -1160,6 +1177,7 @@ async fn template(
         locked: theme.locked,
     })
     .unwrap_or_else(|_| Markup::empty());
+    let nav = nav_panel(&shell, groups, theme.locked);
     page_with(
         &shell,
         PageHead::new(Text::dynamic(template.path.clone()))
@@ -1168,7 +1186,8 @@ async fn template(
                 Text::dynamic(theme.config.name.clone()),
                 ctx.url(&theme.code),
             )
-            .actions(actions),
+            .actions(actions)
+            .aside(t!("Templates"), nav),
         &EditorTemplate {
             theme_url: ctx.url(&theme.code),
             template_url,
@@ -1178,7 +1197,6 @@ async fn template(
             page_fields,
             markup: template.markup.clone(),
             revisions: revision_rows(&shell, revisions),
-            groups,
             kinds,
             shell: shell.clone(),
         },

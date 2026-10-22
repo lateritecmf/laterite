@@ -45,6 +45,7 @@ mod routemap;
 pub mod routes;
 mod session;
 pub mod settings;
+pub mod skin;
 mod sql;
 pub mod ui;
 mod upload;
@@ -117,6 +118,12 @@ pub trait AdminRegistry {
     fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>);
     /// Adds a dashboard widget. See [`widget::Widget`].
     fn add_widget(&mut self, widget: widget::WidgetReg);
+    /// Adds a skin, selectable by `backend.skin`. See [`skin::Skin`].
+    fn add_skin(&mut self, skin: skin::Skin);
+    /// Serves a file under the admin's assets at `key` (`acme/dense.css`): a
+    /// skin's stylesheet, a field type's script. A key the framework or another
+    /// module already serves aborts boot.
+    fn add_asset(&mut self, key: &'static str, asset: AdminAsset);
 }
 
 impl AdminRegistry for laterite_core::Registry {
@@ -152,6 +159,12 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_widget(&mut self, widget: widget::WidgetReg) {
         self.add(widget);
+    }
+    fn add_skin(&mut self, skin: skin::Skin) {
+        self.add(skin);
+    }
+    fn add_asset(&mut self, key: &'static str, asset: AdminAsset) {
+        self.add(AssetReg { key, asset });
     }
     fn add_persister(&mut self, persister: persist::PersisterReg) {
         self.add(persister);
@@ -211,6 +224,8 @@ pub(crate) const ICON_SPRITE: &str = "icons.svg";
 pub(crate) struct AdminState {
     auth: AuthService,
     db: Db,
+    /// The parameters store behind its per-process cache.
+    parameters: laterite_core::parameters::Parameters,
     nav: Arc<nav::NavTree>,
     /// The menu entries the tree was built from (after the deployment's
     /// moves), for an operator whose own moves need a tree of their own.
@@ -255,6 +270,8 @@ pub(crate) struct AdminState {
     /// not read from the database on every page. Invalidated when the setting is
     /// saved. `None` means "not resolved yet".
     brand_cache: Arc<RwLock<Option<Arc<settings::brand::Brand>>>>,
+    /// The deployment's skin, resolved once at boot.
+    skin: Arc<skin::Active>,
     /// Each registered asset's content-named path. See [`asset_urls`].
     asset_urls: Arc<AssetUrls>,
     /// The field-type registry (built-ins plus contributions): resolves a form
@@ -288,6 +305,7 @@ impl AdminState {
     pub(crate) fn new(auth: AuthService, db: Db) -> Self {
         Self {
             auth,
+            parameters: laterite_core::parameters::Parameters::new(db.clone()),
             db,
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
@@ -308,6 +326,7 @@ impl AdminState {
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Laterite".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
+            skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
             widgets: Arc::new(widgets::builtin()),
@@ -382,6 +401,9 @@ pub struct AdminConfig {
     /// `backend.storage`). Uploaded import files go to `private` beneath it
     /// when the application registers no disk of that name.
     pub storage_dir: String,
+    /// The skin by code (default `standard`; `compact` is also built in). A
+    /// module's skin is selected by its code. See [`skin`].
+    pub skin: String,
     /// Arrangement overrides by hierarchy (`backend.order`): the keys of the
     /// top bar, a section or the settings index in the wanted order.
     pub order: std::collections::BTreeMap<String, Vec<String>>,
@@ -404,6 +426,7 @@ impl Default for AdminConfig {
             path: "/admin".to_string(),
             origin: String::new(),
             storage_dir: "storage".to_string(),
+            skin: "standard".to_string(),
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
             secret: random_key(),
@@ -439,6 +462,7 @@ pub struct Shell {
     brand: String,
     /// The rest of the brand a page shows: mark, icon, stylesheet, mode.
     brand_look: Arc<settings::brand::Brand>,
+    skin: Arc<skin::Active>,
     nav: Vec<NavView>,
     full_name: String,
     initial: String,
@@ -493,6 +517,8 @@ struct PageTemplate {
     back: Option<(String, String)>,
     /// Controls that act on the page as a whole, beside the title.
     actions: Option<html::Markup>,
+    /// The context side panel: its label and content.
+    aside: Option<(String, html::Markup)>,
     body: html::Markup,
     shell: Shell,
 }
@@ -511,6 +537,7 @@ pub struct PageHead {
     title: Text,
     back: Option<(Text, String)>,
     actions: Option<html::Markup>,
+    aside: Option<(Text, html::Markup)>,
     assets: Vec<&'static str>,
 }
 
@@ -520,6 +547,7 @@ impl PageHead {
             title: title.into(),
             back: None,
             actions: None,
+            aside: None,
             assets: Vec::new(),
         }
     }
@@ -548,6 +576,14 @@ impl PageHead {
         self.actions = Some(actions);
         self
     }
+
+    /// A context side panel beside the body: a list of what the page is part
+    /// of, facts about the record, a tree. It is `--side-panel-w` wide (350px)
+    /// beside the body, and folds under `label` below the tablet width.
+    pub fn aside(mut self, label: impl Into<Text>, panel: html::Markup) -> Self {
+        self.aside = Some((label.into(), panel));
+        self
+    }
 }
 
 /// One per-page asset to load: a resolved URL and whether it is a stylesheet.
@@ -572,6 +608,7 @@ impl Shell {
     fn new(
         base: &str,
         brand: Arc<settings::brand::Brand>,
+        skin: Arc<skin::Active>,
         nav: &[nav::NavNode],
         user: &AuthenticatedUser,
         default_tz: Tz,
@@ -637,6 +674,7 @@ impl Shell {
             base: base.to_string(),
             brand: brand.name.clone(),
             brand_look: brand,
+            skin,
             nav,
             crumbs,
             full_name,
@@ -730,6 +768,16 @@ impl Shell {
         &self.brand_look.css
     }
     /// The colour mode an operator starts in: `auto`, `light` or `dark`.
+    /// The skin's code, carried by the document element as `data-lat-skin`.
+    pub fn skin_code(&self) -> &str {
+        &self.skin.code
+    }
+
+    /// The skin's stylesheet URL, when it has one.
+    pub fn skin_css(&self) -> Option<&str> {
+        self.skin.stylesheet.as_deref()
+    }
+
     pub fn mode_default(&self) -> &str {
         &self.brand_look.mode
     }
@@ -770,6 +818,7 @@ impl Shell {
             title: self.tt(&head.title),
             back: head.back.map(|(label, href)| (self.tt(&label), href)),
             actions: head.actions,
+            aside: head.aside.map(|(label, panel)| (self.tt(&label), panel)),
             body,
             shell,
         })
@@ -806,6 +855,7 @@ impl Shell {
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
             brand_look: Arc::new(settings::brand::Brand::of_name("Laterite")),
+            skin: Arc::new(skin::Active::default()),
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
             initial: "T".to_string(),
@@ -1448,6 +1498,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
     vec![
         Box::new(laterite_auth::AuthModule),
         Box::new(settings::SettingsModule),
+        Box::new(laterite_core::parameters::ParametersModule),
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
@@ -1513,6 +1564,10 @@ pub struct Contributions {
     pub resource_hooks: Vec<ResourceHook>,
     /// Dashboard widgets a module contributes. See [`widget::Widget`].
     pub widgets: Vec<widget::WidgetReg>,
+    /// Skins a module offers, beyond the two built in. See [`skin::Skin`].
+    pub skins: Vec<skin::Skin>,
+    /// Files a module serves under the admin's assets. See [`AssetReg`].
+    pub assets: Vec<AssetReg>,
     /// Everything the framework itself does not consume: the contribution types
     /// modules define for each other. Kept whole so a contributed route can read
     /// them through [`routes::RouteCtx::contributions`], which is what makes a
@@ -1537,6 +1592,8 @@ pub fn router(
         field_types: app_field_types,
         column_types: app_column_types,
         widgets: app_widgets,
+        skins: app_skins,
+        assets: app_assets,
         icons: app_icons,
         screens: app_screens,
         public_routes: app_public,
@@ -1789,6 +1846,24 @@ pub fn router(
             bytes: std::borrow::Cow::Owned(icon_set.sprite().into_bytes()),
         },
     );
+    // A module's assets join under their own keys. A key already taken is a
+    // wiring bug (two modules, or a module shadowing the framework), so it
+    // aborts boot the way a duplicate column type does.
+    for reg in app_assets {
+        let key = reg.key;
+        if key.is_empty()
+            || key.starts_with('/')
+            || key.split('/').any(|s| s.is_empty() || s == "..")
+        {
+            panic!("invalid admin asset key `{key}`");
+        }
+        if assets.insert(key, reg.asset).is_some() {
+            panic!("duplicate admin asset `{key}`");
+        }
+    }
+    let mut skins = skin::builtin();
+    skins.extend(app_skins);
+    skin::check(&skins);
 
     // Every descriptor icon is checked now, while the names are all in hand and
     // nobody is waiting on a response. A typo here used to reach production as a
@@ -1829,6 +1904,12 @@ pub fn router(
     let settings = Arc::new(settings);
     // One render of the asset URLs, shared by the state and the sprite lookup.
     let asset_urls_arc = Arc::new(asset_urls(&assets));
+    let active_skin = Arc::new(skin::resolve(
+        &config.skin,
+        &skins,
+        &admin_path,
+        &asset_urls_arc,
+    ));
     let sprite_url: Arc<str> = Arc::from(
         asset_urls_arc
             .get(ICON_SPRITE)
@@ -1847,6 +1928,7 @@ pub fn router(
     }
     let state = AdminState {
         auth,
+        parameters: laterite_core::parameters::Parameters::new(db.clone()),
         db,
         nav: Arc::new(nav),
         nav_items: Arc::new(nav_items),
@@ -1863,6 +1945,7 @@ pub fn router(
         catalogs,
         app_name,
         brand_cache: Arc::new(RwLock::new(None)),
+        skin: active_skin,
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
         widgets: Arc::new(widget_regs),
@@ -1944,6 +2027,7 @@ pub fn router(
         let ctx = routes::RouteCtx::new(
             state.db.clone(),
             state.auth.clone(),
+            state.parameters.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
             state.signing_key.clone(),
@@ -1976,6 +2060,7 @@ pub fn router(
         let ctx = routes::RouteCtx::new(
             state.db.clone(),
             state.auth.clone(),
+            state.parameters.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
             state.signing_key.clone(),
@@ -2151,6 +2236,7 @@ pub fn router(
             &app_public,
             &state.db,
             &state.auth,
+            &state.parameters,
             &state.field_types,
             &state.overrides,
             &state.signing_key,
@@ -2168,6 +2254,7 @@ pub fn router(
             let ctx = routes::RouteCtx::new(
                 state.db.clone(),
                 state.auth.clone(),
+                state.parameters.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
                 state.signing_key.clone(),
@@ -2332,6 +2419,7 @@ fn mount_public(
     regs: &[routes::PublicRouteReg],
     db: &Db,
     auth: &AuthService,
+    parameters: &laterite_core::parameters::Parameters,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
     signing_key: &Arc<Vec<u8>>,
@@ -2348,6 +2436,7 @@ fn mount_public(
         let ctx = routes::RouteCtx::new(
             db.clone(),
             auth.clone(),
+            parameters.clone(),
             field_types.clone(),
             overrides.clone(),
             signing_key.clone(),
@@ -2395,14 +2484,50 @@ fn prefix_resource(admin_path: &str, resource: &mut Resource) {
     }
 }
 
-/// One embedded admin asset served by [`serve_asset`].
-pub(crate) struct AdminAsset {
+/// One embedded admin asset served under `{admin}/assets/`: its media type and
+/// bytes. The framework's own are compiled in; a module contributes one with
+/// [`AdminRegistry::add_asset`].
+#[derive(Debug, Clone)]
+pub struct AdminAsset {
     pub mime: &'static str,
     /// Borrowed for assets compiled in, owned for the icon sprite, which is
     /// assembled at boot from the framework's set plus whatever modules
     /// contributed and so cannot come from a file.
     pub bytes: std::borrow::Cow<'static, [u8]>,
 }
+
+impl AdminAsset {
+    /// An asset of any media type from bytes compiled in.
+    pub fn new(mime: &'static str, bytes: &'static [u8]) -> Self {
+        Self {
+            mime,
+            bytes: std::borrow::Cow::Borrowed(bytes),
+        }
+    }
+
+    /// A stylesheet.
+    pub fn css(bytes: &'static [u8]) -> Self {
+        Self::new("text/css; charset=utf-8", bytes)
+    }
+
+    /// A script.
+    pub fn js(bytes: &'static [u8]) -> Self {
+        Self::new("text/javascript; charset=utf-8", bytes)
+    }
+}
+
+/// An asset a module contributes, at the key it is served under.
+#[derive(Debug, Clone)]
+pub struct AssetReg {
+    pub key: &'static str,
+    pub asset: AdminAsset,
+}
+
+/// The parameter the first-run setup writes when the first administrator is
+/// created: the moment, as RFC 3339. Read it with
+/// [`laterite_core::parameters::get`] or through
+/// [`routes::RouteCtx::parameters`].
+pub const SETUP_COMPLETED_AT: &str = "laterite.backend::setup.completed_at";
 
 /// Admin assets served under `{admin}/assets/`, keyed by path. An open registry:
 /// field types and plugins contribute their own (wired when the first one does).
@@ -2515,6 +2640,10 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
                 mime: "text/javascript; charset=utf-8",
                 bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/laterite.js")),
             },
+        ),
+        (
+            skin::COMPACT_STYLESHEET,
+            AdminAsset::css(include_bytes!("../assets/skins/compact.css")),
         ),
         (
             "theme-boot.js",
@@ -3380,6 +3509,7 @@ async fn require_auth(
     let shell = Shell::new(
         &state.admin_path,
         brand,
+        state.skin.clone(),
         &visible_nav,
         &user,
         state.timezone,
@@ -3548,6 +3678,7 @@ async fn login_form(
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await.name.clone(),
                 look: state.brand().await,
+                skin: state.skin.clone(),
                 error: None,
                 notice,
                 i18n,
@@ -3610,6 +3741,7 @@ async fn login_submit(
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await.name.clone(),
                 look: state.brand().await,
+                skin: state.skin.clone(),
                 error: Some(i18n.t(&t!("Invalid username or password."))),
                 notice: None,
                 i18n,
@@ -3728,6 +3860,7 @@ async fn setup_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
         Ok(false) => render(setup_view(
             &state.admin_path,
             state.brand().await,
+            state.skin.clone(),
             state.timezone,
             None,
             pre_auth_translator(&state, &headers),
@@ -3762,6 +3895,7 @@ async fn setup_submit(
         return render(setup_view(
             &state.admin_path,
             state.brand().await,
+            state.skin.clone(),
             state.timezone,
             Some(t!(
                 "Username, first name, email, and password are all required."
@@ -3776,6 +3910,7 @@ async fn setup_submit(
         return render(setup_view(
             &state.admin_path,
             state.brand().await,
+            state.skin.clone(),
             state.timezone,
             Some(t!("That is not a recognised timezone.")),
             pre_auth_translator(&state, &headers),
@@ -3789,6 +3924,7 @@ async fn setup_submit(
         return render(setup_view(
             &state.admin_path,
             state.brand().await,
+            state.skin.clone(),
             state.timezone,
             Some(t!(
                 "A password needs at least {n} characters.",
@@ -3813,6 +3949,7 @@ async fn setup_submit(
             return render(setup_view(
                 &state.admin_path,
                 state.brand().await,
+                state.skin.clone(),
                 state.timezone,
                 Some(t!(
                     "Could not create the account. The username or email may already be taken."
@@ -3835,6 +3972,10 @@ async fn setup_submit(
     if let Err(e) = state.auth.record_audit(entry).await {
         tracing::error!(error = %e, "failed to write audit log entry");
     }
+    let completed = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    if let Err(e) = state.parameters.set(SETUP_COMPLETED_AT, &completed).await {
+        tracing::warn!(error = %e, "failed to record the setup completion");
+    }
 
     // Sign the new administrator straight in through the normal login path.
     match state
@@ -3856,9 +3997,11 @@ async fn setup_submit(
 
 /// Builds the setup view, its timezone select defaulting to the deployment
 /// default so the first administrator can accept or change it.
+#[allow(clippy::too_many_arguments)]
 fn setup_view(
     admin_path: &str,
     brand: Arc<settings::brand::Brand>,
+    skin: Arc<skin::Active>,
     default_tz: Tz,
     error: Option<Text>,
     i18n: Translator,
@@ -3879,6 +4022,7 @@ fn setup_view(
         asset_urls,
         brand: brand.name.clone(),
         look: brand,
+        skin,
         zones,
         error: error.map(|e| i18n.t(&e)),
         min_password: min_password as i64,
@@ -4860,6 +5004,7 @@ struct LoginTemplate {
     asset_urls: Arc<AssetUrls>,
     brand: String,
     look: Arc<settings::brand::Brand>,
+    skin: Arc<skin::Active>,
     error: Option<String>,
     /// Why the previous session ended, when the redirect said.
     notice: Option<String>,
@@ -4910,6 +5055,7 @@ struct SetupTemplate {
     asset_urls: Arc<AssetUrls>,
     brand: String,
     look: Arc<settings::brand::Brand>,
+    skin: Arc<skin::Active>,
     zones: Vec<TzOption>,
     error: Option<String>,
     /// The pre-auth translator, as on [`LoginTemplate`].
@@ -5289,6 +5435,41 @@ mod tests {
     }
 
     #[test]
+    fn a_page_with_an_aside_renders_the_fold_beside_the_body() {
+        use askama::Template;
+        #[derive(askama::Template)]
+        #[template(source = "<p>{{ text }}</p>", ext = "html")]
+        struct Para {
+            text: &'static str,
+        }
+        let para = |text| html::Markup::from_template(&Para { text }).unwrap();
+        let page = PageTemplate {
+            title: "Spec".to_string(),
+            back: None,
+            actions: None,
+            aside: Some(("Chapters".to_string(), para("one"))),
+            body: para("body"),
+            shell: Shell::test(),
+        };
+        let html = page.render().unwrap();
+        let panel = html.find("<aside class=\"lat-aside\"").expect("aside");
+        let body = html.find("<p>body</p>").expect("body");
+        assert!(panel < body, "the panel comes before the body: {html}");
+        assert!(html.contains("data-lat-widget=\"aside\""));
+        assert!(html.contains("<summary class=\"lat-aside__summary\">Chapters</summary>"));
+        assert!(html.contains("aria-label=\"Chapters\""));
+        let plain = PageTemplate {
+            title: "Spec".to_string(),
+            back: None,
+            actions: None,
+            aside: None,
+            body: para("body"),
+            shell: Shell::test(),
+        };
+        assert!(!plain.render().unwrap().contains("lat-aside"));
+    }
+
+    #[test]
     fn page_head_assets_dedupe_and_keep_order() {
         let head = PageHead::new("Specification")
             .assets(CODE_EDITOR_ASSETS)
@@ -5374,6 +5555,7 @@ mod tests {
         let state = AdminState {
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),
+            parameters: laterite_core::parameters::Parameters::new(db.clone()),
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),
@@ -5393,6 +5575,7 @@ mod tests {
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Configured Name".to_string(),
             brand_cache: Arc::new(RwLock::new(None)),
+            skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
             widgets: Arc::new(widgets::builtin()),

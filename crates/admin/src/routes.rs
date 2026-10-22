@@ -28,6 +28,7 @@ use crate::list::ImportLink;
 pub struct RouteCtx {
     db: Db,
     auth: AuthService,
+    parameters: laterite_core::parameters::Parameters,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
     signing_key: Arc<Vec<u8>>,
@@ -45,6 +46,7 @@ impl RouteCtx {
     pub(crate) fn new(
         db: Db,
         auth: AuthService,
+        parameters: laterite_core::parameters::Parameters,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
         signing_key: Arc<Vec<u8>>,
@@ -59,6 +61,7 @@ impl RouteCtx {
         Self {
             db,
             auth,
+            parameters,
             field_types,
             overrides,
             signing_key,
@@ -151,6 +154,12 @@ impl RouteCtx {
 
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// The parameters store, cached per process. See
+    /// [`laterite_core::parameters`].
+    pub fn parameters(&self) -> &laterite_core::parameters::Parameters {
+        &self.parameters
     }
 
     /// A resource's form, to write its records from code: an importer, a sync,
@@ -299,8 +308,9 @@ impl RouteCtxBuilder {
             AuthService::new(self.db.clone(), laterite_auth::AuthConfig::default())
         });
         RouteCtx::new(
-            self.db,
+            self.db.clone(),
             auth,
+            laterite_core::parameters::Parameters::new(self.db),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),
             Arc::new(crate::random_key()),

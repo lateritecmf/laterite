@@ -468,6 +468,8 @@ impl Bootstrap {
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();
         let widgets = contributions.take::<crate::widget::WidgetReg>();
+        let skins = contributions.take::<crate::skin::Skin>();
+        let assets = contributions.take::<crate::AssetReg>();
         // Owned, so each icon is namespaced to the module that contributed it.
         let icons = contributions.take_owned::<laterite_core::icons::IconReg>();
 
@@ -495,6 +497,7 @@ impl Bootstrap {
             path: config.backend.path.clone(),
             origin: origin.clone(),
             storage_dir: config.backend.storage.clone(),
+            skin: config.backend.skin.clone(),
             order: config.backend.order.clone(),
             menu: config.backend.menu.clone(),
             secret,
@@ -538,6 +541,8 @@ impl Bootstrap {
                 nav,
                 resource_hooks,
                 widgets,
+                skins,
+                assets,
                 resources,
                 settings,
                 permissions,

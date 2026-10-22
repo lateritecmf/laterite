@@ -19,6 +19,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   a custom stylesheet cleaned on display. A `color` input for text fields.
 - Dashboard widgets: `laterite_admin::widget::Widget` with `AdminRegistry::add_widget`, permission per
   widget, sizes, timed refresh; each operator arranges their own under Manage widgets. Four built in.
+- Skins: `backend.skin` selects `standard`, `compact` or a module's own, registered with
+  `AdminRegistry::add_skin`; `add_asset` serves a module's file under the admin's assets.
+- Parameters store: `laterite_core::parameters` keeps a module's own state under
+  `namespace::group.item` keys, cached per process through `RouteCtx::parameters`.
+- `PageHead::aside`: a context side panel beside a page's body that folds under its label at
+  phone and tablet widths. The theme pages list their templates in it.
 
 ## [0.9.19] - 2026-10-21
 

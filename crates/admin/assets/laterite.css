@@ -620,6 +620,9 @@ form.htmx-request .lat-btn--ghost{pointer-events:none;opacity:.5}
 @media (max-width:1100px){.lat-fields>.lat-field--1,.lat-fields>.lat-field--2,.lat-fields>.lat-field--3{grid-column:span 6}}
 @media (max-width:768px){.lat-fields>.lat-field{grid-column:span 12}}
 @media (max-width:992px){
+.lat-withaside{display:block}
+.lat-aside{margin-bottom:16px}
+.lat-aside__fold>summary{display:flex}
 .lat-topnav__burger{display:flex}
 .lat-topnav__nav{display:none}
 .lat-topnav__brand{padding-left:6px}
@@ -697,6 +700,16 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
    beside a pane of details. */
 .lat-split{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px;align-items:start}
 .lat-split--aside{grid-template-columns:minmax(0,1fr) 340px}
+/* The context side panel a page head declares: beside the body at its width,
+   a fold under its label below the tablet width (the island sets it). */
+.lat-withaside{display:grid;grid-template-columns:var(--side-panel-w) minmax(0,1fr);gap:20px;align-items:start}
+.lat-withaside>*{min-width:0}
+.lat-aside__fold>summary{display:none}
+.lat-aside__summary{align-items:center;gap:8px;min-height:40px;padding:8px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-card);background:var(--surface-card);box-shadow:var(--shadow-card);font-size:var(--fs-13);font-weight:var(--fw-semibold);color:var(--text-heading);cursor:pointer;list-style:none}
+.lat-aside__summary::-webkit-details-marker{display:none}
+.lat-aside__summary::before{content:"";width:0;height:0;border:5px solid transparent;border-left-color:var(--text-muted);margin-right:2px;transition:transform var(--dur-fast) var(--ease-standard)}
+.lat-aside__fold[open]>.lat-aside__summary::before{transform:rotate(90deg)}
+.lat-aside__fold[open]>.lat-aside__summary{margin-bottom:10px}
 .lat-pane{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
 .lat-pane__head{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 14px;border-bottom:1px solid var(--border-subtle);font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-muted)}
 .lat-pane__head+.lat-pane__head,.lat-nav+.lat-pane__head,.lat-pane__body+.lat-pane__head{border-top:1px solid var(--border-subtle)}

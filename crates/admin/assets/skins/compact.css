@@ -1,0 +1,17 @@
+/* Compact skin: the standard palette with tighter spacing, smaller controls
+   and a narrower sidebar, so dense screens show more rows per height. Keyed
+   on the document attribute the shell sets from `backend.skin`. */
+:root[data-lat-skin="compact"]{
+--space-8:20px;--space-9:24px;
+--topnav-h:54px;--sidebar-w:230px;
+--control-h:34px;--control-h-sm:28px;--control-h-lg:40px;
+--page-gutter:20px;--card-pad:14px;--side-panel-w:300px;
+--fs-15:14px;--fs-16:15px;
+--radius-control:6px;--radius-card:6px
+}
+[data-lat-skin="compact"] .lat-table th{padding:8px 12px}
+[data-lat-skin="compact"] .lat-table td{padding:7px 12px}
+[data-lat-skin="compact"] .lat-sidebar__item{padding:6px 12px 6px 11px}
+[data-lat-skin="compact"] .lat-toolbar{margin-bottom:10px}
+[data-lat-skin="compact"] .lat-listbar{margin-bottom:8px}
+[data-lat-skin="compact"] .lat-toolbar h1{font-size:var(--fs-20)}

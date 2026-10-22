@@ -1,7 +1,4 @@
 {% if locked %}<div class="lat-alert">{{ shell.t("This theme is locked: its config and templates cannot change until it is unlocked.") }}</div>{% endif %}
-<div class="lat-split">
-  {% include "_theme_nav.html" %}
-  <div>
     <form class="lat-pane" method="post" action="{{ template_url }}/save">
       <div class="lat-pane__head">{{ shell.t("Markup") }}<span class="lat-code">{{ path }}</span></div>
       <div class="lat-pane__body">
@@ -52,6 +49,4 @@
       </table>
       {% endif %}
     </div>
-  </div>
-</div>
 {% include "_theme_dialogs.html" %}

@@ -2138,3 +2138,15 @@ window.lat.widget('dashlist', function (form) {
     btn.focus();
   });
 });
+
+// The context side panel: open beside the body, folded under its label below
+// the tablet width, following the viewport either way.
+window.lat.widget('aside', function (root) {
+  var fold = root.querySelector('.lat-aside__fold');
+  if (!fold || !window.matchMedia) return;
+  var small = window.matchMedia('(max-width: 992px)');
+  function apply() { fold.open = !small.matches; }
+  apply();
+  if (small.addEventListener) small.addEventListener('change', apply);
+  else if (small.addListener) small.addListener(apply);
+});

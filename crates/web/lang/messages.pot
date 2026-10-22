@@ -375,6 +375,7 @@ msgstr ""
 msgid "Template saved."
 msgstr ""
 
+#: src/theme/admin/mod.rs
 #: templates/_theme_nav.html
 #: templates/themes.html
 msgid "Templates"

@@ -12,5 +12,17 @@
   {% endif %}
 </div>
 {% if let Some(actions) = actions %}<div class="lat-actionbar">{{ actions|safe }}</div>{% endif %}
+{% if let Some((label, panel)) = aside %}
+<div class="lat-withaside">
+  <aside class="lat-aside" aria-label="{{ label }}" data-lat-widget="aside">
+    <details class="lat-aside__fold" open>
+      <summary class="lat-aside__summary">{{ label }}</summary>
+      <div class="lat-aside__body">{{ panel|safe }}</div>
+    </details>
+  </aside>
+  <div class="lat-withaside__main">{{ body|safe }}</div>
+</div>
+{% else %}
 {{ body|safe }}
+{% endif %}
 {% endblock %}

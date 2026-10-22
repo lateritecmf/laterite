@@ -165,6 +165,9 @@ pub struct BackendConfig {
     /// `storage`), relative to the working directory unless absolute. Uploaded
     /// import files go to `private` beneath it.
     pub storage: String,
+    /// The admin skin by code: `standard` (the default), `compact`, or one a
+    /// module registered. An unknown code aborts the boot.
+    pub skin: String,
 }
 
 impl Default for BackendConfig {
@@ -179,6 +182,7 @@ impl Default for BackendConfig {
             path: "/admin".to_string(),
             trusted_proxies: Vec::new(),
             storage: "storage".to_string(),
+            skin: "standard".to_string(),
         }
     }
 }
