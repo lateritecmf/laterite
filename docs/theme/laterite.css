@@ -226,7 +226,7 @@ body,
 
 /* Landing cards on the introduction. */
 .lat-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:24px 0 32px}
-.lat-card{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border:1px solid var(--table-border-color,#ddd);border-radius:10px;text-decoration:none !important;color:inherit !important;background:var(--sidebar-bg,transparent)}
+.lat-card{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border:1px solid var(--table-border-color,#ddd);border-radius:10px;text-decoration:none !important;color:var(--fg) !important;background:var(--bg)}
 .lat-card:hover{border-color:var(--links)}
 .lat-card strong{font-size:1.05em}
 .lat-card span{font-size:.92em;opacity:.8}
