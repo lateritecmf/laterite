@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.21] - 2026-10-23
+
+The Crypt slice, first of the Services theme: an application key everything
+seals and signs under, a sensitive field type, key rotation, and the handbook
+restructured by task.
+
 ### Added
 
 - `laterite_core::crypt`: the application key (`app.key`, `lat key generate`) seals values,
