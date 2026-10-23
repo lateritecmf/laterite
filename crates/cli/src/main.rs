@@ -15,6 +15,7 @@ use laterite_core::Db;
 mod doctor;
 mod domain;
 mod i18n;
+mod key;
 mod make;
 mod media;
 mod new;
@@ -76,6 +77,11 @@ enum Command {
     Media {
         #[command(subcommand)]
         command: media::MediaCommand,
+    },
+    /// Generate or show the application key (app.key).
+    Key {
+        #[command(subcommand)]
+        command: key::KeyCommand,
     },
 }
 
@@ -148,6 +154,7 @@ async fn main() -> Result<()> {
             let db = connect(cli.database_url).await?;
             media::run(command, db).await
         }
+        Command::Key { command } => key::run(command),
     }
 }
 

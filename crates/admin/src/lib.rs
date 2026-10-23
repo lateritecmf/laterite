@@ -245,7 +245,7 @@ pub(crate) struct AdminState {
     /// The deployment's storage directory (`backend.storage`).
     storage_dir: Arc<str>,
     /// The key tokens are signed with.
-    signing_key: Arc<Vec<u8>>,
+    crypt: Arc<laterite_core::Crypt>,
     /// Arrangement overrides by hierarchy (`backend.order`).
     order: std::collections::BTreeMap<String, Vec<String>>,
     secure_cookie: bool,
@@ -320,7 +320,7 @@ impl AdminState {
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
-            signing_key: Arc::new(random_key()),
+            crypt: Arc::new(laterite_core::Crypt::ephemeral()),
             order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),
@@ -415,10 +415,14 @@ pub struct AdminConfig {
     pub order: std::collections::BTreeMap<String, Vec<String>>,
     /// Entries moved out of their home (`backend.menu`), keyed by entry.
     pub menu: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
-    /// The key tokens the admin mints are signed with (a private file's URL).
-    /// The default is a fresh random key, so such tokens outlive the process
-    /// only when the bootstrap supplies the configured or stored key.
+    /// Key material for the application key when [`crypt`](Self::crypt) is
+    /// unset: a key is derived from it (`backend.secret`, else the key stored at
+    /// the first boot). The default is fresh random bytes, so tokens outlive the
+    /// process only when the bootstrap supplies the stored material.
     pub secret: Vec<u8>,
+    /// The application's encryption and signing, built by the bootstrap from
+    /// `app.key` and `app.previous_keys`; see [`laterite_core::crypt`].
+    pub crypt: Option<Arc<laterite_core::Crypt>>,
 }
 
 impl Default for AdminConfig {
@@ -437,6 +441,7 @@ impl Default for AdminConfig {
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
             secret: random_key(),
+            crypt: None,
         }
     }
 }
@@ -1959,7 +1964,12 @@ pub fn router(
         widgets: Arc::new(widget_regs),
         plugin_defined,
         storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
-        signing_key: Arc::new(config.secret.clone()),
+        crypt: config.crypt.clone().unwrap_or_else(|| {
+            Arc::new(laterite_core::Crypt::new(
+                laterite_core::MasterKey::derived(0, &config.secret),
+                Vec::new(),
+            ))
+        }),
         order: config.order.clone(),
         cookie_path: if app_public.iter().any(|r| r.is_site()) {
             Arc::from("/")
@@ -2039,7 +2049,7 @@ pub fn router(
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
-            state.signing_key.clone(),
+            state.crypt.clone(),
             &state.storage_dir,
             &base,
             &admin_path,
@@ -2073,7 +2083,7 @@ pub fn router(
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
-            state.signing_key.clone(),
+            state.crypt.clone(),
             &state.storage_dir,
             &base,
             &admin_path,
@@ -2250,7 +2260,7 @@ pub fn router(
             &state.upload_extensions,
             &state.field_types,
             &state.overrides,
-            &state.signing_key,
+            &state.crypt,
             &state.storage_dir,
             &admin_path,
             &state.origin,
@@ -2269,7 +2279,7 @@ pub fn router(
                 state.upload_extensions.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
-                state.signing_key.clone(),
+                state.crypt.clone(),
                 &state.storage_dir,
                 "/",
                 &admin_path,
@@ -2435,7 +2445,7 @@ fn mount_public(
     upload_extensions: &Arc<Vec<String>>,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
-    signing_key: &Arc<Vec<u8>>,
+    crypt: &Arc<laterite_core::Crypt>,
     storage_dir: &str,
     admin_path: &str,
     origin: &str,
@@ -2453,7 +2463,7 @@ fn mount_public(
             upload_extensions.clone(),
             field_types.clone(),
             overrides.clone(),
-            signing_key.clone(),
+            crypt.clone(),
             storage_dir,
             &reg.path,
             admin_path,
@@ -5600,7 +5610,7 @@ mod tests {
             admin_path: Arc::from("/admin"),
             cookie_path: Arc::from("/admin"),
             storage_dir: Arc::from("storage"),
-            signing_key: Arc::new(random_key()),
+            crypt: Arc::new(laterite_core::Crypt::ephemeral()),
             order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),

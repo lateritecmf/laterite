@@ -58,6 +58,15 @@ pub struct AppMeta {
     /// command agree on it; unset means the framework default. Read from the files
     /// alone by [`declared_env_prefix`], since it selects the environment layer.
     pub env_prefix: Option<String>,
+    /// The application key, `id:<base64 of 32 bytes>` (`lat key generate`
+    /// writes one; `LAT__APP__KEY` overrides). Everything the framework
+    /// encrypts or signs uses it. Unset, a key derived from `backend.secret` or
+    /// the key stored at the first boot is used, so a deployment without one
+    /// keeps working; a production deployment sets it.
+    pub key: Option<String>,
+    /// Keys retired by a rotation, each `id:<base64>`, still read; see
+    /// [`crate::crypt`].
+    pub previous_keys: Vec<String>,
 }
 
 impl Default for AppMeta {
@@ -68,6 +77,8 @@ impl Default for AppMeta {
             locale: "en".to_string(),
             debug: false,
             env_prefix: None,
+            key: None,
+            previous_keys: Vec::new(),
         }
     }
 }

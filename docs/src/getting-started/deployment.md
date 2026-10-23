@@ -29,7 +29,7 @@ environment variables.
 ```bash
 export APP_ENV=production
 export LAT__DATABASE__URL="postgres://acme:secret@db.internal/acme"
-export LAT__BACKEND__SECRET="a-long-random-string"
+export LAT__APP__KEY="$(lat key generate --print | head -1)"
 ./acme
 ```
 
@@ -37,7 +37,7 @@ Variable | Sets
 --- | ---
 `APP_ENV` | Which `config/<APP_ENV>.toml` layer is read. Default `development`.
 `<PREFIX>__DATABASE__URL` | `database.url`.
-`<PREFIX>__BACKEND__SECRET` | `backend.secret`. Set it when several instances share one database.
+`<PREFIX>__APP__KEY` | `app.key`, the key everything is sealed and signed under. Set it in production; several instances share it. See [Encryption and Signing](../services/crypt.md).
 `<PREFIX>__SECTION__KEY` | Any other key. The prefix is `app.env_prefix`, `LAT` by default.
 
 ## Sit behind a proxy

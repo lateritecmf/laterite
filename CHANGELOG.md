@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_core::crypt`: the application key (`app.key`, `lat key generate`) seals values,
+  signs links and mints expiring tokens per purpose; `RouteCtx::crypt`. Signed media URLs use it.
+
 ### Fixed
 
 - The context side panel folds at phone and tablet widths as documented, and a colour input is

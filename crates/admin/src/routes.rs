@@ -32,7 +32,7 @@ pub struct RouteCtx {
     upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
-    signing_key: Arc<Vec<u8>>,
+    crypt: Arc<laterite_core::Crypt>,
     storage_dir: Arc<str>,
     base_path: Arc<str>,
     admin_path: Arc<str>,
@@ -51,7 +51,7 @@ impl RouteCtx {
         upload_extensions: Arc<Vec<String>>,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
-        signing_key: Arc<Vec<u8>>,
+        crypt: Arc<laterite_core::Crypt>,
         storage_dir: &str,
         base_path: &str,
         admin_path: &str,
@@ -67,7 +67,7 @@ impl RouteCtx {
             upload_extensions,
             field_types,
             overrides,
-            signing_key,
+            crypt,
             storage_dir: Arc::from(storage_dir.trim_end_matches('/')),
             base_path: Arc::from(base_path),
             admin_path: Arc::from(admin_path),
@@ -150,17 +150,23 @@ impl RouteCtx {
         &self.storage_dir
     }
 
-    /// Signs `message` with the deployment's key (HMAC-SHA256, lowercase hex).
-    /// The key is `backend.secret`, else one generated at the first boot and
-    /// kept in the settings table.
+    /// Signs `message` under the application key for the `url` purpose: a
+    /// token in a link the route mints (a private file's URL). See
+    /// [`laterite_core::crypt`]; for a token with an expiry or a sealed value,
+    /// use [`crypt`](Self::crypt).
     pub fn sign(&self, message: &[u8]) -> String {
-        sign_with(&self.signing_key, message)
+        self.crypt.sign("url", message)
     }
 
     /// Whether `signature` is [`sign`](Self::sign) of `message`, compared in
     /// constant time.
     pub fn verify_signature(&self, message: &[u8], signature: &str) -> bool {
-        verify_with(&self.signing_key, message, signature)
+        self.crypt.verify("url", message, signature)
+    }
+
+    /// The application's encryption and signing, under `app.key`.
+    pub fn crypt(&self) -> &laterite_core::Crypt {
+        &self.crypt
     }
 
     pub fn db(&self) -> &Db {
@@ -325,7 +331,7 @@ impl RouteCtxBuilder {
             Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),
-            Arc::new(crate::random_key()),
+            Arc::new(laterite_core::Crypt::ephemeral()),
             "storage",
             &self.base_path,
             &self.admin_path,
@@ -553,27 +559,6 @@ mod tests {
     }
 }
 
-pub(crate) fn sign_with(key: &[u8], message: &[u8]) -> String {
-    use hmac::Mac;
-    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).expect("any key length");
-    mac.update(message);
-    mac.finalize()
-        .into_bytes()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-pub(crate) fn verify_with(key: &[u8], message: &[u8], signature: &str) -> bool {
-    use hmac::Mac;
-    let Some(given) = unhex(signature) else {
-        return false;
-    };
-    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).expect("any key length");
-    mac.update(message);
-    mac.verify_slice(&given).is_ok()
-}
-
 /// Bytes from lowercase or uppercase hex; `None` on an odd length or a stray
 /// character.
 pub(crate) fn unhex(hex: &str) -> Option<Vec<u8>> {
@@ -590,14 +575,15 @@ pub(crate) fn unhex(hex: &str) -> Option<Vec<u8>> {
 mod signing_tests {
     use super::*;
 
-    #[test]
-    fn a_signature_verifies_against_its_key_alone() {
-        let sig = sign_with(b"key-one", b"message");
-        assert_eq!(sig.len(), 64);
-        assert!(verify_with(b"key-one", b"message", &sig));
-        assert!(!verify_with(b"key-two", b"message", &sig));
-        assert!(!verify_with(b"key-one", b"other", &sig));
-        assert!(!verify_with(b"key-one", b"message", "zz"));
-        assert!(!verify_with(b"key-one", b"message", &sig[..62]));
+    #[tokio::test]
+    async fn a_route_signs_for_the_url_purpose_under_its_own_key() {
+        let (db, _guard) = laterite_core::testing::connect_test(&[]).await;
+        let ctx = RouteCtx::builder(db.clone()).build();
+        let sig = ctx.sign(b"media:abc:99");
+        assert!(ctx.verify_signature(b"media:abc:99", &sig));
+        assert!(!ctx.verify_signature(b"media:abc:98", &sig));
+        assert!(!ctx.crypt().verify("token", b"media:abc:99", &sig));
+        let other = RouteCtx::builder(db).build();
+        assert!(!other.verify_signature(b"media:abc:99", &sig));
     }
 }

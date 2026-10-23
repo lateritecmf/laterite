@@ -78,3 +78,10 @@ Command | Description | Options | Example
 --- | --- | --- | ---
 `media gc` | Remove files outside the library that nothing links to, and the blobs no record names any more. | `--grace <HOURS>`: leave younger files alone, default `24`. `--dry-run`. `--storage <DIR>`, default `backend.storage`. | `lat media gc --dry-run`
 `media verify` | Re-hash every stored file against its record. | `--storage <DIR>`, default `backend.storage`. | `lat media verify`
+
+## Key
+
+Command | Does
+--- | ---
+`lat key generate` | Writes a new application key as `app.key` in `config/local.toml`; `--rotate` keeps the old key under `previous_keys`, `--print` prints without writing.
+`lat key show` | The id of the key in use and of the previous keys.

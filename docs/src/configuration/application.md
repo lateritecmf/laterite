@@ -41,6 +41,8 @@ Key | Description
 `app.locale` | Default admin UI language, a BCP 47 tag. Default `en`. See [Localization](../services/localization.md).
 `app.debug` | Error pages include the cause. Off by default. See [Errors and Logging](errors-and-logging.md).
 `app.env_prefix` | The prefix of the overriding environment variables. Default `LAT`.
+`app.key` | The application key, `id:<base64 of 32 bytes>`; `lat key generate` writes one. See [Encryption and Signing](../services/crypt.md).
+`app.previous_keys` | Keys retired by a rotation, each `id:<base64>`, read but never written with.
 `server.listen` | The `host:port` to bind. Default `127.0.0.1:8080`. `lat serve --host`, `--port` and `--listen` override it.
 
 ## Mount a module's screens

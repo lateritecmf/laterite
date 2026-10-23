@@ -89,6 +89,7 @@
 - [Localization](services/localization.md)
 - [Search](services/search.md)
 - [Storage Disks](services/storage-disks.md)
+- [Encryption and Signing](services/crypt.md)
 
 # Media
 

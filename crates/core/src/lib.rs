@@ -8,6 +8,7 @@
 pub mod arrange;
 pub mod capabilities;
 pub mod config;
+pub mod crypt;
 pub mod db;
 pub mod error;
 pub mod events;
@@ -30,6 +31,7 @@ pub mod theme;
 pub mod validation;
 
 pub use capabilities::CapabilitySet;
+pub use crypt::{Crypt, CryptError, MasterKey};
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use events::{Event, EventCx, EventError, EventListenerReg, Events, Listener};

@@ -488,6 +488,7 @@ impl Bootstrap {
         tokio::spawn(purge_hourly(auth.clone()));
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
+        let crypt = app_crypt(&config, &secret)?;
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             trusted_proxies: config.backend.trusted_proxies.clone(),
@@ -502,6 +503,7 @@ impl Bootstrap {
             order: config.backend.order.clone(),
             menu: config.backend.menu.clone(),
             secret,
+            crypt: Some(std::sync::Arc::new(crypt)),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -738,6 +740,35 @@ mod tests {
 
 /// The settings code the generated signing key is kept under.
 const SIGNING_KEY: &str = "laterite.signing_key";
+
+/// The application's crypt: `app.key` and `app.previous_keys` when set, else a
+/// key derived from `backend.secret` or the key stored at the first boot (id
+/// 0), so a deployment that configured nothing keeps a stable key. A key that
+/// does not parse aborts the boot; a production deployment without `app.key`
+/// is warned to run `lat key generate`.
+fn app_crypt(config: &AppConfig, legacy: &[u8]) -> anyhow::Result<laterite_core::Crypt> {
+    match config
+        .app
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
+        Some(key) => laterite_core::Crypt::from_config(key, &config.app.previous_keys)
+            .map_err(|e| anyhow::anyhow!("app.key: {e}")),
+        None => {
+            if !config.app.debug {
+                tracing::warn!(
+                    "app.key is not set; the key derives from backend.secret or the stored key. Run `lat key generate`."
+                );
+            }
+            Ok(laterite_core::Crypt::new(
+                laterite_core::MasterKey::derived(0, legacy),
+                Vec::new(),
+            ))
+        }
+    }
+}
 
 /// The signing key: `backend.secret` when set, else the one generated at the
 /// first boot and kept in the settings table, so tokens survive a restart.
