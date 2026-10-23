@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Scheduled tasks") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Scheduled tasks") }}</h1>
+</div>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Entry") }}</th>
+      <th>{{ shell.t("Schedule") }}</th>
+      <th>{{ shell.t("Next run") }}</th>
+      <th>{{ shell.t("Last run") }}</th>
+      <th>{{ shell.t("Status") }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% if entries.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No entry is scheduled.") }}</td></tr>
+      {% else %}
+      {% for e in entries %}
+      <tr>
+        <td>
+          <div>{{ e.name }}</div>
+          {% if !e.description.is_empty() %}<p class="lat-help">{{ e.description }}</p>{% endif %}
+        </td>
+        <td><code>{{ e.expression }}</code><p class="lat-help">{{ e.timezone }}</p></td>
+        <td>{{ e.next_run_at }}</td>
+        <td>{{ e.last_started_at }}</td>
+        <td>
+          <span class="lat-status {{ e.status_class }}">{{ shell.t(e.status) }}</span>
+          {% if !e.error.is_empty() %}<p class="lat-help">{{ e.error }}</p>{% endif %}
+        </td>
+        <td class="lat-table__actions">
+          <form method="post" action="{{ base }}/{{ e.name }}/run">
+            {% include "_csrf.html" %}
+            <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Run now") }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

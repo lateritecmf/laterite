@@ -154,6 +154,17 @@ fn register(&self, registry: &mut Registry) {
 
 A job reaching the failed list announces `queue.job_failed` with its `id`, `name`, `queue`, `attempts` and `error`.
 
+## Grant the Jobs screen
+
+```yaml
+# a role's permissions
+- backend.manage_jobs
+```
+
+Permission | Grants
+--- | ---
+`backend.manage_jobs` | **Settings → System → Jobs**: the waiting and running counts per queue, the failed list with each job's payload and error, Retry and Forget for one job or all.
+
 ## Test a job
 
 ```rust

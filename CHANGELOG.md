@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `laterite_core::schedule`: cron entries registered with `registry.add_schedule`, evaluated each
   minute in their timezone on one process, `[schedule]`, `lat schedule run | list`; the hourly
   session purge is one.
+- The Jobs and Scheduled Tasks screens under Settings → System, behind `backend.manage_jobs` and
+  `backend.manage_schedule`.
 
 ## [0.9.22] - 2026-10-23
 

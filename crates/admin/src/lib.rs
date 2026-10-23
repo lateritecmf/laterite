@@ -29,6 +29,7 @@ pub mod html;
 pub mod http_cache;
 mod icons;
 pub mod import;
+mod jobs;
 pub(crate) mod keyed;
 pub mod list;
 pub mod medialib;
@@ -43,6 +44,7 @@ mod richtext;
 mod roles;
 mod routemap;
 pub mod routes;
+mod scheduled;
 mod session;
 pub mod settings;
 pub mod skin;
@@ -1533,6 +1535,8 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new("backend.manage_roles", "Manage roles", "Backend"),
         Permission::new("backend.manage_branding", "Manage branding", "Backend"),
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
+        Permission::new(jobs::PERMISSION, "Manage jobs", "Backend"),
+        Permission::new(scheduled::PERMISSION, "Manage scheduled tasks", "Backend"),
         Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
         Permission::new("backend.view_access_log", "View the access log", "Backend"),
         Permission::new(
@@ -2252,6 +2256,40 @@ pub fn router(
                 post(plugins::toggle),
             ),
         plugins::MANAGE_PERMISSION,
+    ));
+    // The Jobs and Scheduled tasks screens, each behind its own permission.
+    protected = protected.merge(guard_with_permission(
+        Router::new()
+            .route(&format!("{admin_path}/jobs"), get(jobs::index))
+            .route(
+                &format!("{admin_path}/jobs/retry-all"),
+                post(jobs::retry_all),
+            )
+            .route(
+                &format!("{admin_path}/jobs/forget-all"),
+                post(jobs::forget_all),
+            )
+            .route(
+                &format!("{admin_path}/jobs/{{id}}/retry"),
+                post(jobs::retry),
+            )
+            .route(
+                &format!("{admin_path}/jobs/{{id}}/forget"),
+                post(jobs::forget),
+            ),
+        jobs::PERMISSION,
+    ));
+    protected = protected.merge(guard_with_permission(
+        Router::new()
+            .route(
+                &format!("{admin_path}/scheduled-tasks"),
+                get(scheduled::index),
+            )
+            .route(
+                &format!("{admin_path}/scheduled-tasks/{{name}}/run"),
+                post(scheduled::run_now),
+            ),
+        scheduled::PERMISSION,
     ));
     protected = protected
         .route(&format!("{admin_path}/settings"), get(settings_index))
@@ -5090,6 +5128,22 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("plug")
             .permission(plugins::MANAGE_PERMISSION)
             .link("/plugins"),
+        settings::SettingsItem::new("backend.jobs", "Jobs", Vec::new())
+            .description("Watch the queues and retry or drop failed jobs.")
+            .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
+            .order(12)
+            .icon("layers")
+            .permission(jobs::PERMISSION)
+            .link("/jobs"),
+        settings::SettingsItem::new("backend.scheduled_tasks", "Scheduled Tasks", Vec::new())
+            .description("See when each scheduled entry last ran and run one now.")
+            .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
+            .order(13)
+            .icon("clock")
+            .permission(scheduled::PERMISSION)
+            .link("/scheduled-tasks"),
         settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
             .description("Review the record of administrative changes.")
             .category("System")

@@ -86,6 +86,17 @@ Field | Holds
 
 `run_now(name)` runs an entry outside its expression, under the same locks; `false` when it was skipped.
 
+## Grant the Scheduled tasks screen
+
+```yaml
+# a role's permissions
+- backend.manage_schedule
+```
+
+Permission | Grants
+--- | ---
+`backend.manage_schedule` | **Settings → System → Scheduled Tasks**: every entry with its expression, timezone, next and last run, status and error, and Run now.
+
 ## Entries the framework registers
 
 Entry | Expression | Does

@@ -577,7 +577,12 @@ msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
 #: templates/preferences.html
+#: templates/scheduled.html
 msgid "Entry"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Error"
 msgstr ""
 
 #: (descriptors)
@@ -614,6 +619,14 @@ msgstr ""
 
 #: (descriptors)
 msgid "Failed"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Failed at"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Failed jobs"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -693,6 +706,14 @@ msgstr ""
 
 #: src/error.rs
 msgid "Forbidden"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Forget"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Forget all"
 msgstr ""
 
 #: templates/login.html
@@ -789,6 +810,15 @@ msgstr ""
 msgid "Italic"
 msgstr ""
 
+#: templates/jobs.html
+msgid "Job"
+msgstr ""
+
+#: templates/jobs.html
+#: (descriptors)
+msgid "Jobs"
+msgstr ""
+
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "Kind"
@@ -814,6 +844,10 @@ msgstr ""
 #: templates/users_new.html
 #: (descriptors)
 msgid "Last name"
+msgstr ""
+
+#: templates/scheduled.html
+msgid "Last run"
 msgstr ""
 
 #: (descriptors)
@@ -866,6 +900,10 @@ msgid "Manage branding"
 msgstr ""
 
 #: (descriptors)
+msgid "Manage jobs"
+msgstr ""
+
+#: (descriptors)
 msgid "Manage plugins"
 msgstr ""
 
@@ -875,6 +913,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Manage roles and their permissions."
+msgstr ""
+
+#: (descriptors)
+msgid "Manage scheduled tasks"
 msgstr ""
 
 #: templates/dashboard.html
@@ -981,8 +1023,16 @@ msgstr ""
 msgid "Next"
 msgstr ""
 
+#: templates/scheduled.html
+msgid "Next run"
+msgstr ""
+
 #: templates/import/match.html
 msgid "No columns could be read from the file."
+msgstr ""
+
+#: templates/scheduled.html
+msgid "No entry is scheduled."
 msgstr ""
 
 #: templates/media.html
@@ -992,6 +1042,14 @@ msgstr ""
 
 #: templates/import/index.html
 msgid "No imports yet."
+msgstr ""
+
+#: templates/jobs.html
+msgid "No job has failed."
+msgstr ""
+
+#: templates/jobs.html
+msgid "No job is waiting."
 msgstr ""
 
 #: templates/plugins.html
@@ -1120,6 +1178,10 @@ msgstr ""
 msgid "Path"
 msgstr ""
 
+#: templates/jobs.html
+msgid "Payload"
+msgstr ""
+
 #: templates/users_form.html
 msgid "Permission overrides"
 msgstr ""
@@ -1181,6 +1243,10 @@ msgstr ""
 
 #: templates/plugins.html
 msgid "Quarantined"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Queue"
 msgstr ""
 
 #: templates/users_form.html
@@ -1275,6 +1341,14 @@ msgstr ""
 msgid "Reset {username}. Their temporary password, shown only now: {password}. Every device was signed out."
 msgstr ""
 
+#: templates/jobs.html
+msgid "Retry"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Retry all"
+msgstr ""
+
 #: (descriptors)
 msgid "Review sign-ins, failures and lockouts."
 msgstr ""
@@ -1326,6 +1400,14 @@ msgstr ""
 msgid "Run"
 msgstr ""
 
+#: templates/scheduled.html
+msgid "Run now"
+msgstr ""
+
+#: templates/jobs.html
+msgid "Running"
+msgstr ""
+
 #: templates/import/match.html
 msgid "Sample"
 msgstr ""
@@ -1358,6 +1440,18 @@ msgstr ""
 msgid "Saved."
 msgstr ""
 
+#: templates/scheduled.html
+msgid "Schedule"
+msgstr ""
+
+#: (descriptors)
+msgid "Scheduled Tasks"
+msgstr ""
+
+#: templates/scheduled.html
+msgid "Scheduled tasks"
+msgstr ""
+
 #: src/checklist.rs
 #: templates/list.html
 #: templates/media.html
@@ -1381,6 +1475,10 @@ msgstr ""
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Search: {q}"
+msgstr ""
+
+#: (descriptors)
+msgid "See when each scheduled entry last ran and run one now."
 msgstr ""
 
 #: src/medialib/field.rs
@@ -1521,6 +1619,7 @@ msgstr ""
 #: templates/import/_run_status.html
 #: templates/import/index.html
 #: templates/plugins.html
+#: templates/scheduled.html
 #: templates/users_form.html
 #: (descriptors)
 msgid "Status"
@@ -1628,6 +1727,18 @@ msgstr ""
 msgid "The dashboard could not be saved."
 msgstr ""
 
+#: src/scheduled.rs
+msgid "The entry could not be run."
+msgstr ""
+
+#: src/scheduled.rs
+msgid "The entry is still running from last time; nothing was started."
+msgstr ""
+
+#: src/scheduled.rs
+msgid "The entry ran."
+msgstr ""
+
 #: src/import/run.rs
 msgid "The existing record could not be looked up."
 msgstr ""
@@ -1703,6 +1814,10 @@ msgstr ""
 
 #: src/users.rs
 msgid "The password could not be reset."
+msgstr ""
+
+#: src/jobs.rs
+msgid "The queue could not be changed."
 msgstr ""
 
 #: src/import/run.rs
@@ -1928,6 +2043,14 @@ msgstr ""
 msgid "View the site"
 msgstr ""
 
+#: templates/jobs.html
+msgid "Waiting"
+msgstr ""
+
+#: (descriptors)
+msgid "Watch the queues and retry or drop failed jobs."
+msgstr ""
+
 #: src/widgets.rs
 msgid "Welcome"
 msgstr ""
@@ -2017,6 +2140,10 @@ msgstr ""
 msgid "Your session ended after a period of inactivity. Sign in again."
 msgstr ""
 
+#: templates/jobs.html
+msgid "mode"
+msgstr ""
+
 #: templates/media_file.html
 msgid "of"
 msgstr ""
@@ -2029,9 +2156,21 @@ msgstr ""
 msgid "{field} must be matched to a column."
 msgstr ""
 
+#: src/jobs.rs
+msgid "{n} failed job was dropped."
+msgid_plural "{n} failed jobs were dropped."
+msgstr[0] ""
+msgstr[1] ""
+
 #: templates/media.html
 msgid "{n} file(s)"
 msgstr ""
+
+#: src/jobs.rs
+msgid "{n} job is back on its queue."
+msgid_plural "{n} jobs are back on their queues."
+msgstr[0] ""
+msgstr[1] ""
 
 #: src/checklist.rs
 msgid "{n} of {total}"

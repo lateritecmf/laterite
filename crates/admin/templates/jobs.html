@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Jobs") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Jobs") }}</h1>
+</div>
+<p class="lat-help" style="margin:0 0 16px">{{ shell.t("Queue") }}: {{ driver }} · {{ shell.t("mode") }}: {{ mode }}</p>
+<div class="lat-tablewrap" style="margin-bottom:24px">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Queue") }}</th>
+      <th>{{ shell.t("Waiting") }}</th>
+      <th>{{ shell.t("Running") }}</th>
+    </tr></thead>
+    <tbody>
+      {% if counts.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No job is waiting.") }}</td></tr>
+      {% else %}
+      {% for c in counts %}
+      <tr>
+        <td>{{ c.queue }}</td>
+        <td>{{ c.pending }}</td>
+        <td>{{ c.reserved }}</td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+<div class="lat-toolbar">
+  <h2>{{ shell.t("Failed jobs") }}</h2>
+  {% if !failed.is_empty() %}
+  <div class="lat-toolbar__actions">
+    <form method="post" action="{{ base }}/retry-all">
+      {% include "_csrf.html" %}
+      <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Retry all") }}</button>
+    </form>
+    <form method="post" action="{{ base }}/forget-all">
+      {% include "_csrf.html" %}
+      <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Forget all") }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Failed at") }}</th>
+      <th>{{ shell.t("Job") }}</th>
+      <th>{{ shell.t("Error") }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% if failed.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No job has failed.") }}</td></tr>
+      {% else %}
+      {% for f in failed %}
+      <tr>
+        <td>{{ f.failed_at }}</td>
+        <td>
+          <div>{{ f.name }}</div>
+          <p class="lat-help">{{ shell.t("Queue") }}: {{ f.queue }} · #{{ f.id }}</p>
+          <details><summary class="lat-help">{{ shell.t("Payload") }}</summary><pre class="lat-pre">{{ f.payload }}</pre></details>
+        </td>
+        <td class="lat-status lat-status--quarantined">{{ f.error }}</td>
+        <td class="lat-table__actions">
+          <form method="post" action="{{ base }}/{{ f.id }}/retry">
+            {% include "_csrf.html" %}
+            <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Retry") }}</button>
+          </form>
+          <form method="post" action="{{ base }}/{{ f.id }}/forget">
+            {% include "_csrf.html" %}
+            <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Forget") }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
