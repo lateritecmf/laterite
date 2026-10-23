@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-10-23
+
+The Jobs and schedule slice of the Services theme: a queue with workers in the
+application, a cron scheduler, and the screens and commands to watch both.
+
 ### Added
 
 - `laterite_core::queue`: a `Job` is a serde struct behind `registry.add_job::<T>()`, pushed with
