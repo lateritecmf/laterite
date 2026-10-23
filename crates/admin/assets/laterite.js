@@ -52,7 +52,7 @@ document.addEventListener('click', function (e) {
   var dismiss = e.target.closest('[data-lat-dismiss]');
   if (dismiss) { latDismissFlash(dismiss); return; }
   if (e.target.closest('[data-lat-drawer]')) { latToggleMenu(); return; }
-  if (e.target.closest('[data-lat-mode]')) { latCycleMode(); }
+  if (e.target.closest('[data-lat-cycle-mode]')) { latCycleMode(); }
 });
 function flashText(toast) {
   var label = toast.querySelector('.lat-flash__text');

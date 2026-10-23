@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_core::cache`: values kept for a lifetime under the namespaces they were built from,
+  bumped by every framework write; `memory`, `null` and `redis` stores; `[cache]`; `RouteCtx::cache`.
+- Write handles that bump: `RouteCtx::settings`, `laterite_web::theme::Themes`; the parameters
+  handle now writes through the cache. `lat cache clear | list`.
+
+### Fixed
+
+- A click anywhere in the admin no longer cycles the colour mode: the mode button has its own
+  hook, so the root's default-mode attribute is not mistaken for it.
+
 ## [0.9.21] - 2026-10-23
 
 The Crypt slice, first of the Services theme: an application key everything
