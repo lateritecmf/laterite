@@ -22,6 +22,7 @@ pub mod module;
 pub mod pagination;
 pub mod parameters;
 pub mod query;
+pub mod queue;
 pub mod record;
 pub mod registry;
 pub mod search;
@@ -46,6 +47,7 @@ pub use listeners::Timestamps;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry};
 pub use query::AnyRowExt;
+pub use queue::Queue;
 pub use record::{
     Actor, AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record, SaveCx, SavedCx,
 };

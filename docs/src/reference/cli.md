@@ -93,3 +93,14 @@ Command | Does
 --- | ---
 `lat cache clear` | Moves every cache namespace on; every process reads afresh. `--namespace records::posts` moves one.
 `lat cache list` | Every namespace the deployment knows, with its generation.
+
+## Queue
+
+Command | Does
+--- | ---
+`lat queue work` | Runs the application's worker (`cargo run -- queue work`); `--once`, `--stop-when-empty`, `--queue high,default`, `--release`.
+`lat queue list` | How many jobs wait and run on each queue.
+`lat queue failed` | The failed list.
+`lat queue retry <id\|all>` | Puts a failed job back on its queue.
+`lat queue forget <id\|all>` | Drops a failed job.
+`lat queue flush [--queue name]` | Drops every waiting job, or one queue's.

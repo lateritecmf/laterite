@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_core::queue`: a `Job` is a serde struct behind `registry.add_job::<T>()`, pushed with
+  `ctx.queue()`, run by in-process workers with tries, backoff, timeout and a failed list; `[queue]`.
+- `Bootstrap::run` (serve, or `queue work` alone; the scaffold calls it), `lat queue work | list |
+  failed | retry | forget | flush`, the `queue.job_failed` event.
+
 ## [0.9.22] - 2026-10-23
 
 The Cache slice of the Services theme: values kept under the namespaces they were

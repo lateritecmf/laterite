@@ -63,6 +63,8 @@ pub struct AppConfig {
     pub plugins: PluginsConfig,
     #[serde(default)]
     pub cache: laterite_core::config::CacheConfig,
+    #[serde(default)]
+    pub queue: laterite_core::config::QueueConfig,
 }
 
 /// Deployment control over which plugins load. A disabled plugin's migrations do
@@ -83,6 +85,7 @@ pub struct BootstrapCtx {
     translator: Translator,
     events: laterite_core::Events,
     cache: laterite_core::Cache,
+    queue: laterite_core::Queue,
 }
 
 impl BootstrapCtx {
@@ -113,6 +116,12 @@ impl BootstrapCtx {
     /// bump. See [`laterite_core::cache`].
     pub fn cache(&self) -> &laterite_core::Cache {
         &self.cache
+    }
+
+    /// The application's queue, for an app's routes to push jobs on. See
+    /// [`laterite_core::queue`].
+    pub fn queue(&self) -> &laterite_core::Queue {
+        &self.queue
     }
 }
 
@@ -174,10 +183,34 @@ impl Bootstrap {
         self
     }
 
-    /// Loads config, connects, migrates, builds the router, and serves. Uses a
+    /// Loads config, connects, migrates, builds the router, and serves, with
+    /// the queue's workers beside it when `queue.mode` is `worker`. Uses a
     /// `systemfd`-inherited socket in development, else binds the configured
-    /// address.
+    /// address. Stops on Ctrl-C or SIGTERM, letting running jobs finish.
     pub async fn serve(self) -> anyhow::Result<()> {
+        self.prepare().await?.serve().await
+    }
+
+    /// Reads the process's own arguments and does what they ask: `serve`
+    /// (the default, as [`Bootstrap::serve`]) or `queue work [--once]
+    /// [--stop-when-empty] [--queue a,b]`, a worker alone. The scaffolded
+    /// `main` calls this, so `lat queue work` has something to run.
+    pub async fn run(self) -> anyhow::Result<()> {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        match args.first().map(String::as_str) {
+            None | Some("serve") => self.serve().await,
+            Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
+                self.prepare().await?.work(&args[2..]).await
+            }
+            Some(other) => anyhow::bail!(
+                "unknown command `{other}`: the application takes `serve` (the default) or `queue work`"
+            ),
+        }
+    }
+
+    /// Everything before listening: config, the database, migrations, the
+    /// registry, the router, the services.
+    async fn prepare(self) -> anyhow::Result<Prepared> {
         // Log subscriber (RUST_LOG, default below); try_init yields to an app's own.
         let _ = tracing_subscriber::fmt()
             .with_env_filter(
@@ -515,6 +548,29 @@ impl Bootstrap {
         }
         let events = bus.build()?;
 
+        // The queue, knowing every job a module registered; its workers start
+        // once the server listens (or alone, under `queue work`).
+        let queue = laterite_core::queue::from_config(
+            &config.queue,
+            contributions.take::<laterite_core::queue::JobReg>(),
+            laterite_core::queue::Services {
+                db: db.clone(),
+                events: events.clone(),
+                cache: cache.clone(),
+                parameters: laterite_core::parameters::Parameters::with_cache(
+                    db.clone(),
+                    cache.clone(),
+                ),
+            },
+        )
+        .await?;
+        tracing::info!(
+            driver = queue.driver_name(),
+            mode = ?queue.mode(),
+            jobs = queue.job_names().len(),
+            "queue ready"
+        );
+
         let auth = AuthService::new(db.clone(), config.auth.clone()).with_events(events.clone());
         // Expired sessions and stay-signed-in credentials are swept hourly (the
         // auth module's boot did the first sweep), so the tables hold only what
@@ -539,6 +595,7 @@ impl Bootstrap {
             secret,
             crypt: Some(std::sync::Arc::new(crypt)),
             cache: Some(cache.clone()),
+            queue: Some(queue.clone()),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -608,20 +665,112 @@ impl Bootstrap {
                 translator: Translator::new(&config.app.locale),
                 events,
                 cache,
+                queue: queue.clone(),
             };
             app = extend(app, &ctx);
         }
 
-        let listener = bind(&config.server.listen).await?;
         let admin_path = normalize_path(&config.backend.path);
-        println!("{} on {origin}{admin_path}", config.app.name);
+        Ok(Prepared {
+            app,
+            listen: config.server.listen.clone(),
+            banner: format!("{} on {origin}{admin_path}", config.app.name),
+            queue,
+        })
+    }
+}
+
+/// An application ready to listen or to work.
+struct Prepared {
+    app: Router,
+    listen: String,
+    banner: String,
+    queue: laterite_core::Queue,
+}
+
+impl Prepared {
+    async fn serve(self) -> anyhow::Result<()> {
+        let listener = bind(&self.listen).await?;
+        println!("{}", self.banner);
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let workers = if self.queue.mode() == laterite_core::queue::Mode::Worker {
+            self.queue.spawn_workers(stop_rx)
+        } else {
+            Vec::new()
+        };
         axum::serve(
             listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            self.app
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
         )
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
+        let _ = stop_tx.send(true);
+        for worker in workers {
+            // A running job gets its timeout to finish; the stop is not a kill.
+            let _ = tokio::time::timeout(WORKER_GRACE, worker).await;
+        }
         Ok(())
     }
+
+    /// A worker alone, until Ctrl-C or the arguments end it.
+    async fn work(self, args: &[String]) -> anyhow::Result<()> {
+        let mut options = laterite_core::queue::WorkOptions::default();
+        let mut rest = args.iter();
+        while let Some(arg) = rest.next() {
+            match arg.as_str() {
+                "--once" => options = options.once(true),
+                "--stop-when-empty" => options = options.stop_when_empty(true),
+                "--queue" => {
+                    let list = rest.next().ok_or_else(|| {
+                        anyhow::anyhow!("--queue takes a list, like `high,default`")
+                    })?;
+                    options =
+                        options.queues(list.split(',').map(|q| q.trim().to_string()).collect());
+                }
+                other => anyhow::bail!("unknown worker option `{other}`"),
+            }
+        }
+        if self.queue.mode() == laterite_core::queue::Mode::Inline {
+            anyhow::bail!(
+                "queue.mode is `inline`: jobs run as they are pushed, so there is nothing to work"
+            );
+        }
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            let _ = stop_tx.send(true);
+        });
+        let done = self.queue.work(options, stop_rx).await?;
+        println!("Processed {done} job(s).");
+        Ok(())
+    }
+}
+
+/// How long a stopping server waits for its workers' running jobs.
+const WORKER_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Resolves on Ctrl-C, or on SIGTERM where there is one.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    tracing::info!("stopping");
 }
 
 /// Binds the listener, preferring a `systemfd`-inherited socket (so the port

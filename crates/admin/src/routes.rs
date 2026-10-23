@@ -30,6 +30,7 @@ pub struct RouteCtx {
     auth: AuthService,
     parameters: laterite_core::parameters::Parameters,
     cache: laterite_core::Cache,
+    queue: laterite_core::Queue,
     upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -49,6 +50,7 @@ impl RouteCtx {
         db: Db,
         auth: AuthService,
         parameters: laterite_core::parameters::Parameters,
+        queue: laterite_core::Queue,
         upload_extensions: Arc<Vec<String>>,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -66,6 +68,7 @@ impl RouteCtx {
             auth,
             cache: parameters.cache().clone(),
             parameters,
+            queue,
             upload_extensions,
             field_types,
             overrides,
@@ -186,6 +189,11 @@ impl RouteCtx {
         &self.cache
     }
 
+    /// The application's queue, to push a job. See [`laterite_core::queue`].
+    pub fn queue(&self) -> &laterite_core::Queue {
+        &self.queue
+    }
+
     /// The settings store, writing through the cache. See
     /// [`crate::settings::Settings`].
     pub fn settings(&self) -> crate::settings::Settings {
@@ -275,6 +283,7 @@ impl RouteCtx {
             plugin_defined: None,
             events: None,
             cache: None,
+            queue: None,
         }
     }
 }
@@ -290,9 +299,17 @@ pub struct RouteCtxBuilder {
     plugin_defined: Option<Arc<Registry>>,
     events: Option<Events>,
     cache: Option<laterite_core::Cache>,
+    queue: Option<laterite_core::Queue>,
 }
 
 impl RouteCtxBuilder {
+    /// The queue `RouteCtx::queue` hands out. Defaults to an inline queue
+    /// knowing no job.
+    pub fn queue(mut self, queue: laterite_core::Queue) -> Self {
+        self.queue = Some(queue);
+        self
+    }
+
     /// The cache `RouteCtx::cache` hands out. Defaults to one process's own.
     pub fn cache(mut self, cache: laterite_core::Cache) -> Self {
         self.cache = Some(cache);
@@ -345,13 +362,25 @@ impl RouteCtxBuilder {
         let auth = self.auth.unwrap_or_else(|| {
             AuthService::new(self.db.clone(), laterite_auth::AuthConfig::default())
         });
+        let cache = self.cache.unwrap_or_else(laterite_core::Cache::local);
+        let parameters =
+            laterite_core::parameters::Parameters::with_cache(self.db.clone(), cache.clone());
+        let queue = self.queue.unwrap_or_else(|| {
+            laterite_core::Queue::inline(
+                Vec::new(),
+                laterite_core::queue::Services {
+                    db: self.db.clone(),
+                    events: events.clone(),
+                    cache: cache.clone(),
+                    parameters: parameters.clone(),
+                },
+            )
+        });
         RouteCtx::new(
             self.db.clone(),
             auth,
-            laterite_core::parameters::Parameters::with_cache(
-                self.db,
-                self.cache.unwrap_or_else(laterite_core::Cache::local),
-            ),
+            parameters,
+            queue,
             Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),

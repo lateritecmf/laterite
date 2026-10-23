@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         .modules(plugins_manifest::all())
         .module(migrations::AppModule)
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
-        .serve()
+        .run()
         .await
 }
 ```

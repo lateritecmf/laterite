@@ -23,6 +23,7 @@ mod media;
 mod new;
 mod plugin;
 mod project;
+mod queue;
 mod serve;
 mod theme;
 
@@ -94,6 +95,11 @@ enum Command {
     Cache {
         #[command(subcommand)]
         command: cache::CacheCommand,
+    },
+    /// The jobs waiting, the failed list, and a worker.
+    Queue {
+        #[command(subcommand)]
+        command: queue::QueueCommand,
     },
 }
 
@@ -169,6 +175,7 @@ async fn main() -> Result<()> {
         Command::Key { command } => key::run(command, cli.database_url).await,
         Command::Crypt { command } => crypt::run(command, cli.database_url).await,
         Command::Cache { command } => cache::run(command, cli.database_url).await,
+        Command::Queue { command } => queue::run(command, cli.database_url).await,
     }
 }
 

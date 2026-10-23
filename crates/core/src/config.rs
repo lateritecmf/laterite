@@ -121,6 +121,39 @@ fn browsable_host(listen: &str) -> String {
     }
 }
 
+/// The queue (`[queue]`): where jobs wait and who runs them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct QueueConfig {
+    /// `auto`, `database` or `redis`. `auto` is `database`.
+    pub store: String,
+    /// `worker` (workers in this process), `external` (another process runs
+    /// `queue work`) or `inline` (a job runs as it is pushed).
+    pub mode: String,
+    /// How many workers the process runs in `worker` mode.
+    pub workers: usize,
+    /// The queues a worker takes from, in priority order.
+    pub queues: Vec<String>,
+    /// Seconds after which a claimed job counts as abandoned and is claimed
+    /// again. Longer than any job's timeout.
+    pub retry_after_seconds: u64,
+    /// Seconds an idle worker waits before looking again.
+    pub poll_seconds: u64,
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            store: "auto".to_string(),
+            mode: "worker".to_string(),
+            workers: 2,
+            queues: vec!["default".to_string()],
+            retry_after_seconds: 90,
+            poll_seconds: 1,
+        }
+    }
+}
+
 /// The cache (`[cache]`): where values are kept and how the processes of a
 /// deployment learn of one another's invalidations.
 #[derive(Debug, Clone, Deserialize)]

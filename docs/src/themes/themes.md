@@ -9,7 +9,7 @@ use lateritecmf::web::theme::ThemeModule;
 Bootstrap::new("config")
     .module(ThemeModule)
     .module(migrations::AppModule)
-    .serve()
+    .run()
     .await
 ```
 

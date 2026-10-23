@@ -91,6 +91,7 @@
 - [Storage Disks](services/storage-disks.md)
 - [Encryption and Signing](services/crypt.md)
 - [Cache](services/cache.md)
+- [Queue](services/queue.md)
 
 # Media
 

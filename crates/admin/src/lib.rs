@@ -273,6 +273,8 @@ pub(crate) struct AdminState {
     /// The application's cache: the resolved brand lives in it under the
     /// settings namespace, so a save of the setting reaches every process.
     cache: laterite_core::Cache,
+    /// The application's queue, for a screen that pushes work.
+    queue: laterite_core::Queue,
     /// The deployment's skin, resolved once at boot.
     skin: Arc<skin::Active>,
     /// Each registered asset's content-named path. See [`asset_urls`].
@@ -310,6 +312,7 @@ impl AdminState {
             auth,
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
             cache: laterite_core::Cache::local(),
+            queue: inline_queue(&db, laterite_core::Cache::local()),
             upload_extensions: Arc::new(upload_extensions(&[])),
             db,
             nav: Arc::new(nav::NavTree::default()),
@@ -439,6 +442,10 @@ pub struct AdminConfig {
     /// The application's cache, built by the bootstrap from `[cache]`; unset,
     /// one process's own. See [`laterite_core::cache`].
     pub cache: Option<laterite_core::Cache>,
+    /// The application's queue, built by the bootstrap from `[queue]` with
+    /// every registered job; unset, an inline queue knowing no job. See
+    /// [`laterite_core::queue`].
+    pub queue: Option<laterite_core::Queue>,
 }
 
 impl Default for AdminConfig {
@@ -459,8 +466,26 @@ impl Default for AdminConfig {
             secret: random_key(),
             crypt: None,
             cache: None,
+            queue: None,
         }
     }
+}
+
+/// A queue running every job as it is pushed, knowing no job: what a router
+/// built without the bootstrap gets.
+fn inline_queue(db: &Db, cache: laterite_core::Cache) -> laterite_core::Queue {
+    laterite_core::Queue::inline(
+        Vec::new(),
+        laterite_core::queue::Services {
+            db: db.clone(),
+            events: laterite_core::Events::new(db.clone()),
+            parameters: laterite_core::parameters::Parameters::with_cache(
+                db.clone(),
+                cache.clone(),
+            ),
+            cache,
+        },
+    )
 }
 
 /// Thirty-two random bytes: a signing key for one process.
@@ -1530,6 +1555,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(laterite_core::parameters::ParametersModule),
         Box::new(laterite_core::crypt::CryptModule),
         Box::new(laterite_core::cache::CacheModule),
+        Box::new(laterite_core::queue::QueueModule),
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
@@ -1973,10 +1999,15 @@ pub fn router(
         .cache
         .clone()
         .unwrap_or_else(laterite_core::Cache::local);
+    let queue = config
+        .queue
+        .clone()
+        .unwrap_or_else(|| inline_queue(&db, cache.clone()));
     let state = AdminState {
         auth,
         parameters: laterite_core::parameters::Parameters::with_cache(db.clone(), cache.clone()),
         cache,
+        queue,
         upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
         db,
         nav: Arc::new(nav),
@@ -2076,6 +2107,7 @@ pub fn router(
             state.db.clone(),
             state.auth.clone(),
             state.parameters.clone(),
+            state.queue.clone(),
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
@@ -2110,6 +2142,7 @@ pub fn router(
             state.db.clone(),
             state.auth.clone(),
             state.parameters.clone(),
+            state.queue.clone(),
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
@@ -2287,6 +2320,7 @@ pub fn router(
             &state.db,
             &state.auth,
             &state.parameters,
+            &state.queue,
             &state.upload_extensions,
             &state.field_types,
             &state.overrides,
@@ -2306,6 +2340,7 @@ pub fn router(
                 state.db.clone(),
                 state.auth.clone(),
                 state.parameters.clone(),
+                state.queue.clone(),
                 state.upload_extensions.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
@@ -2472,6 +2507,7 @@ fn mount_public(
     db: &Db,
     auth: &AuthService,
     parameters: &laterite_core::parameters::Parameters,
+    queue: &laterite_core::Queue,
     upload_extensions: &Arc<Vec<String>>,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
@@ -2490,6 +2526,7 @@ fn mount_public(
             db.clone(),
             auth.clone(),
             parameters.clone(),
+            queue.clone(),
             upload_extensions.clone(),
             field_types.clone(),
             overrides.clone(),
@@ -5662,6 +5699,7 @@ mod tests {
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Configured Name".to_string(),
             cache: laterite_core::Cache::local(),
+            queue: inline_queue(&db, laterite_core::Cache::local()),
             skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),

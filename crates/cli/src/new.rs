@@ -623,7 +623,7 @@ async fn main() -> anyhow::Result<()> {
         .module(migrations::AppModule)
         // Register admin screens, permissions, and settings in AppModule::register().
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
-        .serve()
+        .run()
         .await
 }
 "#;

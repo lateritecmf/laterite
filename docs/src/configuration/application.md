@@ -63,6 +63,26 @@ Key | Description
 `cache.url` | The Redis URL for the `redis` store.
 `cache.prefix` | The prefix of every Redis key. Default `laterite`.
 
+## Set `[queue]`
+
+```toml
+[queue]
+store = "auto"            # auto | database | redis
+mode = "worker"           # worker | external | inline
+workers = 2
+queues = ["default"]
+retry_after_seconds = 90
+```
+
+Key | Description
+--- | ---
+`queue.store` | Where jobs wait; `auto` is `database`. See [Queue](../services/queue.md).
+`queue.mode` | `worker` in the application process, `external` for `queue work` alone, `inline` to run a job as it is pushed.
+`queue.workers` | Workers per process in `worker` mode. Default `2`.
+`queue.queues` | The queues taken from, in priority order. Default `["default"]`.
+`queue.retry_after_seconds` | When a claimed job counts as abandoned. Default `90`.
+`queue.poll_seconds` | An idle worker's wait. Default `1`.
+
 ## Mount a module's screens
 
 A module's screens namespace under its identity: `acme.places`
