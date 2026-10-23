@@ -61,6 +61,8 @@ pub struct AppConfig {
     pub backend: BackendConfig,
     #[serde(default)]
     pub plugins: PluginsConfig,
+    #[serde(default)]
+    pub cache: laterite_core::config::CacheConfig,
 }
 
 /// Deployment control over which plugins load. A disabled plugin's migrations do
@@ -80,6 +82,7 @@ pub struct BootstrapCtx {
     capabilities: CapabilitySet,
     translator: Translator,
     events: laterite_core::Events,
+    cache: laterite_core::Cache,
 }
 
 impl BootstrapCtx {
@@ -104,6 +107,12 @@ impl BootstrapCtx {
     /// app's routes to announce on.
     pub fn events(&self) -> &laterite_core::Events {
         &self.events
+    }
+
+    /// The application's cache, for an app's routes to read through and
+    /// bump. See [`laterite_core::cache`].
+    pub fn cache(&self) -> &laterite_core::Cache {
+        &self.cache
     }
 }
 
@@ -473,6 +482,17 @@ impl Bootstrap {
             .collect();
         crate::routemap::check_segments(&settings_claims);
         let settings: Vec<SettingsItem> = settings.into_iter().map(|(_, i)| i).collect();
+        // The cache, over the generations table every module has migrated,
+        // knowing every namespace a module registered.
+        let cache = laterite_core::cache::from_config(&config.cache, &db, config.app.debug).await?;
+        for (owner, namespace) in contributions.take_owned::<laterite_core::cache::CacheNamespace>()
+        {
+            cache.allow(namespace.qualified(owner));
+        }
+        if config.cache.poll_seconds > 0 {
+            cache.start_polling(std::time::Duration::from_secs(config.cache.poll_seconds));
+        }
+        tracing::info!(store = cache.store(), "cache ready");
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();
@@ -518,6 +538,7 @@ impl Bootstrap {
             menu: config.backend.menu.clone(),
             secret,
             crypt: Some(std::sync::Arc::new(crypt)),
+            cache: Some(cache.clone()),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -586,6 +607,7 @@ impl Bootstrap {
                 capabilities,
                 translator: Translator::new(&config.app.locale),
                 events,
+                cache,
             };
             app = extend(app, &ctx);
         }

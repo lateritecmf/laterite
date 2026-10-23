@@ -52,6 +52,7 @@ pub(crate) async fn delete_selected(
     for id in ids {
         let req = DeleteRequest {
             db: &state.db,
+            cache: Some(&state.cache),
             listeners: &ctx.listeners,
             persister: ctx.persister.as_ref(),
             actor,

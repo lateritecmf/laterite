@@ -6,6 +6,7 @@
 //! migrations, module registration, and pagination primitives.
 
 pub mod arrange;
+pub mod cache;
 pub mod capabilities;
 pub mod config;
 pub mod crypt;
@@ -30,6 +31,7 @@ pub mod testing;
 pub mod theme;
 pub mod validation;
 
+pub use cache::Cache;
 pub use capabilities::CapabilitySet;
 pub use crypt::{Crypt, CryptError, MasterKey};
 pub use db::Db;

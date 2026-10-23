@@ -1,7 +1,9 @@
 //! The Themes screen: every theme, its config and its templates, edited from
 //! the admin under the `web.manage_themes` permission.
 
-use super::{archive, engine, store, EditTheme, Kind, Revision, Template, Theme, ThemeError};
+use super::{
+    archive, engine, store, EditTheme, Kind, Revision, Template, Theme, ThemeError, Themes,
+};
 use laterite_admin::axum::extract::{Form, Path, State};
 use laterite_admin::axum::http::{header, StatusCode};
 use laterite_admin::axum::response::{IntoResponse, Redirect, Response};
@@ -224,7 +226,7 @@ async fn create(
             return back(&ctx, "");
         }
     };
-    match store::create_theme(ctx.db(), form.code.trim(), &yaml).await {
+    match Themes::of(&ctx).create_theme(form.code.trim(), &yaml).await {
         Ok(theme) => {
             ctx.audit(
                 &user,
@@ -325,7 +327,10 @@ async fn run_import(
         session.push_flash(FlashLevel::Error, t!("Choose a zip to import."));
         return None;
     };
-    match archive::import(ctx.db(), code, &bytes, form.replace, Some(user.user.id)).await {
+    match Themes::of(ctx)
+        .import(code, &bytes, form.replace, Some(user.user.id))
+        .await
+    {
         Ok(report) => {
             ctx.audit(
                 user,
@@ -828,7 +833,10 @@ async fn update_config(
     Path(code): Path<String>,
     Form(form): Form<ConfigForm>,
 ) -> Response {
-    match store::update_theme_config(ctx.db(), &code, &form.config).await {
+    match Themes::of(&ctx)
+        .update_theme_config(&code, &form.config)
+        .await
+    {
         Ok(theme) => {
             ctx.audit(
                 &user,
@@ -898,7 +906,7 @@ async fn save_properties(
             return back(&ctx, &code);
         }
     };
-    match store::update_theme_config(ctx.db(), &code, &yaml).await {
+    match Themes::of(&ctx).update_theme_config(&code, &yaml).await {
         Ok(theme) => {
             ctx.audit(
                 &user,
@@ -935,7 +943,7 @@ async fn save_settings(
         .value_form(&fields, &code)
         .and_then(|form| form.collect(&data));
     match collected {
-        Ok(values) => match store::save_settings(ctx.db(), &code, &values).await {
+        Ok(values) => match Themes::of(&ctx).save_settings(&code, &values).await {
             Ok(()) => {
                 ctx.audit(
                     &user,
@@ -1032,7 +1040,10 @@ async fn duplicate(
     Path(code): Path<String>,
     Form(form): Form<CopyForm>,
 ) -> Response {
-    match store::duplicate_theme(ctx.db(), &code, form.new_code.trim()).await {
+    match Themes::of(&ctx)
+        .duplicate_theme(&code, form.new_code.trim())
+        .await
+    {
         Ok(copy) => {
             ctx.audit(
                 &user,
@@ -1065,7 +1076,10 @@ async fn child(
     } else {
         form.name.trim().to_string()
     };
-    match store::create_child_theme(ctx.db(), &code, form.new_code.trim(), &name).await {
+    match Themes::of(&ctx)
+        .create_child_theme(&code, form.new_code.trim(), &name)
+        .await
+    {
         Ok(child) => {
             ctx.audit(
                 &user,
@@ -1099,7 +1113,7 @@ async fn lock(
     Form(form): Form<LockForm>,
 ) -> Response {
     let locked = form.locked != 0;
-    match store::set_locked(ctx.db(), &code, locked).await {
+    match Themes::of(&ctx).set_locked(&code, locked).await {
         Ok(()) => {
             ctx.audit(
                 &user,
@@ -1134,7 +1148,7 @@ async fn delete(
     Extension(user): Extension<AuthenticatedUser>,
     Path(code): Path<String>,
 ) -> Response {
-    match store::delete_theme(ctx.db(), &code).await {
+    match Themes::of(&ctx).delete_theme(&code).await {
         Ok(()) => {
             ctx.audit(
                 &user,
@@ -1190,16 +1204,9 @@ async fn create_template(
     // A new page starts at the URL its name suggests, so it serves at once.
     let settings = (kind == Kind::Page)
         .then(|| serde_json::json!({ "url": format!("/{}", super::page::page_name(path)) }));
-    match store::save_template(
-        ctx.db(),
-        theme.id,
-        kind,
-        path,
-        settings,
-        "",
-        Some(user.user.id),
-    )
-    .await
+    match Themes::of(&ctx)
+        .save_template(theme.id, kind, path, settings, "", Some(user.user.id))
+        .await
     {
         Ok(t) => {
             ctx.audit(
@@ -1477,16 +1484,16 @@ async fn save_template(
             return back(&ctx, &here);
         }
     }
-    match store::save_template(
-        ctx.db(),
-        theme.id,
-        template.kind,
-        &template.path,
-        Some(settings),
-        &markup,
-        Some(user.user.id),
-    )
-    .await
+    match Themes::of(&ctx)
+        .save_template(
+            theme.id,
+            template.kind,
+            &template.path,
+            Some(settings),
+            &markup,
+            Some(user.user.id),
+        )
+        .await
     {
         Ok(saved) => {
             ctx.audit(
@@ -1518,7 +1525,7 @@ async fn delete_template(
             return back(&ctx, &code);
         }
     };
-    match store::delete_template(ctx.db(), id).await {
+    match Themes::of(&ctx).delete_template(id).await {
         Ok(()) => {
             ctx.audit(
                 &user,
@@ -1567,7 +1574,10 @@ async fn restore(
         );
         return back(&ctx, &here);
     }
-    match store::restore_revision(ctx.db(), form.revision, Some(user.user.id)).await {
+    match Themes::of(&ctx)
+        .restore_revision(form.revision, Some(user.user.id))
+        .await
+    {
         Ok(saved) => {
             ctx.audit(
                 &user,

@@ -62,7 +62,7 @@ impl PublicRoute for Site {
             .collect();
         let state = Arc::new(SiteState {
             ctx: ctx.clone(),
-            engines: EngineCache::new(),
+            engines: EngineCache::with_cache(ctx.cache().clone()),
             markup,
             components,
         });

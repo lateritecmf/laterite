@@ -112,7 +112,7 @@ pub(crate) fn settings_item() -> SettingsItem {
 /// The brand as every page shows it: the setting resolved against the
 /// configured name, its images against the library, its colour into
 /// stylesheet variables, its stylesheet cleaned.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Brand {
     pub name: String,
     pub logo_url: Option<String>,

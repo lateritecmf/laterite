@@ -1010,6 +1010,7 @@ fn merged_field_rules(form: &PreparedForm) -> Vec<FieldRules> {
 /// `None` creates. Returns the record as saved, its id set on a create.
 pub(crate) async fn write(
     db: &Db,
+    cache: Option<&laterite_core::Cache>,
     form: &PreparedForm,
     data: &HashMap<String, String>,
     id: Option<&str>,
@@ -1019,6 +1020,7 @@ pub(crate) async fn write(
     persist::save(
         persist::SaveRequest {
             db,
+            cache,
             listeners: &form.listeners,
             persister: form.persister.as_ref(),
             actor,
@@ -1125,12 +1127,13 @@ pub(crate) type Forms = Arc<HashMap<String, Arc<PreparedForm>>>;
 #[derive(Clone)]
 pub struct FormHandle {
     db: Db,
+    cache: laterite_core::Cache,
     form: Arc<PreparedForm>,
 }
 
 impl FormHandle {
-    pub(crate) fn new(db: Db, form: Arc<PreparedForm>) -> Self {
-        Self { db, form }
+    pub(crate) fn new(db: Db, cache: laterite_core::Cache, form: Arc<PreparedForm>) -> Self {
+        Self { db, cache, form }
     }
 
     /// The table the form writes.
@@ -1159,7 +1162,7 @@ impl FormHandle {
         actor: &Actor,
     ) -> Result<i64, SaveError> {
         let data = gathered(&self.form, data);
-        let rec = write(&self.db, &self.form, &data, None, actor).await?;
+        let rec = write(&self.db, Some(&self.cache), &self.form, &data, None, actor).await?;
         rec.id()
             .ok_or_else(|| SaveError::Failed("the persister returned no id".to_string()))
     }
@@ -1199,9 +1202,16 @@ impl FormHandle {
         actor: &Actor,
     ) -> Result<(), SaveError> {
         let data = gathered(&self.form, data);
-        write(&self.db, &self.form, &data, Some(&id.to_string()), actor)
-            .await
-            .map(|_| ())
+        write(
+            &self.db,
+            Some(&self.cache),
+            &self.form,
+            &data,
+            Some(&id.to_string()),
+            actor,
+        )
+        .await
+        .map(|_| ())
     }
 }
 
@@ -1276,7 +1286,7 @@ pub(crate) async fn create(
     let mut data = gathered(form, data);
     let then = data.remove("then");
     let actor = Actor::from(user);
-    match write(&state.db, form, &data, None, &actor).await {
+    match write(&state.db, Some(&state.cache), form, &data, None, &actor).await {
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
         Ok(rec) => {
@@ -1485,7 +1495,16 @@ pub(crate) async fn update(
     let mut data = gathered(form, data);
     let then = data.remove("then");
     let actor = Actor::from(user);
-    match write(&state.db, form, &data, Some(&id), &actor).await {
+    match write(
+        &state.db,
+        Some(&state.cache),
+        form,
+        &data,
+        Some(&id),
+        &actor,
+    )
+    .await
+    {
         Ok(_) => {
             session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
             let mut choice = HashMap::new();
@@ -2102,6 +2121,7 @@ mod tests {
         let persister = DefaultPersister::from_config(&form.config);
         let rec = delete(DeleteRequest {
             db: &db,
+            cache: None,
             listeners: &[],
             persister: &persister,
             actor: &laterite_core::Actor::system("test"),
@@ -2609,6 +2629,7 @@ mod timestamp_tests {
         persist::save(
             persist::SaveRequest {
                 db,
+                cache: None,
                 listeners: &form.listeners,
                 persister: form.persister.as_ref(),
                 actor: &actor,

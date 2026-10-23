@@ -4,8 +4,8 @@
 //! moment setup completed, the cursor of the last sync, a counter. It is
 //! internal state, written by code, distinct from a settings model an
 //! operator edits on a screen. The functions read and write the table
-//! directly; [`Parameters`] wraps them with a per-process cache that a write
-//! through it refreshes and a lifetime bounds.
+//! directly; [`Parameters`] wraps them with the cache, which a write through
+//! it moves on for every process and a lifetime bounds.
 //!
 //! ```ignore
 //! use laterite_core::parameters;
@@ -14,9 +14,10 @@
 //! let cursor: Option<String> = parameters::get(&db, "acme.blog::sync.cursor").await?;
 //! ```
 
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::{SecondsFormat, Utc};
 use serde::de::DeserializeOwned;
@@ -24,7 +25,7 @@ use serde::Serialize;
 
 use crate::error::{CoreError, CoreResult};
 use crate::query::{bind_values, build, AnyRowExt};
-use crate::{Db, Module, ModuleId};
+use crate::{Cache, Db, Module, ModuleId};
 use sea_query::{Expr, Iden, OnConflict, Query};
 
 pub mod migrations;
@@ -178,23 +179,24 @@ pub async fn reset(db: &Db, key: &str) -> CoreResult<bool> {
     Ok(done.rows_affected() > 0)
 }
 
-/// What the cache holds for a key: the value (or its absence) and when it
-/// was read.
-#[derive(Debug, Clone)]
-struct Cached {
-    value: Option<serde_json::Value>,
-    read_at: Instant,
-}
+/// The cache namespace every parameter read depends on; a write through
+/// [`Parameters`] bumps it.
+pub const NAMESPACE: &str = "laterite.parameters::values";
 
-/// The store behind a per-process cache. A read within `ttl` of the last
-/// read or write of the same key returns the remembered value; a write or
-/// reset through this handle refreshes it; another process's write is seen
-/// once the entry ages out. Clones share the cache.
+/// The store behind the cache. A read within `ttl` of the last read or
+/// write of the same key returns the cached value; a write or reset through
+/// any handle in any process moves the namespace on, and every handle reads
+/// afresh. Clones share the cache.
 #[derive(Clone)]
 pub struct Parameters {
     db: Db,
-    cache: Arc<Mutex<HashMap<String, Cached>>>,
+    cache: Cache,
     ttl: Duration,
+    /// Keys [`Parameters::forget`] marked, read from the table next time.
+    stale: Arc<Mutex<HashSet<String>>>,
+    /// Moved by [`Parameters::clear`]; part of every cache key, so what was
+    /// cached before is out of reach.
+    epoch: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for Parameters {
@@ -210,11 +212,20 @@ impl std::fmt::Debug for Parameters {
 pub const DEFAULT_TTL: Duration = Duration::from_secs(300);
 
 impl Parameters {
+    /// A store over a cache of its own, one process alone.
     pub fn new(db: Db) -> Self {
+        Self::with_cache(db, Cache::local())
+    }
+
+    /// A store over the application's cache, so every process sees a write.
+    pub fn with_cache(db: Db, cache: Cache) -> Self {
+        cache.allow(NAMESPACE);
         Self {
             db,
-            cache: Arc::new(Mutex::new(HashMap::new())),
+            cache,
             ttl: DEFAULT_TTL,
+            stale: Arc::new(Mutex::new(HashSet::new())),
+            epoch: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -229,34 +240,40 @@ impl Parameters {
         &self.db
     }
 
-    fn remembered(&self, key: &str) -> Option<Option<serde_json::Value>> {
-        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache
-            .get(key)
-            .filter(|c| c.read_at.elapsed() < self.ttl)
-            .map(|c| c.value.clone())
+    /// The cache the store reads through.
+    pub fn cache(&self) -> &Cache {
+        &self.cache
     }
 
-    fn remember(&self, key: &str, value: Option<serde_json::Value>) {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache.insert(
-            key.to_string(),
-            Cached {
-                value,
-                read_at: Instant::now(),
-            },
-        );
+    fn cache_key(&self, key: &str) -> String {
+        format!(
+            "laterite.parameters::{}:{key}",
+            self.epoch.load(Ordering::Relaxed)
+        )
+    }
+
+    fn take_stale(&self, key: &str) -> bool {
+        self.stale
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key)
     }
 
     /// Reads a parameter as `T`, from the cache when fresh.
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> CoreResult<Option<T>> {
-        let value = match self.remembered(key) {
-            Some(value) => value,
-            None => {
-                let value = get_value(&self.db, key).await?;
-                self.remember(key, value.clone());
-                value
-            }
+        let cache_key = self.cache_key(key);
+        let value: Option<serde_json::Value> = if self.take_stale(key) {
+            let value = get_value(&self.db, key).await?;
+            self.cache
+                .put_json(&cache_key, &value, &[NAMESPACE], self.ttl)
+                .await?;
+            value
+        } else {
+            self.cache
+                .remember(&cache_key, self.ttl, &[NAMESPACE], || {
+                    get_value(&self.db, key)
+                })
+                .await?
         };
         match value {
             Some(value) => Ok(Some(serde_json::from_value(value).map_err(|e| {
@@ -273,32 +290,44 @@ impl Parameters {
         Ok(self.get(key).await?.unwrap_or(default))
     }
 
-    /// Writes a parameter and remembers it.
+    /// Writes a parameter; every handle reads it afresh, this one at once.
     pub async fn set<T: Serialize + ?Sized>(&self, key: &str, value: &T) -> CoreResult<()> {
         set(&self.db, key, value).await?;
         let json = serde_json::to_value(value)
             .map_err(|e| CoreError::Internal(format!("parameter `{key}` cannot serialize: {e}")))?;
-        self.remember(key, Some(json));
-        Ok(())
+        self.cache.bump(NAMESPACE).await?;
+        self.cache
+            .put_json(&self.cache_key(key), &Some(json), &[NAMESPACE], self.ttl)
+            .await
     }
 
-    /// Removes a parameter and remembers its absence.
+    /// Removes a parameter; every handle sees its absence.
     pub async fn reset(&self, key: &str) -> CoreResult<bool> {
         let done = reset(&self.db, key).await?;
-        self.remember(key, None);
+        self.cache.bump(NAMESPACE).await?;
+        self.cache
+            .put_json(
+                &self.cache_key(key),
+                &None::<serde_json::Value>,
+                &[NAMESPACE],
+                self.ttl,
+            )
+            .await?;
         Ok(done)
     }
 
-    /// Drops one key from the cache, so the next read hits the table.
+    /// Marks one key, so this handle's next read of it hits the table.
     pub fn forget(&self, key: &str) {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache.remove(key);
+        self.stale
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.to_string());
     }
 
-    /// Drops every cached entry.
+    /// Leaves every cached entry behind, so this handle's next reads hit
+    /// the table.
     pub fn clear(&self) {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache.clear();
+        self.epoch.fetch_add(1, Ordering::Relaxed);
     }
 }
 

@@ -29,6 +29,7 @@ pub struct RouteCtx {
     db: Db,
     auth: AuthService,
     parameters: laterite_core::parameters::Parameters,
+    cache: laterite_core::Cache,
     upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -63,6 +64,7 @@ impl RouteCtx {
         Self {
             db,
             auth,
+            cache: parameters.cache().clone(),
             parameters,
             upload_extensions,
             field_types,
@@ -173,10 +175,21 @@ impl RouteCtx {
         &self.db
     }
 
-    /// The parameters store, cached per process. See
+    /// The parameters store, read through the cache. See
     /// [`laterite_core::parameters`].
     pub fn parameters(&self) -> &laterite_core::parameters::Parameters {
         &self.parameters
+    }
+
+    /// The application's cache. See [`laterite_core::cache`].
+    pub fn cache(&self) -> &laterite_core::Cache {
+        &self.cache
+    }
+
+    /// The settings store, writing through the cache. See
+    /// [`crate::settings::Settings`].
+    pub fn settings(&self) -> crate::settings::Settings {
+        crate::settings::Settings::new(self.db.clone(), self.cache.clone())
     }
 
     /// A resource's form, to write its records from code: an importer, a sync,
@@ -189,7 +202,7 @@ impl RouteCtx {
     pub fn form(&self, path: &str) -> Option<FormHandle> {
         self.forms
             .get(path)
-            .map(|form| FormHandle::new(self.db.clone(), form.clone()))
+            .map(|form| FormHandle::new(self.db.clone(), self.cache.clone(), form.clone()))
     }
 
     /// The application's event bus, for a route that announces a fact:
@@ -261,6 +274,7 @@ impl RouteCtx {
             base_url: "http://localhost".to_string(),
             plugin_defined: None,
             events: None,
+            cache: None,
         }
     }
 }
@@ -275,9 +289,16 @@ pub struct RouteCtxBuilder {
     base_url: String,
     plugin_defined: Option<Arc<Registry>>,
     events: Option<Events>,
+    cache: Option<laterite_core::Cache>,
 }
 
 impl RouteCtxBuilder {
+    /// The cache `RouteCtx::cache` hands out. Defaults to one process's own.
+    pub fn cache(mut self, cache: laterite_core::Cache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
     /// Where the screen mounted. Defaults to `/`.
     pub fn base_path(mut self, path: impl Into<String>) -> Self {
         self.base_path = path.into();
@@ -327,7 +348,10 @@ impl RouteCtxBuilder {
         RouteCtx::new(
             self.db.clone(),
             auth,
-            laterite_core::parameters::Parameters::new(self.db),
+            laterite_core::parameters::Parameters::with_cache(
+                self.db,
+                self.cache.unwrap_or_else(laterite_core::Cache::local),
+            ),
             Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),

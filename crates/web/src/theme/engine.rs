@@ -667,14 +667,30 @@ pub fn check(source: &str) -> Result<(), RenderError> {
 }
 
 /// One engine per theme, rebuilt when the theme or an ancestor changes.
+///
+/// With a cache attached, the theme chain is read only when the theme
+/// namespace has moved since the engine was checked; without one, on every
+/// call.
 #[derive(Default)]
 pub struct EngineCache {
     engines: RwLock<HashMap<String, Arc<Engine>>>,
+    cache: Option<laterite_core::Cache>,
+    /// The theme generation each engine was last checked against.
+    checked: RwLock<HashMap<String, u64>>,
 }
 
 impl EngineCache {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A cache of engines gated by the application's cache.
+    pub fn with_cache(cache: laterite_core::Cache) -> Self {
+        cache.allow(super::NAMESPACE);
+        Self {
+            cache: Some(cache),
+            ..Self::default()
+        }
     }
 
     /// The engine for `code`, built or rebuilt as its stamp requires.
@@ -702,24 +718,55 @@ impl EngineCache {
         component_snippets: HashSet<String>,
         configure: impl FnOnce(&mut Environment<'static>),
     ) -> Result<Arc<Engine>, ThemeError> {
-        let chain = store::chain(db, code).await?;
-        let stamp = stamp_of(&chain);
-        if let Some(engine) = self.engines.read().expect("engine cache").get(code) {
-            if engine.stamp == stamp {
-                return Ok(Arc::clone(engine));
+        let generation = self
+            .cache
+            .as_ref()
+            .and_then(|c| c.current(super::NAMESPACE));
+        if let Some(generation) = generation {
+            let unchanged =
+                self.checked.read().expect("engine cache").get(code) == Some(&generation);
+            if unchanged {
+                if let Some(engine) = self.engines.read().expect("engine cache").get(code) {
+                    return Ok(Arc::clone(engine));
+                }
             }
         }
-        let engine = Arc::new(Engine::build_for(db, code, component_snippets, configure).await?);
-        self.engines
-            .write()
+        let chain = store::chain(db, code).await?;
+        let stamp = stamp_of(&chain);
+        let kept = self
+            .engines
+            .read()
             .expect("engine cache")
-            .insert(code.to_string(), Arc::clone(&engine));
+            .get(code)
+            .filter(|engine| engine.stamp == stamp)
+            .cloned();
+        let engine = match kept {
+            Some(engine) => engine,
+            None => {
+                let engine =
+                    Arc::new(Engine::build_for(db, code, component_snippets, configure).await?);
+                self.engines
+                    .write()
+                    .expect("engine cache")
+                    .insert(code.to_string(), Arc::clone(&engine));
+                engine
+            }
+        };
+        if let Some(cache) = &self.cache {
+            if let Ok(generation) = cache.generation(super::NAMESPACE).await {
+                self.checked
+                    .write()
+                    .expect("engine cache")
+                    .insert(code.to_string(), generation);
+            }
+        }
         Ok(engine)
     }
 
     /// Drops the engine for `code`, so the next request rebuilds it.
     pub fn invalidate(&self, code: &str) {
         self.engines.write().expect("engine cache").remove(code);
+        self.checked.write().expect("engine cache").remove(code);
     }
 }
 

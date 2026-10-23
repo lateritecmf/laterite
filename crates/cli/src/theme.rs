@@ -69,7 +69,10 @@ pub async fn run(command: ThemeCommand, db: Db) -> Result<()> {
         ThemeCommand::Import(args) => {
             let bytes = std::fs::read(&args.file)
                 .with_context(|| format!("could not read {}", args.file.display()))?;
-            let report = archive::import(&db, &args.code, &bytes, args.replace, None)
+            let themes =
+                laterite_web::theme::Themes::new(db.clone(), crate::cache::open(&db).await?);
+            let report = themes
+                .import(&args.code, &bytes, args.replace, None)
                 .await
                 .with_context(|| format!("could not import into the theme {:?}", args.code))?;
             println!(

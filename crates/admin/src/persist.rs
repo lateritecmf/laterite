@@ -148,6 +148,9 @@ fn bind(value: Option<&AttrValue>) -> SimpleExpr {
 /// `id` is the row to update, and is ignored on a create.
 pub(crate) struct SaveRequest<'a> {
     pub db: &'a Db,
+    /// Bumped for the entity once the write is committed; `None` where no
+    /// cache is in play (a test).
+    pub cache: Option<&'a laterite_core::Cache>,
     pub listeners: &'a [Arc<dyn ModelListener>],
     pub persister: &'a dyn Persister,
     /// Who is performing the write; reaches listeners and the persister.
@@ -160,6 +163,7 @@ pub(crate) struct SaveRequest<'a> {
 pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), SaveError> {
     let SaveRequest {
         db,
+        cache,
         listeners,
         persister,
         actor,
@@ -196,7 +200,13 @@ pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), S
         }
     }
 
-    // After the commit, so a listener here cannot roll the write back.
+    // After the commit, so a listener here cannot roll the write back. The
+    // entity's cache namespace moves first, so a listener reads fresh.
+    if let Some(cache) = cache {
+        let _ = cache
+            .bump(&laterite_core::cache::records(rec.entity()))
+            .await;
+    }
     let saved = SavedCx::new(db, actor);
     for listener in listeners {
         listener.after_save(&saved, rec, op).await;
@@ -207,6 +217,7 @@ pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), S
 /// What one delete needs: where to write, who is doing it, and which record.
 pub(crate) struct DeleteRequest<'a> {
     pub db: &'a Db,
+    pub cache: Option<&'a laterite_core::Cache>,
     pub listeners: &'a [Arc<dyn ModelListener>],
     pub persister: &'a dyn Persister,
     pub actor: &'a Actor,
@@ -222,6 +233,7 @@ pub(crate) struct DeleteRequest<'a> {
 pub(crate) async fn delete(req: DeleteRequest<'_>) -> Result<Record, DeleteError> {
     let DeleteRequest {
         db,
+        cache,
         listeners,
         persister,
         actor,
@@ -261,6 +273,9 @@ pub(crate) async fn delete(req: DeleteRequest<'_>) -> Result<Record, DeleteError
     };
 
     // After the commit: the row is gone, so nothing here can undo it.
+    if let Some(cache) = cache {
+        let _ = cache.bump(&laterite_core::cache::records(entity)).await;
+    }
     let saved = SavedCx::new(db, actor);
     for listener in listeners {
         listener.after_delete(&saved, &rec).await;
@@ -650,6 +665,7 @@ mod pipeline_tests {
 
         let rec = delete(DeleteRequest {
             db: &db,
+            cache: None,
             listeners: &listeners,
             persister: &persister,
             actor: &actor(),
@@ -679,6 +695,7 @@ mod pipeline_tests {
 
         let err = delete(DeleteRequest {
             db: &db,
+            cache: None,
             listeners: &listeners,
             persister: &persister,
             actor: &actor(),
@@ -710,6 +727,7 @@ mod pipeline_tests {
         let persister = SpyPersister::default();
         let err = delete(DeleteRequest {
             db: &db,
+            cache: None,
             listeners: &[],
             persister: &persister,
             actor: &actor(),
@@ -788,6 +806,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &spy,
                 actor: &actor(),
@@ -816,6 +835,7 @@ mod pipeline_tests {
         let err = save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &spy,
                 actor: &actor(),
@@ -856,6 +876,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &SpyPersister::default(),
                 actor: &actor(),
@@ -892,6 +913,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &SpyPersister::default(),
                 actor: &actor(),
@@ -926,6 +948,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &spy,
                 actor: &actor(),
@@ -1032,6 +1055,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &SnapshotPersister,
                 actor: &actor(),
@@ -1059,6 +1083,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &listeners(&regs, "samples"),
                 persister: &SnapshotPersister,
                 actor: &actor(),
@@ -1082,6 +1107,7 @@ mod pipeline_tests {
         save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &[],
                 persister: &spy,
                 actor: &actor(),
@@ -1105,6 +1131,7 @@ mod pipeline_tests {
         let err = save(
             SaveRequest {
                 db: &db,
+                cache: None,
                 listeners: &[],
                 persister: &spy,
                 actor: &actor(),

@@ -45,6 +45,24 @@ Key | Description
 `app.previous_keys` | Keys retired by a rotation, each `id:<base64>`, read but never written with.
 `server.listen` | The `host:port` to bind. Default `127.0.0.1:8080`. `lat serve --host`, `--port` and `--listen` override it.
 
+## Set `[cache]`
+
+```toml
+[cache]
+store = "auto"            # auto | null | memory | redis
+memory_mib = 64
+poll_seconds = 2
+# url = "redis://127.0.0.1:6379/0"
+```
+
+Key | Description
+--- | ---
+`cache.store` | `auto` is `null` while `app.debug` is on and `memory` otherwise. See [Cache](../services/cache.md).
+`cache.memory_mib` | The `memory` store's capacity. Default `64`.
+`cache.poll_seconds` | How often a process reads the other processes' invalidations; `0` for a single process. Default `2`.
+`cache.url` | The Redis URL for the `redis` store.
+`cache.prefix` | The prefix of every Redis key. Default `laterite`.
+
 ## Mount a module's screens
 
 A module's screens namespace under its identity: `acme.places`

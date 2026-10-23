@@ -11,7 +11,7 @@ use laterite_core::{CatalogStore, Db, Module};
 use laterite_web::theme::component::{
     self, Component, ComponentContext, ComponentOutput, ComponentReg, PropertyDef, PropertyKind,
 };
-use laterite_web::theme::{self, site, store, Kind, ThemeError, ThemeModule};
+use laterite_web::theme::{self, site, store, Kind, ThemeError, ThemeModule, Themes};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -54,8 +54,9 @@ fn regs() -> Vec<ComponentReg> {
     vec![ComponentReg::new("acme.posts", "Posts", Arc::new(Posts))]
 }
 
-fn app(db: &Db) -> Router {
+fn app(db: &Db, cache: &laterite_core::Cache) -> Router {
     let mut config = AdminConfig::default();
+    config.cache = Some(cache.clone());
     config.origin = "https://acme.test".to_string();
     let mut contributions = Contributions::default();
     contributions.permissions.push(theme::admin::permission());
@@ -89,7 +90,8 @@ async fn get(app: &Router, path: &str) -> (StatusCode, String) {
 #[tokio::test]
 async fn attached_components_run_and_read_under_their_alias() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     let base = store::create_theme(&db, "base", "name: Base\n")
         .await
         .unwrap();
@@ -174,7 +176,8 @@ fn a_bad_attachment_is_refused_by_the_check() {
 #[tokio::test]
 async fn component_markup_falls_back_to_the_default_and_a_theme_overrides_it() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     let base = store::create_theme(&db, "base", "name: Base\n")
         .await
         .unwrap();
@@ -200,17 +203,17 @@ async fn component_markup_falls_back_to_the_default_and_a_theme_overrides_it() {
         "an unattached alias is an error"
     );
 
-    store::save_template(
-        &db,
-        base.id,
-        Kind::Page,
-        "home.htm",
-        None,
-        "{{ component('recent') }}",
-        None,
-    )
-    .await
-    .unwrap();
+    Themes::new(db.clone(), cache.clone())
+        .save_template(
+            base.id,
+            Kind::Page,
+            "home.htm",
+            None,
+            "{{ component('recent') }}",
+            None,
+        )
+        .await
+        .unwrap();
     let (status, html) = get(&app, "/").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
@@ -218,17 +221,17 @@ async fn component_markup_falls_back_to_the_default_and_a_theme_overrides_it() {
         "the default markup"
     );
 
-    store::save_template(
-        &db,
-        base.id,
-        Kind::Partial,
-        "recent/default.htm",
-        None,
-        "<ol>{{ recent.items|length }}:{{ component.items[0] }}</ol>",
-        None,
-    )
-    .await
-    .unwrap();
+    Themes::new(db.clone(), cache.clone())
+        .save_template(
+            base.id,
+            Kind::Partial,
+            "recent/default.htm",
+            None,
+            "<ol>{{ recent.items|length }}:{{ component.items[0] }}</ol>",
+            None,
+        )
+        .await
+        .unwrap();
     let (_, html) = get(&app, "/").await;
     assert_eq!(html, "<ol>2:post-1</ol>", "the theme's own partial wins");
 }
@@ -236,7 +239,8 @@ async fn component_markup_falls_back_to_the_default_and_a_theme_overrides_it() {
 #[tokio::test]
 async fn the_editor_takes_components_as_json_and_checks_them() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     let theme = store::create_theme(&db, "acme", "name: Acme\n")
         .await
         .unwrap();

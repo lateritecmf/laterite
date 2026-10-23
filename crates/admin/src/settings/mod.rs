@@ -33,6 +33,60 @@ impl laterite_core::Module for SettingsModule {
     fn migrations(&self) -> laterite_core::MigrationSet {
         migrations()
     }
+    fn register(&self, registry: &mut laterite_core::Registry) {
+        registry.add(laterite_core::cache::CacheNamespace::new("values"));
+    }
+}
+
+/// The cache namespace every cached reading of a setting depends on; a
+/// write through [`Settings`] bumps it.
+pub const NAMESPACE: &str = "laterite.settings::values";
+
+/// The settings store writing through the cache: a save moves
+/// [`NAMESPACE`] on, so every value built from a setting is read afresh in
+/// every process. [`RouteCtx::settings`](crate::routes::RouteCtx::settings)
+/// hands one out. Reads are the free functions of [`store`].
+#[derive(Clone)]
+pub struct Settings {
+    db: laterite_core::Db,
+    cache: laterite_core::Cache,
+}
+
+impl Settings {
+    pub fn new(db: laterite_core::Db, cache: laterite_core::Cache) -> Self {
+        cache.allow(NAMESPACE);
+        Self { db, cache }
+    }
+
+    /// Saves a typed model under its code.
+    pub async fn save<T: SettingsModel>(&self, model: &T) -> Result<(), SettingsError> {
+        store::save(&self.db, model).await?;
+        let _ = self.cache.bump(NAMESPACE).await;
+        Ok(())
+    }
+
+    /// Upserts the raw JSON value for a code.
+    pub async fn set(&self, code: &str, value: &serde_json::Value) -> Result<(), SettingsError> {
+        store::set(&self.db, code, value).await?;
+        let _ = self.cache.bump(NAMESPACE).await;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod namespace_tests {
+    use super::*;
+    use laterite_core::{Module, ModuleId};
+
+    #[test]
+    fn the_registered_namespace_is_the_constant() {
+        let owner = ModuleId::new(MODULE_ID);
+        assert_eq!(SettingsModule.id(), owner);
+        assert_eq!(
+            laterite_core::cache::CacheNamespace::new("values").qualified(owner),
+            NAMESPACE
+        );
+    }
 }
 
 use crate::form::ValueFieldView;
@@ -316,15 +370,10 @@ pub(crate) async fn update(
             .await
             .is_ok()
     } else {
-        store::set(&state.db, &item.code, &value).await.is_ok()
+        state.settings_store().set(&item.code, &value).await.is_ok()
     };
     match written {
         true => {
-            // The brand is cached for display; a save to it must invalidate the
-            // cache so the next page reflects the new name.
-            if item.code == brand::BrandSetting::CODE {
-                state.invalidate_brand();
-            }
             // The stored value can hold secrets, so the audit records which
             // settings model changed, not the new contents. An operator's own
             // preference is theirs alone and goes unrecorded, like their timezone.

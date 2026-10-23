@@ -70,7 +70,7 @@ pub use session::{FlashLevel, SessionHandle};
 pub use upload::VerifiedUpload;
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use askama::Template;
 use axum::body::Body;
@@ -270,10 +270,9 @@ pub(crate) struct AdminState {
     /// The configured application name (the baseline brand). A brand setting
     /// overrides it; see [`AdminState::brand`].
     app_name: String,
-    /// The resolved brand name, cached across requests so the brand setting is
-    /// not read from the database on every page. Invalidated when the setting is
-    /// saved. `None` means "not resolved yet".
-    brand_cache: Arc<RwLock<Option<Arc<settings::brand::Brand>>>>,
+    /// The application's cache: the resolved brand lives in it under the
+    /// settings namespace, so a save of the setting reaches every process.
+    cache: laterite_core::Cache,
     /// The deployment's skin, resolved once at boot.
     skin: Arc<skin::Active>,
     /// Each registered asset's content-named path. See [`asset_urls`].
@@ -310,6 +309,7 @@ impl AdminState {
         Self {
             auth,
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
+            cache: laterite_core::Cache::local(),
             upload_extensions: Arc::new(upload_extensions(&[])),
             db,
             nav: Arc::new(nav::NavTree::default()),
@@ -330,7 +330,6 @@ impl AdminState {
             default_locale: Arc::from("en"),
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Laterite".to_string(),
-            brand_cache: Arc::new(RwLock::new(None)),
             skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
@@ -344,26 +343,38 @@ impl AdminState {
         }
     }
 
-    /// The brand name shown across the admin: the [`settings::BrandSetting`]
-    /// `app_name` when set, otherwise the configured application name. The
-    /// resolved value is cached until [`AdminState::invalidate_brand`] clears it.
+    /// The brand shown across the admin: the [`settings::BrandSetting`]
+    /// resolved against the configured application name, kept in the cache
+    /// under the settings namespace until a setting is saved.
     async fn brand(&self) -> Arc<settings::brand::Brand> {
-        {
-            let cached = self.brand_cache.read().unwrap().clone();
-            if let Some(brand) = cached {
-                return brand;
+        let resolved = self
+            .cache
+            .remember(
+                BRAND_CACHE_KEY,
+                BRAND_TTL,
+                &[settings::NAMESPACE],
+                || async { Ok(settings::brand::Brand::resolve(&self.db, &self.app_name).await) },
+            )
+            .await;
+        Arc::new(match resolved {
+            Ok(brand) => brand,
+            Err(e) => {
+                tracing::warn!(error = %e, "brand not cached");
+                settings::brand::Brand::resolve(&self.db, &self.app_name).await
             }
-        }
-        let resolved = Arc::new(settings::brand::Brand::resolve(&self.db, &self.app_name).await);
-        *self.brand_cache.write().unwrap() = Some(Arc::clone(&resolved));
-        resolved
+        })
     }
 
-    /// Clears the cached brand so the next resolution re-reads the setting.
-    fn invalidate_brand(&self) {
-        *self.brand_cache.write().unwrap() = None;
+    /// The settings store, writing through the cache.
+    pub(crate) fn settings_store(&self) -> settings::Settings {
+        settings::Settings::new(self.db.clone(), self.cache.clone())
     }
 }
+
+/// Where the resolved brand sits in the cache.
+const BRAND_CACHE_KEY: &str = "laterite.backend::brand";
+/// How long a resolved brand is kept with no setting saved.
+const BRAND_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Deployment-level admin settings passed to [`router`]. Per-install brand and
 /// per-operator preferences are settings/preferences, not deployment config.
@@ -425,6 +436,9 @@ pub struct AdminConfig {
     /// The application's encryption and signing, built by the bootstrap from
     /// `app.key` and `app.previous_keys`; see [`laterite_core::crypt`].
     pub crypt: Option<Arc<laterite_core::Crypt>>,
+    /// The application's cache, built by the bootstrap from `[cache]`; unset,
+    /// one process's own. See [`laterite_core::cache`].
+    pub cache: Option<laterite_core::Cache>,
 }
 
 impl Default for AdminConfig {
@@ -444,6 +458,7 @@ impl Default for AdminConfig {
             menu: std::collections::BTreeMap::new(),
             secret: random_key(),
             crypt: None,
+            cache: None,
         }
     }
 }
@@ -1514,6 +1529,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(settings::SettingsModule),
         Box::new(laterite_core::parameters::ParametersModule),
         Box::new(laterite_core::crypt::CryptModule),
+        Box::new(laterite_core::cache::CacheModule),
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
@@ -1953,9 +1969,14 @@ pub fn router(
             widget_regs.push(reg);
         }
     }
+    let cache = config
+        .cache
+        .clone()
+        .unwrap_or_else(laterite_core::Cache::local);
     let state = AdminState {
         auth,
-        parameters: laterite_core::parameters::Parameters::new(db.clone()),
+        parameters: laterite_core::parameters::Parameters::with_cache(db.clone(), cache.clone()),
+        cache,
         upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
         db,
         nav: Arc::new(nav),
@@ -1972,7 +1993,6 @@ pub fn router(
         default_locale: Arc::from(default_locale(&config.locale, &catalogs.locales())),
         catalogs,
         app_name,
-        brand_cache: Arc::new(RwLock::new(None)),
         skin: active_skin,
         field_types: Arc::new(field_types),
         column_types: Arc::new(column_types),
@@ -2073,7 +2093,7 @@ pub fn router(
             resource.base_path.clone(),
             resource.nav_label.clone(),
             link.permission.clone(),
-            form::FormHandle::new(state.db.clone(), prepared.clone()),
+            form::FormHandle::new(state.db.clone(), state.cache.clone(), prepared.clone()),
         );
         protected = protected.merge(guard_with_permission(
             Router::new()
@@ -5641,7 +5661,7 @@ mod tests {
             default_locale: Arc::from("en"),
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Configured Name".to_string(),
-            brand_cache: Arc::new(RwLock::new(None)),
+            cache: laterite_core::Cache::local(),
             skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
@@ -5657,31 +5677,27 @@ mod tests {
         // With no brand setting, the configured application name is the brand.
         assert_eq!(state.brand().await.name, "Configured Name");
 
-        // A brand setting overrides the configured name (cache re-reads after
-        // invalidation).
-        settings::store::save(
-            &db,
-            &settings::BrandSetting {
+        // A brand setting saved through the store overrides the configured
+        // name on the next read: the save moves the settings namespace on.
+        state
+            .settings_store()
+            .save(&settings::BrandSetting {
                 app_name: "Acme Corp".to_string(),
                 ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-        state.invalidate_brand();
+            })
+            .await
+            .unwrap();
         assert_eq!(state.brand().await.name, "Acme Corp");
 
         // A blank brand setting falls back to the configured name.
-        settings::store::save(
-            &db,
-            &settings::BrandSetting {
+        state
+            .settings_store()
+            .save(&settings::BrandSetting {
                 app_name: "   ".to_string(),
                 ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-        state.invalidate_brand();
+            })
+            .await
+            .unwrap();
         assert_eq!(state.brand().await.name, "Configured Name");
     }
 

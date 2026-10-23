@@ -2948,7 +2948,16 @@ pub(crate) async fn cell_handler(
     }
     let merged = crate::form::gathered(form, merged);
     let actor = laterite_core::Actor::from(user);
-    match crate::form::write(&state.db, form, &merged, Some(id), &actor).await {
+    match crate::form::write(
+        &state.db,
+        Some(&state.cache),
+        form,
+        &merged,
+        Some(id),
+        &actor,
+    )
+    .await
+    {
         Ok(_) => {
             if htmx {
                 let stored = crate::form::load_values(&state.db, form, id)

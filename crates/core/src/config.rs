@@ -121,6 +121,37 @@ fn browsable_host(listen: &str) -> String {
     }
 }
 
+/// The cache (`[cache]`): where values are kept and how the processes of a
+/// deployment learn of one another's invalidations.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CacheConfig {
+    /// `auto`, `null`, `memory` or `redis`. `auto` is `null` while `app.debug`
+    /// is on and `memory` otherwise.
+    pub store: String,
+    /// The Redis URL (`redis://host:6379/0`) for the `redis` store.
+    pub url: Option<String>,
+    /// The prefix of every Redis key, `laterite` by default.
+    pub prefix: String,
+    /// The `memory` store's capacity in MiB.
+    pub memory_mib: u64,
+    /// How often, in seconds, a process reads the generations the others
+    /// bumped; `0` disables it for a single-process deployment.
+    pub poll_seconds: u64,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            store: "auto".to_string(),
+            url: None,
+            prefix: "laterite".to_string(),
+            memory_mib: 64,
+            poll_seconds: 2,
+        }
+    }
+}
+
 /// Deployment-level backend settings. Per-install brand and per-operator preferences
 /// live in the settings and preferences stores, not here.
 ///

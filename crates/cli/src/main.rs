@@ -12,6 +12,7 @@ use laterite_auth::{store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
+mod cache;
 mod crypt;
 mod doctor;
 mod domain;
@@ -89,6 +90,11 @@ enum Command {
         #[command(subcommand)]
         command: crypt::CryptCommand,
     },
+    /// Clear or list the shared cache generations.
+    Cache {
+        #[command(subcommand)]
+        command: cache::CacheCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -162,6 +168,7 @@ async fn main() -> Result<()> {
         }
         Command::Key { command } => key::run(command, cli.database_url).await,
         Command::Crypt { command } => crypt::run(command, cli.database_url).await,
+        Command::Cache { command } => cache::run(command, cli.database_url).await,
     }
 }
 

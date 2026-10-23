@@ -12,7 +12,7 @@ use laterite_auth::{
 use laterite_core::{CatalogStore, Db, Module};
 use laterite_web::theme::maintenance::MaintenanceSettings;
 use laterite_web::theme::markup::{Markup, MarkupReg};
-use laterite_web::theme::{self, site, store, Kind, ThemeModule};
+use laterite_web::theme::{self, site, store, Kind, ThemeModule, Themes};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -35,8 +35,9 @@ impl Markup for Money {
     }
 }
 
-fn app(db: &Db) -> Router {
+fn app(db: &Db, cache: &laterite_core::Cache) -> Router {
     let mut config = AdminConfig::default();
+    config.cache = Some(cache.clone());
     config.origin = "https://acme.test".to_string();
     let mut contributions = Contributions::default();
     contributions.permissions.push(theme::admin::permission());
@@ -199,7 +200,8 @@ async fn site_theme(db: &Db) -> theme::Theme {
 #[tokio::test]
 async fn pages_are_served_from_the_active_theme() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     site_theme(&db).await;
 
     let (status, html, headers) = get(&app, "/", None).await;
@@ -254,7 +256,8 @@ async fn pages_are_served_from_the_active_theme() {
 #[tokio::test]
 async fn an_operator_previews_hidden_pages_and_their_edit_theme() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     site_theme(&db).await;
     let (root, plain) = sessions(&db).await;
 
@@ -300,7 +303,8 @@ async fn an_operator_previews_hidden_pages_and_their_edit_theme() {
 #[tokio::test]
 async fn assets_serve_with_a_validator() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     site_theme(&db).await;
     let (status, body, headers) = get(&app, "/themes/base/assets/css/site.css", None).await;
     assert_eq!(status, StatusCode::OK);
@@ -324,7 +328,8 @@ async fn assets_serve_with_a_validator() {
 #[tokio::test]
 async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     let base = site_theme(&db).await;
     let (root, plain) = sessions(&db).await;
 
@@ -352,17 +357,17 @@ async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through()
     assert!(html.contains("<h1>"), "{html}");
 
     // The theme's own maintenance page, when it has one.
-    store::save_template(
-        &db,
-        base.id,
-        Kind::Page,
-        "maintenance.htm",
-        Some(serde_json::json!({"url": "/maintenance"})),
-        "closed for {{ this.theme.name }}",
-        None,
-    )
-    .await
-    .unwrap();
+    Themes::new(db.clone(), cache.clone())
+        .save_template(
+            base.id,
+            Kind::Page,
+            "maintenance.htm",
+            Some(serde_json::json!({"url": "/maintenance"})),
+            "closed for {{ this.theme.name }}",
+            None,
+        )
+        .await
+        .unwrap();
     let (status, html, _) = get(&app, "/blog/x", None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(html, "closed for Base");
@@ -379,7 +384,8 @@ async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through()
 #[tokio::test]
 async fn the_session_cookie_covers_the_site_when_one_is_registered() {
     let (db, _g) = test_db().await;
-    let app = app(&db);
+    let cache = laterite_core::Cache::local();
+    let app = app(&db, &cache);
     sessions(&db).await;
     let req = Request::builder()
         .method("POST")

@@ -38,6 +38,139 @@ pub mod store;
 
 pub use engine::{check, variant, Engine, EngineCache, RenderError};
 
+/// The cache namespace every rendered theme depends on; a write through
+/// [`Themes`] bumps it.
+pub const NAMESPACE: &str = "laterite.theme::templates";
+
+/// The theme store writing through the cache: every write moves
+/// [`NAMESPACE`] on, so each process's engines rebuild and every value built
+/// from a template is read afresh. Reads are the free functions of
+/// [`store`].
+#[derive(Clone)]
+pub struct Themes {
+    db: Db,
+    cache: laterite_core::Cache,
+}
+
+impl Themes {
+    pub fn new(db: Db, cache: laterite_core::Cache) -> Self {
+        cache.allow(NAMESPACE);
+        Self { db, cache }
+    }
+
+    /// The store a route writes through.
+    pub fn of(ctx: &laterite_admin::routes::RouteCtx) -> Self {
+        Self::new(ctx.db().clone(), ctx.cache().clone())
+    }
+
+    pub fn db(&self) -> &Db {
+        &self.db
+    }
+
+    async fn bumped<T>(&self, outcome: Result<T, ThemeError>) -> Result<T, ThemeError> {
+        let _ = self.cache.bump(NAMESPACE).await;
+        outcome
+    }
+
+    /// See [`store::create_theme`].
+    pub async fn create_theme(&self, code: &str, config_yaml: &str) -> Result<Theme, ThemeError> {
+        let outcome = store::create_theme(&self.db, code, config_yaml).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::update_theme_config`].
+    pub async fn update_theme_config(
+        &self,
+        code: &str,
+        config_yaml: &str,
+    ) -> Result<Theme, ThemeError> {
+        let outcome = store::update_theme_config(&self.db, code, config_yaml).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::save_settings`].
+    pub async fn save_settings(
+        &self,
+        code: &str,
+        settings: &serde_json::Value,
+    ) -> Result<(), ThemeError> {
+        let outcome = store::save_settings(&self.db, code, settings).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::set_locked`].
+    pub async fn set_locked(&self, code: &str, locked: bool) -> Result<(), ThemeError> {
+        let outcome = store::set_locked(&self.db, code, locked).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::delete_theme`].
+    pub async fn delete_theme(&self, code: &str) -> Result<(), ThemeError> {
+        let outcome = store::delete_theme(&self.db, code).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::duplicate_theme`].
+    pub async fn duplicate_theme(&self, code: &str, new_code: &str) -> Result<Theme, ThemeError> {
+        let outcome = store::duplicate_theme(&self.db, code, new_code).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::create_child_theme`].
+    pub async fn create_child_theme(
+        &self,
+        parent: &str,
+        code: &str,
+        name: &str,
+    ) -> Result<Theme, ThemeError> {
+        let outcome = store::create_child_theme(&self.db, parent, code, name).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::save_template`].
+    pub async fn save_template(
+        &self,
+        theme_id: i64,
+        kind: Kind,
+        path: &str,
+        settings: Option<serde_json::Value>,
+        markup: &str,
+        saved_by: Option<i64>,
+    ) -> Result<Template, ThemeError> {
+        let outcome =
+            store::save_template(&self.db, theme_id, kind, path, settings, markup, saved_by).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::delete_template`].
+    pub async fn delete_template(&self, id: i64) -> Result<(), ThemeError> {
+        let outcome = store::delete_template(&self.db, id).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`store::restore_revision`].
+    pub async fn restore_revision(
+        &self,
+        revision_id: i64,
+        saved_by: Option<i64>,
+    ) -> Result<Template, ThemeError> {
+        let outcome = store::restore_revision(&self.db, revision_id, saved_by).await;
+        self.bumped(outcome).await
+    }
+
+    /// See [`archive::import`].
+    pub async fn import(
+        &self,
+        code: &str,
+        bytes: &[u8],
+        replace: bool,
+        saved_by: Option<i64>,
+    ) -> Result<archive::ImportReport, ThemeError> {
+        let outcome = archive::import(&self.db, code, bytes, replace, saved_by).await;
+        self.bumped(outcome).await
+    }
+}
+
 /// A media record as a template sees it: what a component hands over so
 /// `media(file)`, `media(file, preset="card")` and `file.url|variant("card")`
 /// work, beside `title`, `alt`, `width`, `height`, `kind` and `name`.
@@ -81,6 +214,7 @@ impl Module for ThemeModule {
     /// The Themes screen, its settings entry and its permission.
     fn register(&self, registry: &mut laterite_core::Registry) {
         use laterite_admin::AdminRegistry;
+        registry.add(laterite_core::cache::CacheNamespace::new("templates"));
         registry.add_permission(admin::permission());
         registry.add_permission(maintenance::permission());
         registry.add_settings(admin::settings_item());
