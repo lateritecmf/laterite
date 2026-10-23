@@ -13,6 +13,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `ctx.queue()`, run by in-process workers with tries, backoff, timeout and a failed list; `[queue]`.
 - `Bootstrap::run` (serve, or `queue work` alone; the scaffold calls it), `lat queue work | list |
   failed | retry | forget | flush`, the `queue.job_failed` event.
+- `laterite_core::schedule`: cron entries registered with `registry.add_schedule`, evaluated each
+  minute in their timezone on one process, `[schedule]`, `lat schedule run | list`; the hourly
+  session purge is one.
 
 ## [0.9.22] - 2026-10-23
 

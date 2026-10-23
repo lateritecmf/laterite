@@ -120,7 +120,7 @@ lat queue work --stop-when-empty --queue high,default
 acme queue work                      # the built binary
 ```
 
-`Bootstrap::run` reads the process's arguments: `serve` (the default) or `queue work`. With `queue.mode = "external"`, the serving process runs no worker.
+`Bootstrap::run` reads the process's arguments: `serve` (the default), `queue work` or `schedule run`. With `queue.mode = "external"`, the serving process runs no worker.
 
 ## Act on the failed list
 

@@ -104,3 +104,10 @@ Command | Does
 `lat queue retry <id\|all>` | Puts a failed job back on its queue.
 `lat queue forget <id\|all>` | Drops a failed job.
 `lat queue flush [--queue name]` | Drops every waiting job, or one queue's.
+
+## Schedule
+
+Command | Does
+--- | ---
+`lat schedule run` | Runs the application's ticker (`cargo run -- schedule run`); `--once` evaluates this minute and exits.
+`lat schedule list` | Every entry that has run on this deployment, with its last run.

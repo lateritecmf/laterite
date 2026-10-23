@@ -38,6 +38,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
 futures = "0.3"
 chrono-tz = "0.10"
+croner = "4"
 iana-time-zone = "0.1"
 listenfd = "1"
 clap = { version = "4", features = ["derive", "env"] }

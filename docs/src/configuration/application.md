@@ -83,6 +83,17 @@ Key | Description
 `queue.retry_after_seconds` | When a claimed job counts as abandoned. Default `90`.
 `queue.poll_seconds` | An idle worker's wait. Default `1`.
 
+## Set `[schedule]`
+
+```toml
+[schedule]
+mode = "ticker"           # ticker | external | off
+```
+
+Key | Description
+--- | ---
+`schedule.mode` | `ticker` in the application process, `external` for `schedule run` alone, `off` for none. See [Scheduler](../services/schedule.md).
+
 ## Mount a module's screens
 
 A module's screens namespace under its identity: `acme.places`

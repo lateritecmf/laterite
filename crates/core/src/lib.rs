@@ -25,6 +25,7 @@ pub mod query;
 pub mod queue;
 pub mod record;
 pub mod registry;
+pub mod schedule;
 pub mod search;
 pub mod strata;
 #[cfg(feature = "testing")]
@@ -52,4 +53,5 @@ pub use record::{
     Actor, AttrValue, ListenerTarget, ModelListener, ModelListenerReg, Op, Record, SaveCx, SavedCx,
 };
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
+pub use schedule::Schedule;
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

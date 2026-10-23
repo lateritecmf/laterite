@@ -154,6 +154,23 @@ impl Default for QueueConfig {
     }
 }
 
+/// The scheduler (`[schedule]`): who evaluates the entries each minute.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ScheduleConfig {
+    /// `ticker` (this process evaluates the entries every minute), `external`
+    /// (another process runs `schedule run`) or `off`.
+    pub mode: String,
+}
+
+impl Default for ScheduleConfig {
+    fn default() -> Self {
+        Self {
+            mode: "ticker".to_string(),
+        }
+    }
+}
+
 /// The cache (`[cache]`): where values are kept and how the processes of a
 /// deployment learn of one another's invalidations.
 #[derive(Debug, Clone, Deserialize)]

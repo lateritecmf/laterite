@@ -3,8 +3,7 @@
 //! what gave up, and inline mode runs a job as it is pushed. Runs on the
 //! database matrix. Imports only the public API.
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -26,8 +25,6 @@ async fn test_db() -> (laterite_core::Db, laterite_core::testing::TestGuard) {
     .await
 }
 
-static RUNS: LazyLock<AtomicU32> = LazyLock::new(|| AtomicU32::new(0));
-
 #[derive(Debug, Serialize, Deserialize)]
 struct Greet {
     name: String,
@@ -37,7 +34,6 @@ struct Greet {
 impl Job for Greet {
     const NAME: &'static str = "acme.test::greet";
     async fn run(&self, cx: &JobCx) -> Result<(), JobError> {
-        RUNS.fetch_add(1, Ordering::SeqCst);
         cx.parameters()
             .set("acme.test::greeted.last", &self.name)
             .await?;
@@ -292,12 +288,14 @@ async fn a_unique_job_is_pushed_once_while_it_waits_and_a_delay_is_honoured() {
 async fn inline_mode_runs_a_job_as_it_is_pushed() {
     let (db, _guard) = test_db().await;
     let queue = Queue::inline(jobs(), services(&db));
-    let before = RUNS.load(Ordering::SeqCst);
     assert_eq!(
         queue.push(&Greet { name: "Now".into() }).await.unwrap(),
         Pushed::Ran
     );
-    assert_eq!(RUNS.load(Ordering::SeqCst), before + 1);
+    let last: Option<String> = laterite_core::parameters::get(&db, "acme.test::greeted.last")
+        .await
+        .unwrap();
+    assert_eq!(last.as_deref(), Some("Now"), "the job ran on the spot");
     let err = queue.push(&Hopeless).await.unwrap_err();
     assert!(err.to_string().contains("no point"), "{err}");
 }

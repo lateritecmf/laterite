@@ -16,6 +16,8 @@ redis = { workspace = true, optional = true }
 rand = { workspace = true }
 secrecy = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
+croner = { workspace = true }
 config = { workspace = true }
 laterite-macros = { workspace = true }
 email_address = "0.2.9"

@@ -24,6 +24,7 @@ mod new;
 mod plugin;
 mod project;
 mod queue;
+mod schedule;
 mod serve;
 mod theme;
 
@@ -101,6 +102,11 @@ enum Command {
         #[command(subcommand)]
         command: queue::QueueCommand,
     },
+    /// The scheduled entries' last runs, and the ticker.
+    Schedule {
+        #[command(subcommand)]
+        command: schedule::ScheduleCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -176,6 +182,7 @@ async fn main() -> Result<()> {
         Command::Crypt { command } => crypt::run(command, cli.database_url).await,
         Command::Cache { command } => cache::run(command, cli.database_url).await,
         Command::Queue { command } => queue::run(command, cli.database_url).await,
+        Command::Schedule { command } => schedule::run(command, cli.database_url).await,
     }
 }
 

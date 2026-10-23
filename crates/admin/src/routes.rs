@@ -31,6 +31,7 @@ pub struct RouteCtx {
     parameters: laterite_core::parameters::Parameters,
     cache: laterite_core::Cache,
     queue: laterite_core::Queue,
+    schedule: laterite_core::Schedule,
     upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -51,6 +52,7 @@ impl RouteCtx {
         auth: AuthService,
         parameters: laterite_core::parameters::Parameters,
         queue: laterite_core::Queue,
+        schedule: laterite_core::Schedule,
         upload_extensions: Arc<Vec<String>>,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -69,6 +71,7 @@ impl RouteCtx {
             cache: parameters.cache().clone(),
             parameters,
             queue,
+            schedule,
             upload_extensions,
             field_types,
             overrides,
@@ -194,6 +197,11 @@ impl RouteCtx {
         &self.queue
     }
 
+    /// The application's schedule. See [`laterite_core::schedule`].
+    pub fn schedule(&self) -> &laterite_core::Schedule {
+        &self.schedule
+    }
+
     /// The settings store, writing through the cache. See
     /// [`crate::settings::Settings`].
     pub fn settings(&self) -> crate::settings::Settings {
@@ -284,6 +292,7 @@ impl RouteCtx {
             events: None,
             cache: None,
             queue: None,
+            schedule: None,
         }
     }
 }
@@ -300,9 +309,17 @@ pub struct RouteCtxBuilder {
     events: Option<Events>,
     cache: Option<laterite_core::Cache>,
     queue: Option<laterite_core::Queue>,
+    schedule: Option<laterite_core::Schedule>,
 }
 
 impl RouteCtxBuilder {
+    /// The schedule `RouteCtx::schedule` hands out. Defaults to one with no
+    /// entry.
+    pub fn schedule(mut self, schedule: laterite_core::Schedule) -> Self {
+        self.schedule = Some(schedule);
+        self
+    }
+
     /// The queue `RouteCtx::queue` hands out. Defaults to an inline queue
     /// knowing no job.
     pub fn queue(mut self, queue: laterite_core::Queue) -> Self {
@@ -376,11 +393,25 @@ impl RouteCtxBuilder {
                 },
             )
         });
+        let schedule = self.schedule.unwrap_or_else(|| {
+            laterite_core::Schedule::new(
+                Vec::new(),
+                laterite_core::schedule::Services {
+                    db: self.db.clone(),
+                    events: events.clone(),
+                    cache: cache.clone(),
+                    parameters: parameters.clone(),
+                    queue: queue.clone(),
+                },
+            )
+            .expect("no entry, nothing to refuse")
+        });
         RouteCtx::new(
             self.db.clone(),
             auth,
             parameters,
             queue,
+            schedule,
             Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),

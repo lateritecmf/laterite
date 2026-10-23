@@ -65,6 +65,8 @@ pub struct AppConfig {
     pub cache: laterite_core::config::CacheConfig,
     #[serde(default)]
     pub queue: laterite_core::config::QueueConfig,
+    #[serde(default)]
+    pub schedule: laterite_core::config::ScheduleConfig,
 }
 
 /// Deployment control over which plugins load. A disabled plugin's migrations do
@@ -86,6 +88,7 @@ pub struct BootstrapCtx {
     events: laterite_core::Events,
     cache: laterite_core::Cache,
     queue: laterite_core::Queue,
+    schedule: laterite_core::Schedule,
 }
 
 impl BootstrapCtx {
@@ -122,6 +125,12 @@ impl BootstrapCtx {
     /// [`laterite_core::queue`].
     pub fn queue(&self) -> &laterite_core::Queue {
         &self.queue
+    }
+
+    /// The application's schedule, for an app's routes to list or run an
+    /// entry. See [`laterite_core::schedule`].
+    pub fn schedule(&self) -> &laterite_core::Schedule {
+        &self.schedule
     }
 }
 
@@ -192,9 +201,10 @@ impl Bootstrap {
     }
 
     /// Reads the process's own arguments and does what they ask: `serve`
-    /// (the default, as [`Bootstrap::serve`]) or `queue work [--once]
-    /// [--stop-when-empty] [--queue a,b]`, a worker alone. The scaffolded
-    /// `main` calls this, so `lat queue work` has something to run.
+    /// (the default, as [`Bootstrap::serve`]), `queue work [--once]
+    /// [--stop-when-empty] [--queue a,b]` (a worker alone) or `schedule run
+    /// [--once]` (the ticker alone). The scaffolded `main` calls this, so
+    /// `lat queue work` and `lat schedule run` have something to run.
     pub async fn run(self) -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().skip(1).collect();
         match args.first().map(String::as_str) {
@@ -202,8 +212,11 @@ impl Bootstrap {
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
             }
+            Some("schedule") if args.get(1).map(String::as_str) == Some("run") => {
+                self.prepare().await?.tick(&args[2..]).await
+            }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default) or `queue work`"
+                "unknown command `{other}`: the application takes `serve` (the default), `queue work` or `schedule run`"
             ),
         }
     }
@@ -574,8 +587,36 @@ impl Bootstrap {
         let auth = AuthService::new(db.clone(), config.auth.clone()).with_events(events.clone());
         // Expired sessions and stay-signed-in credentials are swept hourly (the
         // auth module's boot did the first sweep), so the tables hold only what
-        // a request could still use.
-        tokio::spawn(purge_hourly(auth.clone()));
+        // a request could still use. The sweep is a schedule entry beside the
+        // modules' own.
+        let mut entries = contributions.take::<laterite_core::schedule::ScheduleEntry>();
+        entries.push({
+            let auth = auth.clone();
+            laterite_core::schedule::ScheduleEntry::hourly("laterite.auth::purge")
+                .description("Remove expired sessions and stay-signed-in credentials.")
+                .run(move |_cx| {
+                    let auth = auth.clone();
+                    async move {
+                        purge_expired(&auth).await;
+                        Ok(())
+                    }
+                })
+        });
+        let schedule = laterite_core::Schedule::new(
+            entries,
+            laterite_core::schedule::Services {
+                db: db.clone(),
+                events: events.clone(),
+                cache: cache.clone(),
+                parameters: laterite_core::parameters::Parameters::with_cache(
+                    db.clone(),
+                    cache.clone(),
+                ),
+                queue: queue.clone(),
+            },
+        )?;
+        let schedule_mode = laterite_core::schedule::mode_from_config(&config.schedule)?;
+        tracing::info!(entries = schedule.len(), mode = ?schedule_mode, "schedule ready");
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
         let crypt = crypt_from_config(&config, &secret)?;
@@ -596,6 +637,7 @@ impl Bootstrap {
             crypt: Some(std::sync::Arc::new(crypt)),
             cache: Some(cache.clone()),
             queue: Some(queue.clone()),
+            schedule: Some(schedule.clone()),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -666,6 +708,7 @@ impl Bootstrap {
                 events,
                 cache,
                 queue: queue.clone(),
+                schedule: schedule.clone(),
             };
             app = extend(app, &ctx);
         }
@@ -676,6 +719,8 @@ impl Bootstrap {
             listen: config.server.listen.clone(),
             banner: format!("{} on {origin}{admin_path}", config.app.name),
             queue,
+            schedule,
+            schedule_mode,
         })
     }
 }
@@ -686,6 +731,8 @@ struct Prepared {
     listen: String,
     banner: String,
     queue: laterite_core::Queue,
+    schedule: laterite_core::Schedule,
+    schedule_mode: laterite_core::schedule::Mode,
 }
 
 impl Prepared {
@@ -693,11 +740,14 @@ impl Prepared {
         let listener = bind(&self.listen).await?;
         println!("{}", self.banner);
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-        let workers = if self.queue.mode() == laterite_core::queue::Mode::Worker {
-            self.queue.spawn_workers(stop_rx)
+        let mut workers = if self.queue.mode() == laterite_core::queue::Mode::Worker {
+            self.queue.spawn_workers(stop_rx.clone())
         } else {
             Vec::new()
         };
+        if self.schedule_mode == laterite_core::schedule::Mode::Ticker {
+            workers.push(self.schedule.spawn_ticker(stop_rx));
+        }
         axum::serve(
             listener,
             self.app
@@ -745,6 +795,41 @@ impl Prepared {
         println!("Processed {done} job(s).");
         Ok(())
     }
+
+    /// The ticker alone, until Ctrl-C; `--once` evaluates this minute and
+    /// returns.
+    async fn tick(self, args: &[String]) -> anyhow::Result<()> {
+        let once = match args {
+            [] => false,
+            [flag] if flag == "--once" => true,
+            other => anyhow::bail!("unknown schedule option `{}`", other.join(" ")),
+        };
+        if self.schedule_mode == laterite_core::schedule::Mode::Off {
+            anyhow::bail!("schedule.mode is `off`");
+        }
+        if once {
+            let tick = self.schedule.tick(chrono::Utc::now()).await?;
+            println!(
+                "Ran {} entr(y|ies), skipped {}.",
+                tick.ran.len(),
+                tick.skipped.len()
+            );
+            for name in tick.ran {
+                println!("  ran {name}");
+            }
+            for name in tick.skipped {
+                println!("  skipped {name}");
+            }
+            return Ok(());
+        }
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            let _ = stop_tx.send(true);
+        });
+        self.schedule.run_ticker(stop_rx).await;
+        Ok(())
+    }
 }
 
 /// How long a stopping server waits for its workers' running jobs.
@@ -785,17 +870,6 @@ async fn purge_expired(auth: &AuthService) {
         ),
         Ok(_) => {}
         Err(e) => tracing::error!(error = %e, "purging expired sessions failed"),
-    }
-}
-
-/// The hourly sweep, for as long as the process runs.
-async fn purge_hourly(auth: AuthService) {
-    let mut ticks = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
-    // The first tick fires at once; the boot sweep has just run.
-    ticks.tick().await;
-    loop {
-        ticks.tick().await;
-        purge_expired(&auth).await;
     }
 }
 

@@ -606,6 +606,40 @@ impl Queue {
         }
     }
 
+    /// Pushes a job by its registered name with a payload already encoded,
+    /// due now: what a schedule entry does. Refused when no job has the name.
+    pub async fn push_named(
+        &self,
+        name: &str,
+        payload: &serde_json::Value,
+        queue: &str,
+    ) -> CoreResult<Pushed> {
+        let Some(reg) = self.inner.jobs.get(name) else {
+            return Err(CoreError::Validation(format!(
+                "job `{name}` is not registered"
+            )));
+        };
+        if self.inner.mode == Mode::Inline {
+            let cx = self.context(None, 1, queue);
+            return match (reg.run)(payload.clone(), cx).await {
+                Ok(()) => Ok(Pushed::Ran),
+                Err(e) => Err(CoreError::Internal(format!("job `{name}` failed: {e}"))),
+            };
+        }
+        let stored = self
+            .inner
+            .driver
+            .push(queue, name, payload, Utc::now(), None)
+            .await?;
+        match stored {
+            Some(id) => {
+                self.inner.wake.notify_waiters();
+                Ok(Pushed::Queued(id))
+            }
+            None => Ok(Pushed::Duplicate),
+        }
+    }
+
     pub(crate) fn context(&self, id: Option<i64>, attempt: u32, queue: &str) -> JobCx {
         let s = &self.inner.services;
         JobCx {
@@ -769,7 +803,7 @@ pub async fn from_config(
     }
 }
 
-pub(crate) fn time_text(at: DateTime<Utc>) -> String {
+pub fn time_text(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Micros, true)
 }
 

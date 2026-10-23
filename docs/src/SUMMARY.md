@@ -92,6 +92,7 @@
 - [Encryption and Signing](services/crypt.md)
 - [Cache](services/cache.md)
 - [Queue](services/queue.md)
+- [Scheduler](services/schedule.md)
 
 # Media
 
