@@ -91,15 +91,16 @@ impl RedisQueue {
 
     async fn remove(&self, job: &Queued) -> CoreResult<()> {
         let mut conn = self.conn.clone();
+        // The unique key is read before the hash goes, so it is freed.
+        let unique: Option<String> = conn
+            .hget(self.key(&format!("job:{}", job.id)), "unique_key")
+            .await
+            .map_err(io)?;
         let _: () = redis::pipe()
             .zrem(self.key(&format!("waiting:{}", job.queue)), job.id)
             .zrem(self.key(&format!("reserved:{}", job.queue)), job.id)
             .del(self.key(&format!("job:{}", job.id)))
             .query_async(&mut conn)
-            .await
-            .map_err(io)?;
-        let unique: Option<String> = conn
-            .hget(self.key(&format!("job:{}", job.id)), "unique_key")
             .await
             .map_err(io)?;
         if let Some(unique) = unique {
