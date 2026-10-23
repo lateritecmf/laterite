@@ -257,10 +257,10 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-counter[hidden]{display:none}
 .lat-field[hidden]{display:none}
 .lat-counter.is-full{color:var(--danger)}
-.lat-reveal__btn{width:var(--control-h);padding:0;justify-content:center}
-.lat-reveal__btn[hidden]{display:none}
-.lat-reveal .lat-input:has(+ .lat-reveal__btn[hidden]){border-radius:var(--radius-control)}
-.lat-reveal__btn::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:var(--icon-eye) center/contain no-repeat;mask:var(--icon-eye) center/contain no-repeat}
+.lat-reveal__btn,.lat-sensitive__btn{width:var(--control-h);padding:0;justify-content:center}
+.lat-reveal__btn[hidden],.lat-sensitive__btn[hidden]{display:none}
+.lat-reveal .lat-input:has(+ .lat-reveal__btn[hidden]),.lat-sensitive .lat-input:has(+ .lat-sensitive__btn[hidden]){border-radius:var(--radius-control)}
+.lat-reveal__btn::before,.lat-sensitive__btn::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:var(--icon-eye) center/contain no-repeat;mask:var(--icon-eye) center/contain no-repeat}
 .lat-reveal__btn[aria-pressed="true"]::before{-webkit-mask-image:var(--icon-eye-off);mask-image:var(--icon-eye-off)}
 .lat-input--lg{height:var(--control-h-lg)}
 .lat-input-group{display:flex;align-items:stretch}

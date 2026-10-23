@@ -437,11 +437,21 @@ impl Persister for DefaultPersister {
 
     async fn update(&self, cx: &mut SaveCx<'_>, id: &str, rec: &Record) -> Result<(), SaveError> {
         let backend = cx.backend();
+        // Only what the record carries: an attribute a field type left out (a
+        // blank password, a sealed value's mask) keeps the stored value.
+        let columns: Vec<String> = rec
+            .iter()
+            .map(|(key, _)| key.to_string())
+            .filter(|c| c != &self.id_field && crate::sql::valid_ident(c))
+            .collect();
+        if columns.is_empty() {
+            return Ok(());
+        }
         let (sql, values) = {
             let mut update = Query::update();
             update.table(Alias::new(&self.entity));
-            for column in self.write_columns(rec) {
-                update.value(Alias::new(&column), bind(rec.get(&column)));
+            for column in &columns {
+                update.value(Alias::new(column), bind(rec.get(column)));
             }
             update.and_where(
                 Expr::col(Alias::new(&self.id_field))

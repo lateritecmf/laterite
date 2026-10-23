@@ -62,7 +62,9 @@ mod widgets;
 /// Re-exported so this crate's manifest is the only place the version is chosen.
 pub use axum;
 
-pub use bootstrap::{AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX};
+pub use bootstrap::{
+    crypt_from_config, legacy_key_material, AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX,
+};
 pub use error::AdminError;
 pub use session::{FlashLevel, SessionHandle};
 pub use upload::VerifiedUpload;
@@ -1511,6 +1513,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(laterite_auth::AuthModule),
         Box::new(settings::SettingsModule),
         Box::new(laterite_core::parameters::ParametersModule),
+        Box::new(laterite_core::crypt::CryptModule),
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
@@ -1804,7 +1807,19 @@ pub fn router(
         }
     }
     let pickers = Arc::new(pickers);
+    // The application key, before the field registry: the sensitive field
+    // type seals with it.
+    let crypt: Arc<laterite_core::Crypt> = config.crypt.clone().unwrap_or_else(|| {
+        Arc::new(laterite_core::Crypt::new(
+            laterite_core::MasterKey::derived(0, &config.secret),
+            Vec::new(),
+        ))
+    });
     let mut field_types = field::builtin_registry();
+    field_types.insert(
+        "sensitive".to_string(),
+        Arc::new(field::SensitiveField::new(crypt.clone())),
+    );
     field_types.insert(
         "reference".to_string(),
         Arc::new(field::RefPickerField::new(pickers.clone())),
@@ -1964,12 +1979,7 @@ pub fn router(
         widgets: Arc::new(widget_regs),
         plugin_defined,
         storage_dir: Arc::from(config.storage_dir.trim_end_matches('/')),
-        crypt: config.crypt.clone().unwrap_or_else(|| {
-            Arc::new(laterite_core::Crypt::new(
-                laterite_core::MasterKey::derived(0, &config.secret),
-                Vec::new(),
-            ))
-        }),
+        crypt,
         order: config.order.clone(),
         cookie_path: if app_public.iter().any(|r| r.is_site()) {
             Arc::from("/")
@@ -3189,6 +3199,19 @@ fn mount_resource(
                     async move {
                         form::create(&state, &pf, data, shell, &user, &session, &headers).await
                     }
+                },
+            ),
+        );
+
+        let reveal_pf = prepared.clone();
+        router = router.route(
+            &format!("{base}/{{id}}/reveal/{{field}}"),
+            get(
+                move |State(state): State<AdminState>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Path((id, field)): Path<(String, String)>| {
+                    let pf = reveal_pf.clone();
+                    async move { form::reveal(&state, &pf, &id, &field, &user).await }
                 },
             ),
         );

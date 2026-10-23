@@ -167,6 +167,15 @@ Key | Default | Description
 --- | --- | ---
 `reveal` | `true` | A button shows what was typed.
 
+## sensitive
+
+```yaml
+fields:
+  api_token: { type: sensitive }
+```
+
+A secret sealed under the [application key](../services/crypt.md) before it is stored and shown as a mask. Reveal shows the stored value and writes `<entity>.reveal` to the audit log; a blank or the mask submitted back leaves the value as it is. The column is text; `lat crypt rotate` re-seals it after a key rotation. No keys of its own.
+
 ## id
 
 ```yaml

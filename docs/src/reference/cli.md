@@ -85,3 +85,4 @@ Command | Does
 --- | ---
 `lat key generate` | Writes a new application key as `app.key` in `config/local.toml`; `--rotate` keeps the old key under `previous_keys`, `--print` prints without writing.
 `lat key show` | The id of the key in use and of the previous keys.
+`lat crypt rotate` | Re-seals every `sensitive` column under the key in use, after `lat key generate --rotate`.

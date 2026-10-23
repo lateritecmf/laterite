@@ -48,6 +48,15 @@ Command | Does
 `lat key generate` | Writes a new key as `app.key`. A key already set is replaced; add `--rotate` to keep it under `previous_keys`, or `--print` to print without writing.
 `lat key show` | The id of the key in use and of the previous keys.
 
+## Seal a form field
+
+```yaml
+fields:
+  api_token: { type: sensitive }
+```
+
+The [`sensitive`](../elements/form-fields.md#sensitive) field stores its value sealed and reveals it on request, recorded in the audit log.
+
 ## Rotate the key
 
 ```bash
@@ -55,7 +64,7 @@ lat key generate --rotate
 lat crypt rotate       # re-seals stored values under the new key
 ```
 
-Remove the old key from `previous_keys` once `lat crypt rotate` has run.
+`lat crypt rotate` re-seals every `sensitive` column under the key in use and reports what it re-sealed, what was already current and what did not open. Remove the old key from `previous_keys` once it reports nothing left to re-seal. Without an `app.key`, `--rotate` keeps the key derived from `backend.secret` as the previous key.
 
 ## Test with a key of your own
 

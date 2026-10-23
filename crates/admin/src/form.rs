@@ -1340,6 +1340,82 @@ pub(crate) async fn edit_form(
 /// The stored record `id` as control values: each column back through its
 /// field type, since what a column holds and what its control shows are not
 /// always the same string. `None` when no record has that id.
+/// `GET {base}/{id}/reveal/{field}`: the stored value of a sensitive field,
+/// opened, as plain text for the field's Reveal button. Recorded in the audit
+/// log as `<entity>.reveal` with the field as the detail.
+pub(crate) async fn reveal(
+    state: &AdminState,
+    form: &PreparedForm,
+    id: &str,
+    field: &str,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Response {
+    if !form
+        .config
+        .fields
+        .iter()
+        .any(|f| f.name == field && f.field_type == "sensitive")
+    {
+        return crate::AdminError::NotFound.into_response();
+    }
+    // The column as stored, not as the control shows it (`load_values` masks it).
+    let (sql, values) = {
+        let cast = text_cast(state.db.backend);
+        let mut select = Query::select();
+        select
+            .expr_as(
+                Expr::col(Alias::new(field)).cast_as(Alias::new(cast)),
+                Alias::new("sealed"),
+            )
+            .from(Alias::new(&form.config.entity))
+            .and_where(
+                Expr::col(Alias::new(&form.config.id_field))
+                    .cast_as(Alias::new(cast))
+                    .eq(id.to_string()),
+            );
+        to_sql(state.db.backend, select)
+    };
+    let sealed = match bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
+        .await
+    {
+        Ok(Some(row)) => row
+            .get_text_opt("sealed")
+            .unwrap_or_default()
+            .unwrap_or_default(),
+        Ok(None) => return crate::AdminError::NotFound.into_response(),
+        Err(e) => return crate::AdminError::Internal(anyhow::anyhow!(e)).into_response(),
+    };
+    let Some(plain) = crate::field::SensitiveField::open(&state.crypt, field, &sealed) else {
+        return crate::AdminError::Internal(anyhow::anyhow!(
+            "the value does not open under the application key"
+        ))
+        .into_response();
+    };
+    crate::audit::record(
+        state,
+        user,
+        &format!("{}.reveal", form.config.entity),
+        Some(&form.config.entity),
+        Some(id),
+        None,
+        Some(field),
+    )
+    .await;
+    (
+        StatusCode::OK,
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            ),
+            (axum::http::header::CACHE_CONTROL, "private, no-store"),
+        ],
+        plain,
+    )
+        .into_response()
+}
+
 pub(crate) async fn load_values(
     db: &Db,
     form: &PreparedForm,

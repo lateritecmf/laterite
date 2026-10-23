@@ -416,6 +416,20 @@ impl Bootstrap {
         crate::routemap::check_segments(&claims);
         crate::routemap::check_collisions(&claims);
         let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
+        // Every sealed column is on record, so `lat crypt rotate` finds it.
+        for resource in &resources {
+            if let Some(form) = &resource.form {
+                for field in form.fields.iter().filter(|f| f.field_type == "sensitive") {
+                    laterite_core::crypt::register_column(
+                        &db,
+                        &form.entity,
+                        &field.name,
+                        laterite_core::crypt::FIELD_PURPOSE,
+                    )
+                    .await?;
+                }
+            }
+        }
         let screens: Vec<crate::routes::ScreenReg> = screens.into_iter().map(|(_, s)| s).collect();
         // Public paths are literal, so they get their own check: two claims on one
         // path, or anything reaching inside the panel.
@@ -488,7 +502,7 @@ impl Bootstrap {
         tokio::spawn(purge_hourly(auth.clone()));
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
-        let crypt = app_crypt(&config, &secret)?;
+        let crypt = crypt_from_config(&config, &secret)?;
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             trusted_proxies: config.backend.trusted_proxies.clone(),
@@ -746,7 +760,10 @@ const SIGNING_KEY: &str = "laterite.signing_key";
 /// 0), so a deployment that configured nothing keeps a stable key. A key that
 /// does not parse aborts the boot; a production deployment without `app.key`
 /// is warned to run `lat key generate`.
-fn app_crypt(config: &AppConfig, legacy: &[u8]) -> anyhow::Result<laterite_core::Crypt> {
+pub fn crypt_from_config(
+    config: &AppConfig,
+    legacy: &[u8],
+) -> anyhow::Result<laterite_core::Crypt> {
     match config
         .app
         .key
@@ -772,6 +789,13 @@ fn app_crypt(config: &AppConfig, legacy: &[u8]) -> anyhow::Result<laterite_core:
 
 /// The signing key: `backend.secret` when set, else the one generated at the
 /// first boot and kept in the settings table, so tokens survive a restart.
+pub async fn legacy_key_material(
+    db: &laterite_core::Db,
+    configured: Option<&str>,
+) -> anyhow::Result<Vec<u8>> {
+    signing_key(db, configured).await
+}
+
 async fn signing_key(db: &laterite_core::Db, configured: Option<&str>) -> anyhow::Result<Vec<u8>> {
     if let Some(secret) = configured.map(str::trim).filter(|s| !s.is_empty()) {
         return Ok(secret.as_bytes().to_vec());

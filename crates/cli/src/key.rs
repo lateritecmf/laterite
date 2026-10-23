@@ -25,9 +25,9 @@ pub struct GenerateArgs {
     rotate: bool,
 }
 
-pub fn run(command: KeyCommand) -> Result<()> {
+pub async fn run(command: KeyCommand, database_url: Option<String>) -> Result<()> {
     match command {
-        KeyCommand::Generate(args) => generate(args),
+        KeyCommand::Generate(args) => generate(args, database_url).await,
         KeyCommand::Show => show(),
     }
 }
@@ -53,7 +53,7 @@ fn show() -> Result<()> {
     Ok(())
 }
 
-fn generate(args: GenerateArgs) -> Result<()> {
+async fn generate(args: GenerateArgs, database_url: Option<String>) -> Result<()> {
     let project = Project::locate().ok();
     let config: Option<laterite_admin::AppConfig> = match &project {
         Some(p) => Some(p.load()?),
@@ -88,8 +88,19 @@ fn generate(args: GenerateArgs) -> Result<()> {
         .map(|c| c.app.previous_keys.clone())
         .unwrap_or_default();
     if args.rotate {
-        if let Some(old) = &current {
-            previous.push(old.export());
+        match &current {
+            Some(old) => previous.push(old.export()),
+            // No app.key yet: the key in use derives from backend.secret or the
+            // stored key, so that derivation is kept as the previous key.
+            None => {
+                let config = config.as_ref().context("no application configuration")?;
+                let db = crate::connect(database_url).await?;
+                let legacy =
+                    laterite_admin::legacy_key_material(&db, config.backend.secret.as_deref())
+                        .await
+                        .context("reading the stored key")?;
+                previous.push(MasterKey::derived(0, &legacy).export());
+            }
         }
     }
     let updated = write_app_keys(&text, &exported, args.rotate.then_some(&previous));

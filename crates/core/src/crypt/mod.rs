@@ -20,6 +20,161 @@
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::query::{bind_values, build, AnyRowExt};
+use crate::{CoreResult, Db, Module, ModuleId};
+use sea_query::{Alias, Expr, Iden, OnConflict, Query};
+
+pub mod migrations;
+
+/// The text a sealed field shows in place of its value; submitting it back
+/// means "unchanged".
+pub const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
+
+/// The purpose a sealed form field uses; its AAD is the field's name.
+pub const FIELD_PURPOSE: &str = "field";
+
+/// The registry of sealed columns: what `lat crypt rotate` re-seals.
+#[derive(Iden)]
+pub(crate) enum CryptColumns {
+    #[iden = "crypt_columns"]
+    Table,
+    TableName,
+    ColumnName,
+    Purpose,
+    RegisteredAt,
+}
+
+/// The module that owns the registry table, listed among an application's
+/// built-ins.
+pub struct CryptModule;
+
+impl Module for CryptModule {
+    fn id(&self) -> ModuleId {
+        ModuleId::new(migrations::MODULE_ID)
+    }
+    fn migrations(&self) -> crate::MigrationSet {
+        migrations::migrations()
+    }
+}
+
+/// Records that `table.column` holds values sealed for `purpose` (with the
+/// column's name as AAD), so a rotation finds them. Idempotent.
+pub async fn register_column(db: &Db, table: &str, column: &str, purpose: &str) -> CoreResult<()> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(CryptColumns::Table)
+            .columns([
+                CryptColumns::TableName,
+                CryptColumns::ColumnName,
+                CryptColumns::Purpose,
+                CryptColumns::RegisteredAt,
+            ])
+            .values_panic([table.into(), column.into(), purpose.into(), now.into()])
+            .on_conflict(
+                OnConflict::columns([CryptColumns::TableName, CryptColumns::ColumnName])
+                    .update_columns([CryptColumns::Purpose, CryptColumns::RegisteredAt])
+                    .to_owned(),
+            )
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// Every registered sealed column: `(table, column, purpose)`.
+pub async fn registered_columns(db: &Db) -> CoreResult<Vec<(String, String, String)>> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                CryptColumns::TableName,
+                CryptColumns::ColumnName,
+                CryptColumns::Purpose,
+            ])
+            .from(CryptColumns::Table)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter()
+        .map(|r| {
+            Ok((
+                r.get_text("table_name")?,
+                r.get_text("column_name")?,
+                r.get_text("purpose")?,
+            ))
+        })
+        .collect()
+}
+
+/// What a rotation did: rows re-sealed under the current key, rows already
+/// under it, and rows that would not open (left as they were).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Rotated {
+    pub resealed: u64,
+    pub current: u64,
+    pub unreadable: u64,
+}
+
+/// Re-seals every registered column's values under the current key: a value
+/// sealed under a previous key is opened and sealed again; one already under
+/// the current key is left; one that does not open is counted and left.
+pub async fn rotate(db: &Db, crypt: &Crypt) -> CoreResult<Rotated> {
+    let mut out = Rotated::default();
+    for (table, column, purpose) in registered_columns(db).await? {
+        let (t, c) = (Alias::new(&table), Alias::new(&column));
+        let id = Alias::new("id");
+        let (sql, values) = build(
+            db.backend,
+            Query::select()
+                .column(id.clone())
+                .column(c.clone())
+                .from(t.clone())
+                .and_where(Expr::col(c.clone()).is_not_null())
+                .to_owned(),
+        );
+        let rows = bind_values(sqlx::query(&sql), values)
+            .fetch_all(&db.pool)
+            .await?;
+        for row in rows {
+            let row_id: i64 = row.get_int("id")?;
+            let sealed = row.get_text(&column)?;
+            if sealed.is_empty() {
+                continue;
+            }
+            if crypt.key_id_of(&sealed) == Some(crypt.current_id()) {
+                out.current += 1;
+                continue;
+            }
+            let Ok(plain) = crypt.decrypt(&purpose, column.as_bytes(), &sealed) else {
+                out.unreadable += 1;
+                continue;
+            };
+            let resealed = crypt
+                .encrypt(&purpose, column.as_bytes(), &plain)
+                .map_err(|e| crate::CoreError::Internal(e.to_string()))?;
+            let (sql, values) = build(
+                db.backend,
+                Query::update()
+                    .table(t.clone())
+                    .value(c.clone(), resealed)
+                    .and_where(Expr::col(id.clone()).eq(row_id))
+                    .to_owned(),
+            );
+            bind_values(sqlx::query(&sql), values)
+                .execute(&db.pool)
+                .await?;
+            out.resealed += 1;
+        }
+    }
+    Ok(out)
+}
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use base64::Engine;
 use chacha20poly1305::aead::{Aead, Generate, KeyInit, Payload};
@@ -161,6 +316,13 @@ impl Crypt {
     /// The id the next write uses.
     pub fn current_id(&self) -> u8 {
         self.current.id
+    }
+
+    /// The id of the key a sealed value or signature was written under, when
+    /// it is well-formed.
+    pub fn key_id_of(&self, sealed: &str) -> Option<u8> {
+        let bytes = B64.decode(sealed.trim()).ok()?;
+        (bytes.len() >= 2 && bytes[0] == VERSION).then_some(bytes[1])
     }
 
     fn key(&self, id: u8) -> Option<&MasterKey> {

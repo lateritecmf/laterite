@@ -2150,3 +2150,37 @@ window.lat.widget('aside', function (root) {
   if (small.addEventListener) small.addEventListener('change', apply);
   else if (small.addListener) small.addListener(apply);
 });
+
+// Sensitive: a sealed secret shown as a mask. Reveal fetches the stored value
+// from `reveal/<field>` beside the form's own URL and shows it; typing
+// replaces it, and sending the mask back leaves it as it was.
+window.lat.widget('sensitive', function (root) {
+  var input = root.querySelector('input');
+  var btn = root.querySelector('.lat-sensitive__btn');
+  if (!input || !btn) return;
+  if (!root.hasAttribute('data-has-value')) { input.type = 'text'; return; }
+  btn.hidden = false;
+  var shown = false;
+  function hide() {
+    shown = false;
+    input.type = 'password';
+    btn.setAttribute('aria-pressed', 'false');
+  }
+  btn.addEventListener('click', function () {
+    if (shown) { hide(); return; }
+    var url = new URL('reveal/' + encodeURIComponent(root.getAttribute('data-field')), location.href.replace(/\/edit\/?(\?.*)?$/, '/'));
+    fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (text) {
+        input.value = text;
+        input.type = 'text';
+        shown = true;
+        btn.setAttribute('aria-pressed', 'true');
+        window.lat.emit(root, 'sensitive:revealed', { field: root.getAttribute('data-field') });
+      })
+      .catch(function () { window.lat.flash(root.getAttribute('data-failed') || 'Could not reveal the value.', 'error'); });
+  });
+  input.addEventListener('input', function () { if (input.type === 'password') input.type = 'text'; });
+  if (input.form) input.form.addEventListener('submit', function () { if (shown) hide(); });
+  return { hide: hide };
+});

@@ -12,6 +12,7 @@ use laterite_auth::{store, AuthConfig, AuthService, NewOperator};
 use laterite_core::config::DatabaseConfig;
 use laterite_core::Db;
 
+mod crypt;
 mod doctor;
 mod domain;
 mod i18n;
@@ -82,6 +83,11 @@ enum Command {
     Key {
         #[command(subcommand)]
         command: key::KeyCommand,
+    },
+    /// Re-seal stored values under the current application key.
+    Crypt {
+        #[command(subcommand)]
+        command: crypt::CryptCommand,
     },
 }
 
@@ -154,7 +160,8 @@ async fn main() -> Result<()> {
             let db = connect(cli.database_url).await?;
             media::run(command, db).await
         }
-        Command::Key { command } => key::run(command),
+        Command::Key { command } => key::run(command, cli.database_url).await,
+        Command::Crypt { command } => crypt::run(command, cli.database_url).await,
     }
 }
 
@@ -252,7 +259,7 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
     Ok(())
 }
 
-async fn connect(database_url: Option<String>) -> Result<Db> {
+pub(crate) async fn connect(database_url: Option<String>) -> Result<Db> {
     let config = match database_url {
         Some(url) => DatabaseConfig {
             url,

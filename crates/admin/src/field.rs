@@ -1498,6 +1498,9 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(SwitchField),
         Arc::new(DateField),
         Arc::new(PasswordField),
+        Arc::new(SensitiveField::new(Arc::new(
+            laterite_core::Crypt::ephemeral(),
+        ))),
         Arc::new(RadioField),
         Arc::new(crate::medialib::field::MediaField),
     ]
@@ -2680,6 +2683,111 @@ impl FieldType for PasswordField {
             required: vm.required,
             reveal: opts.reveal,
             show: &opts.show,
+        })
+        .unwrap_or_default()
+    }
+}
+
+#[derive(Template)]
+#[template(path = "fields/sensitive.html")]
+struct SensitiveTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+    has_value: bool,
+    reveal: &'a str,
+    failed: &'a str,
+}
+
+/// A secret kept sealed at rest (an API token, a key): stored encrypted under
+/// the application key, shown as a mask, revealed on request and recorded in
+/// the audit log when it is. A blank or the mask submitted back leaves the
+/// stored value as it is. Declared as `{ type: sensitive }`.
+pub(crate) struct SensitiveField {
+    crypt: Arc<laterite_core::Crypt>,
+}
+
+impl SensitiveField {
+    pub(crate) fn new(crypt: Arc<laterite_core::Crypt>) -> Self {
+        Self { crypt }
+    }
+
+    /// The sealed text as stored, opened for `field`.
+    pub(crate) fn open(crypt: &laterite_core::Crypt, field: &str, sealed: &str) -> Option<String> {
+        if sealed.is_empty() {
+            return Some(String::new());
+        }
+        crypt
+            .decrypt(
+                laterite_core::crypt::FIELD_PURPOSE,
+                field.as_bytes(),
+                sealed,
+            )
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+    }
+}
+
+impl FieldType for SensitiveField {
+    fn view_key(&self) -> &'static str {
+        "sensitive"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
+    }
+
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        match field.value().map(str::trim).unwrap_or_default() {
+            // Absent, blank or the mask: the stored value stays.
+            "" | laterite_core::crypt::MASK => Ok(None),
+            plain => self
+                .crypt
+                .encrypt(
+                    laterite_core::crypt::FIELD_PURPOSE,
+                    field.name().as_bytes(),
+                    plain.as_bytes(),
+                )
+                .map(|sealed| Some(AttrValue::Text(sealed)))
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// The mask when a value is stored, never the sealed text.
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        match stored {
+            Some(s) if !s.is_empty() => laterite_core::crypt::MASK.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        let mut vm = scalar_vm("sensitive", cx);
+        vm.data = serde_json::json!({
+            "has_value": cx.value.as_text() == laterite_core::crypt::MASK,
+            "reveal": cx.i18n.t(&laterite_core::t!("Reveal")),
+            "failed": cx.i18n.t(&laterite_core::t!("Could not reveal the value.")),
+        });
+        vm
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let has_value = vm.data["has_value"].as_bool().unwrap_or(false);
+        let reveal = vm.data["reveal"].as_str().unwrap_or("Reveal");
+        let failed = vm.data["failed"].as_str().unwrap_or_default();
+        Markup::from_template(&SensitiveTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+            has_value,
+            reveal,
+            failed,
         })
         .unwrap_or_default()
     }

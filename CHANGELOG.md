@@ -11,9 +11,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `laterite_core::crypt`: the application key (`app.key`, `lat key generate`) seals values,
   signs links and mints expiring tokens per purpose; `RouteCtx::crypt`. Signed media URLs use it.
+- The `sensitive` field type: a secret sealed at rest, shown as a mask, revealed on request with an
+  audit entry. `lat crypt rotate` re-seals every such column after `lat key generate --rotate`.
 
 ### Fixed
 
+- An edit writes only the attributes the record carries, so a value a field type leaves out (a
+  blank password) keeps what is stored; it was written as NULL.
 - The context side panel folds at phone and tablet widths as documented, and a colour input is
   a swatch, not a full-width bar.
 
