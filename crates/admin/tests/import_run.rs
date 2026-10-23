@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use laterite_admin::axum::Router;
 use laterite_admin::form::FormHandle;
-use laterite_admin::import::{find, start, Duplicates, Match, NoteKind, RunError, RunSpec, Status};
+use laterite_admin::import::{
+    find, start_inline, Duplicates, Match, NoteKind, RunError, RunSpec, Status,
+};
 use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{AuthConfig, AuthService};
@@ -144,7 +146,7 @@ async fn rows_are_written_through_the_form_and_reported() {
     let form = posts(&db);
     let file = "code,name\nlaunch,Launch\n,No code\n\n relaunch ,Relaunch\n";
 
-    let id = start(
+    let id = start_inline(
         &db,
         form,
         actor(),
@@ -186,7 +188,7 @@ async fn a_duplicate_is_skipped_or_updated_as_the_spec_says() {
     form.create(first, &actor()).await.unwrap();
 
     let skip = RunSpec::new("/posts", code_and_name()).duplicates(Duplicates::skip("code"));
-    let id = start(
+    let id = start_inline(
         &db,
         form.clone(),
         actor(),
@@ -201,7 +203,7 @@ async fn a_duplicate_is_skipped_or_updated_as_the_spec_says() {
     assert_eq!(run.notes[0].row, 2);
 
     let update = RunSpec::new("/posts", code_and_name()).duplicates(Duplicates::update("code"));
-    let id = start(
+    let id = start_inline(
         &db,
         form,
         actor(),
@@ -234,7 +236,7 @@ async fn the_file_options_are_honoured() {
         .first_row_titles(false)
         .delimiter(b';');
 
-    let id = start(
+    let id = start_inline(
         &db,
         form,
         actor(),
@@ -255,17 +257,17 @@ async fn a_spec_the_form_cannot_take_never_starts() {
 
     let unknown = RunSpec::new("/posts", vec![Match::new(0, "title")]);
     assert!(matches!(
-        start(&db, form.clone(), actor(), unknown, csv("")).await,
+        start_inline(&db, form.clone(), actor(), unknown, csv("")).await,
         Err(RunError::Spec(_))
     ));
     let unfed = RunSpec::new("/posts", code_and_name()).duplicates(Duplicates::skip("note"));
     assert!(matches!(
-        start(&db, form.clone(), actor(), unfed, csv("")).await,
+        start_inline(&db, form.clone(), actor(), unfed, csv("")).await,
         Err(RunError::Spec(_))
     ));
     let empty = RunSpec::new("/posts", vec![]);
     assert!(matches!(
-        start(&db, form, actor(), empty, csv("")).await,
+        start_inline(&db, form, actor(), empty, csv("")).await,
         Err(RunError::Spec(_))
     ));
     assert!(
@@ -282,7 +284,7 @@ async fn a_file_that_cannot_be_read_fails_the_run() {
         "disk gone",
     ))]));
 
-    let id = start(
+    let id = start_inline(
         &db,
         form,
         actor(),
@@ -304,7 +306,7 @@ async fn a_dry_run_reports_everything_and_writes_nothing() {
     let form = posts(&db);
     let spec = RunSpec::new("/posts", code_and_name()).dry_run(true);
 
-    let id = start(
+    let id = start_inline(
         &db,
         form,
         actor(),
@@ -340,7 +342,7 @@ async fn a_blank_cell_keeps_the_value_unless_told_to_clear() {
     let file = "code,name,note\nlaunch,Relaunch,\n";
 
     let keep = RunSpec::new("/posts", matches()).duplicates(Duplicates::update("code"));
-    let id = start(&db, form.clone(), actor(), keep, csv(file))
+    let id = start_inline(&db, form.clone(), actor(), keep, csv(file))
         .await
         .unwrap();
     finished(&db, id).await;
@@ -356,7 +358,9 @@ async fn a_blank_cell_keeps_the_value_unless_told_to_clear() {
     let clear = RunSpec::new("/posts", matches())
         .duplicates(Duplicates::update("code"))
         .keep_blank(false);
-    let id = start(&db, form, actor(), clear, csv(file)).await.unwrap();
+    let id = start_inline(&db, form, actor(), clear, csv(file))
+        .await
+        .unwrap();
     finished(&db, id).await;
     assert_eq!(
         rows(&db).await,

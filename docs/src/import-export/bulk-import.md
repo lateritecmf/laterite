@@ -85,6 +85,7 @@ use laterite_admin::import::{find, Status};
 
 let run = find(ctx.db(), id).await?.expect("a run");
 match run.status {
+    Status::Queued => "waiting for a worker".to_string(),
     Status::Running => format!("{} rows so far", run.processed),
     Status::Done => format!("{} created, {} updated", run.created, run.updated),
     Status::Failed => run.failure.unwrap_or_default(),
@@ -93,7 +94,7 @@ match run.status {
 
 Field | Meaning
 --- | ---
-`status` | `Running`, `Done`, or `Failed` (the run itself stopped; `failure` says why). A run left running by a stopped process reads as failed.
+`status` | `Queued` (pushed, no worker has taken it), `Running`, `Done`, or `Failed` (the run itself stopped; `failure` says why). A run whose worker stopped is failed by the queue after `queue.retry_after_seconds`.
 `processed`, `created`, `updated`, `skipped`, `errors` | Row counts. On a dry run, what an import would do.
 `notes` | One per message: `row` (the line in the file), `kind` (`Error` or `Skipped`), `field`, `message` (a `Text`, localized where it renders).
 `spec` | What ran, `dry_run` included.

@@ -44,6 +44,7 @@ pub(crate) struct ImportFeature {
 #[derive(Clone)]
 struct App {
     db: Db,
+    queue: laterite_core::Queue,
     base: Arc<str>,
     disk: Arc<dyn StorageDriver>,
     info: Arc<ResourceInfo>,
@@ -69,6 +70,7 @@ impl ResourceFeature for ImportFeature {
     fn mount(&self, ctx: &RouteCtx, resource: &ResourceInfo) -> Router {
         let app = App {
             db: ctx.db().clone(),
+            queue: ctx.queue().clone(),
             base: Arc::from(ctx.base_path()),
             disk: self.disk.clone(),
             info: Arc::new(resource.clone()),
@@ -629,16 +631,14 @@ async fn launch(
     spec: RunSpec,
     user: &AuthenticatedUser,
 ) -> Response {
-    let source = match app.disk.get(&blob_path(&record.hash)).await {
-        Ok(source) => source,
-        Err(e) => return AdminError::Internal(e.into()).into_response(),
-    };
     match start(
         &app.db,
-        app.info.form.clone(),
+        &app.queue,
+        &app.info.path,
+        &app.info.form,
         Actor::from(user),
         spec,
-        source,
+        &record.hash,
     )
     .await
     {
@@ -722,6 +722,7 @@ fn kind_label(shell: &Shell, run: &Run) -> String {
 
 fn status_label(shell: &Shell, status: Status) -> String {
     match status {
+        Status::Queued => shell.t("Queued, waiting for a worker"),
         Status::Running => shell.t("Running"),
         Status::Done => shell.t("Done"),
         Status::Failed => shell.t("Failed"),
@@ -730,6 +731,7 @@ fn status_label(shell: &Shell, status: Status) -> String {
 
 fn status_class(status: Status) -> &'static str {
     match status {
+        Status::Queued => "lat-status--off",
         Status::Running => "lat-status--running",
         Status::Done => "lat-status--on",
         Status::Failed => "lat-status--off",
@@ -750,7 +752,7 @@ fn status_markup(app: &App, shell: &Shell, run: &Run) -> Result<Markup, askama::
             message: shell.tt(&n.message),
         })
         .collect();
-    let settled = run.status != Status::Running;
+    let settled = matches!(run.status, Status::Done | Status::Failed);
     Markup::from_template(&StatusTemplate {
         shell,
         poll: (!settled).then(|| app.url(&format!("runs/{}/status", run.id))),

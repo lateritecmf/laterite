@@ -18,7 +18,7 @@ fn json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("a run's spec and notes serialize")
 }
 
-/// Records a run as started, returning its id.
+/// Records a run as queued, returning its id; [`started`] marks it running.
 pub(crate) async fn insert(db: &Db, spec: &RunSpec, actor: &Actor) -> Result<i64, sqlx::Error> {
     let stmt = Query::insert()
         .into_table(ImportRuns::Table)
@@ -37,13 +37,32 @@ pub(crate) async fn insert(db: &Db, spec: &RunSpec, actor: &Actor) -> Result<i64
             spec.media_id.into(),
             actor.user_id().into(),
             actor.label().to_string().into(),
-            Status::Running.as_str().into(),
+            Status::Queued.as_str().into(),
             json(spec).into(),
             "[]".into(),
             now().into(),
         ])
         .to_owned();
     insert_returning_id(db, stmt, ImportRuns::Id).await
+}
+
+/// Marks a queued run as running, from now.
+pub(crate) async fn started(db: &Db, id: i64) -> Result<(), sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(ImportRuns::Table)
+            .values([
+                (ImportRuns::Status, Status::Running.as_str().into()),
+                (ImportRuns::StartedAt, now().into()),
+            ])
+            .and_where(Expr::col(ImportRuns::Id).eq(id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
 }
 
 /// Writes the counts so far, while the run is still going.

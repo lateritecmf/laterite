@@ -1,15 +1,17 @@
 //! The run: a file's rows through a form, detached from the request, with a
 //! report a screen polls.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::form::FormHandle;
+use crate::form::{FormHandle, Forms};
 use crate::persist::SaveError;
 use futures::TryStreamExt;
 use laterite_core::query::{bind_values, build, text_cast};
+use laterite_core::queue::{Job, JobCx, JobError, JobReg, Pushed, Queue};
+use laterite_core::strata::async_trait;
 use laterite_core::{t, Actor, AnyRowExt, Db, Text};
-use laterite_media::ByteStream;
+use laterite_media::{blob_path, ByteStream, StorageDriver};
 use sea_query::{Alias, Expr, Query};
 use serde::{Deserialize, Serialize};
 
@@ -169,6 +171,8 @@ pub enum OnMatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
+    /// Pushed on the queue; a worker has not taken it yet.
+    Queued,
     /// Rows are still being written; the counts move.
     Running,
     /// Every row was read; the counts and notes are final.
@@ -181,6 +185,7 @@ pub enum Status {
 impl Status {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Status::Queued => "queued",
             Status::Running => "running",
             Status::Done => "done",
             Status::Failed => "failed",
@@ -189,6 +194,7 @@ impl Status {
 
     pub(crate) fn parse(s: &str) -> Option<Self> {
         match s {
+            "queued" => Some(Status::Queued),
             "running" => Some(Status::Running),
             "done" => Some(Status::Done),
             "failed" => Some(Status::Failed),
@@ -280,34 +286,125 @@ pub(crate) struct Counts {
 /// How many rows between writes of the counts, so a poll sees movement.
 const PROGRESS_EVERY: i64 = 25;
 
-/// The runs this process is working on. A row still `running` whose id is not
-/// here was left by a process that stopped mid-run; [`find`] reports it failed.
-static LIVE: LazyLock<Mutex<HashSet<i64>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+/// The job an import runs as: the run's id and everything the worker needs
+/// to pick the file up and write the rows. Pushed by [`start`]; the handler
+/// [`job_reg`] builds reads the file from the private disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportJob {
+    pub run_id: i64,
+    /// The resource's path as its descriptor declares it (`/products`).
+    pub resource: String,
+    pub spec: RunSpec,
+    pub actor: Actor,
+    /// The stored file's hash on the private disk.
+    pub hash: String,
+}
 
-/// How old a `running` row has to be before its absence from [`LIVE`] means it
-/// was lost, so a run between its insert and its start is never mistaken.
-const STALE_AFTER_SECONDS: i64 = 5;
+#[async_trait]
+impl Job for ImportJob {
+    const NAME: &'static str = "laterite.import::run";
 
-fn live(id: i64, is: bool) {
-    let mut set = LIVE.lock().unwrap_or_else(|e| e.into_inner());
-    if is {
-        set.insert(id);
-    } else {
-        set.remove(&id);
+    /// Never called: the handler registered by the admin router runs the
+    /// job, since it needs the resource's prepared form and the disk.
+    async fn run(&self, _cx: &JobCx) -> Result<(), JobError> {
+        Err(JobError::fail(
+            "the import job runs through the admin's handler",
+        ))
+    }
+
+    /// One attempt: rows written before a failure stay, so a second pass
+    /// would write them again.
+    fn tries(&self) -> u32 {
+        1
+    }
+
+    /// A large file takes as long as it takes.
+    fn timeout(&self) -> Option<std::time::Duration> {
+        None
+    }
+
+    fn unique_key(&self) -> Option<String> {
+        Some(format!("import:{}", self.run_id))
     }
 }
 
-fn is_live(id: i64) -> bool {
-    LIVE.lock().unwrap_or_else(|e| e.into_inner()).contains(&id)
+/// The job's handler, registered by the admin router once the forms and the
+/// private disk exist: reads the file and runs the rows through the form.
+pub(crate) fn job_reg(forms: Forms, disk: Arc<dyn StorageDriver>) -> JobReg {
+    JobReg::with_handler::<ImportJob, _, _>(move |job: ImportJob, cx: JobCx| {
+        let forms = Arc::clone(&forms);
+        let disk = Arc::clone(&disk);
+        async move {
+            let db = cx.db().clone();
+            let outcome = async {
+                let prepared = forms.get(&job.resource).ok_or_else(|| {
+                    RunError::Spec(format!("no resource imports at `{}`", job.resource))
+                })?;
+                let form = FormHandle::new(db.clone(), cx.cache().clone(), prepared.clone());
+                store::started(&db, job.run_id).await?;
+                let source = disk
+                    .get(&blob_path(&job.hash))
+                    .await
+                    .map_err(|e| RunError::Read(std::io::Error::other(e.to_string())))?;
+                run(&db, job.run_id, &form, &job.actor, &job.spec, source).await
+            }
+            .await;
+            if let Err(e) = outcome {
+                tracing::error!(run = job.run_id, error = %e, "import run stopped");
+                if let Err(e2) = store::fail(&db, job.run_id, &e.to_string()).await {
+                    tracing::error!(run = job.run_id, error = %e2, "import run could not be marked failed");
+                }
+                return Err(JobError::fail(e.to_string()));
+            }
+            Ok(())
+        }
+    })
 }
 
-/// Starts a run: records it, detaches the work and returns the run's id for
-/// [`find`] to poll.
+/// Starts a run: records it as queued, pushes its job and returns the run's
+/// id for [`find`] to poll. In `inline` mode the job runs here and the run
+/// is settled on return; otherwise a worker takes it.
 ///
-/// `source` is the file's bytes; `actor` is who the rows are written as, on
-/// every record and audit entry. The spec is checked against the form first,
-/// so a mistaken screen fails here and no run row is left behind.
+/// `resource` is the path the form is registered under; `hash` names the
+/// stored file; `actor` is who the rows are written as, on every record and
+/// audit entry. The spec is checked against the form first, so a mistaken
+/// screen fails here and no run row is left behind.
 pub async fn start(
+    db: &Db,
+    queue: &Queue,
+    resource: &str,
+    form: &FormHandle,
+    actor: Actor,
+    spec: RunSpec,
+    hash: &str,
+) -> Result<i64, RunError> {
+    check(&spec, form)?;
+    let id = store::insert(db, &spec, &actor).await?;
+    let job = ImportJob {
+        run_id: id,
+        resource: resource.to_string(),
+        spec,
+        actor,
+        hash: hash.to_string(),
+    };
+    match queue.push(&job).await {
+        Ok(Pushed::Queued(_)) | Ok(Pushed::Ran) | Ok(Pushed::Duplicate) => Ok(id),
+        Err(e) => {
+            // An inline failure already marked the run; a push that was
+            // refused leaves a queued row nothing will take.
+            if let Ok(Some(run)) = store::find(db, id).await {
+                if run.status == Status::Queued {
+                    let _ = store::fail(db, id, &e.to_string()).await;
+                }
+            }
+            Ok(id)
+        }
+    }
+}
+
+/// Runs a file through a form on this task, to completion: what a test or a
+/// tool with the bytes in hand calls. Returns the run's id.
+pub async fn start_inline(
     db: &Db,
     form: FormHandle,
     actor: Actor,
@@ -316,43 +413,12 @@ pub async fn start(
 ) -> Result<i64, RunError> {
     check(&spec, &form)?;
     let id = store::insert(db, &spec, &actor).await?;
-    live(id, true);
-    let db = db.clone();
-    tokio::spawn(async move {
-        if let Err(e) = run(&db, id, &form, &actor, &spec, source).await {
-            tracing::error!(run = id, error = %e, "import run stopped");
-            if let Err(e) = store::fail(&db, id, &e.to_string()).await {
-                tracing::error!(run = id, error = %e, "import run could not be marked failed");
-            }
-        }
-        live(id, false);
-    });
-    Ok(id)
-}
-
-/// One run by id, or `None` when there is no such run.
-///
-/// A run still recorded as running that this process is not working on was
-/// lost when a process stopped mid-run; it is marked failed here, with its
-/// counts as they were, so a report never shows a run that will not move.
-pub async fn find(db: &Db, id: i64) -> Result<Option<Run>, RunError> {
-    let Some(run) = store::find(db, id).await? else {
-        return Ok(None);
-    };
-    if run.status == Status::Running && !is_live(run.id) && is_stale(&run.started_at) {
-        store::fail(db, run.id, "The server stopped while the run was going.").await?;
-        return Ok(store::find(db, run.id).await?);
+    store::started(db, id).await?;
+    if let Err(e) = run(db, id, &form, &actor, &spec, source).await {
+        tracing::error!(run = id, error = %e, "import run stopped");
+        store::fail(db, id, &e.to_string()).await?;
     }
-    Ok(Some(run))
-}
-
-fn is_stale(started_at: &str) -> bool {
-    chrono::DateTime::parse_from_rfc3339(started_at)
-        .map(|at| {
-            (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_seconds()
-                > STALE_AFTER_SECONDS
-        })
-        .unwrap_or(true)
+    Ok(id)
 }
 
 fn check(spec: &RunSpec, form: &FormHandle) -> Result<(), RunError> {
@@ -379,6 +445,11 @@ fn check(spec: &RunSpec, form: &FormHandle) -> Result<(), RunError> {
         }
     }
     Ok(())
+}
+
+/// One run by id, or `None` when there is no such run.
+pub async fn find(db: &Db, id: i64) -> Result<Option<Run>, RunError> {
+    Ok(store::find(db, id).await?)
 }
 
 async fn run(

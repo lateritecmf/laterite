@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -266,6 +266,29 @@ impl JobReg {
         }
     }
 
+    /// The registration for `T` whose work is `handler` rather than
+    /// [`Job::run`]: for a job that needs what only the application assembles
+    /// after registration (a prepared form, a disk). `T` still names the job
+    /// and sets its rules.
+    pub fn with_handler<T, F, Fut>(handler: F) -> Self
+    where
+        T: Job,
+        F: Fn(T, JobCx) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), JobError>> + Send + 'static,
+    {
+        let handler = Arc::new(handler);
+        let mut reg = Self::of::<T>();
+        reg.run = Arc::new(move |payload, cx| {
+            let handler = Arc::clone(&handler);
+            Box::pin(async move {
+                let job: T = serde_json::from_value(payload)
+                    .map_err(|e| JobError::Fail(format!("payload does not decode: {e}")))?;
+                handler(job, cx).await
+            })
+        });
+        reg
+    }
+
     pub fn name(&self) -> &'static str {
         self.name
     }
@@ -407,7 +430,7 @@ pub struct Services {
 
 struct Inner {
     driver: Box<dyn QueueDriver>,
-    jobs: HashMap<&'static str, JobReg>,
+    jobs: RwLock<HashMap<&'static str, JobReg>>,
     services: Services,
     mode: Mode,
     queues: Vec<String>,
@@ -429,7 +452,7 @@ impl std::fmt::Debug for Queue {
         f.debug_struct("Queue")
             .field("driver", &self.inner.driver.name())
             .field("mode", &self.inner.mode)
-            .field("jobs", &self.inner.jobs.len())
+            .field("jobs", &self.job_names().len())
             .finish_non_exhaustive()
     }
 }
@@ -489,7 +512,7 @@ impl Queue {
         Self {
             inner: Arc::new(Inner {
                 driver: Box::new(driver),
-                jobs,
+                jobs: RwLock::new(jobs),
                 services,
                 mode: options.mode,
                 queues: options.queues,
@@ -525,13 +548,29 @@ impl Queue {
 
     /// The names of every registered job, sorted.
     pub fn job_names(&self) -> Vec<&'static str> {
-        let mut names: Vec<&'static str> = self.inner.jobs.keys().copied().collect();
+        let jobs = self.inner.jobs.read().unwrap_or_else(|e| e.into_inner());
+        let mut names: Vec<&'static str> = jobs.keys().copied().collect();
         names.sort_unstable();
         names
     }
 
-    pub(crate) fn job(&self, name: &str) -> Option<&JobReg> {
-        self.inner.jobs.get(name)
+    /// Adds a job after construction, for one the application can only build
+    /// once its router is assembled. A name already registered is replaced.
+    pub fn register(&self, reg: JobReg) {
+        self.inner
+            .jobs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(reg.name, reg);
+    }
+
+    pub(crate) fn job(&self, name: &str) -> Option<JobReg> {
+        self.inner
+            .jobs
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned()
     }
 
     pub(crate) fn services(&self) -> &Services {
@@ -559,7 +598,7 @@ impl Queue {
     }
 
     fn check<T: Job>(&self) -> CoreResult<()> {
-        if self.inner.jobs.contains_key(T::NAME) {
+        if self.job(T::NAME).is_some() {
             Ok(())
         } else {
             Err(CoreError::Validation(format!(
@@ -584,9 +623,14 @@ impl Queue {
     /// Pushes `job`, due at `when`.
     pub async fn push_at<T: Job>(&self, job: &T, when: DateTime<Utc>) -> CoreResult<Pushed> {
         self.check::<T>()?;
+        let payload = serde_json::to_value(job)
+            .map_err(|e| CoreError::Internal(format!("job `{}` cannot serialize: {e}", T::NAME)))?;
         if self.inner.mode == Mode::Inline {
+            // Through the registration, so a handler registered for the type
+            // runs here as it would on a worker.
+            let reg = self.job(T::NAME).expect("checked above");
             let cx = self.context(None, 1, &job.queue());
-            return match job.run(&cx).await {
+            return match (reg.run)(payload, cx).await {
                 Ok(()) => Ok(Pushed::Ran),
                 Err(e) => Err(CoreError::Internal(format!(
                     "job `{}` failed: {e}",
@@ -594,8 +638,6 @@ impl Queue {
                 ))),
             };
         }
-        let payload = serde_json::to_value(job)
-            .map_err(|e| CoreError::Internal(format!("job `{}` cannot serialize: {e}", T::NAME)))?;
         let unique = job.unique_key();
         let stored = self
             .inner
@@ -620,7 +662,7 @@ impl Queue {
         payload: &serde_json::Value,
         queue: &str,
     ) -> CoreResult<Pushed> {
-        let Some(reg) = self.inner.jobs.get(name) else {
+        let Some(reg) = self.job(name) else {
             return Err(CoreError::Validation(format!(
                 "job `{name}` is not registered"
             )));
@@ -779,6 +821,8 @@ pub struct JobFailed {
     pub queue: String,
     pub attempts: u32,
     pub error: String,
+    /// The job as it was pushed, for a listener that acts on what it named.
+    pub payload: serde_json::Value,
 }
 
 impl Event for JobFailed {

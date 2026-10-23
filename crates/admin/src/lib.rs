@@ -2177,6 +2177,11 @@ pub fn router(
             &link.permission,
         ));
     }
+    // The import job's handler, now that the forms and the private disk exist;
+    // a run pushed in any mode comes back here.
+    state
+        .queue
+        .register(import::run::job_reg(forms.clone(), private_disk.clone()));
     // A module's own screens: routes it wrote, mounted inside the protected tree
     // so they inherit the session, the permission guard, CSRF and the error pages.
     // Nested as a service, so the screen's router carries no framework state.

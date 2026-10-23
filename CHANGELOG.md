@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- An import runs as a job on the queue: on the request in `inline` mode, on the workers otherwise;
+  the run report shows Queued until a worker takes it, and a lost run is failed by the queue.
+
 ## [0.9.23] - 2026-10-23
 
 The Jobs and schedule slice of the Services theme: a queue with workers in the

@@ -217,6 +217,7 @@ impl Worker {
                         queue: job.queue.clone(),
                         attempts: job.attempts,
                         error: error.to_string(),
+                        payload: job.payload.clone(),
                     })
                     .await;
             }

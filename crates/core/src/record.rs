@@ -381,7 +381,7 @@ impl Record {
 ///
 /// Non-exhaustive: an unauthenticated public submission joins when the public web
 /// surface gains a write path.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum Actor {
     /// A signed-in operator.
