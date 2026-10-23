@@ -54,6 +54,8 @@ use crate::{Db, Module, ModuleId};
 
 mod database;
 pub mod migrations;
+#[cfg(feature = "redis")]
+pub mod redis;
 mod worker;
 
 pub use database::DatabaseQueue;
@@ -364,6 +366,10 @@ pub trait QueueDriver: Send + Sync {
     async fn forget(&self, id: Option<i64>) -> CoreResult<usize>;
     /// Drops every waiting job on `queue`, or on every queue with `None`.
     async fn clear(&self, queue: Option<&str>) -> CoreResult<usize>;
+    /// Checks the store answers; a driver with nothing to check says yes.
+    async fn ping(&self) -> CoreResult<()> {
+        Ok(())
+    }
 }
 
 /// How the queue runs.
@@ -794,8 +800,18 @@ pub async fn from_config(
             services,
             options,
         )),
+        #[cfg(feature = "redis")]
+        "redis" => {
+            let url = config.url.as_deref().ok_or_else(|| {
+                CoreError::Config("queue.store = \"redis\" needs queue.url".to_string())
+            })?;
+            let driver = redis::connect(url, &config.prefix).await?;
+            driver.ping().await?;
+            Ok(Queue::new(driver, jobs, services, options))
+        }
+        #[cfg(not(feature = "redis"))]
         "redis" => Err(CoreError::Config(
-            "queue.store = \"redis\" is not available yet; use database".to_string(),
+            "queue.store = \"redis\" needs the `redis` feature of laterite-core".to_string(),
         )),
         other => Err(CoreError::Config(format!(
             "queue.store `{other}` is not one of auto, database, redis"

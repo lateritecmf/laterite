@@ -127,6 +127,10 @@ fn browsable_host(listen: &str) -> String {
 pub struct QueueConfig {
     /// `auto`, `database` or `redis`. `auto` is `database`.
     pub store: String,
+    /// The Redis URL (`redis://host:6379/0`) for the `redis` store.
+    pub url: Option<String>,
+    /// The prefix of every Redis key, `laterite` by default.
+    pub prefix: String,
     /// `worker` (workers in this process), `external` (another process runs
     /// `queue work`) or `inline` (a job runs as it is pushed).
     pub mode: String,
@@ -145,6 +149,8 @@ impl Default for QueueConfig {
     fn default() -> Self {
         Self {
             store: "auto".to_string(),
+            url: None,
+            prefix: "laterite".to_string(),
             mode: "worker".to_string(),
             workers: 2,
             queues: vec!["default".to_string()],

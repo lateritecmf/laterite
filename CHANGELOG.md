@@ -18,6 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   session purge is one.
 - The Jobs and Scheduled Tasks screens under Settings → System, behind `backend.manage_jobs` and
   `backend.manage_schedule`.
+- `queue.store = "redis"` behind the `redis` feature: jobs claimed by one script, shared by every
+  process.
 
 ## [0.9.22] - 2026-10-23
 

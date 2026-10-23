@@ -90,11 +90,15 @@ workers = 2
 queues = ["default"]
 retry_after_seconds = 90
 poll_seconds = 1
+# url = "redis://127.0.0.1:6379/0"
+# prefix = "acme"
 ```
 
 Key | Description
 --- | ---
-`queue.store` | Where jobs wait. `auto` is `database`.
+`queue.store` | Where jobs wait. `auto` is `database`; `redis` needs the `redis` feature of `laterite-core` and `queue.url`.
+`queue.url` | The Redis URL for the `redis` store.
+`queue.prefix` | The prefix of every Redis key. Default `laterite`.
 `queue.mode` | `worker` runs the workers in the application process; `external` leaves them to `queue work`; `inline` runs a job as it is pushed.
 `queue.workers` | How many workers the process runs in `worker` mode. Default `2`.
 `queue.queues` | The queues a worker takes from, in priority order. Default `["default"]`.
