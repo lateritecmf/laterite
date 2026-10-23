@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.22] - 2026-10-23
+
+The Cache slice of the Services theme: values kept under the namespaces they were
+built from and dropped by every framework write, in every process.
+
 ### Added
 
 - `laterite_core::cache`: values kept for a lifetime under the namespaces they were built from,
