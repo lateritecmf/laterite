@@ -1997,9 +1997,11 @@ pub(crate) fn value_collect(
             .resolve_options(&field.options, types)
             .map_err(|_| t!("This screen has a malformed field."))?;
         let submitted = crate::field::SubmittedField::new(&field.name, data);
+        // A field that supplies no value (a sealed secret shown as its mask)
+        // leaves its key out, so the stored value is kept.
         let value = match field_type.to_attr(&submitted, &opts, Mode::Update) {
             Ok(Some(value)) => attr_to_json(value),
-            Ok(None) => serde_json::Value::String(String::new()),
+            Ok(None) => continue,
             Err(_) => return Err(t!("Check the values and try again.")),
         };
         object.insert(field.name.clone(), value);

@@ -32,6 +32,7 @@ pub struct RouteCtx {
     cache: laterite_core::Cache,
     queue: laterite_core::Queue,
     schedule: laterite_core::Schedule,
+    mail: laterite_core::Mail,
     upload_extensions: Arc<Vec<String>>,
     field_types: Arc<crate::field::FieldRegistry>,
     overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -53,6 +54,7 @@ impl RouteCtx {
         parameters: laterite_core::parameters::Parameters,
         queue: laterite_core::Queue,
         schedule: laterite_core::Schedule,
+        mail: laterite_core::Mail,
         upload_extensions: Arc<Vec<String>>,
         field_types: Arc<crate::field::FieldRegistry>,
         overrides: Arc<dyn crate::field::OverrideResolver>,
@@ -72,6 +74,7 @@ impl RouteCtx {
             parameters,
             queue,
             schedule,
+            mail,
             upload_extensions,
             field_types,
             overrides,
@@ -202,6 +205,11 @@ impl RouteCtx {
         &self.schedule
     }
 
+    /// The mail service, to send a message. See [`laterite_core::mail`].
+    pub fn mail(&self) -> &laterite_core::Mail {
+        &self.mail
+    }
+
     /// The settings store, writing through the cache. See
     /// [`crate::settings::Settings`].
     pub fn settings(&self) -> crate::settings::Settings {
@@ -293,6 +301,7 @@ impl RouteCtx {
             cache: None,
             queue: None,
             schedule: None,
+            mail: None,
         }
     }
 }
@@ -310,9 +319,17 @@ pub struct RouteCtxBuilder {
     cache: Option<laterite_core::Cache>,
     queue: Option<laterite_core::Queue>,
     schedule: Option<laterite_core::Schedule>,
+    mail: Option<laterite_core::Mail>,
 }
 
 impl RouteCtxBuilder {
+    /// The mail service `RouteCtx::mail` hands out. Defaults to one keeping
+    /// messages in memory.
+    pub fn mail(mut self, mail: laterite_core::Mail) -> Self {
+        self.mail = Some(mail);
+        self
+    }
+
     /// The schedule `RouteCtx::schedule` hands out. Defaults to one with no
     /// entry.
     pub fn schedule(mut self, schedule: laterite_core::Schedule) -> Self {
@@ -406,12 +423,26 @@ impl RouteCtxBuilder {
             )
             .expect("no entry, nothing to refuse")
         });
+        let mail = self.mail.unwrap_or_else(|| {
+            laterite_core::Mail::new(
+                Arc::new(laterite_core::mail::StubMailer::new()),
+                laterite_core::mail::Sender::from_config(
+                    &laterite_core::config::MailConfig::default(),
+                )
+                .expect("the default sender parses"),
+                laterite_core::mail::Templates::new(self.db.clone(), cache.clone()),
+                queue.clone(),
+                laterite_core::mail::drivers([]),
+                self.db.clone(),
+            )
+        });
         RouteCtx::new(
             self.db.clone(),
             auth,
             parameters,
             queue,
             schedule,
+            mail,
             Arc::new(crate::upload_extensions(&[])),
             Arc::new(crate::field::builtin_registry()),
             Arc::new(crate::field::NoOverrides),

@@ -177,6 +177,60 @@ impl Default for ScheduleConfig {
     }
 }
 
+/// Mail (`[mail]`): the sender, the driver and the SMTP server. A Mail
+/// settings model saved in the admin overrides these.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct MailConfig {
+    /// `smtp`, `log`, `stub`, or a driver a module registered. `log` keeps
+    /// every message in the mail log instead of sending it.
+    pub driver: String,
+    /// The default sender, `Name <address>` or a bare address.
+    pub from: String,
+    /// Every message goes to this address instead of its recipients while
+    /// set: for development.
+    pub to: Option<String>,
+    pub smtp: SmtpConfig,
+}
+
+impl Default for MailConfig {
+    fn default() -> Self {
+        Self {
+            driver: "log".to_string(),
+            from: "Laterite <no-reply@localhost>".to_string(),
+            to: None,
+            smtp: SmtpConfig::default(),
+        }
+    }
+}
+
+/// The SMTP server (`[mail.smtp]`).
+#[derive(Debug, Clone, Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SmtpConfig {
+    pub host: String,
+    pub port: u16,
+    /// `starttls`, `tls` or `none`.
+    pub encryption: String,
+    pub username: String,
+    pub password: String,
+    /// Seconds to wait for the server.
+    pub timeout_seconds: u64,
+}
+
+impl Default for SmtpConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 587,
+            encryption: "starttls".to_string(),
+            username: String::new(),
+            password: String::new(),
+            timeout_seconds: 30,
+        }
+    }
+}
+
 /// The cache (`[cache]`): where values are kept and how the processes of a
 /// deployment learn of one another's invalidations.
 #[derive(Debug, Clone, Deserialize)]

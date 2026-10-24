@@ -279,6 +279,10 @@ pub(crate) struct AdminState {
     queue: laterite_core::Queue,
     /// The application's schedule, for the Scheduled tasks screen.
     schedule: laterite_core::Schedule,
+    /// The mail service, for the Send test and the mail screens.
+    mail: laterite_core::Mail,
+    /// `[mail]` as configured, which the saved settings lay over.
+    mail_config: Arc<laterite_core::config::MailConfig>,
     /// The deployment's skin, resolved once at boot.
     skin: Arc<skin::Active>,
     /// Each registered asset's content-named path. See [`asset_urls`].
@@ -322,6 +326,12 @@ impl AdminState {
                 laterite_core::Cache::local(),
                 inline_queue(&db, laterite_core::Cache::local()),
             ),
+            mail: stub_mail(
+                &db,
+                laterite_core::Cache::local(),
+                inline_queue(&db, laterite_core::Cache::local()),
+            ),
+            mail_config: Arc::new(laterite_core::config::MailConfig::default()),
             upload_extensions: Arc::new(upload_extensions(&[])),
             db,
             nav: Arc::new(nav::NavTree::default()),
@@ -458,6 +468,12 @@ pub struct AdminConfig {
     /// The application's schedule, built by the bootstrap from every
     /// registered entry; unset, an empty one. See [`laterite_core::schedule`].
     pub schedule: Option<laterite_core::Schedule>,
+    /// The mail service, built by the bootstrap from `[mail]` and the saved
+    /// Mail settings; unset, one that keeps messages in memory. See
+    /// [`laterite_core::mail`].
+    pub mail: Option<laterite_core::Mail>,
+    /// `[mail]` as configured, the base the Mail settings lay over.
+    pub mail_config: laterite_core::config::MailConfig,
 }
 
 impl Default for AdminConfig {
@@ -480,6 +496,8 @@ impl Default for AdminConfig {
             cache: None,
             queue: None,
             schedule: None,
+            mail: None,
+            mail_config: laterite_core::config::MailConfig::default(),
         }
     }
 }
@@ -521,6 +539,24 @@ fn empty_schedule(
         },
     )
     .expect("no entry, nothing to refuse")
+}
+
+/// A mail service keeping every message in memory, with no template seeded:
+/// what a router built without the bootstrap gets.
+fn stub_mail(
+    db: &Db,
+    cache: laterite_core::Cache,
+    queue: laterite_core::Queue,
+) -> laterite_core::Mail {
+    laterite_core::Mail::new(
+        Arc::new(laterite_core::mail::StubMailer::new()),
+        laterite_core::mail::Sender::from_config(&laterite_core::config::MailConfig::default())
+            .expect("the default sender parses"),
+        laterite_core::mail::Templates::new(db.clone(), cache),
+        queue,
+        laterite_core::mail::drivers([]),
+        db.clone(),
+    )
 }
 
 /// Thirty-two random bytes: a signing key for one process.
@@ -1537,6 +1573,7 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
         Permission::new(jobs::PERMISSION, "Manage jobs", "Backend"),
         Permission::new(scheduled::PERMISSION, "Manage scheduled tasks", "Backend"),
+        Permission::new(settings::mail::PERMISSION, "Manage mail", "Backend"),
         Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
         Permission::new("backend.view_access_log", "View the access log", "Backend"),
         Permission::new(
@@ -1594,6 +1631,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(laterite_core::cache::CacheModule),
         Box::new(laterite_core::queue::QueueModule),
         Box::new(laterite_core::schedule::ScheduleModule),
+        Box::new(laterite_core::mail::MailModule),
         Box::new(requestlog::RequestLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
@@ -2045,12 +2083,18 @@ pub fn router(
         .schedule
         .clone()
         .unwrap_or_else(|| empty_schedule(&db, cache.clone(), queue.clone()));
+    let mail = config
+        .mail
+        .clone()
+        .unwrap_or_else(|| stub_mail(&db, cache.clone(), queue.clone()));
     let state = AdminState {
         auth,
         parameters: laterite_core::parameters::Parameters::with_cache(db.clone(), cache.clone()),
         cache,
         queue,
         schedule,
+        mail,
+        mail_config: Arc::new(config.mail_config.clone()),
         upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
         db,
         nav: Arc::new(nav),
@@ -2152,6 +2196,7 @@ pub fn router(
             state.parameters.clone(),
             state.queue.clone(),
             state.schedule.clone(),
+            state.mail.clone(),
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
@@ -2193,6 +2238,7 @@ pub fn router(
             state.parameters.clone(),
             state.queue.clone(),
             state.schedule.clone(),
+            state.mail.clone(),
             state.upload_extensions.clone(),
             state.field_types.clone(),
             state.overrides.clone(),
@@ -2283,6 +2329,13 @@ pub fn router(
                 post(jobs::forget),
             ),
         jobs::PERMISSION,
+    ));
+    protected = protected.merge(guard_with_permission(
+        Router::new().route(
+            &format!("{admin_path}{}", settings::mail::TEST_PATH),
+            post(settings::mail::send_test),
+        ),
+        settings::mail::PERMISSION,
     ));
     protected = protected.merge(guard_with_permission(
         Router::new()
@@ -2406,6 +2459,7 @@ pub fn router(
             &state.parameters,
             &state.queue,
             &state.schedule,
+            &state.mail,
             &state.upload_extensions,
             &state.field_types,
             &state.overrides,
@@ -2427,6 +2481,7 @@ pub fn router(
                 state.parameters.clone(),
                 state.queue.clone(),
                 state.schedule.clone(),
+                state.mail.clone(),
                 state.upload_extensions.clone(),
                 state.field_types.clone(),
                 state.overrides.clone(),
@@ -2595,6 +2650,7 @@ fn mount_public(
     parameters: &laterite_core::parameters::Parameters,
     queue: &laterite_core::Queue,
     schedule: &laterite_core::Schedule,
+    mail: &laterite_core::Mail,
     upload_extensions: &Arc<Vec<String>>,
     field_types: &Arc<field::FieldRegistry>,
     overrides: &Arc<dyn field::OverrideResolver>,
@@ -2615,6 +2671,7 @@ fn mount_public(
             parameters.clone(),
             queue.clone(),
             schedule.clone(),
+            mail.clone(),
             upload_extensions.clone(),
             field_types.clone(),
             overrides.clone(),
@@ -5149,6 +5206,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("clock")
             .permission(scheduled::PERMISSION)
             .link("/scheduled-tasks"),
+        settings::mail::settings_item(),
         settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
             .description("Review the record of administrative changes.")
             .category("System")
@@ -5809,6 +5867,12 @@ mod tests {
                 laterite_core::Cache::local(),
                 inline_queue(&db, laterite_core::Cache::local()),
             ),
+            mail: stub_mail(
+                &db,
+                laterite_core::Cache::local(),
+                inline_queue(&db, laterite_core::Cache::local()),
+            ),
+            mail_config: Arc::new(laterite_core::config::MailConfig::default()),
             skin: Arc::new(skin::Active::default()),
             field_types: Arc::new(field::builtin_registry()),
             column_types: Arc::new(list::builtin_column_registry()),
@@ -5864,6 +5928,7 @@ mod tests {
             fields: Vec::new(),
             route: None,
             per_operator: false,
+            actions: Vec::new(),
         }
     }
 

@@ -93,6 +93,7 @@
 - [Cache](services/cache.md)
 - [Queue](services/queue.md)
 - [Scheduler](services/schedule.md)
+- [Mail](services/mail.md)
 
 # Media
 

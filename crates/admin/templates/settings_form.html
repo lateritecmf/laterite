@@ -27,4 +27,14 @@
     </div>
   </form>
 </div>
+{% if !actions.is_empty() %}
+<div class="lat-actions lat-toolbar__actions" style="margin-top:16px">
+  {% for a in actions %}
+  <form method="post" action="{{ a.path }}">
+    {% include "_csrf.html" %}
+    <button class="lat-btn lat-btn--secondary" type="submit">{{ a.label }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

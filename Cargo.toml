@@ -39,6 +39,9 @@ chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
 futures = "0.3"
 chrono-tz = "0.10"
 croner = "4"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1", "tokio1-rustls", "builder", "pool", "hostname", "ring", "webpki-roots"] }
+css-inline = { version = "0.23", default-features = false }
+minijinja = { version = "3", features = ["serde", "multi_template"] }
 iana-time-zone = "0.1"
 listenfd = "1"
 clap = { version = "4", features = ["derive", "env"] }

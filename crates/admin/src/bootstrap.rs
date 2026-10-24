@@ -67,6 +67,8 @@ pub struct AppConfig {
     pub queue: laterite_core::config::QueueConfig,
     #[serde(default)]
     pub schedule: laterite_core::config::ScheduleConfig,
+    #[serde(default)]
+    pub mail: laterite_core::config::MailConfig,
 }
 
 /// Deployment control over which plugins load. A disabled plugin's migrations do
@@ -89,6 +91,7 @@ pub struct BootstrapCtx {
     cache: laterite_core::Cache,
     queue: laterite_core::Queue,
     schedule: laterite_core::Schedule,
+    mail: laterite_core::Mail,
 }
 
 impl BootstrapCtx {
@@ -131,6 +134,12 @@ impl BootstrapCtx {
     /// entry. See [`laterite_core::schedule`].
     pub fn schedule(&self) -> &laterite_core::Schedule {
         &self.schedule
+    }
+
+    /// The mail service, for an app's routes to send through. See
+    /// [`laterite_core::mail`].
+    pub fn mail(&self) -> &laterite_core::Mail {
+        &self.mail
     }
 }
 
@@ -620,6 +629,29 @@ impl Bootstrap {
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
         let crypt = crypt_from_config(&config, &secret)?;
+
+        // Mail: the templates every module registered, seeded into their
+        // tables; the transport from `[mail]` under the saved Mail settings.
+        let templates = laterite_core::mail::Templates::new(db.clone(), cache.clone());
+        templates.set_app_name(&config.app.name);
+        templates
+            .seed(
+                &contributions.take::<laterite_core::mail::MailTemplateReg>(),
+                &contributions.take::<laterite_core::mail::MailLayoutReg>(),
+                &contributions.take::<laterite_core::mail::MailPartialReg>(),
+            )
+            .await?;
+        let saved: crate::settings::mail::MailSetting =
+            crate::settings::store::load(&db).await.unwrap_or_default();
+        let mail_config = crate::settings::mail::effective(&config.mail, &saved, &crypt);
+        let mail = laterite_core::Mail::from_config(
+            &mail_config,
+            contributions.take::<laterite_core::mail::MailDriverReg>(),
+            templates,
+            queue.clone(),
+            db.clone(),
+        )?;
+        tracing::info!(driver = mail.driver_name(), "mail ready");
         let admin_config = AdminConfig {
             secure_cookie: config.backend.secure_cookie,
             trusted_proxies: config.backend.trusted_proxies.clone(),
@@ -638,6 +670,8 @@ impl Bootstrap {
             cache: Some(cache.clone()),
             queue: Some(queue.clone()),
             schedule: Some(schedule.clone()),
+            mail: Some(mail.clone()),
+            mail_config: config.mail.clone(),
         };
         // Merge every loaded module's PO catalogs into the shared store the request
         // translator looks up against. A malformed catalog fails boot, like a bad
@@ -709,6 +743,7 @@ impl Bootstrap {
                 cache,
                 queue: queue.clone(),
                 schedule: schedule.clone(),
+                mail: mail.clone(),
             };
             app = extend(app, &ctx);
         }

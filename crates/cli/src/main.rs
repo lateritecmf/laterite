@@ -18,6 +18,7 @@ mod doctor;
 mod domain;
 mod i18n;
 mod key;
+mod mail;
 mod make;
 mod media;
 mod new;
@@ -107,6 +108,11 @@ enum Command {
         #[command(subcommand)]
         command: schedule::ScheduleCommand,
     },
+    /// A test message through the configured transport.
+    Mail {
+        #[command(subcommand)]
+        command: mail::MailCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -183,6 +189,7 @@ async fn main() -> Result<()> {
         Command::Cache { command } => cache::run(command, cli.database_url).await,
         Command::Queue { command } => queue::run(command, cli.database_url).await,
         Command::Schedule { command } => schedule::run(command, cli.database_url).await,
+        Command::Mail { command } => mail::run(command, cli.database_url).await,
     }
 }
 

@@ -1,0 +1,63 @@
+name = "Default"
+==
+{{ content }}
+
+--
+{{ app_name }}
+==
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ subject }}</title>
+<style>{{ brand_css }}
+{{ css }}</style>
+</head>
+<body>
+<table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation">
+  {{ partial("header", body=app_name) }}
+  <tr>
+    <td align="center">
+      <table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+          <td class="body" width="100%">
+            <table class="inner-body" align="center" width="570" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td class="content-cell">
+                  {{ content }}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  {{ partial("footer", body=app_name) }}
+</table>
+</body>
+</html>
+==
+body { margin: 0; padding: 0; width: 100%; background-color: {{ brand.body_bg|default("#f3f1ee") }}; color: {{ brand.text_color|default("#2b2622") }}; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.5; -webkit-text-size-adjust: none; }
+.wrapper { width: 100%; background-color: {{ brand.body_bg|default("#f3f1ee") }}; }
+.content { width: 100%; }
+.header { padding: 24px 0; text-align: center; font-size: 19px; font-weight: 700; color: {{ brand.header_color|default("#7a4a2e") }}; }
+.header a { color: {{ brand.header_color|default("#7a4a2e") }}; text-decoration: none; }
+.body { background-color: {{ brand.body_bg|default("#f3f1ee") }}; border-top: 1px solid {{ brand.border_color|default("#e4ddd4") }}; border-bottom: 1px solid {{ brand.border_color|default("#e4ddd4") }}; }
+.inner-body { width: 570px; max-width: 570px; background-color: {{ brand.content_bg|default("#ffffff") }}; border-radius: 6px; }
+.content-cell { padding: 32px; }
+h1 { margin: 0 0 16px; font-size: 22px; font-weight: 700; color: {{ brand.heading_color|default("#1f1a17") }}; }
+h2 { margin: 24px 0 12px; font-size: 18px; font-weight: 700; color: {{ brand.heading_color|default("#1f1a17") }}; }
+p { margin: 0 0 16px; }
+a { color: {{ brand.link_color|default("#b4532f") }}; }
+.action { margin: 28px auto; }
+.button { display: inline-block; padding: 12px 22px; border-radius: 6px; color: {{ brand.button_text_color|default("#ffffff") }}; background-color: {{ brand.button_bg|default("#b4532f") }}; text-decoration: none; font-weight: 600; }
+.panel { margin: 20px 0; }
+.panel-content { background-color: {{ brand.panel_bg|default("#f3f1ee") }}; border-radius: 6px; padding: 16px; }
+.table { margin: 20px 0; }
+.table table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 8px 10px; border-bottom: 1px solid {{ brand.border_color|default("#e4ddd4") }}; text-align: left; }
+.subcopy { margin-top: 24px; padding-top: 16px; border-top: 1px solid {{ brand.border_color|default("#e4ddd4") }}; font-size: 13px; color: {{ brand.muted_color|default("#6f655c") }}; }
+.footer { width: 570px; max-width: 570px; text-align: center; }
+.footer .content-cell { padding: 24px 32px; font-size: 13px; color: {{ brand.footer_color|default("#8a8077") }}; }

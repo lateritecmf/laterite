@@ -6,6 +6,10 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "(optional)"
 msgstr ""
 
+#: (descriptors)
+msgid "587 for STARTTLS, 465 for TLS, 25 or 1025 for none."
+msgstr ""
+
 #: templates/import/index.html
 msgid "A CSV file, read as UTF-8."
 msgstr ""
@@ -20,6 +24,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "A check: nothing was written. The counts say what an import would do."
+msgstr ""
+
+#: (descriptors)
+msgid "A driver a module registered is named by its code in the configuration."
 msgstr ""
 
 #: templates/import/match.html
@@ -49,6 +57,10 @@ msgstr ""
 
 #: templates/users_new.html
 msgid "A temporary password is generated and shown to you once. The new user must replace it at their first sign-in."
+msgstr ""
+
+#: src/settings/mail.rs
+msgid "A test message went to {address} through {driver}."
 msgstr ""
 
 #: (descriptors)
@@ -175,6 +187,15 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Belongs in"
+msgstr ""
+
+#: src/settings/mail.rs
+#: (descriptors)
+msgid "Blank fields keep the values from the configuration file. Save, then send a test message to yourself."
+msgstr ""
+
+#: (descriptors)
+msgid "Blank keeps the configured address."
 msgstr ""
 
 #: src/field.rs
@@ -576,6 +597,10 @@ msgstr ""
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: (descriptors)
+msgid "Encryption"
+msgstr ""
+
 #: templates/preferences.html
 #: templates/scheduled.html
 msgid "Entry"
@@ -883,6 +908,11 @@ msgstr ""
 msgid "Logo"
 msgstr ""
 
+#: src/settings/mail.rs
+#: (descriptors)
+msgid "Mail"
+msgstr ""
+
 #: src/widgets.rs
 msgid "Manage"
 msgstr ""
@@ -901,6 +931,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Manage jobs"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage mail"
 msgstr ""
 
 #: (descriptors)
@@ -1408,6 +1442,22 @@ msgstr ""
 msgid "Running"
 msgstr ""
 
+#: (descriptors)
+msgid "SMTP host"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP password"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP port"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP username"
+msgstr ""
+
 #: templates/import/match.html
 msgid "Sample"
 msgstr ""
@@ -1432,6 +1482,10 @@ msgstr ""
 
 #: templates/form.html
 msgid "Save first, then add"
+msgstr ""
+
+#: src/settings/mod.rs
+msgid "Saved, but the transport could not be set up: {error}"
 msgstr ""
 
 #: src/form.rs
@@ -1507,6 +1561,27 @@ msgstr ""
 msgid "Semicolon"
 msgstr ""
 
+#: src/settings/mail.rs
+#: (descriptors)
+msgid "Send a test message to me"
+msgstr ""
+
+#: (descriptors)
+msgid "Send everything to"
+msgstr ""
+
+#: (descriptors)
+msgid "Send through"
+msgstr ""
+
+#: (descriptors)
+msgid "Sender address"
+msgstr ""
+
+#: (descriptors)
+msgid "Sender name"
+msgstr ""
+
 #: templates/setup.html
 msgid "Set up"
 msgstr ""
@@ -1533,6 +1608,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
+msgstr ""
+
+#: (descriptors)
+msgid "Shown as the sender; blank keeps the configured name."
 msgstr ""
 
 #: templates/preferences.html
@@ -1645,6 +1724,7 @@ msgstr ""
 msgid "Superuser"
 msgstr ""
 
+#: src/settings/mail.rs
 #: src/widgets.rs
 #: (descriptors)
 msgid "System"
@@ -1824,6 +1904,11 @@ msgstr ""
 msgid "The row could not be read: {reason}"
 msgstr ""
 
+#: src/settings/mail.rs
+#: (descriptors)
+msgid "The sender, the transport and a test message."
+msgstr ""
+
 #: src/error.rs
 msgid "The server hit an unexpected error."
 msgstr ""
@@ -1834,6 +1919,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "The tab icon; a square PNG or SVG."
+msgstr ""
+
+#: src/settings/mail.rs
+msgid "The test message could not be sent: {error}"
 msgstr ""
 
 #: src/medialib/mod.rs
@@ -2074,6 +2163,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Where it belongs"
+msgstr ""
+
+#: (descriptors)
+msgid "While set, every message goes to this address instead of its recipients. For development."
 msgstr ""
 
 #: src/widgets.rs

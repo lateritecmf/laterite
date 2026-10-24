@@ -26,7 +26,7 @@ Editor engines: TipTap, ProseMirror, CodeMirror and their dependencies (bundled 
     MIT - Copyright holders listed per package in crates/admin/NOTICE
     https://github.com/ueberdosis/tiptap, https://prosemirror.net, https://codemirror.net
 
-Rust crates (491)
+Rust crates (504)
 --------------------
 
 adler2 2.0.1  [0BSD OR MIT OR Apache-2.0]  https://github.com/oyvindln/adler2
@@ -83,6 +83,7 @@ axum-core 0.5.6  [MIT]  https://github.com/tokio-rs/axum
 axum-extra 0.10.3  [MIT]  https://github.com/tokio-rs/axum
 backon 1.6.0  [Apache-2.0]  https://github.com/Xuanwo/backon
 base64 0.22.1  [MIT OR Apache-2.0]  https://github.com/marshallpierce/rust-base64
+base64 0.23.1  [MIT OR Apache-2.0]  https://github.com/marshallpierce/rust-base64
 base64-simd 0.8.0  [MIT]  https://github.com/Nugine/simd
 base64ct 1.8.3  [Apache-2.0 OR MIT]  https://github.com/RustCrypto/formats
 basic-toml 0.1.10  [MIT OR Apache-2.0]  https://github.com/dtolnay/basic-toml
@@ -137,7 +138,9 @@ crossbeam-queue 0.3.13  [MIT OR Apache-2.0]  https://github.com/crossbeam-rs/cro
 crossbeam-utils 0.8.22  [MIT OR Apache-2.0]  https://github.com/crossbeam-rs/crossbeam
 crypto-common 0.1.7  [MIT OR Apache-2.0]  https://github.com/RustCrypto/traits
 crypto-common 0.2.2  [MIT OR Apache-2.0]  https://github.com/RustCrypto/traits
+css-inline 0.23.0  [MIT]  https://github.com/Stranger6667/css-inline
 cssparser 0.38.0  [MPL-2.0]  https://github.com/servo/rust-cssparser
+cssparser-macros 0.7.1  [MPL-2.0]  https://github.com/servo/rust-cssparser
 csv 1.4.0  [Unlicense/MIT]  https://github.com/BurntSushi/rust-csv
 csv-core 0.1.13  [Unlicense/MIT]  https://github.com/BurntSushi/rust-csv
 ctutils 0.4.3  [Apache-2.0 OR MIT]  https://github.com/RustCrypto/utils
@@ -149,6 +152,8 @@ deranged 0.5.8  [MIT OR Apache-2.0]  https://github.com/jhpratt/deranged
 derive_builder 0.20.2  [MIT OR Apache-2.0]  https://github.com/colin-kiegel/rust-derive-builder
 derive_builder_core 0.20.2  [MIT OR Apache-2.0]  https://github.com/colin-kiegel/rust-derive-builder
 derive_builder_macro 0.20.2  [MIT OR Apache-2.0]  https://github.com/colin-kiegel/rust-derive-builder
+derive_more 2.1.1  [MIT]  https://github.com/JelteF/derive_more
+derive_more-impl 2.1.1  [MIT]  https://github.com/JelteF/derive_more
 dialoguer 0.11.0  [MIT]  https://github.com/console-rs/dialoguer
 digest 0.10.7  [MIT OR Apache-2.0]  https://github.com/RustCrypto/traits
 digest 0.11.3  [MIT OR Apache-2.0]  https://github.com/RustCrypto/traits
@@ -158,6 +163,7 @@ dtoa 1.0.11  [MIT OR Apache-2.0]  https://github.com/dtolnay/dtoa
 dtoa-short 0.3.5  [MPL-2.0]  https://github.com/upsuper/dtoa-short
 dunce 1.0.5  [CC0-1.0 OR MIT-0 OR Apache-2.0]  https://gitlab.com/kornelski/dunce
 either 1.17.0  [MIT OR Apache-2.0]  https://github.com/rayon-rs/either
+email-encoding 0.4.2  [MIT OR Apache-2.0]  https://github.com/lettre/email-encoding
 email_address 0.2.9  [MIT]  https://github.com/johnstonskj/rust-email_address.git
 encode_unicode 1.0.0  [Apache-2.0 OR MIT]  https://github.com/tormol/encode_unicode
 encoding_rs 0.8.41  [(Apache-2.0 OR MIT) AND BSD-3-Clause]  https://github.com/hsivonen/encoding_rs
@@ -205,6 +211,7 @@ hkdf 0.12.4  [MIT OR Apache-2.0]  https://github.com/RustCrypto/KDFs/
 hmac 0.12.1  [MIT OR Apache-2.0]  https://github.com/RustCrypto/MACs
 hmac 0.13.0  [MIT OR Apache-2.0]  https://github.com/RustCrypto/MACs
 home 0.5.12  [MIT OR Apache-2.0]  https://github.com/rust-lang/cargo
+hostname 0.4.2  [MIT]  https://github.com/djc/hostname
 html5ever 0.40.1  [MIT OR Apache-2.0]  https://github.com/servo/html5ever
 http 0.2.12  [MIT OR Apache-2.0]  https://github.com/hyperium/http
 http 1.5.0  [MIT OR Apache-2.0]  https://github.com/hyperium/http
@@ -244,6 +251,7 @@ itoa 1.0.18  [MIT OR Apache-2.0]  https://github.com/dtolnay/itoa
 jobserver 0.1.35  [MIT OR Apache-2.0]  https://github.com/rust-lang/jobserver-rs
 js-sys 0.3.104  [MIT OR Apache-2.0]  https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys
 lazy_static 1.5.0  [MIT OR Apache-2.0]  https://github.com/rust-lang-nursery/lazy-static.rs
+lettre 0.11.23  [MIT]  https://github.com/lettre/lettre
 libc 0.2.189  [MIT OR Apache-2.0]  https://github.com/rust-lang/libc
 libm 0.2.16  [MIT]  https://github.com/rust-lang/compiler-builtins
 libredox 0.1.19  [MIT]  https://gitlab.redox-os.org/redox-os/libredox.git
@@ -275,6 +283,7 @@ multiversion_no_op 1.0.0  [Apache-2.0 OR MIT]  https://github.com/hsivonen/multi
 new_debug_unreachable 1.0.6  [MIT]  https://github.com/mbrubeck/rust-debug-unreachable
 nix 0.31.3  [MIT]  https://github.com/nix-rust/nix
 nohash-hasher 0.2.0  [Apache-2.0 OR MIT]  https://github.com/paritytech/nohash-hasher
+nom 8.0.0  [MIT]  https://github.com/rust-bakery/nom
 nu-ansi-term 0.50.3  [MIT]  https://github.com/nushell/nu-ansi-term
 num-bigint-dig 0.8.6  [MIT/Apache-2.0]  https://github.com/dignifiedquire/num-bigint
 num-conv 0.2.2  [MIT OR Apache-2.0]  https://github.com/jhpratt/num-conv
@@ -296,6 +305,7 @@ phf 0.12.1  [MIT]  https://github.com/rust-phf/rust-phf
 phf 0.14.0  [MIT]  https://github.com/rust-phf/rust-phf
 phf_codegen 0.14.0  [MIT]  https://github.com/rust-phf/rust-phf
 phf_generator 0.14.0  [MIT]  https://github.com/rust-phf/rust-phf
+phf_macros 0.14.0  [MIT]  https://github.com/rust-phf/rust-phf
 phf_shared 0.12.1  [MIT]  https://github.com/rust-phf/rust-phf
 phf_shared 0.14.0  [MIT]  https://github.com/rust-phf/rust-phf
 pin-project-lite 0.2.17  [Apache-2.0 OR MIT]  https://github.com/taiki-e/pin-project-lite
@@ -318,6 +328,7 @@ pure-rust-locales 0.8.2  [MIT OR Apache-2.0]  https://github.com/cecton/pure-rus
 pxfm 0.1.30  [BSD-3-Clause OR Apache-2.0]  https://github.com/awxkee/pxfm
 quick-error 2.0.1  [MIT/Apache-2.0]  http://github.com/tailhook/quick-error
 quote 1.0.47  [MIT OR Apache-2.0]  https://github.com/dtolnay/quote
+quoted_printable 0.5.2  [0BSD]  https://github.com/staktrace/quoted-printable
 r-efi 6.0.0  [MIT OR Apache-2.0 OR LGPL-2.1-or-later]  https://github.com/r-efi/r-efi
 rand 0.8.7  [MIT OR Apache-2.0]  https://github.com/rust-random/rand
 rand_chacha 0.3.1  [MIT OR Apache-2.0]  https://github.com/rust-random/rand
@@ -353,6 +364,7 @@ sea-query-derive 0.4.3  [MIT OR Apache-2.0]  https://github.com/SeaQL/sea-query
 secrecy 0.10.3  [Apache-2.0 OR MIT]  https://github.com/iqlusioninc/crates/tree/main/secrecy
 security-framework 3.7.0  [MIT OR Apache-2.0]  https://github.com/kornelski/rust-security-framework
 security-framework-sys 2.17.0  [MIT OR Apache-2.0]  https://github.com/kornelski/rust-security-framework
+selectors 0.41.0  [MPL-2.0]  https://github.com/servo/stylo
 semver 1.0.28  [MIT OR Apache-2.0]  https://github.com/dtolnay/semver
 serde 1.0.229  [MIT OR Apache-2.0]  https://github.com/serde-rs/serde
 serde-saphyr 1.3.0  [MIT OR Apache-2.0]  https://github.com/bourumir-wyngs/serde-saphyr
@@ -363,6 +375,7 @@ serde_path_to_error 0.1.20  [MIT OR Apache-2.0]  https://github.com/dtolnay/path
 serde_spanned 0.6.9  [MIT OR Apache-2.0]  https://github.com/toml-rs/toml
 serde_spanned 1.1.1  [MIT OR Apache-2.0]  https://github.com/toml-rs/toml
 serde_urlencoded 0.7.1  [MIT/Apache-2.0]  https://github.com/nox/serde_urlencoded
+servo_arc 0.5.0  [MIT OR Apache-2.0]  https://github.com/servo/stylo
 sha1 0.10.7  [MIT OR Apache-2.0]  https://github.com/RustCrypto/hashes
 sha1 0.11.0  [MIT OR Apache-2.0]  https://github.com/RustCrypto/hashes
 sha1_smol 1.0.1  [BSD-3-Clause]  https://github.com/mitsuhiko/sha1-smol
@@ -521,10 +534,10 @@ zmij 1.0.23  [MIT]  https://github.com/dtolnay/zmij
 zune-core 0.5.3  [MIT OR Apache-2.0 OR Zlib]  https://github.com/etemesi254/zune-image
 zune-jpeg 0.5.15  [MIT OR Apache-2.0 OR Zlib]  https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg
 
-Licence texts (285 distinct)
+Licence texts (292 distinct)
 ------------------------------
 
-Applies to: arc-swap 1.9.2, arrayvec 0.7.8, async-lock 3.4.2, atomic-waker 1.1.2, autocfg 1.5.1, base64 0.22.1, bitflags 2.13.1, bumpalo 3.20.3, bytes-utils 0.1.4, cc 1.4.2, cfg-if 1.0.4, cmake 0.1.58, core-foundation 0.10.1, core-foundation-sys 0.8.7, core_detect 1.0.0, crossbeam-channel 0.5.17, crossbeam-epoch 0.9.21, crossbeam-queue 0.3.13, crossbeam-utils 0.8.22, displaydoc 0.2.7, either 1.17.0, encoding_rs_io 0.1.8, equivalent 1.0.2, errno 0.3.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, find-msvc-tools 0.1.10, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.2, gif 0.14.2, hashbrown 0.15.5, hashbrown 0.17.1, heck 0.4.1, heck 0.5.0, html5ever 0.40.1, httparse 1.10.1, hyper-rustls 0.24.2, hyper-rustls 0.27.10, idna 1.1.0, idna_adapter 1.2.2, indexmap 2.14.0, jobserver 0.1.35, js-sys 0.3.104, lazy_static 1.5.0, linux-raw-sys 0.12.1, listenfd 1.0.2, lock_api 0.4.14, log 0.4.34, maplit 1.0.2, markup5ever 0.40.0, mime 0.3.17, minijinja 3.0.0, num-bigint-dig 0.8.6, num-integer 0.1.46, num-iter 0.1.46, num-traits 0.2.19, once_cell 1.21.4, openssl-probe 0.2.1, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, pkg-config 0.3.33, plain 0.2.3, png 0.18.1, regex 1.13.1, regex-automata 0.4.18, regex-lite 0.1.9, regex-syntax 0.8.11, rsa 0.9.10, rustc_version 0.4.1, rustix 1.1.4, rustls 0.21.12, rustls 0.23.43, rustls-native-certs 0.8.5, scopeguard 1.2.0, sct 0.7.1, sea-query 0.32.7, security-framework 3.7.0, security-framework-sys 2.17.0, signal-hook-registry 1.4.8, smallvec 1.15.2, socket2 0.5.10, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.11.0, string_cache_codegen 0.11.2, tempfile 3.27.0, tendril 0.5.1, thread_local 1.1.10, unicase 2.10.0, unicode-bidi 0.3.18, unicode-normalization 0.1.25, unicode-properties 0.1.4, unicode-width 0.2.2, url 2.5.8, uuid 1.24.0, vcpkg 0.2.15, version_check 0.9.5, wasi 0.11.1+wasi-snapshot-preview1, wasm-bindgen 0.2.127, wasm-bindgen-macro 0.2.127, wasm-bindgen-macro-support 0.2.127, wasm-bindgen-shared 0.2.127, web_atoms 0.3.0, weezl 0.1.12, xmlparser 0.13.6
+Applies to: arc-swap 1.9.2, arrayvec 0.7.8, async-lock 3.4.2, atomic-waker 1.1.2, autocfg 1.5.1, base64 0.22.1, base64 0.23.1, bitflags 2.13.1, bumpalo 3.20.3, bytes-utils 0.1.4, cc 1.4.2, cfg-if 1.0.4, cmake 0.1.58, core-foundation 0.10.1, core-foundation-sys 0.8.7, core_detect 1.0.0, crossbeam-channel 0.5.17, crossbeam-epoch 0.9.21, crossbeam-queue 0.3.13, crossbeam-utils 0.8.22, displaydoc 0.2.7, either 1.17.0, encoding_rs_io 0.1.8, equivalent 1.0.2, errno 0.3.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, find-msvc-tools 0.1.10, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.2, gif 0.14.2, hashbrown 0.15.5, hashbrown 0.17.1, heck 0.4.1, heck 0.5.0, html5ever 0.40.1, httparse 1.10.1, hyper-rustls 0.24.2, hyper-rustls 0.27.10, idna 1.1.0, idna_adapter 1.2.2, indexmap 2.14.0, jobserver 0.1.35, js-sys 0.3.104, lazy_static 1.5.0, linux-raw-sys 0.12.1, listenfd 1.0.2, lock_api 0.4.14, log 0.4.34, maplit 1.0.2, markup5ever 0.40.0, mime 0.3.17, minijinja 3.0.0, num-bigint-dig 0.8.6, num-integer 0.1.46, num-iter 0.1.46, num-traits 0.2.19, once_cell 1.21.4, openssl-probe 0.2.1, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, pkg-config 0.3.33, plain 0.2.3, png 0.18.1, regex 1.13.1, regex-automata 0.4.18, regex-lite 0.1.9, regex-syntax 0.8.11, rsa 0.9.10, rustc_version 0.4.1, rustix 1.1.4, rustls 0.21.12, rustls 0.23.43, rustls-native-certs 0.8.5, scopeguard 1.2.0, sct 0.7.1, sea-query 0.32.7, security-framework 3.7.0, security-framework-sys 2.17.0, servo_arc 0.5.0, signal-hook-registry 1.4.8, smallvec 1.15.2, socket2 0.5.10, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.11.0, string_cache_codegen 0.11.2, tempfile 3.27.0, tendril 0.5.1, thread_local 1.1.10, unicase 2.10.0, unicode-bidi 0.3.18, unicode-normalization 0.1.25, unicode-properties 0.1.4, unicode-width 0.2.2, url 2.5.8, uuid 1.24.0, vcpkg 0.2.15, version_check 0.9.5, wasi 0.11.1+wasi-snapshot-preview1, wasm-bindgen 0.2.127, wasm-bindgen-macro 0.2.127, wasm-bindgen-macro-support 0.2.127, wasm-bindgen-shared 0.2.127, web_atoms 0.3.0, weezl 0.1.12, xmlparser 0.13.6
 
 Apache License
                         Version 2.0, January 2004
@@ -730,7 +743,7 @@ limitations under the License.
 
 ----------------------------------------------------------------------
 
-Applies to: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-lock 3.4.2, async-trait 0.1.92, atomic-waker 1.1.2, basic-toml 0.1.10, displaydoc 0.2.7, dtoa 1.0.11, etcetera 0.8.0, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, flume 0.11.1, home 0.5.12, inherent 1.0.14, itoa 1.0.18, linux-raw-sys 0.12.1, once_cell 1.21.4, parking 2.2.1, pathdiff 0.2.3, pin-project-lite 0.2.17, portable-atomic 1.15.0, proc-macro2 1.0.107, quote 1.0.47, rsa 0.9.10, rustc-hash 2.1.3, rustix 1.1.4, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-saphyr 1.3.0, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.151, serde_path_to_error 0.1.20, syn 2.0.119, syn 3.0.3, thiserror 1.0.69, thiserror 2.0.20, thiserror-impl 1.0.69, thiserror-impl 2.0.20, typed-path 0.12.3, unicode-ident 1.0.24, wasi 0.11.1+wasi-snapshot-preview1, zmij 1.0.23
+Applies to: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-lock 3.4.2, async-trait 0.1.92, atomic-waker 1.1.2, basic-toml 0.1.10, displaydoc 0.2.7, dtoa 1.0.11, etcetera 0.8.0, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, flume 0.11.1, home 0.5.12, inherent 1.0.14, itoa 1.0.18, linux-raw-sys 0.12.1, once_cell 1.21.4, parking 2.2.1, pathdiff 0.2.3, pin-project-lite 0.2.17, portable-atomic 1.15.0, proc-macro2 1.0.107, quote 1.0.47, rsa 0.9.10, rustc-hash 2.1.3, rustix 1.1.4, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-saphyr 1.3.0, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.151, serde_path_to_error 0.1.20, servo_arc 0.5.0, syn 2.0.119, syn 3.0.3, thiserror 1.0.69, thiserror 2.0.20, thiserror-impl 1.0.69, thiserror-impl 2.0.20, typed-path 0.12.3, unicode-ident 1.0.24, wasi 0.11.1+wasi-snapshot-preview1, zmij 1.0.23
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -1786,7 +1799,7 @@ Apache License
 
 ----------------------------------------------------------------------
 
-Applies to: cmov 0.5.4, crc-fast 1.10.0, ctutils 0.4.3, encode_unicode 1.0.0, encoding_rs 0.8.41, flume 0.11.1, img-parts 0.4.0, multiversion 0.9.0, multiversion-macros 0.9.0, multiversion_no_op 1.0.0, nohash-hasher 0.2.0, pure-rust-locales 0.8.2, secrecy 0.10.3, tinyvec 1.12.0, utf8_iter 1.0.4, zeroize 1.9.0, zune-core 0.5.3, zune-jpeg 0.5.15
+Applies to: cmov 0.5.4, crc-fast 1.10.0, ctutils 0.4.3, email-encoding 0.4.2, encode_unicode 1.0.0, encoding_rs 0.8.41, flume 0.11.1, img-parts 0.4.0, multiversion 0.9.0, multiversion-macros 0.9.0, multiversion_no_op 1.0.0, nohash-hasher 0.2.0, pure-rust-locales 0.8.2, secrecy 0.10.3, tinyvec 1.12.0, utf8_iter 1.0.4, zeroize 1.9.0, zune-core 0.5.3, zune-jpeg 0.5.15
 
 Apache License
                            Version 2.0, January 2004
@@ -2548,6 +2561,31 @@ THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
+Applies to: phf 0.12.1, phf 0.14.0, phf_codegen 0.14.0, phf_generator 0.14.0, phf_macros 0.14.0, phf_shared 0.12.1, phf_shared 0.14.0
+
+The MIT License (MIT)
+
+Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+
 Applies to: sqlx 0.8.6, sqlx-core 0.8.6, sqlx-macros 0.8.6, sqlx-macros-core 0.8.6, sqlx-mysql 0.8.6, sqlx-postgres 0.8.6, sqlx-sqlite 0.8.6
 
 Apache License
@@ -2861,31 +2899,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
-----------------------------------------------------------------------
-
-Applies to: phf 0.12.1, phf 0.14.0, phf_codegen 0.14.0, phf_generator 0.14.0, phf_shared 0.12.1, phf_shared 0.14.0
-
-The MIT License (MIT)
-
-Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
@@ -4840,6 +4853,384 @@ DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
+Applies to: cssparser 0.38.0, cssparser-macros 0.7.1
+
+Mozilla Public License Version 2.0
+==================================
+
+1. Definitions
+--------------
+
+1.1. "Contributor"
+    means each individual or legal entity that creates, contributes to
+    the creation of, or owns Covered Software.
+
+1.2. "Contributor Version"
+    means the combination of the Contributions of others (if any) used
+    by a Contributor and that particular Contributor's Contribution.
+
+1.3. "Contribution"
+    means Covered Software of a particular Contributor.
+
+1.4. "Covered Software"
+    means Source Code Form to which the initial Contributor has attached
+    the notice in Exhibit A, the Executable Form of such Source Code
+    Form, and Modifications of such Source Code Form, in each case
+    including portions thereof.
+
+1.5. "Incompatible With Secondary Licenses"
+    means
+
+    (a) that the initial Contributor has attached the notice described
+        in Exhibit B to the Covered Software; or
+
+    (b) that the Covered Software was made available under the terms of
+        version 1.1 or earlier of the License, but not also under the
+        terms of a Secondary License.
+
+1.6. "Executable Form"
+    means any form of the work other than Source Code Form.
+
+1.7. "Larger Work"
+    means a work that combines Covered Software with other material, in 
+    a separate file or files, that is not Covered Software.
+
+1.8. "License"
+    means this document.
+
+1.9. "Licensable"
+    means having the right to grant, to the maximum extent possible,
+    whether at the time of the initial grant or subsequently, any and
+    all of the rights conveyed by this License.
+
+1.10. "Modifications"
+    means any of the following:
+
+    (a) any file in Source Code Form that results from an addition to,
+        deletion from, or modification of the contents of Covered
+        Software; or
+
+    (b) any new file in Source Code Form that contains any Covered
+        Software.
+
+1.11. "Patent Claims" of a Contributor
+    means any patent claim(s), including without limitation, method,
+    process, and apparatus claims, in any patent Licensable by such
+    Contributor that would be infringed, but for the grant of the
+    License, by the making, using, selling, offering for sale, having
+    made, import, or transfer of either its Contributions or its
+    Contributor Version.
+
+1.12. "Secondary License"
+    means either the GNU General Public License, Version 2.0, the GNU
+    Lesser General Public License, Version 2.1, the GNU Affero General
+    Public License, Version 3.0, or any later versions of those
+    licenses.
+
+1.13. "Source Code Form"
+    means the form of the work preferred for making modifications.
+
+1.14. "You" (or "Your")
+    means an individual or a legal entity exercising rights under this
+    License. For legal entities, "You" includes any entity that
+    controls, is controlled by, or is under common control with You. For
+    purposes of this definition, "control" means (a) the power, direct
+    or indirect, to cause the direction or management of such entity,
+    whether by contract or otherwise, or (b) ownership of more than
+    fifty percent (50%) of the outstanding shares or beneficial
+    ownership of such entity.
+
+2. License Grants and Conditions
+--------------------------------
+
+2.1. Grants
+
+Each Contributor hereby grants You a world-wide, royalty-free,
+non-exclusive license:
+
+(a) under intellectual property rights (other than patent or trademark)
+    Licensable by such Contributor to use, reproduce, make available,
+    modify, display, perform, distribute, and otherwise exploit its
+    Contributions, either on an unmodified basis, with Modifications, or
+    as part of a Larger Work; and
+
+(b) under Patent Claims of such Contributor to make, use, sell, offer
+    for sale, have made, import, and otherwise transfer either its
+    Contributions or its Contributor Version.
+
+2.2. Effective Date
+
+The licenses granted in Section 2.1 with respect to any Contribution
+become effective for each Contribution on the date the Contributor first
+distributes such Contribution.
+
+2.3. Limitations on Grant Scope
+
+The licenses granted in this Section 2 are the only rights granted under
+this License. No additional rights or licenses will be implied from the
+distribution or licensing of Covered Software under this License.
+Notwithstanding Section 2.1(b) above, no patent license is granted by a
+Contributor:
+
+(a) for any code that a Contributor has removed from Covered Software;
+    or
+
+(b) for infringements caused by: (i) Your and any other third party's
+    modifications of Covered Software, or (ii) the combination of its
+    Contributions with other software (except as part of its Contributor
+    Version); or
+
+(c) under Patent Claims infringed by Covered Software in the absence of
+    its Contributions.
+
+This License does not grant any rights in the trademarks, service marks,
+or logos of any Contributor (except as may be necessary to comply with
+the notice requirements in Section 3.4).
+
+2.4. Subsequent Licenses
+
+No Contributor makes additional grants as a result of Your choice to
+distribute the Covered Software under a subsequent version of this
+License (see Section 10.2) or under the terms of a Secondary License (if
+permitted under the terms of Section 3.3).
+
+2.5. Representation
+
+Each Contributor represents that the Contributor believes its
+Contributions are its original creation(s) or it has sufficient rights
+to grant the rights to its Contributions conveyed by this License.
+
+2.6. Fair Use
+
+This License is not intended to limit any rights You have under
+applicable copyright doctrines of fair use, fair dealing, or other
+equivalents.
+
+2.7. Conditions
+
+Sections 3.1, 3.2, 3.3, and 3.4 are conditions of the licenses granted
+in Section 2.1.
+
+3. Responsibilities
+-------------------
+
+3.1. Distribution of Source Form
+
+All distribution of Covered Software in Source Code Form, including any
+Modifications that You create or to which You contribute, must be under
+the terms of this License. You must inform recipients that the Source
+Code Form of the Covered Software is governed by the terms of this
+License, and how they can obtain a copy of this License. You may not
+attempt to alter or restrict the recipients' rights in the Source Code
+Form.
+
+3.2. Distribution of Executable Form
+
+If You distribute Covered Software in Executable Form then:
+
+(a) such Covered Software must also be made available in Source Code
+    Form, as described in Section 3.1, and You must inform recipients of
+    the Executable Form how they can obtain a copy of such Source Code
+    Form by reasonable means in a timely manner, at a charge no more
+    than the cost of distribution to the recipient; and
+
+(b) You may distribute such Executable Form under the terms of this
+    License, or sublicense it under different terms, provided that the
+    license for the Executable Form does not attempt to limit or alter
+    the recipients' rights in the Source Code Form under this License.
+
+3.3. Distribution of a Larger Work
+
+You may create and distribute a Larger Work under terms of Your choice,
+provided that You also comply with the requirements of this License for
+the Covered Software. If the Larger Work is a combination of Covered
+Software with a work governed by one or more Secondary Licenses, and the
+Covered Software is not Incompatible With Secondary Licenses, this
+License permits You to additionally distribute such Covered Software
+under the terms of such Secondary License(s), so that the recipient of
+the Larger Work may, at their option, further distribute the Covered
+Software under the terms of either this License or such Secondary
+License(s).
+
+3.4. Notices
+
+You may not remove or alter the substance of any license notices
+(including copyright notices, patent notices, disclaimers of warranty,
+or limitations of liability) contained within the Source Code Form of
+the Covered Software, except that You may alter any license notices to
+the extent required to remedy known factual inaccuracies.
+
+3.5. Application of Additional Terms
+
+You may choose to offer, and to charge a fee for, warranty, support,
+indemnity or liability obligations to one or more recipients of Covered
+Software. However, You may do so only on Your own behalf, and not on
+behalf of any Contributor. You must make it absolutely clear that any
+such warranty, support, indemnity, or liability obligation is offered by
+You alone, and You hereby agree to indemnify every Contributor for any
+liability incurred by such Contributor as a result of warranty, support,
+indemnity or liability terms You offer. You may include additional
+disclaimers of warranty and limitations of liability specific to any
+jurisdiction.
+
+4. Inability to Comply Due to Statute or Regulation
+---------------------------------------------------
+
+If it is impossible for You to comply with any of the terms of this
+License with respect to some or all of the Covered Software due to
+statute, judicial order, or regulation then You must: (a) comply with
+the terms of this License to the maximum extent possible; and (b)
+describe the limitations and the code they affect. Such description must
+be placed in a text file included with all distributions of the Covered
+Software under this License. Except to the extent prohibited by statute
+or regulation, such description must be sufficiently detailed for a
+recipient of ordinary skill to be able to understand it.
+
+5. Termination
+--------------
+
+5.1. The rights granted under this License will terminate automatically
+if You fail to comply with any of its terms. However, if You become
+compliant, then the rights granted under this License from a particular
+Contributor are reinstated (a) provisionally, unless and until such
+Contributor explicitly and finally terminates Your grants, and (b) on an
+ongoing basis, if such Contributor fails to notify You of the
+non-compliance by some reasonable means prior to 60 days after You have
+come back into compliance. Moreover, Your grants from a particular
+Contributor are reinstated on an ongoing basis if such Contributor
+notifies You of the non-compliance by some reasonable means, this is the
+first time You have received notice of non-compliance with this License
+from such Contributor, and You become compliant prior to 30 days after
+Your receipt of the notice.
+
+5.2. If You initiate litigation against any entity by asserting a patent
+infringement claim (excluding declaratory judgment actions,
+counter-claims, and cross-claims) alleging that a Contributor Version
+directly or indirectly infringes any patent, then the rights granted to
+You by any and all Contributors for the Covered Software under Section
+2.1 of this License shall terminate.
+
+5.3. In the event of termination under Sections 5.1 or 5.2 above, all
+end user license agreements (excluding distributors and resellers) which
+have been validly granted by You or Your distributors under this License
+prior to termination shall survive termination.
+
+************************************************************************
+*                                                                      *
+*  6. Disclaimer of Warranty                                           *
+*  -------------------------                                           *
+*                                                                      *
+*  Covered Software is provided under this License on an "as is"       *
+*  basis, without warranty of any kind, either expressed, implied, or  *
+*  statutory, including, without limitation, warranties that the       *
+*  Covered Software is free of defects, merchantable, fit for a        *
+*  particular purpose or non-infringing. The entire risk as to the     *
+*  quality and performance of the Covered Software is with You.        *
+*  Should any Covered Software prove defective in any respect, You     *
+*  (not any Contributor) assume the cost of any necessary servicing,   *
+*  repair, or correction. This disclaimer of warranty constitutes an   *
+*  essential part of this License. No use of any Covered Software is   *
+*  authorized under this License except under this disclaimer.         *
+*                                                                      *
+************************************************************************
+
+************************************************************************
+*                                                                      *
+*  7. Limitation of Liability                                          *
+*  --------------------------                                          *
+*                                                                      *
+*  Under no circumstances and under no legal theory, whether tort      *
+*  (including negligence), contract, or otherwise, shall any           *
+*  Contributor, or anyone who distributes Covered Software as          *
+*  permitted above, be liable to You for any direct, indirect,         *
+*  special, incidental, or consequential damages of any character      *
+*  including, without limitation, damages for lost profits, loss of    *
+*  goodwill, work stoppage, computer failure or malfunction, or any    *
+*  and all other commercial damages or losses, even if such party      *
+*  shall have been informed of the possibility of such damages. This   *
+*  limitation of liability shall not apply to liability for death or   *
+*  personal injury resulting from such party's negligence to the       *
+*  extent applicable law prohibits such limitation. Some               *
+*  jurisdictions do not allow the exclusion or limitation of           *
+*  incidental or consequential damages, so this exclusion and          *
+*  limitation may not apply to You.                                    *
+*                                                                      *
+************************************************************************
+
+8. Litigation
+-------------
+
+Any litigation relating to this License may be brought only in the
+courts of a jurisdiction where the defendant maintains its principal
+place of business and such litigation shall be governed by laws of that
+jurisdiction, without reference to its conflict-of-law provisions.
+Nothing in this Section shall prevent a party's ability to bring
+cross-claims or counter-claims.
+
+9. Miscellaneous
+----------------
+
+This License represents the complete agreement concerning the subject
+matter hereof. If any provision of this License is held to be
+unenforceable, such provision shall be reformed only to the extent
+necessary to make it enforceable. Any law or regulation which provides
+that the language of a contract shall be construed against the drafter
+shall not be used to construe this License against a Contributor.
+
+10. Versions of the License
+---------------------------
+
+10.1. New Versions
+
+Mozilla Foundation is the license steward. Except as provided in Section
+10.3, no one other than the license steward has the right to modify or
+publish new versions of this License. Each version will be given a
+distinguishing version number.
+
+10.2. Effect of New Versions
+
+You may distribute the Covered Software under the terms of the version
+of the License under which You originally received the Covered Software,
+or under the terms of any subsequent version published by the license
+steward.
+
+10.3. Modified Versions
+
+If you create software not governed by this License, and you want to
+create a new license for such software, you may create and use a
+modified version of this License if you rename the license and remove
+any references to the name of the license steward (except to note that
+such modified license differs from this License).
+
+10.4. Distributing Source Code Form that is Incompatible With Secondary
+Licenses
+
+If You choose to distribute Source Code Form that is Incompatible With
+Secondary Licenses under the terms of this version of the License, the
+notice described in Exhibit B of this License must be attached.
+
+Exhibit A - Source Code Form License Notice
+-------------------------------------------
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+If it is not possible or desirable to put the notice in a particular
+file, then You may include the notice in a location (such as a LICENSE
+file in a relevant directory) where a recipient would be likely to look
+for such a notice.
+
+You may add additional accurate notices of copyright ownership.
+
+Exhibit B - "Incompatible With Secondary Licenses" Notice
+---------------------------------------------------------
+
+  This Source Code Form is "Incompatible With Secondary Licenses", as
+  defined by the Mozilla Public License, v. 2.0.
+
+----------------------------------------------------------------------
+
 Applies to: der 0.7.10, pkcs8 0.10.2
 
 Copyright (c) 2020-2023 The RustCrypto Project Developers
@@ -4867,6 +5258,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+
+Applies to: derive_more 2.1.1, derive_more-impl 2.1.1
+
+The MIT License (MIT)
+
+Copyright (c) 2016 Jelte Fennema
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ----------------------------------------------------------------------
 
@@ -8599,6 +9016,32 @@ THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
+Applies to: base64 0.23.1
+
+The MIT License (MIT)
+
+Copyright (c) 2025 Alice Maz, Marshall Pierce
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+----------------------------------------------------------------------
+
 Applies to: base64ct 1.8.3
 
 Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
@@ -11296,384 +11739,6 @@ DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
-Applies to: cssparser 0.38.0
-
-Mozilla Public License Version 2.0
-==================================
-
-1. Definitions
---------------
-
-1.1. "Contributor"
-    means each individual or legal entity that creates, contributes to
-    the creation of, or owns Covered Software.
-
-1.2. "Contributor Version"
-    means the combination of the Contributions of others (if any) used
-    by a Contributor and that particular Contributor's Contribution.
-
-1.3. "Contribution"
-    means Covered Software of a particular Contributor.
-
-1.4. "Covered Software"
-    means Source Code Form to which the initial Contributor has attached
-    the notice in Exhibit A, the Executable Form of such Source Code
-    Form, and Modifications of such Source Code Form, in each case
-    including portions thereof.
-
-1.5. "Incompatible With Secondary Licenses"
-    means
-
-    (a) that the initial Contributor has attached the notice described
-        in Exhibit B to the Covered Software; or
-
-    (b) that the Covered Software was made available under the terms of
-        version 1.1 or earlier of the License, but not also under the
-        terms of a Secondary License.
-
-1.6. "Executable Form"
-    means any form of the work other than Source Code Form.
-
-1.7. "Larger Work"
-    means a work that combines Covered Software with other material, in 
-    a separate file or files, that is not Covered Software.
-
-1.8. "License"
-    means this document.
-
-1.9. "Licensable"
-    means having the right to grant, to the maximum extent possible,
-    whether at the time of the initial grant or subsequently, any and
-    all of the rights conveyed by this License.
-
-1.10. "Modifications"
-    means any of the following:
-
-    (a) any file in Source Code Form that results from an addition to,
-        deletion from, or modification of the contents of Covered
-        Software; or
-
-    (b) any new file in Source Code Form that contains any Covered
-        Software.
-
-1.11. "Patent Claims" of a Contributor
-    means any patent claim(s), including without limitation, method,
-    process, and apparatus claims, in any patent Licensable by such
-    Contributor that would be infringed, but for the grant of the
-    License, by the making, using, selling, offering for sale, having
-    made, import, or transfer of either its Contributions or its
-    Contributor Version.
-
-1.12. "Secondary License"
-    means either the GNU General Public License, Version 2.0, the GNU
-    Lesser General Public License, Version 2.1, the GNU Affero General
-    Public License, Version 3.0, or any later versions of those
-    licenses.
-
-1.13. "Source Code Form"
-    means the form of the work preferred for making modifications.
-
-1.14. "You" (or "Your")
-    means an individual or a legal entity exercising rights under this
-    License. For legal entities, "You" includes any entity that
-    controls, is controlled by, or is under common control with You. For
-    purposes of this definition, "control" means (a) the power, direct
-    or indirect, to cause the direction or management of such entity,
-    whether by contract or otherwise, or (b) ownership of more than
-    fifty percent (50%) of the outstanding shares or beneficial
-    ownership of such entity.
-
-2. License Grants and Conditions
---------------------------------
-
-2.1. Grants
-
-Each Contributor hereby grants You a world-wide, royalty-free,
-non-exclusive license:
-
-(a) under intellectual property rights (other than patent or trademark)
-    Licensable by such Contributor to use, reproduce, make available,
-    modify, display, perform, distribute, and otherwise exploit its
-    Contributions, either on an unmodified basis, with Modifications, or
-    as part of a Larger Work; and
-
-(b) under Patent Claims of such Contributor to make, use, sell, offer
-    for sale, have made, import, and otherwise transfer either its
-    Contributions or its Contributor Version.
-
-2.2. Effective Date
-
-The licenses granted in Section 2.1 with respect to any Contribution
-become effective for each Contribution on the date the Contributor first
-distributes such Contribution.
-
-2.3. Limitations on Grant Scope
-
-The licenses granted in this Section 2 are the only rights granted under
-this License. No additional rights or licenses will be implied from the
-distribution or licensing of Covered Software under this License.
-Notwithstanding Section 2.1(b) above, no patent license is granted by a
-Contributor:
-
-(a) for any code that a Contributor has removed from Covered Software;
-    or
-
-(b) for infringements caused by: (i) Your and any other third party's
-    modifications of Covered Software, or (ii) the combination of its
-    Contributions with other software (except as part of its Contributor
-    Version); or
-
-(c) under Patent Claims infringed by Covered Software in the absence of
-    its Contributions.
-
-This License does not grant any rights in the trademarks, service marks,
-or logos of any Contributor (except as may be necessary to comply with
-the notice requirements in Section 3.4).
-
-2.4. Subsequent Licenses
-
-No Contributor makes additional grants as a result of Your choice to
-distribute the Covered Software under a subsequent version of this
-License (see Section 10.2) or under the terms of a Secondary License (if
-permitted under the terms of Section 3.3).
-
-2.5. Representation
-
-Each Contributor represents that the Contributor believes its
-Contributions are its original creation(s) or it has sufficient rights
-to grant the rights to its Contributions conveyed by this License.
-
-2.6. Fair Use
-
-This License is not intended to limit any rights You have under
-applicable copyright doctrines of fair use, fair dealing, or other
-equivalents.
-
-2.7. Conditions
-
-Sections 3.1, 3.2, 3.3, and 3.4 are conditions of the licenses granted
-in Section 2.1.
-
-3. Responsibilities
--------------------
-
-3.1. Distribution of Source Form
-
-All distribution of Covered Software in Source Code Form, including any
-Modifications that You create or to which You contribute, must be under
-the terms of this License. You must inform recipients that the Source
-Code Form of the Covered Software is governed by the terms of this
-License, and how they can obtain a copy of this License. You may not
-attempt to alter or restrict the recipients' rights in the Source Code
-Form.
-
-3.2. Distribution of Executable Form
-
-If You distribute Covered Software in Executable Form then:
-
-(a) such Covered Software must also be made available in Source Code
-    Form, as described in Section 3.1, and You must inform recipients of
-    the Executable Form how they can obtain a copy of such Source Code
-    Form by reasonable means in a timely manner, at a charge no more
-    than the cost of distribution to the recipient; and
-
-(b) You may distribute such Executable Form under the terms of this
-    License, or sublicense it under different terms, provided that the
-    license for the Executable Form does not attempt to limit or alter
-    the recipients' rights in the Source Code Form under this License.
-
-3.3. Distribution of a Larger Work
-
-You may create and distribute a Larger Work under terms of Your choice,
-provided that You also comply with the requirements of this License for
-the Covered Software. If the Larger Work is a combination of Covered
-Software with a work governed by one or more Secondary Licenses, and the
-Covered Software is not Incompatible With Secondary Licenses, this
-License permits You to additionally distribute such Covered Software
-under the terms of such Secondary License(s), so that the recipient of
-the Larger Work may, at their option, further distribute the Covered
-Software under the terms of either this License or such Secondary
-License(s).
-
-3.4. Notices
-
-You may not remove or alter the substance of any license notices
-(including copyright notices, patent notices, disclaimers of warranty,
-or limitations of liability) contained within the Source Code Form of
-the Covered Software, except that You may alter any license notices to
-the extent required to remedy known factual inaccuracies.
-
-3.5. Application of Additional Terms
-
-You may choose to offer, and to charge a fee for, warranty, support,
-indemnity or liability obligations to one or more recipients of Covered
-Software. However, You may do so only on Your own behalf, and not on
-behalf of any Contributor. You must make it absolutely clear that any
-such warranty, support, indemnity, or liability obligation is offered by
-You alone, and You hereby agree to indemnify every Contributor for any
-liability incurred by such Contributor as a result of warranty, support,
-indemnity or liability terms You offer. You may include additional
-disclaimers of warranty and limitations of liability specific to any
-jurisdiction.
-
-4. Inability to Comply Due to Statute or Regulation
----------------------------------------------------
-
-If it is impossible for You to comply with any of the terms of this
-License with respect to some or all of the Covered Software due to
-statute, judicial order, or regulation then You must: (a) comply with
-the terms of this License to the maximum extent possible; and (b)
-describe the limitations and the code they affect. Such description must
-be placed in a text file included with all distributions of the Covered
-Software under this License. Except to the extent prohibited by statute
-or regulation, such description must be sufficiently detailed for a
-recipient of ordinary skill to be able to understand it.
-
-5. Termination
---------------
-
-5.1. The rights granted under this License will terminate automatically
-if You fail to comply with any of its terms. However, if You become
-compliant, then the rights granted under this License from a particular
-Contributor are reinstated (a) provisionally, unless and until such
-Contributor explicitly and finally terminates Your grants, and (b) on an
-ongoing basis, if such Contributor fails to notify You of the
-non-compliance by some reasonable means prior to 60 days after You have
-come back into compliance. Moreover, Your grants from a particular
-Contributor are reinstated on an ongoing basis if such Contributor
-notifies You of the non-compliance by some reasonable means, this is the
-first time You have received notice of non-compliance with this License
-from such Contributor, and You become compliant prior to 30 days after
-Your receipt of the notice.
-
-5.2. If You initiate litigation against any entity by asserting a patent
-infringement claim (excluding declaratory judgment actions,
-counter-claims, and cross-claims) alleging that a Contributor Version
-directly or indirectly infringes any patent, then the rights granted to
-You by any and all Contributors for the Covered Software under Section
-2.1 of this License shall terminate.
-
-5.3. In the event of termination under Sections 5.1 or 5.2 above, all
-end user license agreements (excluding distributors and resellers) which
-have been validly granted by You or Your distributors under this License
-prior to termination shall survive termination.
-
-************************************************************************
-*                                                                      *
-*  6. Disclaimer of Warranty                                           *
-*  -------------------------                                           *
-*                                                                      *
-*  Covered Software is provided under this License on an "as is"       *
-*  basis, without warranty of any kind, either expressed, implied, or  *
-*  statutory, including, without limitation, warranties that the       *
-*  Covered Software is free of defects, merchantable, fit for a        *
-*  particular purpose or non-infringing. The entire risk as to the     *
-*  quality and performance of the Covered Software is with You.        *
-*  Should any Covered Software prove defective in any respect, You     *
-*  (not any Contributor) assume the cost of any necessary servicing,   *
-*  repair, or correction. This disclaimer of warranty constitutes an   *
-*  essential part of this License. No use of any Covered Software is   *
-*  authorized under this License except under this disclaimer.         *
-*                                                                      *
-************************************************************************
-
-************************************************************************
-*                                                                      *
-*  7. Limitation of Liability                                          *
-*  --------------------------                                          *
-*                                                                      *
-*  Under no circumstances and under no legal theory, whether tort      *
-*  (including negligence), contract, or otherwise, shall any           *
-*  Contributor, or anyone who distributes Covered Software as          *
-*  permitted above, be liable to You for any direct, indirect,         *
-*  special, incidental, or consequential damages of any character      *
-*  including, without limitation, damages for lost profits, loss of    *
-*  goodwill, work stoppage, computer failure or malfunction, or any    *
-*  and all other commercial damages or losses, even if such party      *
-*  shall have been informed of the possibility of such damages. This   *
-*  limitation of liability shall not apply to liability for death or   *
-*  personal injury resulting from such party's negligence to the       *
-*  extent applicable law prohibits such limitation. Some               *
-*  jurisdictions do not allow the exclusion or limitation of           *
-*  incidental or consequential damages, so this exclusion and          *
-*  limitation may not apply to You.                                    *
-*                                                                      *
-************************************************************************
-
-8. Litigation
--------------
-
-Any litigation relating to this License may be brought only in the
-courts of a jurisdiction where the defendant maintains its principal
-place of business and such litigation shall be governed by laws of that
-jurisdiction, without reference to its conflict-of-law provisions.
-Nothing in this Section shall prevent a party's ability to bring
-cross-claims or counter-claims.
-
-9. Miscellaneous
-----------------
-
-This License represents the complete agreement concerning the subject
-matter hereof. If any provision of this License is held to be
-unenforceable, such provision shall be reformed only to the extent
-necessary to make it enforceable. Any law or regulation which provides
-that the language of a contract shall be construed against the drafter
-shall not be used to construe this License against a Contributor.
-
-10. Versions of the License
----------------------------
-
-10.1. New Versions
-
-Mozilla Foundation is the license steward. Except as provided in Section
-10.3, no one other than the license steward has the right to modify or
-publish new versions of this License. Each version will be given a
-distinguishing version number.
-
-10.2. Effect of New Versions
-
-You may distribute the Covered Software under the terms of the version
-of the License under which You originally received the Covered Software,
-or under the terms of any subsequent version published by the license
-steward.
-
-10.3. Modified Versions
-
-If you create software not governed by this License, and you want to
-create a new license for such software, you may create and use a
-modified version of this License if you rename the license and remove
-any references to the name of the license steward (except to note that
-such modified license differs from this License).
-
-10.4. Distributing Source Code Form that is Incompatible With Secondary
-Licenses
-
-If You choose to distribute Source Code Form that is Incompatible With
-Secondary Licenses under the terms of this version of the License, the
-notice described in Exhibit B of this License must be attached.
-
-Exhibit A - Source Code Form License Notice
--------------------------------------------
-
-  This Source Code Form is subject to the terms of the Mozilla Public
-  License, v. 2.0. If a copy of the MPL was not distributed with this
-  file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
-If it is not possible or desirable to put the notice in a particular
-file, then You may include the notice in a location (such as a LICENSE
-file in a relevant directory) where a recipient would be likely to look
-for such a notice.
-
-You may add additional accurate notices of copyright ownership.
-
-Exhibit B - "Incompatible With Secondary Licenses" Notice
----------------------------------------------------------
-
-  This Source Code Form is "Incompatible With Secondary Licenses", as
-  defined by the Mozilla Public License, v. 2.0.
-
-----------------------------------------------------------------------
-
 Applies to: ctutils 0.4.3
 
 Copyright (c) 2025-2026 The RustCrypto Project Developers
@@ -12366,6 +12431,32 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
   This Source Code Form is "Incompatible With Secondary Licenses", as
   defined by the Mozilla Public License, v. 2.0.
+
+----------------------------------------------------------------------
+
+Applies to: email-encoding 0.4.2
+
+MIT License
+
+Copyright (c) 2021-2024 Paolo Barbolini <paolo@paolo565.org>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ----------------------------------------------------------------------
 
@@ -13326,6 +13417,33 @@ DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
+Applies to: hostname 0.4.2
+
+MIT License
+
+Copyright (c) 2016 fengcen
+Copyright (c) 2019 svartalf
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------
+
 Applies to: http-body 0.4.6
 
 Copyright (c) 2019 Hyper Contributors
@@ -14036,6 +14154,38 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 Applies to: lazy_static 1.5.0
 
 Copyright (c) 2010 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+
+Applies to: lettre 0.11.23
+
+Copyright (c) 2014-2024 Alexis Mousset <contact@amousset.me>
+Copyright (c) 2019-2025 Paolo Barbolini <paolo@paolo565.org>
+Copyright (c) 2018 K. <kayo@illumium.org>
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -14917,6 +15067,31 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
 OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+
+Applies to: nom 8.0.0
+
+Copyright (c) 2014-2019 Geoffroy Couprie
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------
 
@@ -16142,6 +16317,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+----------------------------------------------------------------------
+
+Applies to: quoted_printable 0.5.2
+
+Copyright (C) 2019 by Kartikaya Gupta
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
 
 ----------------------------------------------------------------------
 
@@ -18833,8 +19025,10 @@ Read the terms at https://spdx.org/licenses/ under the identifier shown.
 
     base64-simd 0.8.0  [MIT]
     crc-catalog 2.5.0  [MIT OR Apache-2.0]
+    css-inline 0.23.0  [MIT]
     r-efi 6.0.0  [MIT OR Apache-2.0 OR LGPL-2.1-or-later]
     sea-query-derive 0.4.3  [MIT OR Apache-2.0]
+    selectors 0.41.0  [MPL-2.0]
     valuable 0.1.1  [MIT]
     vsimd 0.8.0  [MIT]
     wasite 0.1.0  [Apache-2.0 OR BSL-1.0 OR MIT]

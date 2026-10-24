@@ -14,7 +14,9 @@ laterite-media = { workspace = true }
 laterite-web = { workspace = true }
 
 [features]
-default = []
+default = ["smtp"]
+# The SMTP mail driver; off, mail goes to the log or a driver a module registered.
+smtp = ["laterite-core/smtp"]
 postgres = ["laterite-admin/postgres"]
 mysql = ["laterite-admin/mysql"]
 sqlite = ["laterite-admin/sqlite"]

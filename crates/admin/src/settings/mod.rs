@@ -13,6 +13,7 @@
 //! nothing here builds SQL from user input.
 
 pub mod brand;
+pub mod mail;
 pub mod migrations;
 pub mod store;
 
@@ -154,6 +155,17 @@ pub struct SettingsItem {
     /// Stored once per operator, among their preferences, and edited from
     /// the Preferences page rather than Settings. See [`store::PreferencesModel`].
     pub per_operator: bool,
+    /// Buttons beside Save that post to their own route under the admin
+    /// root: a Send test, a Clear.
+    pub actions: Vec<SettingsAction>,
+}
+
+/// A secondary action on a settings screen.
+#[derive(Debug, Clone, Serialize)]
+pub struct SettingsAction {
+    pub label: Text,
+    /// The path the button posts to, under the admin root (`/settings/mail/test`).
+    pub path: String,
 }
 
 /// The longest a settings description may be: two lines of the context sidebar,
@@ -184,7 +196,17 @@ impl SettingsItem {
             fields,
             route: None,
             per_operator: false,
+            actions: Vec::new(),
         }
+    }
+
+    /// A button beside Save posting to `path` under the admin root.
+    pub fn action(mut self, label: impl Into<Text>, path: impl Into<String>) -> Self {
+        self.actions.push(SettingsAction {
+            label: label.into(),
+            path: path.into(),
+        });
+        self
     }
 
     /// Keeps a value per operator, edited from their Preferences page. The
@@ -349,7 +371,18 @@ pub(crate) async fn update(
     // A field type that refuses its input refuses the save: the screen says so
     // rather than storing a value every later read has to defend against.
     let value = match collect(item, &state.field_types, &data) {
-        Ok(value) => value,
+        // A field that supplies no value (a sealed secret shown as its mask)
+        // keeps what was stored, as a record's column does.
+        Ok(mut value) => {
+            if let Some(Some(Value::Object(previous))) = stored_value(state, item, user).await {
+                if let Value::Object(map) = &mut value {
+                    for (key, old) in previous {
+                        map.entry(key).or_insert(old);
+                    }
+                }
+            }
+            value
+        }
         Err(message) => {
             let stored = stored_value(state, item, user)
                 .await
@@ -374,6 +407,21 @@ pub(crate) async fn update(
     };
     match written {
         true => {
+            // The mail transport follows its settings at once.
+            if item.code == mail::MailSetting::CODE {
+                let setting: mail::MailSetting =
+                    serde_json::from_value(value.clone()).unwrap_or_default();
+                let config = mail::effective(&state.mail_config, &setting, &state.crypt);
+                if let Err(e) = state.mail.reconfigure(&config) {
+                    session.push_flash(
+                        crate::session::FlashLevel::Error,
+                        t!(
+                            "Saved, but the transport could not be set up: {error}",
+                            error = e.to_string()
+                        ),
+                    );
+                }
+            }
             // The stored value can hold secrets, so the audit records which
             // settings model changed, not the new contents. An operator's own
             // preference is theirs alone and goes unrecorded, like their timezone.
@@ -598,6 +646,14 @@ fn build(
         error: error.map(|e| shell.tt(&e)),
         fields,
         leave_off: !item.confirm_leave,
+        actions: item
+            .actions
+            .iter()
+            .map(|a| ActionView {
+                label: shell.tt(&a.label),
+                path: format!("{}{}", shell.base, a.path),
+            })
+            .collect(),
         shell: shell.clone(),
     }
 }
@@ -650,6 +706,12 @@ struct SettingsFormTemplate {
     fields: Vec<ValueFieldView>,
     /// Leaving with changes unsaved does not ask.
     leave_off: bool,
+    actions: Vec<ActionView>,
+}
+
+struct ActionView {
+    label: String,
+    path: String,
 }
 
 #[cfg(test)]
@@ -696,6 +758,7 @@ mod field_system_tests {
             fields,
             route: None,
             per_operator: false,
+            actions: Vec::new(),
         }
     }
 
@@ -846,6 +909,7 @@ mod tests {
             ],
             route: None,
             per_operator: false,
+            actions: Vec::new(),
         }
     }
 
@@ -887,6 +951,7 @@ mod tests {
                 fields: vec![],
                 route: None,
                 per_operator: false,
+                actions: Vec::new(),
             },
             SettingsItem {
                 code: "a".into(),
@@ -903,6 +968,7 @@ mod tests {
                 fields: vec![],
                 route: None,
                 per_operator: false,
+                actions: Vec::new(),
             },
             SettingsItem {
                 code: "l".into(),
@@ -919,6 +985,7 @@ mod tests {
                 fields: vec![],
                 route: None,
                 per_operator: false,
+                actions: Vec::new(),
             },
         ];
         let groups = sidebar_groups(

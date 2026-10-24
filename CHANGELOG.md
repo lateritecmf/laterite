@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `laterite_core::mail`: messages from sectioned template files a module registers, rendered
+  through layouts and partials with the brand stylesheet inlined, queued by default; `smtp`, `log`
+  and `stub` drivers plus `add_mail_driver`; `[mail]`; `RouteCtx::mail`; `lat mail test`.
+- The Mail settings screen under Settings → System (`backend.manage_mail`) with a sealed SMTP
+  password and Send a test message; `SettingsItem::action` for a button beside Save.
+
 ### Changed
 
 - An import runs as a job on the queue: on the request in `inline` mode, on the workers otherwise;

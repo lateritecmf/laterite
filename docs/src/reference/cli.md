@@ -111,3 +111,9 @@ Command | Does
 --- | ---
 `lat schedule run` | Runs the application's ticker (`cargo run -- schedule run`); `--once` evaluates this minute and exits.
 `lat schedule list` | Every entry that has run on this deployment, with its last run.
+
+## Mail
+
+Command | Does
+--- | ---
+`lat mail test <address>` | Sends the built-in test template to the address through `[mail]`.

@@ -1,0 +1,17 @@
+subject = "Test message from {{ app_name }}"
+layout = "default"
+description = "Sent from the Mail settings to check the transport."
+==
+This is a test message from {{ app_name }}.
+
+If it reached you, mail is set up and working.
+==
+# It works
+
+This is a test message from **{{ app_name }}**. If it reached you, mail is set up and working.
+
+{% set body %}Open the admin{% endset %}
+{{ partial("button", url=admin_url|default("#"), body=body) }}
+
+{% set note %}Sent by the Mail settings screen. Nothing else was sent.{% endset %}
+{{ partial("subcopy", body=note) }}

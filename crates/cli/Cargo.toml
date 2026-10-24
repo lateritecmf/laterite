@@ -42,7 +42,7 @@ proc-macro2 = "1"
 # every driver by default: `lat new` must be able to connect to whichever
 # database the user chooses. A generated application stays lean, compiling only
 # the one driver it selects.
-default = ["postgres", "mysql", "sqlite"]
+default = ["postgres", "mysql", "sqlite", "laterite-core/smtp"]
 postgres = ["laterite-core/postgres", "laterite-auth/postgres", "laterite-admin/postgres"]
 mysql = ["laterite-core/mysql", "laterite-auth/mysql", "laterite-admin/mysql"]
 sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite", "laterite-admin/sqlite"]

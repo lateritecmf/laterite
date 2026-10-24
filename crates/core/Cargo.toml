@@ -18,6 +18,9 @@ secrecy = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 croner = { workspace = true }
+css-inline = { workspace = true }
+lettre = { workspace = true, optional = true }
+minijinja = { workspace = true }
 config = { workspace = true }
 laterite-macros = { workspace = true }
 email_address = "0.2.9"
@@ -43,6 +46,9 @@ sqlite = ["sqlx/sqlite"]
 # The `redis` cache store (`cache.store = "redis"`). Off by default; the
 # database carries generations and locks without it.
 redis = ["dep:redis"]
+# The `smtp` mail driver (lettre over rustls). Off by default in the crate; the
+# umbrella crate turns it on, since an application sends mail.
+smtp = ["dep:lettre"]
 # The multi-backend test harness (`laterite_core::testing`). Enabled by crates'
 # dev-dependencies, never in a production build.
 testing = ["dep:uuid"]

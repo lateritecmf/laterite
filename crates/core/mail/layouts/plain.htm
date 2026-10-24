@@ -1,0 +1,24 @@
+name = "Plain"
+==
+{{ content }}
+==
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ subject }}</title>
+<style>{{ brand_css }}
+{{ css }}</style>
+</head>
+<body>
+<div class="plain">
+{{ content }}
+</div>
+</body>
+</html>
+==
+body { margin: 0; padding: 24px; color: {{ brand.text_color|default("#2b2622") }}; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.5; }
+.plain { max-width: 600px; }
+a { color: {{ brand.link_color|default("#b4532f") }}; }
+.button { display: inline-block; padding: 12px 22px; border-radius: 6px; color: {{ brand.button_text_color|default("#ffffff") }}; background-color: {{ brand.button_bg|default("#b4532f") }}; text-decoration: none; font-weight: 600; }

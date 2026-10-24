@@ -94,6 +94,28 @@ Key | Description
 --- | ---
 `schedule.mode` | `ticker` in the application process, `external` for `schedule run` alone, `off` for none. See [Scheduler](../services/schedule.md).
 
+## Set `[mail]`
+
+```toml
+[mail]
+driver = "smtp"            # smtp | log | stub
+from = "Acme <no-reply@acme.example>"
+
+[mail.smtp]
+host = "smtp.acme.example"
+port = 587
+encryption = "starttls"
+username = ""
+password = ""
+```
+
+Key | Description
+--- | ---
+`mail.driver` | `smtp`, `log` or `stub`; the Mail settings screen lays over it. See [Mail](../services/mail.md).
+`mail.from` | The sender, `Name <address>`.
+`mail.to` | A development override for every recipient.
+`mail.smtp.*` | `host`, `port`, `encryption` (`starttls`, `tls`, `none`), `username`, `password`, `timeout_seconds`.
+
 ## Mount a module's screens
 
 A module's screens namespace under its identity: `acme.places`
