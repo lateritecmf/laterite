@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.24] - 2026-10-24
+
+The Mail slice closes the Services theme: templates a module ships and an admin
+edits, drivers, queued sending, the mail screens, and the invitation and reset
+flows. Imports now run as jobs.
+
 ### Added
 
 - `laterite_core::mail`: messages from sectioned template files a module registers, rendered
