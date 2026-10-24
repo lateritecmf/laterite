@@ -32,6 +32,8 @@ pub mod import;
 mod jobs;
 pub(crate) mod keyed;
 pub mod list;
+mod maillog;
+mod mailtemplates;
 pub mod medialib;
 pub mod nav;
 pub(crate) mod palette;
@@ -1574,6 +1576,11 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new(jobs::PERMISSION, "Manage jobs", "Backend"),
         Permission::new(scheduled::PERMISSION, "Manage scheduled tasks", "Backend"),
         Permission::new(settings::mail::PERMISSION, "Manage mail", "Backend"),
+        Permission::new(
+            mailtemplates::PERMISSION,
+            "Manage mail templates",
+            "Backend",
+        ),
         Permission::new("backend.view_audit_log", "View the audit log", "Backend"),
         Permission::new("backend.view_access_log", "View the access log", "Backend"),
         Permission::new(
@@ -2331,11 +2338,58 @@ pub fn router(
         jobs::PERMISSION,
     ));
     protected = protected.merge(guard_with_permission(
-        Router::new().route(
-            &format!("{admin_path}{}", settings::mail::TEST_PATH),
-            post(settings::mail::send_test),
-        ),
+        Router::new()
+            .route(
+                &format!("{admin_path}{}", settings::mail::TEST_PATH),
+                post(settings::mail::send_test),
+            )
+            .route(&format!("{admin_path}/mail-log"), get(maillog::index))
+            .route(
+                &format!("{admin_path}/mail-log/clear"),
+                post(maillog::clear),
+            )
+            .route(&format!("{admin_path}/mail-log/{{id}}"), get(maillog::view))
+            .route(
+                &format!("{admin_path}/mail-log/{{id}}/html"),
+                get(maillog::html),
+            ),
         settings::mail::PERMISSION,
+    ));
+    protected = protected.merge(guard_with_permission(
+        Router::new()
+            .route(
+                &format!("{admin_path}/mail-templates"),
+                get(mailtemplates::index),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/brand-preview"),
+                post(mailtemplates::brand_preview),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/new"),
+                get(mailtemplates::new_form).post(mailtemplates::create),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/{{code}}"),
+                get(mailtemplates::edit).post(mailtemplates::save),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/{{code}}/preview"),
+                get(mailtemplates::preview),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/{{code}}/test"),
+                post(mailtemplates::test),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/{{code}}/reset"),
+                post(mailtemplates::reset),
+            )
+            .route(
+                &format!("{admin_path}/mail-templates/{{kind}}/{{code}}/delete"),
+                post(mailtemplates::delete),
+            ),
+        mailtemplates::PERMISSION,
     ));
     protected = protected.merge(guard_with_permission(
         Router::new()
@@ -5207,6 +5261,23 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .permission(scheduled::PERMISSION)
             .link("/scheduled-tasks"),
         settings::mail::settings_item(),
+        settings::SettingsItem::new("backend.mail_templates", "Mail Templates", Vec::new())
+            .description("Edit the templates, layouts and partials mail is built from.")
+            .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
+            .order(15)
+            .icon("layout-template")
+            .permission(mailtemplates::PERMISSION)
+            .link("/mail-templates"),
+        settings::mail_brand::settings_item(),
+        settings::SettingsItem::new("backend.mail_log", "Mail Log", Vec::new())
+            .description("Read the messages the log driver kept.")
+            .category("System")
+            .slot(laterite_core::arrange::slot::SYSTEM)
+            .order(17)
+            .icon("file-text")
+            .permission(settings::mail::PERMISSION)
+            .link("/mail-log"),
         settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
             .description("Review the record of administrative changes.")
             .category("System")

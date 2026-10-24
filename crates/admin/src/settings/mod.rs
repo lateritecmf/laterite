@@ -14,6 +14,7 @@
 
 pub mod brand;
 pub mod mail;
+pub mod mail_brand;
 pub mod migrations;
 pub mod store;
 
@@ -407,6 +408,12 @@ pub(crate) async fn update(
     };
     match written {
         true => {
+            // The mail brand reaches every layout at once.
+            if item.code == mail_brand::MailBrandSetting::CODE {
+                let brand: mail_brand::MailBrandSetting =
+                    serde_json::from_value(value.clone()).unwrap_or_default();
+                state.mail.templates().set_brand_css(&brand.css()).await;
+            }
             // The mail transport follows its settings at once.
             if item.code == mail::MailSetting::CODE {
                 let setting: mail::MailSetting =

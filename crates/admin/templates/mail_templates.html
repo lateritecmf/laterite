@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Mail templates") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Mail templates") }}</h1>
+  <div class="lat-toolbar__actions">
+    <a class="lat-btn lat-btn--primary lat-btn--sm" href="{{ new_href }}">{{ shell.t("New") }}</a>
+  </div>
+</div>
+<div class="lat-toolbar__actions" style="margin:0 0 16px">
+  {% for tab in tabs %}
+  <a class="lat-btn lat-btn--sm{% if tab.active %} lat-btn--secondary{% else %} lat-btn--ghost{% endif %}" href="{{ tab.href }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+  {% endfor %}
+</div>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Code") }}</th>
+      <th>{% if kind == "templates" %}{{ shell.t("Description") }}{% else %}{{ shell.t("Name") }}{% endif %}</th>
+      <th>{{ shell.t("Source") }}</th>
+    </tr></thead>
+    <tbody>
+      {% if rows.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("Nothing here yet.") }}</td></tr>
+      {% else %}
+      {% for r in rows %}
+      <tr>
+        <td><a href="{{ r.href }}">{{ r.code }}</a></td>
+        <td>{{ r.label }}</td>
+        <td>{% if r.custom %}<span class="lat-status lat-status--on">{{ shell.t("Edited here") }}</span>{% else %}<span class="lat-status lat-status--off">{{ shell.t("From its file") }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -55,10 +55,15 @@ msgstr ""
 msgid "A role grants every permission it holds. A role granting more than you hold yourself is shown locked."
 msgstr ""
 
+#: src/mailtemplates.rs
+msgid "A template: `{{ name }}` reads a variable."
+msgstr ""
+
 #: templates/users_new.html
 msgid "A temporary password is generated and shown to you once. The new user must replace it at their first sign-in."
 msgstr ""
 
+#: src/mailtemplates.rs
 #: src/settings/mail.rs
 msgid "A test message went to {address} through {driver}."
 msgstr ""
@@ -159,6 +164,8 @@ msgstr ""
 #: templates/_roles_form_fields.html
 #: templates/form.html
 #: templates/import/match.html
+#: templates/mail_edit.html
+#: templates/mail_log_view.html
 #: templates/relation_section.html
 #: templates/roles_form.html
 msgid "Back"
@@ -166,6 +173,10 @@ msgstr ""
 
 #: templates/import/run.html
 msgid "Back to import"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "Back to the file's version."
 msgstr ""
 
 #: src/import/pages.rs
@@ -198,8 +209,16 @@ msgstr ""
 msgid "Blank keeps the configured address."
 msgstr ""
 
+#: src/mailtemplates.rs
+msgid "Blank: the HTML body is reduced to text."
+msgstr ""
+
 #: src/field.rs
 msgid "Bold"
+msgstr ""
+
+#: (descriptors)
+msgid "Borders"
 msgstr ""
 
 #: (descriptors)
@@ -228,12 +247,24 @@ msgid "Bulleted list"
 msgstr ""
 
 #: (descriptors)
+msgid "Button"
+msgstr ""
+
+#: (descriptors)
+msgid "Button text"
+msgstr ""
+
+#: (descriptors)
 msgid "Buttons, links and the active section take this colour."
 msgstr ""
 
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "By"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "CSS"
 msgstr ""
 
 #: templates/_form_fields.html
@@ -290,6 +321,7 @@ msgstr ""
 
 #: src/medialib/field.rs
 #: templates/list.html
+#: templates/mail_log.html
 msgid "Clear"
 msgstr ""
 
@@ -302,7 +334,9 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
+#: src/mailtemplates.rs
 #: templates/_roles_form_fields.html
+#: templates/mail_templates.html
 #: (descriptors)
 msgid "Code"
 msgstr ""
@@ -329,6 +363,10 @@ msgstr ""
 msgid "Confirm new password"
 msgstr ""
 
+#: (descriptors)
+msgid "Content background"
+msgstr ""
+
 #: templates/import/index.html
 msgid "Continue"
 msgstr ""
@@ -349,17 +387,26 @@ msgstr ""
 msgid "Could not check whether this role is maintained by the framework."
 msgstr ""
 
+#: src/maillog.rs
+msgid "Could not clear the log."
+msgstr ""
+
 #: src/lib.rs
 #: src/users.rs
 msgid "Could not create the account. The username or email may already be taken."
 msgstr ""
 
+#: src/mailtemplates.rs
 #: src/medialib/mod.rs
 msgid "Could not delete. Please try again."
 msgstr ""
 
 #: src/list.rs
 msgid "Could not move. Try again."
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "Could not reset. Please try again."
 msgstr ""
 
 #: src/list.rs
@@ -464,6 +511,7 @@ msgstr ""
 
 #: src/relation.rs
 #: templates/list.html
+#: templates/mail_edit.html
 #: templates/media_file_actions.html
 msgid "Delete"
 msgstr ""
@@ -503,12 +551,21 @@ msgid_plural "Deleted {n} records."
 msgstr[0] ""
 msgstr[1] ""
 
+#: src/mailtemplates.rs
+msgid "Deleted."
+msgstr ""
+
 #: src/persist.rs
 msgid "Deleting this kind of record is not supported."
 msgstr ""
 
 #: templates/users_form.html
 msgid "Deny"
+msgstr ""
+
+#: src/mailtemplates.rs
+#: templates/mail_templates.html
+msgid "Description"
 msgstr ""
 
 #: templates/media_file.html
@@ -576,6 +633,14 @@ msgstr ""
 
 #: templates/_list_rows.html
 msgid "Edit"
+msgstr ""
+
+#: (descriptors)
+msgid "Edit the templates, layouts and partials mail is built from."
+msgstr ""
+
+#: templates/mail_templates.html
+msgid "Edited here"
 msgstr ""
 
 #: templates/setup.html
@@ -729,6 +794,10 @@ msgstr ""
 msgid "Folders"
 msgstr ""
 
+#: (descriptors)
+msgid "Footer text"
+msgstr ""
+
 #: src/error.rs
 msgid "Forbidden"
 msgstr ""
@@ -757,6 +826,10 @@ msgstr ""
 msgid "Free"
 msgstr ""
 
+#: templates/mail_templates.html
+msgid "From its file"
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Full"
 msgstr ""
@@ -778,12 +851,29 @@ msgstr ""
 msgid "Go to a page, a setting or a record"
 msgstr ""
 
+#: src/mailtemplates.rs
+#: templates/mail_log_view.html
+msgid "HTML"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "HTML body"
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Half"
 msgstr ""
 
 #: templates/media_file.html
 msgid "Hash"
+msgstr ""
+
+#: (descriptors)
+msgid "Header text"
+msgstr ""
+
+#: (descriptors)
+msgid "Headings"
 msgstr ""
 
 #: (descriptors)
@@ -879,6 +969,10 @@ msgstr ""
 msgid "Last seen"
 msgstr ""
 
+#: src/mailtemplates.rs
+msgid "Layout"
+msgstr ""
+
 #: templates/base.html
 msgid "Leave"
 msgstr ""
@@ -890,6 +984,10 @@ msgstr ""
 
 #: src/field.rs
 msgid "Link"
+msgstr ""
+
+#: (descriptors)
+msgid "Links"
 msgstr ""
 
 #: templates/list.html
@@ -911,6 +1009,31 @@ msgstr ""
 #: src/settings/mail.rs
 #: (descriptors)
 msgid "Mail"
+msgstr ""
+
+#: (descriptors)
+msgid "Mail Log"
+msgstr ""
+
+#: (descriptors)
+msgid "Mail Templates"
+msgstr ""
+
+#: src/settings/mail_brand.rs
+#: (descriptors)
+msgid "Mail branding"
+msgstr ""
+
+#: templates/mail_log.html
+msgid "Mail is kept here and nothing leaves: the log driver is in use."
+msgstr ""
+
+#: templates/mail_log.html
+msgid "Mail log"
+msgstr ""
+
+#: templates/mail_templates.html
+msgid "Mail templates"
 msgstr ""
 
 #: src/widgets.rs
@@ -938,6 +1061,10 @@ msgid "Manage mail"
 msgstr ""
 
 #: (descriptors)
+msgid "Manage mail templates"
+msgstr ""
+
+#: (descriptors)
 msgid "Manage plugins"
 msgstr ""
 
@@ -955,6 +1082,10 @@ msgstr ""
 
 #: templates/dashboard.html
 msgid "Manage widgets"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "Markdown with template tags; `{{ partial(\"button\", url=link, body=\"Open\") }}` calls a partial."
 msgstr ""
 
 #: src/import/pages.rs
@@ -981,6 +1112,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Message"
+msgstr ""
+
+#: templates/mail_log.html
+msgid "Messages kept while the log driver was in use."
 msgstr ""
 
 #: (descriptors)
@@ -1020,10 +1155,20 @@ msgstr ""
 msgid "Moved."
 msgstr ""
 
+#: (descriptors)
+msgid "Muted text"
+msgstr ""
+
+#: src/mailtemplates.rs
 #: templates/_roles_form_fields.html
+#: templates/mail_templates.html
 #: templates/media.html
 #: (descriptors)
 msgid "Name"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "Named like `acme.blog::welcome`: the owning module, two colons, the name."
 msgstr ""
 
 #: templates/preferences.html
@@ -1031,6 +1176,7 @@ msgid "Navigation"
 msgstr ""
 
 #: src/list.rs
+#: templates/mail_templates.html
 msgid "New"
 msgstr ""
 
@@ -1069,6 +1215,10 @@ msgstr ""
 msgid "No entry is scheduled."
 msgstr ""
 
+#: src/mailtemplates.rs
+msgid "No file registers this code, so there is nothing to reset to."
+msgstr ""
+
 #: templates/media.html
 #: templates/media_pick.html
 msgid "No files here yet."
@@ -1084,6 +1234,10 @@ msgstr ""
 
 #: templates/jobs.html
 msgid "No job is waiting."
+msgstr ""
+
+#: templates/mail_log.html
+msgid "No message has been kept."
 msgstr ""
 
 #: templates/plugins.html
@@ -1125,6 +1279,10 @@ msgstr ""
 #: templates/preferences.html
 #: templates/users_form.html
 msgid "Not recorded"
+msgstr ""
+
+#: templates/mail_templates.html
+msgid "Nothing here yet."
 msgstr ""
 
 #: src/checklist.rs
@@ -1180,6 +1338,10 @@ msgstr ""
 msgid "Outcome"
 msgstr ""
 
+#: (descriptors)
+msgid "Page background"
+msgstr ""
+
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Page {n} of {m}"
@@ -1187,6 +1349,10 @@ msgstr ""
 
 #: templates/_list_table.html
 msgid "Page {page} of {pages}"
+msgstr ""
+
+#: (descriptors)
+msgid "Panel background"
 msgstr ""
 
 #: templates/import/match.html
@@ -1267,7 +1433,13 @@ msgid "Prev"
 msgstr ""
 
 #: src/field.rs
+#: templates/mail_edit.html
 msgid "Preview"
+msgstr ""
+
+#: src/settings/mail_brand.rs
+#: (descriptors)
+msgid "Preview on the test template"
 msgstr ""
 
 #: templates/media.html
@@ -1289,6 +1461,10 @@ msgstr ""
 
 #: templates/import/match.html
 msgid "Read again"
+msgstr ""
+
+#: (descriptors)
+msgid "Read the messages the log driver kept."
 msgstr ""
 
 #: templates/import/match.html
@@ -1369,6 +1545,10 @@ msgstr ""
 
 #: templates/dashboard.html
 msgid "Reset to default"
+msgstr ""
+
+#: templates/mail_edit.html
+msgid "Reset to the file"
 msgstr ""
 
 #: src/users.rs
@@ -1465,6 +1645,7 @@ msgstr ""
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
 #: templates/dashboard.html
+#: templates/mail_edit.html
 #: templates/media_file.html
 #: templates/preferences.html
 #: templates/settings_form.html
@@ -1484,6 +1665,11 @@ msgstr ""
 msgid "Save first, then add"
 msgstr ""
 
+#: src/settings/mail_brand.rs
+#: (descriptors)
+msgid "Save, then preview the test template to see the result."
+msgstr ""
+
 #: src/settings/mod.rs
 msgid "Saved, but the transport could not be set up: {error}"
 msgstr ""
@@ -1491,6 +1677,7 @@ msgstr ""
 #: src/form.rs
 #: src/lib.rs
 #: src/list.rs
+#: src/mailtemplates.rs
 msgid "Saved."
 msgstr ""
 
@@ -1564,6 +1751,10 @@ msgstr ""
 #: src/settings/mail.rs
 #: (descriptors)
 msgid "Send a test message to me"
+msgstr ""
+
+#: templates/mail_edit.html
+msgid "Send a test to me"
 msgstr ""
 
 #: (descriptors)
@@ -1690,6 +1881,10 @@ msgstr ""
 msgid "Something went wrong. Please try again."
 msgstr ""
 
+#: templates/mail_templates.html
+msgid "Source"
+msgstr ""
+
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "Started"
@@ -1720,11 +1915,17 @@ msgstr ""
 msgid "Strikethrough"
 msgstr ""
 
+#: src/mailtemplates.rs
+#: templates/mail_log.html
+msgid "Subject"
+msgstr ""
+
 #: (descriptors)
 msgid "Superuser"
 msgstr ""
 
 #: src/settings/mail.rs
+#: src/settings/mail_brand.rs
 #: src/widgets.rs
 #: (descriptors)
 msgid "System"
@@ -1745,6 +1946,15 @@ msgstr ""
 
 #: (descriptors)
 msgid "Target ID"
+msgstr ""
+
+#: src/mailtemplates.rs
+#: (descriptors)
+msgid "Text"
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "Text body"
 msgstr ""
 
 #: src/users.rs
@@ -1797,6 +2007,11 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "The admin renders in this language. It only changes the interface, not your content."
+msgstr ""
+
+#: src/settings/mail_brand.rs
+#: (descriptors)
+msgid "The colours every mail layout reads."
 msgstr ""
 
 #: src/medialib/mod.rs
@@ -1872,6 +2087,10 @@ msgstr ""
 msgid "The line on the panel beside the form."
 msgstr ""
 
+#: src/maillog.rs
+msgid "The mail log is empty."
+msgstr ""
+
 #: src/lib.rs
 msgid "The menu is back in its default order."
 msgstr ""
@@ -1921,6 +2140,7 @@ msgstr ""
 msgid "The tab icon; a square PNG or SVG."
 msgstr ""
 
+#: src/mailtemplates.rs
 #: src/settings/mail.rs
 msgid "The test message could not be sent: {error}"
 msgstr ""
@@ -2007,6 +2227,11 @@ msgstr ""
 
 #: templates/media_file.html
 msgid "Title"
+msgstr ""
+
+#: templates/mail_log.html
+#: templates/mail_log_view.html
+msgid "To"
 msgstr ""
 
 #: src/lib.rs
@@ -2157,6 +2382,8 @@ msgstr ""
 msgid "Whatever the file uses"
 msgstr ""
 
+#: templates/mail_log.html
+#: templates/mail_log_view.html
 #: (descriptors)
 msgid "When"
 msgstr ""
@@ -2231,6 +2458,18 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your session ended after a period of inactivity. Sign in again."
+msgstr ""
+
+#: src/settings/mail_brand.rs
+msgid "`#rrggbb`; blank keeps {default}."
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "`{{ brand.button_bg }}` reads a brand colour."
+msgstr ""
+
+#: src/mailtemplates.rs
+msgid "`{{ content }}` is the rendered body; `{{ css }}` and `{{ brand_css }}` the stylesheets."
 msgstr ""
 
 #: templates/jobs.html

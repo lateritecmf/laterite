@@ -641,6 +641,9 @@ impl Bootstrap {
                 &contributions.take::<laterite_core::mail::MailPartialReg>(),
             )
             .await?;
+        let brand: crate::settings::mail_brand::MailBrandSetting =
+            crate::settings::store::load(&db).await.unwrap_or_default();
+        templates.set_brand_css(&brand.css()).await;
         let saved: crate::settings::mail::MailSetting =
             crate::settings::store::load(&db).await.unwrap_or_default();
         let mail_config = crate::settings::mail::effective(&config.mail, &saved, &crypt);

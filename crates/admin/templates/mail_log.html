@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Mail log") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Mail log") }}</h1>
+  {% if !rows.is_empty() %}
+  <div class="lat-toolbar__actions">
+    <form method="post" action="{{ clear }}">
+      {% include "_csrf.html" %}
+      <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Clear") }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+<p class="lat-help" style="margin:0 0 16px">{% if driver == "log" %}{{ shell.t("Mail is kept here and nothing leaves: the log driver is in use.") }}{% else %}{{ shell.t("Messages kept while the log driver was in use.") }}{% endif %}</p>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("When") }}</th>
+      <th>{{ shell.t("To") }}</th>
+      <th>{{ shell.t("Subject") }}</th>
+    </tr></thead>
+    <tbody>
+      {% if rows.is_empty() %}
+      <tr><td class="lat-table__empty" colspan="99">{{ shell.t("No message has been kept.") }}</td></tr>
+      {% else %}
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.sent_at }}</td>
+        <td>{{ r.recipients }}</td>
+        <td><a href="{{ r.href }}">{{ r.subject }}</a><p class="lat-help">#{{ r.id }}</p></td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

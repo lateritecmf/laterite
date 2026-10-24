@@ -101,6 +101,25 @@ lat mail test ada@acme.example
 
 **Send a test message to me** on the settings screen mails the signed-in operator the built-in `laterite::test` template and shows the driver's error when it fails.
 
+## Edit templates in the admin
+
+```yaml
+# a role's permissions
+- backend.manage_mail_templates
+- backend.manage_mail
+```
+
+Permission | Grants
+--- | ---
+`backend.manage_mail_templates` | **Settings → System → Mail Templates**: the templates, layouts and partials with a preview, a test send to the signed-in operator, Reset to the file, Delete for one no file registers, and New; **Mail Branding**: the colours every layout reads, with a preview on the test template.
+`backend.manage_mail` | **Mail** (the sender and transport, Send a test message) and **Mail Log**: the messages the `log` driver kept, each as text and as HTML, with Clear.
+
+Brand colour | Layout property
+--- | ---
+Page background, content background, panel background | `brand.body_bg`, `brand.content_bg`, `brand.panel_bg`
+Header text, headings, text, muted text, footer text | `brand.header_color`, `brand.heading_color`, `brand.text_color`, `brand.muted_color`, `brand.footer_color`
+Links, button, button text, borders | `brand.link_color`, `brand.button_bg`, `brand.button_text_color`, `brand.border_color`
+
 ## Register a driver
 
 ```rust

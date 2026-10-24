@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   and `stub` drivers plus `add_mail_driver`; `[mail]`; `RouteCtx::mail`; `lat mail test`.
 - The Mail settings screen under Settings → System (`backend.manage_mail`) with a sealed SMTP
   password and Send a test message; `SettingsItem::action` for a button beside Save.
+- The Mail Templates screen (`backend.manage_mail_templates`: edit, preview, test, reset, delete,
+  new), Mail Branding with a preview, and the Mail Log of what the `log` driver kept.
 
 ### Changed
 

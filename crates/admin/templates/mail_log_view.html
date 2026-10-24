@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ subject }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ subject }}</h1>
+  <div class="lat-toolbar__actions"><a class="lat-btn lat-btn--ghost lat-btn--sm" href="{{ back }}">{{ shell.t("Back") }}</a></div>
+</div>
+<div class="lat-card lat-card--form">
+  <dl class="lat-facts">
+    <div><dt>{{ shell.t("When") }}</dt><dd>{{ sent_at }}</dd></div>
+    <div><dt>{{ shell.t("To") }}</dt><dd>{{ recipients }}</dd></div>
+  </dl>
+  <pre class="lat-pre" style="white-space:pre-wrap">{{ text }}</pre>
+</div>
+{% if let Some(src) = html_src %}
+<div class="lat-toolbar" style="margin-top:24px"><h2>{{ shell.t("HTML") }}</h2></div>
+<div class="lat-card" style="padding:0;overflow:hidden">
+  <iframe src="{{ src }}" title="{{ shell.t("HTML") }}" style="width:100%;height:640px;border:0;background:#fff"></iframe>
+</div>
+{% endif %}
+{% endblock %}
