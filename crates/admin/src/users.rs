@@ -309,13 +309,27 @@ pub(crate) async fn create(
         .collect();
     laterite_auth::store::set_user_roles(&state.db, id, &granted).await?;
     state.auth.require_password_change(id).await?;
+    // The invitation carries a link to set a password of their own; the
+    // temporary one is shown as well, for a deployment whose mail goes nowhere.
+    let invited = match laterite_auth::store::find_user_by_id(&state.db, id).await? {
+        Some(user) => crate::passwordlinks::send_invite(&state, &user).await,
+        None => false,
+    };
     session.push_flash_sticky(
         crate::session::FlashLevel::Success,
-        t!(
-            "Created {username}. Their temporary password, shown only now: {password}",
-            username = fields.username.clone(),
-            password = password
-        ),
+        if invited {
+            t!(
+                "Created {username} and sent them an invitation. Their temporary password, shown only now: {password}",
+                username = fields.username.clone(),
+                password = password
+            )
+        } else {
+            t!(
+                "Created {username}. Their temporary password, shown only now: {password}",
+                username = fields.username.clone(),
+                password = password
+            )
+        },
     );
     Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
 }

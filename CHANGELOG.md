@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   password and Send a test message; `SettingsItem::action` for a button beside Save.
 - The Mail Templates screen (`backend.manage_mail_templates`: edit, preview, test, reset, delete,
   new), Mail Branding with a preview, and the Mail Log of what the `log` driver kept.
+- Creating an operator mails `laterite.auth::invite` with a set-password link; the sign-in page's
+  Forgot your password mails `laterite.auth::reset`; `/admin/set-password/<token>` sets it.
 
 ### Changed
 

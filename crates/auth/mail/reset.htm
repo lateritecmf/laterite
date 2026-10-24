@@ -1,0 +1,21 @@
+subject = "Reset your password on {{ app_name }}"
+layout = "default"
+description = "Sent when someone asks for a password reset from the sign-in page."
+==
+Hello {{ name }},
+
+Someone asked to reset the password for {{ username }} on {{ app_name }}.
+
+Choose a new password here (the link works for {{ expires }}): {{ link }}
+
+If that was not you, ignore this message; nothing changes until the link is used.
+==
+# Reset your password
+
+Someone asked to reset the password for **{{ username }}** on **{{ app_name }}**.
+
+{% set body %}Choose a new password{% endset %}
+{{ partial("button", url=link, body=body) }}
+
+{% set note %}The link works for {{ expires }}. If that was not you, ignore this message; nothing changes until the link is used.{% endset %}
+{{ partial("subcopy", body=note) }}

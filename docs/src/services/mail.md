@@ -62,6 +62,12 @@ Third `==` | A layout's CSS, which reads the brand as `{{ brand.button_bg }}`.
 
 A layout receives `content`, `subject`, `app_name`, `css` and `brand_css`. An undefined variable renders empty. A template edited in the admin keeps its edit until it is reset to the file.
 
+Template | Sent by
+--- | ---
+`laterite::test` | The Mail settings' Send test and `lat mail test`.
+`laterite.auth::invite` | Creating an operator; `name`, `username`, `link`, `expires`.
+`laterite.auth::reset` | The Forgot your password page; `name`, `username`, `link`, `expires`.
+
 Partial | Arguments
 --- | ---
 `button` | `url`, `body`

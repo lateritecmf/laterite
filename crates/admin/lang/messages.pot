@@ -101,6 +101,10 @@ msgstr ""
 msgid "Administrators"
 msgstr ""
 
+#: templates/set_password.html
+msgid "Again"
+msgstr ""
+
 #: templates/list.html
 msgid "All"
 msgstr ""
@@ -173,6 +177,10 @@ msgstr ""
 
 #: templates/import/run.html
 msgid "Back to import"
+msgstr ""
+
+#: templates/forgot.html
+msgid "Back to sign in"
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -305,6 +313,10 @@ msgstr ""
 
 #: src/medialib/mod.rs
 msgid "Choose a file to upload."
+msgstr ""
+
+#: templates/set_password.html
+msgid "Choose a password for"
 msgstr ""
 
 #: templates/settings_index.html
@@ -454,6 +466,10 @@ msgstr ""
 #: templates/import/index.html
 #: (descriptors)
 msgid "Created"
+msgstr ""
+
+#: src/users.rs
+msgid "Created {username} and sent them an invitation. Their temporary password, shown only now: {password}"
 msgstr ""
 
 #: src/users.rs
@@ -666,6 +682,14 @@ msgstr ""
 msgid "Encryption"
 msgstr ""
 
+#: templates/forgot.html
+msgid "Enter your username or email address and we will send you a link."
+msgstr ""
+
+#: src/passwordlinks.rs
+msgid "Enter your username or email address."
+msgstr ""
+
 #: templates/preferences.html
 #: templates/scheduled.html
 msgid "Entry"
@@ -810,8 +834,12 @@ msgstr ""
 msgid "Forget all"
 msgstr ""
 
+#: templates/forgot.html
+msgid "Forgot your password"
+msgstr ""
+
 #: templates/login.html
-msgid "Forgot your password? Ask an administrator to reset it."
+msgid "Forgot your password?"
 msgstr ""
 
 #: src/field.rs
@@ -882,6 +910,10 @@ msgstr ""
 
 #: src/field.rs
 msgid "Horizontal rule"
+msgstr ""
+
+#: templates/forgot.html
+msgid "If that account exists, a message with a link to choose a new password is on its way. The link works for one hour."
 msgstr ""
 
 #: src/field.rs
@@ -1190,6 +1222,7 @@ msgid "New folder"
 msgstr ""
 
 #: templates/preferences.html
+#: templates/set_password.html
 msgid "New password"
 msgstr ""
 
@@ -1413,7 +1446,9 @@ msgid "Plugins"
 msgstr ""
 
 #: templates/base.html
+#: templates/forgot.html
 #: templates/login.html
+#: templates/set_password.html
 #: templates/setup.html
 msgid "Powered by Laterite"
 msgstr ""
@@ -1657,6 +1692,10 @@ msgstr ""
 msgid "Save and continue editing"
 msgstr ""
 
+#: templates/set_password.html
+msgid "Save and sign in"
+msgstr ""
+
 #: templates/media_file.html
 msgid "Save as a new file"
 msgstr ""
@@ -1761,6 +1800,10 @@ msgstr ""
 msgid "Send everything to"
 msgstr ""
 
+#: templates/forgot.html
+msgid "Send the link"
+msgstr ""
+
 #: (descriptors)
 msgid "Send through"
 msgstr ""
@@ -1777,6 +1820,10 @@ msgstr ""
 msgid "Set up"
 msgstr ""
 
+#: templates/set_password.html
+msgid "Set your password"
+msgstr ""
+
 #: templates/preferences.html
 #: templates/settings_index.html
 msgid "Settings"
@@ -1789,6 +1836,7 @@ msgstr ""
 #: src/field.rs
 #: templates/login.html
 #: templates/preferences.html
+#: templates/set_password.html
 #: templates/setup.html
 msgid "Show password"
 msgstr ""
@@ -2145,6 +2193,10 @@ msgstr ""
 msgid "The test message could not be sent: {error}"
 msgstr ""
 
+#: src/passwordlinks.rs
+msgid "The two passwords differ."
+msgstr ""
+
 #: src/medialib/mod.rs
 msgid "The upload could not be found."
 msgstr ""
@@ -2320,6 +2372,10 @@ msgstr ""
 msgid "Username"
 msgstr ""
 
+#: templates/forgot.html
+msgid "Username or email"
+msgstr ""
+
 #: src/users.rs
 msgid "Username, email and first name are required."
 msgstr ""
@@ -2450,6 +2506,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Your current password is not correct."
+msgstr ""
+
+#: src/lib.rs
+msgid "Your password is set. Sign in with it."
 msgstr ""
 
 #: src/lib.rs

@@ -37,6 +37,7 @@ mod mailtemplates;
 pub mod medialib;
 pub mod nav;
 pub(crate) mod palette;
+mod passwordlinks;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
@@ -1265,7 +1266,7 @@ fn resolve_locale_chain(
 /// A translator for a pre-auth screen (login, setup): no operator preference exists
 /// yet, so the chain is the request's `Accept-Language`, then the deployment default,
 /// then `en`, over the shared catalogs.
-fn pre_auth_translator(state: &AdminState, headers: &HeaderMap) -> Translator {
+pub(crate) fn pre_auth_translator(state: &AdminState, headers: &HeaderMap) -> Translator {
     let accept = headers.get("accept-language").and_then(|v| v.to_str().ok());
     let serveable = state.catalogs.locales();
     let chain = resolve_locale_chain(None, accept, &state.default_locale, &serveable);
@@ -2497,6 +2498,14 @@ pub fn router(
         .route(
             &format!("{admin_path}/login"),
             get(login_form).post(login_submit),
+        )
+        .route(
+            &format!("{admin_path}/forgot"),
+            get(passwordlinks::forgot_form).post(passwordlinks::forgot_submit),
+        )
+        .route(
+            &format!("{admin_path}/set-password/{{token}}"),
+            get(passwordlinks::set_password_form).post(passwordlinks::set_password_submit),
         )
         .route(
             &format!("{admin_path}/setup"),
@@ -4153,6 +4162,7 @@ fn end_notice(code: &str) -> Option<Text> {
         "deactivated" => t!("This account was deactivated."),
         "signed_out_elsewhere" => t!("You were signed out from another device."),
         "expired" => t!("Your session ended after a period of inactivity. Sign in again."),
+        "password_set" => t!("Your password is set. Sign in with it."),
         _ => return None,
     })
 }
@@ -5371,7 +5381,7 @@ struct LoginTemplate {
 
 /// Builds a content-named asset URL for the pre-auth screens, which render
 /// before a [`Shell`] exists and so carry the map themselves.
-fn preauth_asset(urls: &AssetUrls, base: &str, key: &str) -> String {
+pub(crate) fn preauth_asset(urls: &AssetUrls, base: &str, key: &str) -> String {
     match urls.get(key) {
         Some(path) => format!("{base}/assets/{path}"),
         None => {

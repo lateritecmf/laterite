@@ -121,6 +121,23 @@ pub async fn find_user_by_username(
     row.map(|r| user_from_row(&r)).transpose()
 }
 
+/// Looks up a user by email, active or not; the address is matched without
+/// regard to case.
+pub async fn find_user_by_email(db: &Db, email: &str) -> Result<Option<BackendUser>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(USER_COLS)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Email).eq(email.trim().to_lowercase()))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    row.map(|r| user_from_row(&r)).transpose()
+}
+
 /// Looks up an active user by id, used when resolving a session to an identity.
 /// A user by id whatever their state. Distinct from
 /// [`find_active_user_by_id`], which is the authentication path: this one is for

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}" data-lat-skin="{{ skin.code }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.t("Forgot your password") }} - {{ brand }}</title>
+  {% if let Some(icon) = look.favicon_url %}<link rel="icon" href="{{ icon }}">{% else %}<link rel="icon" type="image/svg+xml" href="{{ self.asset("mark.svg") }}">{% endif %}
+  <link rel="stylesheet" href="{{ self.asset("laterite.css") }}">
+  {% if let Some(url) = skin.stylesheet %}<link rel="stylesheet" href="{{ url }}">{% endif %}
+  {% if !look.css.is_empty() %}<style id="lat-brand">{{ look.css|safe }}</style>{% endif %}
+  <script src="{{ self.asset("theme-boot.js") }}"></script>
+  <script defer src="{{ self.asset("laterite.js") }}"></script>
+</head>
+<body>
+  <div class="lat-login lat-login--plain">
+    <div class="lat-login__form">
+      <div class="lat-login__inner">
+        <div class="lat-login__brand">
+          {% if let Some(logo) = look.logo_url %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ self.asset("mark.png") }}" alt="">{% endif %}
+          <h1>{{ brand }}</h1>
+        </div>
+        <h2 class="lat-login__title">{{ self.t("Forgot your password") }}</h2>
+        {% if sent %}
+        <p class="lat-login__lead">{{ self.t("If that account exists, a message with a link to choose a new password is on its way. The link works for one hour.") }}</p>
+        <a class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" href="{{ base }}/login" style="margin-top:20px">{{ self.t("Back to sign in") }}</a>
+        {% else %}
+        <p class="lat-login__lead">{{ self.t("Enter your username or email address and we will send you a link.") }}</p>
+        {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+        <form method="post" action="{{ base }}/forgot">
+          <div class="lat-field">
+            <label class="lat-field__label" for="account">{{ self.t("Username or email") }}</label>
+            <input class="lat-input" type="text" id="account" name="account" autocomplete="username" autofocus required>
+          </div>
+          <button class="lat-btn lat-btn--primary lat-btn--lg lat-btn--block" type="submit" style="margin-top:20px">{{ self.t("Send the link") }}</button>
+        </form>
+        <div class="lat-login__forgot"><a href="{{ base }}/login">{{ self.t("Back to sign in") }}</a></div>
+        {% endif %}
+      </div>
+      <a class="lat-poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ self.asset("mark.png") }}" alt="" width="14" height="14">{{ self.t("Powered by Laterite") }}</a>
+    </div>
+  </div>
+</body>
+</html>

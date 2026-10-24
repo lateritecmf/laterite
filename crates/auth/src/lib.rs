@@ -45,6 +45,11 @@ pub use store::{AccessRecord, AuditRecord};
 pub use store::{RevokeReason, SessionEnd};
 
 /// The `laterite.auth` module: the framework's backend-user auth tables.
+/// The template an invitation sends: `name`, `username`, `link`, `expires`.
+pub const INVITE_TEMPLATE: &str = "laterite.auth::invite";
+/// The template a password reset sends: `name`, `username`, `link`, `expires`.
+pub const RESET_TEMPLATE: &str = "laterite.auth::reset";
+
 pub struct AuthModule;
 
 #[laterite_core::strata::async_trait]
@@ -75,8 +80,11 @@ impl laterite_core::Module for AuthModule {
         migrations()
     }
     fn register(&self, registry: &mut laterite_core::Registry) {
+        use laterite_core::mail::MailRegistry;
         registry.add(laterite_core::ModelListenerReg::all(std::sync::Arc::new(
             audit_listener::AuditListener,
         )));
+        registry.add_mail_template(INVITE_TEMPLATE, include_str!("../mail/invite.htm"));
+        registry.add_mail_template(RESET_TEMPLATE, include_str!("../mail/reset.htm"));
     }
 }

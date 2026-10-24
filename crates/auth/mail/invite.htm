@@ -1,0 +1,22 @@
+subject = "Your account on {{ app_name }}"
+layout = "default"
+description = "Sent to a new administrator with a link to set their password."
+==
+Hello {{ name }},
+
+An account was made for you on {{ app_name }}. Your username is {{ username }}.
+
+Set your password here (the link works for {{ expires }}): {{ link }}
+==
+# Welcome, {{ name }}
+
+An account was made for you on **{{ app_name }}**.
+
+{% set details %}Username: **{{ username }}**{% endset %}
+{{ partial("panel", body=details) }}
+
+{% set body %}Set your password{% endset %}
+{{ partial("button", url=link, body=body) }}
+
+{% set note %}The link works for {{ expires }}. If you were not expecting this message, ignore it.{% endset %}
+{{ partial("subcopy", body=note) }}
