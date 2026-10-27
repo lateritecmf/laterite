@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Admin: a session that runs out is handled in place: a warning two minutes before with
+  Stay signed in, a re-login dialog that keeps the page, and htmx requests retried after it.
+- Auth: a sign-out is on the access log with its address (`AuthService::logout_with`);
+  `[auth] access_log_retention_days` (default 365) bounds the log through the hourly purge.
+
+### Fixed
+
+- Lists: `protected` names a boolean column whose rows get no checkbox; the roles list marks the
+  framework's own roles with it.
+
 ## [0.9.24] - 2026-10-24
 
 The Mail slice closes the Services theme: templates a module ships and an admin

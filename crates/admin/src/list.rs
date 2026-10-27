@@ -1030,6 +1030,11 @@ pub(crate) fn check(
             ));
         }
     }
+    if let Some(column) = &config.protected {
+        if !valid_ident(column) {
+            return Err(format!("protected names an invalid column `{column}`"));
+        }
+    }
     for col in &config.columns {
         if column_types.get(&col.column_type).is_none() {
             return Err(format!(
@@ -1251,6 +1256,11 @@ pub struct ListConfig {
     /// a list that shows a log, or records another screen owns, has no business
     /// offering it.
     pub deletable: bool,
+    /// A boolean column naming the rows this list never offers to delete: such
+    /// a row has no checkbox and no row Delete, whatever `deletable` says.
+    /// `protected: is_system` in a file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected: Option<String>,
     /// Whether this resource offers an export. Off by default: exporting is a
     /// capability a resource opts into, not something every list should carry.
     pub exportable: bool,
@@ -1372,6 +1382,12 @@ impl ListConfig {
         self
     }
 
+    /// Names a boolean column whose true rows the list never offers to delete.
+    pub fn protected(mut self, column: impl Into<String>) -> Self {
+        self.protected = Some(column.into());
+        self
+    }
+
     /// Shows the rows as a tree on their parent column: the list opens on the
     /// top level, and a row with children expands in place.
     pub fn tree(mut self, tree: TreeConfig) -> Self {
@@ -1442,6 +1458,7 @@ impl Default for ListConfig {
             creatable: false,
             filters: Vec::new(),
             deletable: false,
+            protected: None,
             exportable: false,
             import: None,
             scope: None,
@@ -1511,6 +1528,8 @@ pub struct RowView {
     pub cells: Vec<String>,
     /// How many rows name this one as parent, when the query asked.
     pub children: i64,
+    /// Whether the list's `protected` column marks this row.
+    pub protected: bool,
 }
 
 /// One rendered cell and the class its column's alignment gives it.
@@ -1528,6 +1547,8 @@ pub struct RenderedRow {
     pub depth: i64,
     pub indent: String,
     pub toggle: Option<String>,
+    /// Whether the row is kept from deletion: no checkbox, no row Delete.
+    pub protected: bool,
 }
 
 /// Display-ready rows plus the total row count for the pager.
@@ -1839,6 +1860,12 @@ pub(crate) async fn query(
                 Alias::new(&column.field),
             );
         }
+        if let Some(column) = &config.protected {
+            select.expr_as(
+                Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(db.backend))),
+                Alias::new(PROTECTED_ALIAS),
+            );
+        }
         let row_id = config
             .scope
             .as_ref()
@@ -1931,6 +1958,7 @@ pub(crate) async fn query(
                 Some(_) => get_text(row, "lat_children").trim().parse().unwrap_or(0),
                 None => 0,
             },
+            protected: config.protected.is_some() && truthy(&get_text(row, PROTECTED_ALIAS)),
         })
         .collect();
     Ok(ListPage { rows, total })
@@ -1938,6 +1966,15 @@ pub(crate) async fn query(
 
 /// Reads a text-cast column as a display string, treating null or a decode
 /// error as empty.
+/// The alias the `protected` column is read under.
+const PROTECTED_ALIAS: &str = "lat_protected";
+
+/// Whether a boolean column's text form is true, across the backends: `1` from
+/// SQLite and MySQL, `true` or `t` from Postgres.
+fn truthy(text: &str) -> bool {
+    matches!(text.trim(), "1" | "true" | "t" | "TRUE")
+}
+
 fn get_text(row: &sqlx::any::AnyRow, column: &str) -> String {
     // `get_text_opt` falls back to a byte read for MySQL, where a cast-to-char of
     // a `text` column still comes back typed as BLOB.
@@ -2176,6 +2213,7 @@ async fn build_page(
                     toggle: (structure.is_some() && row.children > 0)
                         .then(|| format!("{path}?parent={}&depth={}", row.id, depth + 1)),
                     id: row.id.clone(),
+                    protected: row.protected,
                     cells: row
                         .cells
                         .iter()

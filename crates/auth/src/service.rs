@@ -32,6 +32,7 @@ use crate::store;
 /// max_failures = 5
 /// max_failures_per_address = 20
 /// failure_window_secs = 900
+/// access_log_retention_days = 365
 ///
 /// [auth.password_policy]
 /// min_length = 8
@@ -69,6 +70,8 @@ pub struct AuthConfig {
     pub failure_window: Duration,
     /// What a new password must satisfy, wherever one is set.
     pub password_policy: PasswordPolicy,
+    /// How many days of the access log the purge keeps. `0` keeps every row.
+    pub access_log_retention_days: u32,
 }
 
 impl Default for AuthConfig {
@@ -81,6 +84,7 @@ impl Default for AuthConfig {
             max_failures_per_address: 20,
             failure_window: Duration::from_secs(60 * 15),
             password_policy: PasswordPolicy::default(),
+            access_log_retention_days: 365,
         }
     }
 }
@@ -150,6 +154,7 @@ mod auth_config_tests {
             Duration::from_secs(60 * 60 * 12)
         );
         assert_eq!(cfg.failure_window, Duration::from_secs(60 * 15));
+        assert_eq!(cfg.access_log_retention_days, 365);
     }
 
     #[test]
@@ -372,6 +377,8 @@ impl<'a> AuditEntry<'a> {
 pub struct Purged {
     pub sessions: u64,
     pub remember_tokens: u64,
+    /// Access log rows older than `access_log_retention_days`.
+    pub access_log: u64,
 }
 
 /// The default [`PasswordPolicy::min_length`].
@@ -518,6 +525,21 @@ impl AuthService {
             data: session.data,
             expires_at,
         })
+    }
+
+    /// Pushes a live session's deadline out as far as its idle window allows,
+    /// whatever its last request was, and returns the new deadline. For an
+    /// operator's own "Stay signed in"; an expired or unknown token is
+    /// [`AuthError::SessionInvalid`].
+    pub async fn renew_session(&self, token: &str) -> Result<DateTime<Utc>, AuthError> {
+        let token_hash = hash_token(token);
+        let now = Utc::now();
+        let session = store::find_valid_session(&self.db, &token_hash, now)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+        let expires_at = self.config.deadline(session.created_at, now);
+        store::renew_session(&self.db, &token_hash, now, expires_at).await?;
+        Ok(expires_at)
     }
 
     /// Resolves a raw session token to an identity. A thin wrapper over
@@ -799,9 +821,17 @@ impl AuthService {
     /// `lat admin purge` runs it on demand.
     pub async fn purge_expired(&self) -> Result<Purged, AuthError> {
         let now = Utc::now();
+        let access_log = match self.config.access_log_retention_days {
+            0 => 0,
+            days => {
+                let cutoff = now - chrono::Duration::days(i64::from(days));
+                store::delete_access_log_before(&self.db, cutoff).await?
+            }
+        };
         Ok(Purged {
             sessions: store::delete_expired_sessions(&self.db, now).await?,
             remember_tokens: store::delete_expired_remember_tokens(&self.db, now).await?,
+            access_log,
         })
     }
 
@@ -1046,14 +1076,35 @@ impl AuthService {
         Ok(())
     }
 
-    /// Invalidates a session. Unknown tokens are a no-op.
+    /// Invalidates a session. Unknown tokens are a no-op. The sign-out is on the
+    /// access log with no address; a handler with one calls
+    /// [`AuthService::logout_with`].
     pub async fn logout(&self, token: &str) -> Result<(), AuthError> {
+        self.logout_with(token, &RequestContext::default()).await
+    }
+
+    /// Invalidates a session, recording the sign-out on the access log from
+    /// the address and client in `ctx`. Unknown tokens are a no-op.
+    pub async fn logout_with(&self, token: &str, ctx: &RequestContext) -> Result<(), AuthError> {
         let hash = hash_token(token);
         // Read before the row goes, to know whose sign-out to announce. A
         // session already expired or revoked ended earlier, so it names nobody.
         let owner = store::find_valid_session(&self.db, &hash, Utc::now()).await?;
         store::delete_session(&self.db, &hash).await?;
         if let Some(session) = owner {
+            let username = store::find_user_by_id(&self.db, session.user_id)
+                .await?
+                .map(|u| u.username)
+                .unwrap_or_default();
+            store::insert_access_log(
+                &self.db,
+                Some(session.user_id),
+                &username,
+                AccessEvent::Logout,
+                ctx.ip_address.as_deref(),
+                ctx.user_agent.as_deref(),
+            )
+            .await?;
             self.events
                 .emit(&events::SignedOut::new(session.user_id))
                 .await;

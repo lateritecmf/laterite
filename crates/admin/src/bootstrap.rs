@@ -898,14 +898,18 @@ async fn shutdown_signal() {
 
 /// Binds the listener, preferring a `systemfd`-inherited socket (so the port
 /// survives reloads) and falling back to binding `listen`.
-/// One sweep of expired sessions and credentials, logged when it removed any.
+/// One sweep of expired sessions, credentials and old access log rows, logged
+/// when it removed any.
 async fn purge_expired(auth: &AuthService) {
     match auth.purge_expired().await {
-        Ok(purged) if purged.sessions + purged.remember_tokens > 0 => tracing::info!(
-            sessions = purged.sessions,
-            remember_tokens = purged.remember_tokens,
-            "purged expired sessions and credentials"
-        ),
+        Ok(purged) if purged.sessions + purged.remember_tokens + purged.access_log > 0 => {
+            tracing::info!(
+                sessions = purged.sessions,
+                remember_tokens = purged.remember_tokens,
+                access_log = purged.access_log,
+                "purged expired sessions, credentials and access log rows"
+            )
+        }
         Ok(_) => {}
         Err(e) => tracing::error!(error = %e, "purging expired sessions failed"),
     }

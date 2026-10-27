@@ -692,6 +692,11 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-dialog__close{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-muted);font-size:18px;cursor:pointer}
 .lat-dialog__close:hover{background:var(--accent-quiet);color:var(--text-heading)}
 .lat-dialog__body{padding:20px}
+.lat-session{width:min(420px,calc(100vw - 32px))}
+.lat-session__title{font-size:var(--fs-16);margin:0 0 8px}
+.lat-session__text{margin:0 0 16px;color:var(--text-muted);font-size:var(--fs-13)}
+.lat-session__actions{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:4px}
+.lat-flash__act{margin-left:4px;padding:4px 10px;border:1px solid currentColor;border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;font-size:var(--fs-12);cursor:pointer;white-space:nowrap}
 .lat-dialog__body .lat-field:last-child{margin-bottom:0}
 .lat-dialog__actions{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--border-subtle);background:var(--surface-raised)}
 /* A split: a narrow pane of navigation beside the content, or the content

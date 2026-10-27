@@ -11,6 +11,7 @@ remember_duration_secs = 1209600      # 14d
 max_failures = 5
 max_failures_per_address = 20
 failure_window_secs = 900
+access_log_retention_days = 365
 
 [auth.password_policy]
 min_length = 8
@@ -26,6 +27,7 @@ Key | Description
 `max_failures` | Failed sign-ins from one address for one username before that address is locked out of it. Default `5`.
 `max_failures_per_address` | Failed sign-ins from one address, any username, before the address is locked out. Default `20`.
 `failure_window_secs` | Window the failures are counted over. Default `900`.
+`access_log_retention_days` | Days of the access log the hourly purge keeps. Default `365`; `0` keeps every row.
 `password_policy.min_length` | The shortest password accepted, wherever one is set. Default `8`.
 
 ## Clear a lockout

@@ -160,14 +160,78 @@ lat admin purge
 
 ```rust
 let purged = auth.purge_expired().await?;
-println!("{} sessions, {} credentials", purged.sessions, purged.remember_tokens);
+println!(
+    "{} sessions, {} credentials, {} access log rows",
+    purged.sessions, purged.remember_tokens, purged.access_log
+);
 ```
+
+Access log rows older than `access_log_retention_days` go in the same sweep.
+
+## Sign out
+
+```rust
+auth.logout_with(&session_token, &ctx).await?;
+```
+
+The sign-out is on the access log as `logout`, from the address and client in
+`ctx`. `auth.logout(&session_token)` records it with neither.
+
+## Handle an expired session
+
+Every guarded response carries when the session ends, and a page asks for it
+on demand:
+
+```http
+X-Lat-Session-Ends: 1761307200
+```
+
+```http
+GET /admin/session
+{"ends":1761307200}
+```
+
+`POST /admin/session`, with the request token, renews the session to its full
+idle window and answers the same way.
+
+A request past the deadline is answered by the kind of request it was:
+
+Request | Answer
+--- | ---
+Page | A redirect to the login page with `?ended=expired`.
+htmx | `401` with `HX-Trigger: lat:session-expired`; the admin page signs in again in place and retries the request.
+Scripted (`X-Requested-With: fetch`) | `401`.
+
+A scripted sign-in posts the login form with `X-Requested-With: fetch` and
+gets JSON back:
+
+```http
+POST /admin/login
+X-Requested-With: fetch
+
+username=ada&password=...
+```
+
+```json
+{"ok": true, "csrf": "<the new request token>", "ends": 1761314400}
+```
+
+```json
+{"ok": false, "error": "Invalid username or password."}
+```
+
+A script of your own that posts after a re-login reads the token from the
+`_csrf` field of any rendered form, or from the `hx-headers` attribute on
+`body`; both are updated.
+
+The page's dialog and warning announce `lat:session:expired` and
+`lat:session:renewed` on `#lat-session`.
 
 ## Read the sign-out notice
 
 A redirect to the login screen carries `?ended=<code>` when the session was
 ended for a reason the login page can show; an htmx request gets
-`HX-Redirect` with no body.
+`HX-Redirect` with no body, except for `expired` (see above).
 
 Code | Shown when
 --- | ---

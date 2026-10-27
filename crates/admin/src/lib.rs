@@ -634,6 +634,12 @@ pub struct Shell {
     /// deduped and emitted in the head after core `laterite.js`. See
     /// [`page_assets`].
     pub(crate) assets: Vec<PageAsset>,
+    /// When the session ends, as Unix seconds, for the page's expiry warning
+    /// and its re-login dialog.
+    pub(crate) session_ends: i64,
+    /// The signed-in username, fixed on the re-login dialog so the page's state
+    /// is never continued under another account.
+    pub(crate) username: String,
 }
 
 /// A contributed screen's markup inside the chrome. See [`Shell::page`].
@@ -749,6 +755,7 @@ impl Shell {
         site_url: String,
         icon_set: Arc<laterite_core::icons::IconSet>,
         sprite_url: Arc<str>,
+        session_ends: chrono::DateTime<chrono::Utc>,
     ) -> Self {
         let full_name = user.user.full_name();
         let initial = full_name
@@ -813,6 +820,8 @@ impl Shell {
             csrf_token,
             flash,
             assets: Vec::new(),
+            session_ends: session_ends.timestamp(),
+            username: user.user.username.clone(),
         }
     }
 
@@ -994,6 +1003,8 @@ impl Shell {
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
             assets: Vec::new(),
+            session_ends: 0,
+            username: "test".to_string(),
         }
     }
 }
@@ -2458,7 +2469,11 @@ pub fn router(
             &format!("{admin_path}/pickers/{{source}}/resolve"),
             any(picker::resolve),
         )
-        .route(&format!("{admin_path}/logout"), post(logout));
+        .route(&format!("{admin_path}/logout"), post(logout))
+        .route(
+            &format!("{admin_path}/session"),
+            get(session_status).post(session_renew),
+        );
 
     // A route per settings screen, at the path its module resolved to, rather
     // than one parameterised route keyed by storage code. The code is captured
@@ -3853,6 +3868,7 @@ async fn require_auth(
         state.origin.to_string(),
         state.icons.clone(),
         state.sprite_url.clone(),
+        resolved.expires_at,
     );
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
@@ -3891,7 +3907,45 @@ async fn require_auth(
             tracing::error!(error = %e, "persisting admin session failed");
         }
     }
+    // The deadline rides on every response, so a page's expiry warning follows
+    // the renewals its own requests earn.
+    if let Ok(value) =
+        axum::http::HeaderValue::from_str(&resolved.expires_at.timestamp().to_string())
+    {
+        response.headers_mut().insert(SESSION_ENDS_HEADER, value);
+    }
     with_recall_cookies(response, recalled, jar, token, &state)
+}
+
+/// The response header carrying when the session ends, as Unix seconds.
+pub(crate) const SESSION_ENDS_HEADER: &str = "x-lat-session-ends";
+
+/// The event an htmx request is told when its session ran out, so the page
+/// can sign in again in place and retry.
+const SESSION_EXPIRED_TRIGGER: &str = "lat:session-expired";
+
+/// `GET {admin}/session`: when the session ends, for the page's expiry
+/// warning. Passing the guard renews a session past half its idle window, so
+/// the "Stay signed in" button is this request.
+async fn session_status(Extension(shell): Extension<Shell>) -> Response {
+    axum::Json(serde_json::json!({ "ends": shell.session_ends })).into_response()
+}
+
+/// `POST {admin}/session`: the "Stay signed in" button. Renews the session to
+/// the full idle window from now and answers with the new deadline.
+async fn session_renew(
+    State(state): State<AdminState>,
+    jar: CookieJar,
+    Extension(shell): Extension<Shell>,
+) -> Response {
+    let ends = match jar.get(SESSION_COOKIE) {
+        Some(cookie) => match state.auth.renew_session(cookie.value()).await {
+            Ok(at) => at.timestamp(),
+            Err(_) => shell.session_ends,
+        },
+        None => shell.session_ends,
+    };
+    axum::Json(serde_json::json!({ "ends": ends })).into_response()
 }
 
 /// A recall replaced both halves, the session it minted and the credential that
@@ -4035,11 +4089,36 @@ async fn login_submit(
     Extension(ctx): Extension<RequestContext>,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    // The re-login dialog asks as a script and wants an answer it can act on:
+    // the new request token on success, the reason on failure.
+    let scripted = headers
+        .get("x-requested-with")
+        .is_some_and(|v| v.as_bytes() == b"fetch");
     match state
         .auth
         .authenticate(&form.username, &form.password, &ctx)
         .await
     {
+        Ok(session) if scripted => {
+            let handle = session::SessionHandle::from_blob(None);
+            let csrf = handle.csrf_token();
+            if let Some(blob) = handle.dirty_blob() {
+                if let Err(e) = state.auth.set_session_data(&session.token, &blob).await {
+                    tracing::error!(error = %e, "persisting admin session failed");
+                }
+            }
+            let ends = session.expires_at.timestamp();
+            let jar = jar.add(session_cookie(
+                session.token,
+                &state.cookie_path,
+                state.secure_cookie,
+            ));
+            (
+                jar,
+                axum::Json(serde_json::json!({ "ok": true, "csrf": csrf, "ends": ends })),
+            )
+                .into_response()
+        }
         Ok(session) => {
             let wants_remember = form.remember.is_some();
             let user_id = session.user_id;
@@ -4067,13 +4146,21 @@ async fn login_submit(
         }
         Err(_) => {
             let i18n = pre_auth_translator(&state, &headers);
+            let error = i18n.t(&t!("Invalid username or password."));
+            if scripted {
+                return (
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({ "ok": false, "error": error })),
+                )
+                    .into_response();
+            }
             render(LoginTemplate {
                 base: state.admin_path.to_string(),
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await.name.clone(),
                 look: state.brand().await,
                 skin: state.skin.clone(),
-                error: Some(i18n.t(&t!("Invalid username or password."))),
+                error: Some(error),
                 notice: None,
                 i18n,
             })
@@ -4135,6 +4222,7 @@ fn signed_out(
         Some(code) => format!("{login}?ended={code}"),
         None => login.to_string(),
     };
+    let on_purpose = matches!(ended, Some(laterite_auth::SessionEnd::Revoked(_)));
     let jar = jar
         .remove(
             Cookie::build((SESSION_COOKIE, ""))
@@ -4142,6 +4230,18 @@ fn signed_out(
                 .build(),
         )
         .remove(remember_removal(&state.cookie_path));
+    // A session that ran out under an htmx request is answered with the event
+    // the page signs in again on, keeping the screen and retrying the request.
+    // One ended on purpose (a password change, a deactivation, a sign-out from
+    // another device) still sends the browser to the login page.
+    if htmx && !on_purpose {
+        let mut response = (jar, axum::http::StatusCode::UNAUTHORIZED).into_response();
+        response.headers_mut().insert(
+            "hx-trigger",
+            axum::http::HeaderValue::from_static(SESSION_EXPIRED_TRIGGER),
+        );
+        return response;
+    }
     if htmx {
         let mut response = (jar, axum::http::StatusCode::NO_CONTENT).into_response();
         if let Ok(value) = axum::http::HeaderValue::from_str(&to) {
@@ -4362,9 +4462,13 @@ fn setup_view(
     }
 }
 
-async fn logout(State(state): State<AdminState>, jar: CookieJar) -> Response {
+async fn logout(
+    State(state): State<AdminState>,
+    Extension(ctx): Extension<RequestContext>,
+    jar: CookieJar,
+) -> Response {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
-        let _ = state.auth.logout(cookie.value()).await;
+        let _ = state.auth.logout_with(cookie.value(), &ctx).await;
     }
     // Without this the next request would present the credential and sign
     // straight back in, which is not what pressing Sign out means.
@@ -5357,6 +5461,9 @@ fn roles_list_config() -> list::ListConfig {
         edit_base: Some("/roles".to_string()),
         creatable: true,
         deletable: true,
+        // The framework's own roles return at the next boot; the listener
+        // refuses their deletion and the list offers none.
+        protected: Some("is_system".to_string()),
         ..Default::default()
     }
 }

@@ -169,7 +169,10 @@ document.addEventListener('htmx:beforeSwap', function (e) {
 
 // Raises a toast from script, matching the server-rendered flash markup so both
 // look and dismiss the same.
-window.lat.flash = function (text, level) {
+// `opts.sticky` keeps the toast until dismissed; `opts.action` ({ label, run })
+// adds a button that runs `run` and dismisses the toast. Returns the toast.
+window.lat.flash = function (text, level, opts) {
+  opts = opts || {};
   var box = document.querySelector('.lat-flashes');
   if (!box) {
     box = document.createElement('div');
@@ -181,6 +184,7 @@ window.lat.flash = function (text, level) {
   var toast = document.createElement('div');
   toast.className = 'lat-flash is-' + (level || 'error');
   toast.setAttribute('data-lat-widget', 'flash');
+  if (opts.sticky) toast.setAttribute('data-lat-persist', '');
   var label = document.createElement('span');
   label.className = 'lat-flash__text';
   label.textContent = text;
@@ -190,11 +194,20 @@ window.lat.flash = function (text, level) {
   close.innerHTML = '&times;';
   close.addEventListener('click', function () { latDismissFlash(close); });
   toast.appendChild(label);
+  if (opts.action) {
+    var act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'lat-flash__act';
+    act.textContent = opts.action.label;
+    act.addEventListener('click', function () { latDismissFlash(act); opts.action.run(); });
+    toast.appendChild(act);
+  }
   toast.appendChild(close);
   box.appendChild(toast);
   // Started as the island a server-rendered message is, so it announces itself
   // and leaves on the same terms.
   window.lat.scan(toast);
+  return toast;
 };
 
 // A response htmx will not swap is otherwise swallowed, so a 500 or a dropped
@@ -383,6 +396,148 @@ document.addEventListener('htmx:sendError', latRequestFailed);
     // itself landed on the backdrop.
     if (e.target.matches && e.target.matches('dialog.lat-dialog')) e.target.close();
   });
+})();
+
+// Session expiry: the body carries when the session ends; a toast two minutes
+// before offers to stay signed in (a request, which renews it), and once it has
+// ended the re-login dialog opens over the page. An htmx request that finds the
+// session gone is answered 401 with the lat:session-expired trigger: the dialog
+// opens, and a sign-in retries it with the new request token. A plain form
+// submitted after the deadline waits for the sign-in the same way. Every
+// guarded response carries the deadline, so renewals the page earns count.
+(function () {
+  var body = document.body;
+  var dialog = document.getElementById('lat-session');
+  if (!dialog || !body.hasAttribute('data-lat-session-ends') || typeof dialog.showModal !== 'function') return;
+  var WARN = 2 * 60 * 1000;
+  var ends = parseInt(body.getAttribute('data-lat-session-ends'), 10) * 1000;
+  var form = dialog.querySelector('form');
+  var password = dialog.querySelector('input[name="password"]');
+  var error = dialog.querySelector('.lat-session__error');
+  var warning = null;
+  var warned = false;
+  var pending = [];
+
+  function expired() { return Date.now() >= ends; }
+  function dropWarning() {
+    if (warning && warning.parentNode) latDismissFlash(warning.querySelector('.lat-flash__close'));
+    warning = null;
+  }
+  function setEnds(unix) {
+    if (!unix) return;
+    ends = unix * 1000;
+    if (ends - Date.now() > WARN) { warned = false; dropWarning(); }
+  }
+  function csrf() {
+    try { return JSON.parse(body.getAttribute('hx-headers') || '{}')['X-CSRF-Token'] || ''; } catch (e) { return ''; }
+  }
+  // GET reports the deadline; POST is the operator asking to stay, and renews.
+  function status(renew) {
+    return fetch(body.getAttribute('data-lat-session-url'), {
+      method: renew ? 'POST' : 'GET',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json', 'X-CSRF-Token': csrf() }
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); });
+  }
+  function stay() {
+    status(true).then(function (d) { setEnds(d.ends); }).catch(function () { prompt(); });
+  }
+  function warn() {
+    warned = true;
+    warning = window.lat.flash(body.getAttribute('data-lat-session-soon') || 'Your session ends in a few minutes.', 'info', {
+      sticky: true,
+      action: { label: body.getAttribute('data-lat-session-stay') || 'Stay signed in', run: stay }
+    });
+  }
+  function prompt() {
+    if (dialog.open) return;
+    dropWarning();
+    error.hidden = true;
+    dialog.showModal();
+    password.focus();
+    window.lat.emit(dialog, 'session:expired', {});
+  }
+  // The deadline is the page's to act on; Escape has nowhere better to go.
+  dialog.addEventListener('cancel', function (e) { e.preventDefault(); });
+
+  // The request token changed with the session: the header htmx sends, every
+  // rendered form's field, and the islands that carry their own copy.
+  function applyCsrf(token) {
+    body.setAttribute('hx-headers', JSON.stringify({ 'X-CSRF-Token': token }));
+    document.querySelectorAll('input[name="_csrf"]').forEach(function (i) { i.value = token; });
+    document.querySelectorAll('[data-menu-csrf]').forEach(function (el) { el.setAttribute('data-menu-csrf', token); });
+    document.querySelectorAll('[data-csrf]').forEach(function (el) { el.setAttribute('data-csrf', token); });
+  }
+  function replay() {
+    var queue = pending;
+    pending = [];
+    queue.forEach(function (run) { run(); });
+  }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    error.hidden = true;
+    fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
+      body: new URLSearchParams(new FormData(form))
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok && d.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          error.textContent = res.d.error || body.getAttribute('data-lat-request-error') || 'Request failed.';
+          error.hidden = false;
+          password.select();
+          return;
+        }
+        applyCsrf(res.d.csrf);
+        setEnds(res.d.ends);
+        password.value = '';
+        dialog.close();
+        window.lat.emit(dialog, 'session:renewed', {});
+        replay();
+      })
+      .catch(function () {
+        error.textContent = body.getAttribute('data-lat-request-error') || 'Request failed.';
+        error.hidden = false;
+      });
+  });
+
+  // An htmx request the session ran out under: held, not failed.
+  document.addEventListener('htmx:beforeSwap', function (e) {
+    var xhr = e.detail.xhr;
+    if (!xhr || xhr.status !== 401 || xhr.getResponseHeader('HX-Trigger') !== 'lat:session-expired') return;
+    e.detail.shouldSwap = false;
+    e.detail.isError = false;
+    var cfg = e.detail.requestConfig;
+    var target = e.detail.target;
+    pending.push(function () {
+      htmx.ajax(cfg.verb.toUpperCase(), cfg.path, { source: cfg.elt, target: target });
+    });
+    prompt();
+  });
+  // A plain form past the deadline: asked to wait, then submitted as it was.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!(f instanceof HTMLFormElement) || f === form || !expired()) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    var submitter = e.submitter;
+    pending.push(function () { f.requestSubmit(submitter); });
+    // Another tab may have kept the session alive; ask before asking the operator.
+    status().then(function (d) { setEnds(d.ends); replay(); }).catch(function () { prompt(); });
+  }, true);
+  // Each guarded response says when the session now ends.
+  document.addEventListener('htmx:afterRequest', function (e) {
+    var h = e.detail.xhr && e.detail.xhr.getResponseHeader('X-Lat-Session-Ends');
+    if (h) setEnds(parseInt(h, 10));
+  });
+  setInterval(function () {
+    if (dialog.open) return;
+    var left = ends - Date.now();
+    if (left <= 0) { status().then(function (d) { setEnds(d.ends); }).catch(function () { prompt(); }); return; }
+    if (left <= WARN && !warned) warn();
+  }, 15000);
 })();
 
 // The uploader: a drop zone over a file input. Given data-upload-url it sends

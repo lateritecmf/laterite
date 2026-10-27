@@ -263,8 +263,8 @@ async fn run_admin(command: AdminCommand, database_url: Option<String>) -> Resul
             let auth = AuthService::new(pool, auth_from_project());
             let purged = auth.purge_expired().await?;
             println!(
-                "Removed {} expired sessions and {} expired stay-signed-in credentials",
-                purged.sessions, purged.remember_tokens
+                "Removed {} expired sessions, {} expired stay-signed-in credentials and {} access log rows",
+                purged.sessions, purged.remember_tokens, purged.access_log
             );
         }
         AdminCommand::List => {

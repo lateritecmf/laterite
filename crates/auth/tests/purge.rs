@@ -60,3 +60,35 @@ async fn expired_rows_go_and_live_ones_stay() {
     assert_eq!(long.list_sessions(id, &live).await.unwrap().len(), 1);
     assert_eq!(long.purge_expired().await.unwrap(), Purged::default());
 }
+
+#[tokio::test]
+async fn a_sign_out_is_on_the_access_log_and_the_log_is_kept_to_its_retention() {
+    let (db, _guard) = test_db().await;
+    let hash = password::hash_password(PASSWORD).unwrap();
+    let id = store::create_user(&db, "ada", "ada@acme.test", "Ada", None, &hash, false)
+        .await
+        .unwrap();
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    let ctx = RequestContext {
+        ip_address: Some("203.0.113.9".to_string()),
+        user_agent: Some("acme-browser".to_string()),
+    };
+    let token = svc.authenticate("ada", PASSWORD, &ctx).await.unwrap().token;
+    svc.logout_with(&token, &ctx).await.unwrap();
+    let log = store::recent_access_log(&db, id, 10).await.unwrap();
+    assert_eq!(log[0].event, "logout");
+    assert_eq!(log[0].ip_address.as_deref(), Some("203.0.113.9"));
+    assert_eq!(log[1].event, "login_success");
+
+    // Nothing is a year old yet, so the default retention removes nothing, and
+    // a retention of zero never does.
+    assert_eq!(svc.purge_expired().await.unwrap().access_log, 0);
+    let mut keep_all = AuthConfig::default();
+    keep_all.access_log_retention_days = 0;
+    let forever = AuthService::new(db.clone(), keep_all);
+    assert_eq!(forever.purge_expired().await.unwrap().access_log, 0);
+    assert_eq!(
+        store::recent_access_log(&db, id, 10).await.unwrap().len(),
+        2
+    );
+}

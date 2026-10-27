@@ -873,6 +873,24 @@ pub(crate) async fn delete_expired_remember_tokens(
     Ok(done.rows_affected())
 }
 
+/// Removes every access log row recorded before `cutoff`.
+pub(crate) async fn delete_access_log_before(
+    db: &Db,
+    cutoff: DateTime<Utc>,
+) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendAccessLog::Table)
+            .and_where(Expr::col(BackendAccessLog::CreatedAt).lt(ts(cutoff)))
+            .to_owned(),
+    );
+    let done = bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(done.rows_affected())
+}
+
 /// Whether the account holds a temporary password it must replace.
 pub(crate) async fn must_change_password(db: &Db, user_id: i64) -> Result<bool, AuthError> {
     let (sql, values) = build(

@@ -15,7 +15,7 @@
   {% for a in shell.assets %}{% if a.css %}<link rel="stylesheet" href="{{ a.url }}" data-lat-asset="{{ a.url }}">{% else %}<script defer src="{{ a.url }}" data-lat-asset="{{ a.url }}"></script>{% endif %}
   {% endfor %}
 </head>
-<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
+<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-session-ends="{{ shell.session_ends }}" data-lat-session-url="{{ shell.base }}/session" data-lat-session-soon='{{ shell.t("Your session ends in a few minutes.") }}' data-lat-session-stay='{{ shell.t("Stay signed in") }}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
   <a class="lat-skip" href="#lat-content">{{ shell.t("Skip to content") }}</a>
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">
@@ -93,5 +93,27 @@
       </div>
     </main>
   </div>
+  {# The re-login dialog: opened by the page when the session has ended, and
+     closed by a sign-in that keeps the screen and retries what was underway.
+     The username is fixed, so the page is never continued as someone else. #}
+  <dialog class="lat-dialog lat-session" id="lat-session" aria-labelledby="lat-session-title">
+    <form class="lat-dialog__body" method="post" action="{{ shell.base }}/login">
+      <h2 class="lat-session__title" id="lat-session-title">{{ shell.t("Your session has ended") }}</h2>
+      <p class="lat-session__text">{{ shell.t("Sign in again to carry on where you were. Nothing on this page is lost.") }}</p>
+      <div class="lat-alert lat-session__error" role="alert" hidden></div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="lat-session-username">{{ shell.t("Username") }}</label>
+        <input class="lat-input" type="text" id="lat-session-username" name="username" value="{{ shell.username }}" autocomplete="username" readonly>
+      </div>
+      <div class="lat-field">
+        <label class="lat-field__label" for="lat-session-password">{{ shell.t("Password") }}</label>
+        <input class="lat-input" type="password" id="lat-session-password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="lat-session__actions">
+        <a class="lat-btn lat-btn--ghost" href="{{ shell.base }}/login">{{ shell.t("Go to the sign-in page") }}</a>
+        <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Sign in") }}</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

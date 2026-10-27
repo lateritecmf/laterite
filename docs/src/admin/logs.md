@@ -48,6 +48,8 @@ Event | Recorded when
 `logout` | An operator signed out.
 `password_changed` | An operator changed their own password.
 
+Rows older than `access_log_retention_days` (see [Authentication](../configuration/authentication.md)) are purged hourly.
+
 ## Read the request log
 
 Every URL the admin could not serve is counted, once per method, path and

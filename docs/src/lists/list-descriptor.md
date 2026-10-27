@@ -41,6 +41,7 @@ Key | Default | Description
 `per_page_options` | none | Page sizes offered in the list setup; empty offers no choice.
 `creatable` | `false` | Offers New.
 `deletable` | `false` | Rows can be selected and deleted.
+`protected` | none | A boolean column; a row it marks has no checkbox and no row Delete.
 `exportable` | `false` | Offers the export menu. See [Export](export.md).
 `search` | on | The search box; keys below.
 `filters` | none | Filters above the table, keyed by field name. See [Filters](filters.md).
