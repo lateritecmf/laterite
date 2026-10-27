@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.25] - 2026-10-27
+
+The Auth tidy slice: a session that runs out is handled in place, sign-outs
+reach the access log, and the framework's own roles cannot be deleted.
+
 ### Added
 
 - Admin: a session that runs out is handled in place: a warning two minutes before with
