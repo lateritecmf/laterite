@@ -26,6 +26,7 @@ pub mod archive;
 pub mod build;
 pub mod component;
 pub mod engine;
+pub mod folder;
 pub mod maintenance;
 pub mod markup;
 mod migrations;

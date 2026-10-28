@@ -27,6 +27,8 @@ rpassword = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+# `theme serve` previews a theme folder over HTTP.
+axum = { workspace = true }
 # `plugin sync` reads each plugin's Cargo.toml to verify its crate name.
 toml = "0.8"
 # Compatibility checks compare a plugin's framework requirement against this

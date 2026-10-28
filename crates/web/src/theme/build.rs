@@ -32,6 +32,13 @@ pub async fn build(
     build_with(db, code, out_dir, base_url, &[], &[]).await
 }
 
+/// Whether a URL's last segment carries an extension, as a file does.
+fn names_file(url: &str) -> bool {
+    url.rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.') && !last.starts_with('.'))
+}
+
 /// Like [`build`], with the `markup` and `components` modules registered, as
 /// the site has them.
 pub async fn build_with(
@@ -70,6 +77,14 @@ pub async fn build_with(
             continue;
         }
         let url = pattern.source().to_string();
+        // A clean URL is served with a trailing slash by a static host
+        // (`about/index.html` at `/about/`), so that is the URL the page's
+        // canonical link and `this.url` carry; the root and a file keep theirs.
+        let served = if url == "/" || names_file(&url) {
+            url.clone()
+        } else {
+            format!("{}/", url.trim_end_matches('/'))
+        };
         let extras = site::run_components(
             &engine,
             components,
@@ -77,7 +92,7 @@ pub async fn build_with(
             &theme,
             name,
             &Params::new(),
-            &url,
+            &served,
             false,
         )
         .await?;
@@ -86,7 +101,7 @@ pub async fn build_with(
             &theme,
             name,
             &Params::new(),
-            &url,
+            &served,
             false,
             &origin,
             extras,
@@ -99,16 +114,22 @@ pub async fn build_with(
             &theme,
             name,
             &Params::new(),
-            &url,
+            &served,
             false,
             &origin,
             html,
         )
         .await
         .map_err(ThemeError::Template)?;
-        out.page(&url, &html)?;
-        if url == "/404" {
-            out.file("404.html", &html)?;
+        // A URL naming a file (`/robots.txt`, `/sitemap.xml`) is written as
+        // that file; every other URL is a clean one.
+        if names_file(&url) {
+            out.file(url.trim_start_matches('/'), &html)?;
+        } else {
+            out.page(&url, &html)?;
+            if url == "/404" {
+                out.file("404.html", &html)?;
+            }
         }
         report.pages.push(url);
     }

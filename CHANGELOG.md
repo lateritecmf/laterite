@@ -7,6 +7,18 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `lat new --static` scaffolds a static website as a theme folder; `lat theme build --from <dir>`
+  and `lat theme serve --from <dir>` build and preview it with no application, `--copy` adds directories.
+- `theme::folder::load` and `archive::import_dir` read a theme folder into an in-memory database.
+
+### Changed
+
+- Markdown headings without a `{#id}` get an id from their text, so any heading can be linked.
+- `lat theme build` writes a page whose URL names a file (`/robots.txt`) as that file, and gives a
+  clean page the trailing-slash URL a static host serves it at in its canonical link.
+
 ## [0.9.25] - 2026-10-27
 
 The Auth tidy slice: a session that runs out is handled in place, sign-outs

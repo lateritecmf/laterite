@@ -14,7 +14,7 @@ lat <command> --help
 
 Command | Description | Options | Example
 --- | --- | --- | ---
-`new [NAME]` | Scaffold and set up a new application (interactive). | `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme Blog"`
+`new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a theme folder with no database. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme Blog"`
 `make:migration <DESCRIPTION>` | Scaffold a migration file in this crate's `src/migrations/`. | `--path <PATH>`: the crate directory, default `.`. | `lat make:migration create_articles`
 `make:plugin <ID>` | Scaffold a plugin crate; `<ID>` is `vendor.name`. | `--path <PATH>`: where to create it, default `.`. `--admin`: scaffold the admin half. | `lat make:plugin acme.blog --admin`
 `make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. | `lat make:resource article --field title:text,body:text`
@@ -70,7 +70,8 @@ Command | Description | Options | Example
 `theme export <CODE>` | Write a theme and its templates to a zip. | `-o, --out <FILE>`, default `<code>.zip`. | `lat theme export acme -o acme.zip`
 `theme import <CODE> <FILE>` | Create or update a theme from a zip. | `--replace`: replace templates and config the theme already has; each replaced template keeps a revision. | `lat theme import acme acme.zip --replace`
 `theme list` | List the themes. | None. | `lat theme list`
-`theme build <CODE>` | Render a theme's fixed pages and assets to a directory, for a static host. | `-o, --out <DIR>`, default `dist`. `--base-url <URL>`, default `app.url`, else one derived from `server.listen`. | `lat theme build acme --base-url https://acme.example`
+`theme build [CODE]` | Render a theme's fixed pages and assets to a directory, for a static host. | `--from <DIR>`: a theme folder instead of the database. `-o, --out <DIR>`, default `dist`. `--base-url <URL>`, default `app.url`, else one derived from `server.listen`. `--copy <SRC>:<DEST>`: a directory copied into the output; repeatable. | `lat theme build --from themes/acme --copy docs/book:docs`
+`theme serve` | Preview a theme folder, rebuilt on every change. | `--from <DIR>`. `--listen <HOST:PORT>`, default `127.0.0.1:8080`. `--copy <SRC>:<DEST>`. | `lat theme serve --from themes/acme`
 
 ## Media
 

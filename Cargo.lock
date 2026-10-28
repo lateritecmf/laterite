@@ -2464,6 +2464,7 @@ name = "laterite-cli"
 version = "0.9.25"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "chrono-tz",
  "clap",

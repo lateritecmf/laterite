@@ -6,6 +6,10 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "(optional)"
 msgstr ""
 
+#: (descriptors)
+msgid "587 for STARTTLS, 465 for TLS, 25 or 1025 for none."
+msgstr ""
+
 #: templates/import/index.html
 msgid "A CSV file, read as UTF-8."
 msgstr ""
@@ -20,6 +24,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "A check: nothing was written. The counts say what an import would do."
+msgstr ""
+
+#: (descriptors)
+msgid "A driver a module registered is named by its code in the configuration."
 msgstr ""
 
 #: templates/import/match.html
@@ -61,6 +69,14 @@ msgid "A test message went to {address} through {driver}."
 msgstr ""
 
 #: (descriptors)
+msgid "Accent colour"
+msgstr ""
+
+#: (descriptors)
+msgid "Access Log"
+msgstr ""
+
+#: (descriptors)
 msgid "Action"
 msgstr ""
 
@@ -71,6 +87,10 @@ msgstr ""
 
 #: src/field.rs
 msgid "Add"
+msgstr ""
+
+#: (descriptors)
+msgid "Address"
 msgstr ""
 
 #: templates/login.html
@@ -101,6 +121,10 @@ msgstr ""
 msgid "Alt text"
 msgstr ""
 
+#: (descriptors)
+msgid "An image behind the panel beside the form."
+msgstr ""
+
 #: templates/list.html
 msgid "Any"
 msgstr ""
@@ -113,12 +137,20 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
+#: (descriptors)
+msgid "Arrange media and folders"
+msgstr ""
+
 #: templates/media_file.html
 msgid "As the original"
 msgstr ""
 
 #: templates/media_file.html
 msgid "Aspect"
+msgstr ""
+
+#: templates/setup.html
+msgid "At least {n} characters."
 msgstr ""
 
 #: templates/preferences.html
@@ -165,7 +197,6 @@ msgstr ""
 
 #: templates/users_form.html
 #: templates/users_new.html
-#: (descriptors)
 msgid "Backend Users"
 msgstr ""
 
@@ -178,7 +209,12 @@ msgid "Belongs in"
 msgstr ""
 
 #: src/settings/mail.rs
+#: (descriptors)
 msgid "Blank fields keep the values from the configuration file. Save, then send a test message to yourself."
+msgstr ""
+
+#: (descriptors)
+msgid "Blank keeps the configured address."
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -190,11 +226,23 @@ msgid "Bold"
 msgstr ""
 
 #: (descriptors)
+msgid "Borders"
+msgstr ""
+
+#: (descriptors)
 msgid "Branding"
 msgstr ""
 
 #: templates/media.html
 msgid "Browse"
+msgstr ""
+
+#: (descriptors)
+msgid "Browse the media library"
+msgstr ""
+
+#: (descriptors)
+msgid "Browser icon"
 msgstr ""
 
 #: templates/login.html
@@ -204,6 +252,18 @@ msgstr ""
 
 #: src/field.rs
 msgid "Bulleted list"
+msgstr ""
+
+#: (descriptors)
+msgid "Button"
+msgstr ""
+
+#: (descriptors)
+msgid "Button text"
+msgstr ""
+
+#: (descriptors)
+msgid "Buttons, links and the active section take this colour."
 msgstr ""
 
 #: templates/import/index.html
@@ -277,6 +337,10 @@ msgstr ""
 msgid "Clear"
 msgstr ""
 
+#: (descriptors)
+msgid "Client"
+msgstr ""
+
 #: templates/_dialog_head.html
 #: templates/media.html
 msgid "Close"
@@ -298,6 +362,7 @@ msgid "Code is not allowed here."
 msgstr ""
 
 #: templates/base.html
+#: (descriptors)
 msgid "Colour mode"
 msgstr ""
 
@@ -308,6 +373,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Confirm new password"
+msgstr ""
+
+#: (descriptors)
+msgid "Content background"
 msgstr ""
 
 #: templates/import/index.html
@@ -424,6 +493,10 @@ msgstr ""
 msgid "Current password"
 msgstr ""
 
+#: (descriptors)
+msgid "Custom stylesheet"
+msgstr ""
+
 #: templates/dashboard.html
 msgid "Dashboard"
 msgstr ""
@@ -463,6 +536,10 @@ msgstr ""
 msgid "Delete folder"
 msgstr ""
 
+#: (descriptors)
+msgid "Delete media records still use"
+msgstr ""
+
 #: templates/list.html
 msgid "Delete the selected records? This cannot be undone."
 msgstr ""
@@ -477,6 +554,10 @@ msgstr ""
 
 #: src/relation.rs
 msgid "Delete this record?"
+msgstr ""
+
+#: (descriptors)
+msgid "Delete unused media"
 msgstr ""
 
 #: src/bulk.rs
@@ -570,6 +651,10 @@ msgstr ""
 msgid "Edit"
 msgstr ""
 
+#: (descriptors)
+msgid "Edit the templates, layouts and partials mail is built from."
+msgstr ""
+
 #: templates/mail_templates.html
 msgid "Edited here"
 msgstr ""
@@ -593,6 +678,10 @@ msgstr ""
 msgid "Enabling or disabling a plugin takes effect on the next restart."
 msgstr ""
 
+#: (descriptors)
+msgid "Encryption"
+msgstr ""
+
 #: templates/forgot.html
 msgid "Enter your username or email address and we will send you a link."
 msgstr ""
@@ -608,6 +697,10 @@ msgstr ""
 
 #: templates/jobs.html
 msgid "Error"
+msgstr ""
+
+#: (descriptors)
+msgid "Event"
 msgstr ""
 
 #: templates/preferences.html
@@ -636,6 +729,10 @@ msgstr ""
 
 #: templates/list.html
 msgid "Export JSON"
+msgstr ""
+
+#: (descriptors)
+msgid "Failed"
 msgstr ""
 
 #: templates/jobs.html
@@ -691,6 +788,10 @@ msgstr ""
 msgid "First name"
 msgstr ""
 
+#: (descriptors)
+msgid "First seen"
+msgstr ""
+
 #: templates/media.html
 #: templates/media_file.html
 #: templates/media_pick.html
@@ -715,6 +816,10 @@ msgstr ""
 
 #: templates/media.html
 msgid "Folders"
+msgstr ""
+
+#: (descriptors)
+msgid "Footer text"
 msgstr ""
 
 #: src/error.rs
@@ -795,6 +900,18 @@ msgstr ""
 msgid "Hash"
 msgstr ""
 
+#: (descriptors)
+msgid "Header text"
+msgstr ""
+
+#: (descriptors)
+msgid "Headings"
+msgstr ""
+
+#: (descriptors)
+msgid "Hits"
+msgstr ""
+
 #: src/field.rs
 msgid "Horizontal rule"
 msgstr ""
@@ -849,6 +966,7 @@ msgid "Job"
 msgstr ""
 
 #: templates/jobs.html
+#: (descriptors)
 msgid "Jobs"
 msgstr ""
 
@@ -883,6 +1001,10 @@ msgstr ""
 msgid "Last run"
 msgstr ""
 
+#: (descriptors)
+msgid "Last seen"
+msgstr ""
+
 #: src/mailtemplates.rs
 msgid "Layout"
 msgstr ""
@@ -900,6 +1022,10 @@ msgstr ""
 msgid "Link"
 msgstr ""
 
+#: (descriptors)
+msgid "Links"
+msgstr ""
+
 #: templates/list.html
 msgid "List setup"
 msgstr ""
@@ -908,11 +1034,29 @@ msgstr ""
 msgid "List setup saved."
 msgstr ""
 
+#: (descriptors)
+msgid "Locked out"
+msgstr ""
+
+#: (descriptors)
+msgid "Logo"
+msgstr ""
+
 #: src/settings/mail.rs
+#: (descriptors)
 msgid "Mail"
 msgstr ""
 
+#: (descriptors)
+msgid "Mail Log"
+msgstr ""
+
+#: (descriptors)
+msgid "Mail Templates"
+msgstr ""
+
 #: src/settings/mail_brand.rs
+#: (descriptors)
 msgid "Mail branding"
 msgstr ""
 
@@ -945,6 +1089,18 @@ msgid "Manage branding"
 msgstr ""
 
 #: (descriptors)
+msgid "Manage jobs"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage mail"
+msgstr ""
+
+#: (descriptors)
+msgid "Manage mail templates"
+msgstr ""
+
+#: (descriptors)
 msgid "Manage plugins"
 msgstr ""
 
@@ -954,6 +1110,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Manage roles and their permissions."
+msgstr ""
+
+#: (descriptors)
+msgid "Manage scheduled tasks"
 msgstr ""
 
 #: templates/dashboard.html
@@ -973,6 +1133,7 @@ msgid "Matched the way your last file with these columns was."
 msgstr ""
 
 #: src/medialib/mod.rs
+#: (descriptors)
 msgid "Media"
 msgstr ""
 
@@ -991,6 +1152,10 @@ msgstr ""
 
 #: templates/mail_log.html
 msgid "Messages kept while the log driver was in use."
+msgstr ""
+
+#: (descriptors)
+msgid "Method"
 msgstr ""
 
 #: templates/list.html
@@ -1024,6 +1189,10 @@ msgstr ""
 
 #: src/list.rs
 msgid "Moved."
+msgstr ""
+
+#: (descriptors)
+msgid "Muted text"
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -1206,6 +1375,10 @@ msgstr ""
 msgid "Outcome"
 msgstr ""
 
+#: (descriptors)
+msgid "Page background"
+msgstr ""
+
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Page {n} of {m}"
@@ -1213,6 +1386,10 @@ msgstr ""
 
 #: templates/_list_table.html
 msgid "Page {page} of {pages}"
+msgstr ""
+
+#: (descriptors)
+msgid "Panel background"
 msgstr ""
 
 #: templates/import/match.html
@@ -1227,11 +1404,16 @@ msgid "Password"
 msgstr ""
 
 #: templates/users_form.html
+#: (descriptors)
 msgid "Password changed"
 msgstr ""
 
 #: src/lib.rs
 msgid "Password changed. Every other device was signed out."
+msgstr ""
+
+#: (descriptors)
+msgid "Path"
 msgstr ""
 
 #: templates/jobs.html
@@ -1296,6 +1478,7 @@ msgid "Preview"
 msgstr ""
 
 #: src/settings/mail_brand.rs
+#: (descriptors)
 msgid "Preview on the test template"
 msgstr ""
 
@@ -1318,6 +1501,10 @@ msgstr ""
 
 #: templates/import/match.html
 msgid "Read again"
+msgstr ""
+
+#: (descriptors)
+msgid "Read the messages the log driver kept."
 msgstr ""
 
 #: templates/import/match.html
@@ -1376,6 +1563,10 @@ msgstr ""
 msgid "Replace this file"
 msgstr ""
 
+#: (descriptors)
+msgid "Request Log"
+msgstr ""
+
 #: src/error.rs
 msgid "Request blocked"
 msgstr ""
@@ -1413,6 +1604,14 @@ msgid "Retry all"
 msgstr ""
 
 #: (descriptors)
+msgid "Review sign-ins, failures and lockouts."
+msgstr ""
+
+#: (descriptors)
+msgid "Review the URLs the panel could not serve."
+msgstr ""
+
+#: (descriptors)
 msgid "Review the record of administrative changes."
 msgstr ""
 
@@ -1447,6 +1646,10 @@ msgstr ""
 msgid "Rows read"
 msgstr ""
 
+#: (descriptors)
+msgid "Rules added to every admin page. Imports and scripts are removed."
+msgstr ""
+
 #: templates/import/index.html
 msgid "Run"
 msgstr ""
@@ -1457,6 +1660,22 @@ msgstr ""
 
 #: templates/jobs.html
 msgid "Running"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP host"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP password"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP port"
+msgstr ""
+
+#: (descriptors)
+msgid "SMTP username"
 msgstr ""
 
 #: templates/import/match.html
@@ -1491,6 +1710,7 @@ msgid "Save first, then add"
 msgstr ""
 
 #: src/settings/mail_brand.rs
+#: (descriptors)
 msgid "Save, then preview the test template to see the result."
 msgstr ""
 
@@ -1509,6 +1729,10 @@ msgstr ""
 msgid "Schedule"
 msgstr ""
 
+#: (descriptors)
+msgid "Scheduled Tasks"
+msgstr ""
+
 #: templates/scheduled.html
 msgid "Scheduled tasks"
 msgstr ""
@@ -1520,6 +1744,14 @@ msgstr ""
 msgid "Search"
 msgstr ""
 
+#: (descriptors)
+msgid "Search by path"
+msgstr ""
+
+#: (descriptors)
+msgid "Search by username or address"
+msgstr ""
+
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Search the library"
@@ -1528,6 +1760,10 @@ msgstr ""
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Search: {q}"
+msgstr ""
+
+#: (descriptors)
+msgid "See when each scheduled entry last ran and run one now."
 msgstr ""
 
 #: src/medialib/field.rs
@@ -1557,6 +1793,7 @@ msgid "Semicolon"
 msgstr ""
 
 #: src/settings/mail.rs
+#: (descriptors)
 msgid "Send a test message to me"
 msgstr ""
 
@@ -1564,8 +1801,24 @@ msgstr ""
 msgid "Send a test to me"
 msgstr ""
 
+#: (descriptors)
+msgid "Send everything to"
+msgstr ""
+
 #: templates/forgot.html
 msgid "Send the link"
+msgstr ""
+
+#: (descriptors)
+msgid "Send through"
+msgstr ""
+
+#: (descriptors)
+msgid "Sender address"
+msgstr ""
+
+#: (descriptors)
+msgid "Sender name"
 msgstr ""
 
 #: templates/setup.html
@@ -1594,11 +1847,23 @@ msgid "Show password"
 msgstr ""
 
 #: (descriptors)
+msgid "Show the panel beside the sign-in form"
+msgstr ""
+
+#: (descriptors)
 msgid "Shown as the admin brand. Clearing it falls back to the configured application name."
+msgstr ""
+
+#: (descriptors)
+msgid "Shown as the sender; blank keeps the configured name."
 msgstr ""
 
 #: templates/preferences.html
 msgid "Shown in"
+msgstr ""
+
+#: (descriptors)
+msgid "Shown in the top bar and on the sign-in page in place of the mark. Keep it on a public disk."
 msgstr ""
 
 #: templates/base.html
@@ -1623,8 +1888,25 @@ msgstr ""
 msgid "Sign out every other device"
 msgstr ""
 
+#: (descriptors)
+msgid "Sign-in background"
+msgstr ""
+
+#: (descriptors)
+msgid "Sign-in prompt"
+msgstr ""
+
+#: (descriptors)
+msgid "Sign-in tagline"
+msgstr ""
+
 #: templates/preferences.html
+#: (descriptors)
 msgid "Signed in"
+msgstr ""
+
+#: (descriptors)
+msgid "Signed out"
 msgstr ""
 
 #: templates/preferences.html
@@ -1671,6 +1953,7 @@ msgstr ""
 #: templates/plugins.html
 #: templates/scheduled.html
 #: templates/users_form.html
+#: (descriptors)
 msgid "Status"
 msgstr ""
 
@@ -1725,6 +2008,7 @@ msgid "Target ID"
 msgstr ""
 
 #: src/mailtemplates.rs
+#: (descriptors)
 msgid "Text"
 msgstr ""
 
@@ -1784,11 +2068,8 @@ msgstr ""
 msgid "The admin renders in this language. It only changes the interface, not your content."
 msgstr ""
 
-#: (descriptors)
-msgid "The application name shown across the admin."
-msgstr ""
-
 #: src/settings/mail_brand.rs
+#: (descriptors)
 msgid "The colours every mail layout reads."
 msgstr ""
 
@@ -1857,12 +2138,24 @@ msgstr ""
 msgid "The latest changes from the audit log."
 msgstr ""
 
+#: (descriptors)
+msgid "The line above the sign-in form."
+msgstr ""
+
+#: (descriptors)
+msgid "The line on the panel beside the form."
+msgstr ""
+
 #: src/maillog.rs
 msgid "The mail log is empty."
 msgstr ""
 
 #: src/lib.rs
 msgid "The menu is back in its default order."
+msgstr ""
+
+#: (descriptors)
+msgid "The name, mark, colours and sign-in page of the admin."
 msgstr ""
 
 #: src/lib.rs
@@ -1890,6 +2183,7 @@ msgid "The row could not be read: {reason}"
 msgstr ""
 
 #: src/settings/mail.rs
+#: (descriptors)
 msgid "The sender, the transport and a test message."
 msgstr ""
 
@@ -1899,6 +2193,10 @@ msgstr ""
 
 #: src/error.rs
 msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: (descriptors)
+msgid "The tab icon; a square PNG or SVG."
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -2045,6 +2343,10 @@ msgstr ""
 msgid "Upload files"
 msgstr ""
 
+#: (descriptors)
+msgid "Upload media"
+msgstr ""
+
 #: templates/media.html
 msgid "Upload some, or add a folder."
 msgstr ""
@@ -2108,7 +2410,15 @@ msgid "Version"
 msgstr ""
 
 #: (descriptors)
+msgid "View the access log"
+msgstr ""
+
+#: (descriptors)
 msgid "View the audit log"
+msgstr ""
+
+#: (descriptors)
+msgid "View the request log"
 msgstr ""
 
 #: templates/base.html
@@ -2119,8 +2429,16 @@ msgstr ""
 msgid "Waiting"
 msgstr ""
 
+#: (descriptors)
+msgid "Watch the queues and retry or drop failed jobs."
+msgstr ""
+
 #: src/widgets.rs
 msgid "Welcome"
+msgstr ""
+
+#: (descriptors)
+msgid "What an operator sees before choosing their own."
 msgstr ""
 
 #: templates/media_file.html
@@ -2140,6 +2458,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Where it belongs"
+msgstr ""
+
+#: (descriptors)
+msgid "While set, every message goes to this address instead of its recipients. For development."
 msgstr ""
 
 #: src/widgets.rs

@@ -25,6 +25,7 @@ Open <http://127.0.0.1:8080/admin> and sign in.
 
 Prompt | Value
 --- | ---
+**What are you building?** | An application with an admin panel, or a static website (see [Static Website](static-website.md)).
 **Application name** | Any text, such as `Acme Blog`. Its slug, `acme-blog`, names the crate, directory and database.
 **Display timezone** | An IANA name; type to search.
 **Listen address** | `host:port`. Default `127.0.0.1:8080`.

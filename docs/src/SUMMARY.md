@@ -5,6 +5,7 @@
 # Getting Started
 
 - [Installation](getting-started/installation.md)
+- [Static Website](getting-started/static-website.md)
 - [Directory Structure](getting-started/directory-structure.md)
 - [Development Workflow](getting-started/development-workflow.md)
 - [Deployment](getting-started/deployment.md)

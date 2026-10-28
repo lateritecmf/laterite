@@ -73,7 +73,7 @@ enum Command {
     },
     /// Derive and check the UI-string message catalogs.
     I18n(i18n::I18nArgs),
-    /// Export, import and list the site's themes.
+    /// Export, import, list, build and preview the site's themes.
     Theme {
         #[command(subcommand)]
         command: theme::ThemeCommand,
@@ -176,10 +176,7 @@ async fn main() -> Result<()> {
         Command::Admin { command } => run_admin(command, cli.database_url).await,
         Command::Plugin { command } => plugin::run(command),
         Command::I18n(args) => i18n::run(args),
-        Command::Theme { command } => {
-            let db = connect(cli.database_url).await?;
-            theme::run(command, db).await
-        }
+        Command::Theme { command } => theme::run(command, cli.database_url).await,
         Command::Media { command } => {
             let db = connect(cli.database_url).await?;
             media::run(command, db).await

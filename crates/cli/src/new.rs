@@ -31,6 +31,10 @@ pub struct NewArgs {
     /// the `LATERITE_FRAMEWORK_PATH` environment variable.
     #[arg(long, env = "LATERITE_FRAMEWORK_PATH")]
     pub framework_path: Option<PathBuf>,
+    /// Scaffold a static website: a theme folder built and previewed with
+    /// `lat theme`, no database and no Rust project. Prompted if omitted.
+    #[arg(long)]
+    pub r#static: bool,
 }
 
 /// The database connection the installer assembled.
@@ -73,6 +77,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
         );
     }
 
+    let static_site = args.r#static || !ask_application(&theme)?;
     let (display_name, name) = app_meta(&theme, args.name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
@@ -81,6 +86,16 @@ pub async fn run(args: NewArgs) -> Result<()> {
     // The current directory must be writable to scaffold the project into it.
     if !is_writable(Path::new(".")) {
         bail!("the current directory is not writable; run this where you can create '{name}'");
+    }
+    if static_site {
+        let url = site_url(&theme, &name)?;
+        scaffold_static(&dir, &name, &display_name, &url).context("could not scaffold the site")?;
+        println!("Scaffolded ./{name}");
+        println!("\nDone. Next steps:\n");
+        println!("    cd {name}");
+        println!("    lat theme serve --from themes/{name}    # preview at http://127.0.0.1:8080");
+        println!("    lat theme build --from themes/{name}    # write dist/ for any static host");
+        return Ok(());
     }
     // The generated app is a Rust project; warn (not fail) if the toolchain is
     // absent, since it is needed to build and run what we scaffold.
@@ -130,6 +145,36 @@ pub async fn run(args: NewArgs) -> Result<()> {
     println!("    cargo run          # or: lat serve");
     println!("\nThen open {admin_url} and sign in.");
     Ok(())
+}
+
+/// Asks what is being made: an application (true) or a static website.
+fn ask_application(theme: &ColorfulTheme) -> Result<bool> {
+    Ok(Select::with_theme(theme)
+        .with_prompt("What are you building?")
+        .items(&[
+            "An application with an admin panel",
+            "A static website (no database)",
+        ])
+        .default(0)
+        .interact()?
+        == 0)
+}
+
+/// Prompts for the site's origin, written to `config/default.toml` as
+/// `app.url` so `lat theme build` forms canonical links from it.
+fn site_url(theme: &ColorfulTheme, name: &str) -> Result<String> {
+    let url: String = Input::with_theme(theme)
+        .with_prompt("Site URL")
+        .default(format!("https://{name}.example"))
+        .validate_with(|s: &String| -> std::result::Result<(), String> {
+            if s.starts_with("http://") || s.starts_with("https://") {
+                Ok(())
+            } else {
+                Err("an origin starting with http:// or https://".to_string())
+            }
+        })
+        .interact_text()?;
+    Ok(url.trim_end_matches('/').to_string())
 }
 
 /// Prompts for the human-readable application name and derives a project slug
@@ -494,6 +539,218 @@ fn scaffold(
     Ok(())
 }
 
+/// Writes a static website: a theme folder in its export layout, the site
+/// config its base URL is read from, and a deploy script for a static host.
+fn scaffold_static(dir: &Path, name: &str, display_name: &str, url: &str) -> Result<()> {
+    let theme_dir = dir.join("themes").join(name);
+    for sub in ["layouts", "pages", "partials", "content", "assets/css"] {
+        fs::create_dir_all(theme_dir.join(sub))?;
+    }
+    fs::create_dir_all(dir.join("config"))?;
+    write(
+        theme_dir.join("theme.yaml"),
+        &static_theme_yaml(display_name),
+    )?;
+    write(theme_dir.join("layouts/default.htm"), STATIC_LAYOUT)?;
+    write(theme_dir.join("pages/home.htm"), &static_home(display_name))?;
+    write(theme_dir.join("pages/about.htm"), STATIC_ABOUT)?;
+    write(theme_dir.join("pages/404.htm"), STATIC_404)?;
+    write(
+        theme_dir.join("partials/nav.htm"),
+        &static_nav(display_name),
+    )?;
+    write(
+        theme_dir.join("content/intro.md"),
+        &static_intro(display_name),
+    )?;
+    write(theme_dir.join("assets/css/site.css"), STATIC_CSS)?;
+    write(
+        dir.join("config/default.toml"),
+        &static_default_toml(display_name, url),
+    )?;
+    write(dir.join("build.sh"), &static_build_sh(name))?;
+    write(dir.join("netlify.toml"), STATIC_NETLIFY)?;
+    write(dir.join(".gitignore"), "/dist\n")?;
+    write(dir.join("README.md"), &static_readme(display_name, name))?;
+    Ok(())
+}
+
+fn static_theme_yaml(display_name: &str) -> String {
+    format!(
+        "name: {}\nauthor: {}\ndescription: The {} website.\n",
+        toml_string(display_name),
+        toml_string(display_name),
+        display_name
+    )
+}
+
+const STATIC_LAYOUT: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{ head }}
+  <link rel="stylesheet" href="{{ asset('css/site.css') }}">
+</head>
+<body>
+  {% include "partials/nav.htm" %}
+  <main class="site-main">{% block page %}{% endblock %}</main>
+  <footer class="site-footer">&copy; {{ this.theme.name }}</footer>
+</body>
+</html>
+"#;
+
+fn static_home(display_name: &str) -> String {
+    format!(
+        r#"url: /
+layout: default
+title: {display_name}
+description: Welcome to {display_name}.
+==
+<section class="hero">
+  <h1>{{{{ this.page.title }}}}</h1>
+  <p class="lead">{{{{ this.page.description }}}}</p>
+</section>
+{{{{ content("intro.md") }}}}
+"#
+    )
+}
+
+const STATIC_ABOUT: &str = r#"url: /about
+layout: default
+title: About
+description: Who we are and what we do.
+==
+<h1>{{ this.page.title }}</h1>
+<p>{{ this.page.description }}</p>
+"#;
+
+const STATIC_404: &str = r#"url: /404
+layout: default
+title: Page not found
+meta_robots: noindex
+==
+<h1>Page not found</h1>
+<p>There is nothing at this address. <a href="{{ url('/') }}">Go to the home page</a>.</p>
+"#;
+
+fn static_nav(display_name: &str) -> String {
+    format!(
+        r#"<nav class="site-nav">
+  <a class="site-nav__brand" href="{{{{ url('/') }}}}">{display_name}</a>
+  <a href="{{{{ url('/about') }}}}">About</a>
+</nav>
+"#
+    )
+}
+
+fn static_intro(display_name: &str) -> String {
+    format!(
+        "## Built with Laterite\n\n{display_name} is a static website: its pages are files under \
+         `themes/`, rendered to `dist/` by `lat theme build`.\n\n\
+         - Edit a page under `pages/`, a layout under `layouts/`, this text under `content/`.\n\
+         - Preview with `lat theme serve`.\n\
+         - Deploy `dist/` to any static host.\n"
+    )
+}
+
+const STATIC_CSS: &str = r#":root { --ink: #1f1a17; --paper: #fbf7f2; --accent: #b4432c; --muted: #6b625c; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.6 system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+.site-nav { display: flex; gap: 20px; align-items: center; padding: 16px 24px; border-bottom: 1px solid #e6ddd3; }
+.site-nav a { color: var(--ink); text-decoration: none; }
+.site-nav__brand { font-weight: 700; margin-right: auto; }
+.site-main { max-width: 720px; margin: 0 auto; padding: 40px 24px; }
+.hero h1 { font-size: 2.4rem; margin: 0 0 8px; }
+.lead { color: var(--muted); font-size: 1.15rem; }
+a { color: var(--accent); }
+.site-footer { padding: 24px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+"#;
+
+fn static_default_toml(display_name: &str, url: &str) -> String {
+    format!(
+        "# The site's own settings. `lat theme build` reads `app.url` for canonical links.\n\
+         [app]\nname = {}\nurl = {}\n",
+        toml_string(display_name),
+        toml_string(url)
+    )
+}
+
+fn static_build_sh(name: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+# Builds the site into dist/ on a static host (Netlify, Cloudflare Pages, a
+# CI runner). Installs the Rust toolchain and the lat tool when they are
+# missing; both are cached by the host between builds.
+set -euo pipefail
+
+if ! command -v cargo >/dev/null 2>&1; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+fi
+# shellcheck disable=SC1091
+. "$HOME/.cargo/env" 2>/dev/null || true
+
+if ! command -v lat >/dev/null 2>&1; then
+  cargo install laterite-cli --locked
+fi
+
+lat theme build --from themes/{name} --out dist
+"#
+    )
+}
+
+const STATIC_NETLIFY: &str = r#"# Netlify builds the site with build.sh and serves dist/.
+[build]
+  publish = "dist"
+  command = "bash build.sh"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/themes/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+"#;
+
+fn static_readme(display_name: &str, name: &str) -> String {
+    format!(
+        r#"# {display_name}
+
+A static website built with Laterite. The site is the theme folder under
+`themes/{name}/`: pages, layouts, partials, content and assets. No database,
+no application code.
+
+## Preview
+
+    lat theme serve --from themes/{name}
+
+Then open http://127.0.0.1:8080. Every change is picked up on the next load.
+
+## Build
+
+    lat theme build --from themes/{name}
+
+Writes `dist/`, ready for any static host. `build.sh` does the same on a host
+that starts from nothing; `netlify.toml` points Netlify at it.
+
+## Grow
+
+Add a page under `pages/` with its URL in the settings above the `==` line.
+To manage the site from an admin panel later, run `lat new` for an application
+and `lat theme import {name} <zip>` from `lat theme export` of this folder.
+"#
+    )
+}
+
+/// A TOML or YAML double-quoted string.
+fn toml_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn write(path: PathBuf, contents: &str) -> Result<()> {
     fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))
 }
@@ -737,6 +994,40 @@ variables, for example `LAT__DATABASE__URL`.
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_static_scaffold_is_a_theme_folder_with_its_site_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("acme");
+        scaffold_static(&dir, "acme", "Acme", "https://acme.example").unwrap();
+        let theme = dir.join("themes/acme");
+        for file in [
+            "theme.yaml",
+            "layouts/default.htm",
+            "pages/home.htm",
+            "pages/about.htm",
+            "pages/404.htm",
+            "partials/nav.htm",
+            "content/intro.md",
+            "assets/css/site.css",
+        ] {
+            assert!(theme.join(file).is_file(), "{file}");
+        }
+        let home = fs::read_to_string(theme.join("pages/home.htm")).unwrap();
+        assert!(home.starts_with("url: /\nlayout: default\n"), "{home}");
+        assert!(home.contains("\n==\n"), "the settings end at the separator");
+        let config = fs::read_to_string(dir.join("config/default.toml")).unwrap();
+        assert!(
+            config.contains("url = \"https://acme.example\""),
+            "{config}"
+        );
+        assert!(dir.join("netlify.toml").is_file());
+        assert!(fs::read_to_string(dir.join("build.sh"))
+            .unwrap()
+            .contains("lat theme build --from themes/acme --out dist"));
+        assert!(!dir.join("Cargo.toml").exists(), "no Rust project");
+        assert!(!dir.join("storage").exists(), "no database");
+    }
 
     #[test]
     fn crate_names_are_validated() {

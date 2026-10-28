@@ -123,10 +123,8 @@ pub async fn import(
     saved_by: Option<i64>,
 ) -> Result<ImportReport, ThemeError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;
-    let mut config: Option<String> = None;
-    let mut settings: Option<serde_json::Value> = None;
-    let mut files: Vec<(Kind, String, String)> = Vec::new();
-    let mut report = ImportReport::default();
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut ignored = Vec::new();
     let mut total = 0usize;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -134,7 +132,7 @@ pub async fn import(
             continue;
         }
         let Some(path) = file.enclosed_name() else {
-            report.ignored.push(file.name()?.to_string());
+            ignored.push(file.name()?.to_string());
             continue;
         };
         let name = path.to_string_lossy().replace('\\', "/");
@@ -145,6 +143,74 @@ pub async fn import(
         }
         file.read_to_string(&mut body)
             .map_err(|_| ThemeError::Config(format!("{name} is not UTF-8 text")))?;
+        entries.push((name, body));
+    }
+    let mut report = import_entries(db, code, entries, replace, saved_by).await?;
+    report.ignored.extend(ignored);
+    Ok(report)
+}
+
+/// Imports the theme folder `dir` into the theme `code`, as [`import`] does a
+/// zip: `theme.yaml`, `settings.json` and one file per template under its
+/// kind's folder, read relative to `dir`. A hidden entry (a name starting
+/// with `.`) is left alone.
+pub async fn import_dir(
+    db: &Db,
+    code: &str,
+    dir: &std::path::Path,
+    replace: bool,
+    saved_by: Option<i64>,
+) -> Result<ImportReport, ThemeError> {
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut total = 0usize;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(folder) = pending.pop() {
+        let read = std::fs::read_dir(&folder)
+            .map_err(|e| ThemeError::Config(format!("could not read {}: {e}", folder.display())))?;
+        for entry in read {
+            let entry = entry.map_err(|e| ThemeError::Config(e.to_string()))?;
+            let path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let name = path
+                .strip_prefix(dir)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let bytes = std::fs::read(&path)
+                .map_err(|e| ThemeError::Config(format!("could not read {name}: {e}")))?;
+            total += bytes.len();
+            if total > MAX_BYTES {
+                return Err(ThemeError::Config("the theme folder is too large".into()));
+            }
+            let body = String::from_utf8(bytes)
+                .map_err(|_| ThemeError::Config(format!("{name} is not UTF-8 text")))?;
+            entries.push((name, body));
+        }
+    }
+    entries.sort();
+    import_entries(db, code, entries, replace, saved_by).await
+}
+
+/// The import proper, over `(name, body)` entries however they were read.
+async fn import_entries(
+    db: &Db,
+    code: &str,
+    entries: Vec<(String, String)>,
+    replace: bool,
+    saved_by: Option<i64>,
+) -> Result<ImportReport, ThemeError> {
+    let mut config: Option<String> = None;
+    let mut settings: Option<serde_json::Value> = None;
+    let mut files: Vec<(Kind, String, String)> = Vec::new();
+    let mut report = ImportReport::default();
+    for (name, body) in entries {
         match name.as_str() {
             "theme.yaml" => config = Some(body),
             "settings.json" => {

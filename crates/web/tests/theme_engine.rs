@@ -74,7 +74,7 @@ async fn a_page_extends_a_layout_through_the_parent_chain() {
         html.starts_with("<html><title>Child</title><nav>T</nav>"),
         "{html}"
     );
-    assert!(html.contains("<h1>Hello</h1>"), "{html}");
+    assert!(html.contains(r##"<h1 id="hello">Hello</h1>"##), "{html}");
     assert!(html.contains("A <em>block</em>."), "{html}");
     assert!(html.contains("<nav>Acme</nav>"), "{html}");
     assert!(html.contains("&lt;b&gt;"), "{html}");
