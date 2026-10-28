@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.27] - 2026-10-28
+
+The Static plugins slice: a static website takes plugins, compiled into a
+binary of its own that builds and previews it.
+
 ### Added
 
 - Static websites take plugins: the first `lat plugin add` gives the site a Cargo project whose
