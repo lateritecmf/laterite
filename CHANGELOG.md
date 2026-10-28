@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.26] - 2026-10-28
+
+The Static website slice: `lat new` scaffolds a site with no database, built
+and previewed from its theme folder by `lat theme`.
+
 ### Added
 
 - `lat new --static` scaffolds a static website as a theme folder; `lat theme build --from <dir>`
