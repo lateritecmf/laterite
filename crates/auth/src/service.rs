@@ -286,8 +286,8 @@ impl From<&AuthenticatedUser> for laterite_core::Actor {
 pub struct ResolvedSession {
     pub identity: AuthenticatedUser,
     pub data: Option<String>,
-    /// When the session now expires, whichever clock runs out first. The login
-    /// cookie is bounded by the ceiling, so this never outruns it.
+    /// When the session expires as stored, whichever clock runs out first: the
+    /// idle window from its last renewal, or the ceiling from login.
     pub expires_at: DateTime<Utc>,
 }
 
@@ -496,12 +496,18 @@ impl AuthService {
             .ok_or(AuthError::SessionInvalid)?;
         // Renewing on every request would cost a write per request for a
         // deadline that moves by seconds. Past the halfway mark of the idle
-        // window the write buys real time, so that is where it happens.
+        // window the write buys real time, so that is where it happens. The
+        // deadline reported is the one stored, so a page warned by it is
+        // warned in time: a request that renewed nothing moved nothing.
         let idle = chrono_from_std(self.config.session_idle_timeout);
-        let expires_at = self.config.deadline(session.created_at, now);
-        if now - session.last_seen_at > idle / 2 {
-            store::renew_session(&self.db, &token_hash, now, expires_at).await?;
-        }
+        let expires_at = if now - session.last_seen_at > idle / 2 {
+            let renewed = self.config.deadline(session.created_at, now);
+            store::renew_session(&self.db, &token_hash, now, renewed).await?;
+            renewed
+        } else {
+            self.config
+                .deadline(session.created_at, session.last_seen_at)
+        };
 
         let grants = store::load_role_permissions(&self.db, user.id)
             .await?

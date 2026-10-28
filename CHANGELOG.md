@@ -14,8 +14,8 @@ reach the access log, and the framework's own roles cannot be deleted.
 
 ### Added
 
-- Admin: a session that runs out is handled in place: a warning two minutes before with
-  Stay signed in, a re-login dialog that keeps the page, and htmx requests retried after it.
+- Admin: a session that runs out is handled in place: a warning two minutes before the stored
+  deadline with Stay signed in, a re-login dialog that keeps the page, htmx requests retried.
 - Auth: a sign-out is on the access log with its address (`AuthService::logout_with`);
   `[auth] access_log_retention_days` (default 365) bounds the log through the hourly purge.
 

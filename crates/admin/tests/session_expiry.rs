@@ -146,6 +146,9 @@ async fn every_guarded_response_says_when_the_session_ends() {
     assert!(html.contains(r#"id="lat-session""#), "the re-login dialog");
     assert!(html.contains(r#"name="username" value="ada""#));
 
+    // The deadline is the stored one, so a request that renewed nothing
+    // reports the same value however many seconds passed.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     let resp = app(&db, AuthConfig::default())
         .oneshot(get("/admin/session", &token, false))
         .await
