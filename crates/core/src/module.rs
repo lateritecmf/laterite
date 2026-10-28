@@ -7,6 +7,7 @@
 //! module's dependencies come first, and answers whether a module is present.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::db::Db;
 use crate::error::{CoreError, CoreResult};
@@ -121,6 +122,34 @@ pub trait Module: Send + Sync + 'static {
         None
     }
 
+    /// Whether this module works in a static project: no admin panel, no
+    /// request, a build instead of a server. A static project refuses to
+    /// install a module that answers `false`. Default: `false`.
+    fn supports_static(&self) -> bool {
+        false
+    }
+
+    /// Reads the module's definitions from the project's files into the
+    /// build's database, where its render paths find them. Runs once per
+    /// static build, after every module's migrations and the theme folder's
+    /// load, in dependency order. Default: nothing.
+    async fn static_seed(&self, cx: &StaticSeedCx<'_>) -> CoreResult<()> {
+        let _ = cx;
+        Ok(())
+    }
+
+    /// Files this module writes into a static build at fixed paths
+    /// (`/robots.txt`, `/sitemap.xml`). Runs after the pages, with the
+    /// build's database, every contribution, the module's own definition
+    /// files and the pages written. Default: none.
+    async fn site_files(
+        &self,
+        cx: &SiteFilesCx<'_>,
+    ) -> CoreResult<Vec<Box<dyn crate::site::SiteFile>>> {
+        let _ = cx;
+        Ok(Vec::new())
+    }
+
     /// This module's UI-string catalogs, as `(locale, po_text)` pairs, each an
     /// `include_str!`'d gettext PO baked into the binary. English needs none (its
     /// source string is the key); other locales ship a PO. The boot loader merges
@@ -128,6 +157,33 @@ pub trait Module: Send + Sync + 'static {
     fn catalogs(&self) -> &'static [(&'static str, &'static str)] {
         &[]
     }
+}
+
+/// What a module is given to seed itself for a static build.
+pub struct StaticSeedCx<'a> {
+    /// The build's database, migrated for every module.
+    pub db: &'a Db,
+    /// The project root: the directory holding `config/`.
+    pub root: &'a Path,
+    /// The module's own definition files, `<root>/plugins/<module id>/`. It
+    /// may not exist; a module with nothing to read does nothing.
+    pub files: PathBuf,
+}
+
+/// What a module is given to write its site files into a static build.
+pub struct SiteFilesCx<'a> {
+    /// The build's database, seeded.
+    pub db: &'a Db,
+    /// Every contribution of every loaded module.
+    pub registry: &'a Registry,
+    /// The site's origin, with no admin path.
+    pub site: &'a crate::site::SiteContext,
+    /// The project root.
+    pub root: &'a Path,
+    /// The module's own definition files, `<root>/plugins/<module id>/`.
+    pub files: PathBuf,
+    /// The page URLs the build wrote, for a file that lists them.
+    pub pages: &'a [String],
 }
 
 /// Ordered collection of registered modules.

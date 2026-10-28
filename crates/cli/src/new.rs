@@ -35,6 +35,10 @@ pub struct NewArgs {
     /// `lat theme`, no database and no Rust project. Prompted if omitted.
     #[arg(long)]
     pub r#static: bool,
+    /// Install a plugin into the new project, by path or git URL; repeatable.
+    /// A static website gets a Cargo project with its first plugin.
+    #[arg(long = "plugin", value_name = "SOURCE")]
+    pub plugins: Vec<String>,
 }
 
 /// The database connection the installer assembled.
@@ -91,6 +95,13 @@ pub async fn run(args: NewArgs) -> Result<()> {
         let url = site_url(&theme, &name)?;
         scaffold_static(&dir, &name, &display_name, &url).context("could not scaffold the site")?;
         println!("Scaffolded ./{name}");
+        if !args.plugins.is_empty() {
+            scaffold_static_crate(&dir, framework.as_deref())?;
+            for source in &args.plugins {
+                crate::plugin::add_plugin(&dir, source, None)
+                    .with_context(|| format!("could not add the plugin {source}"))?;
+            }
+        }
         println!("\nDone. Next steps:\n");
         println!("    cd {name}");
         println!("    lat serve          # preview at http://127.0.0.1:8080, rebuilt on change");
@@ -538,6 +549,56 @@ fn scaffold(
     write(dir.join("storage/.gitkeep"), "")?;
     Ok(())
 }
+
+/// Gives a static website a Cargo project of its own, so plugins compile
+/// into its binary: the same workspace an application has, with a `main`
+/// that runs `Bootstrap` in static mode. Idempotent: an existing
+/// `Cargo.toml` is left alone.
+pub(crate) fn scaffold_static_crate(root: &Path, framework: Option<&Path>) -> Result<()> {
+    if root.join("Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let name = root
+        .file_name()
+        .map(|n| slugify(&n.to_string_lossy()))
+        .filter(|n| validate_crate_name(n).is_ok())
+        .unwrap_or_else(|| "site".to_string());
+    fs::create_dir_all(root.join("src"))?;
+    write(
+        root.join("Cargo.toml"),
+        &cargo_toml(&name, "sqlite", framework),
+    )?;
+    write(root.join("src/main.rs"), STATIC_MAIN_RS)?;
+    fs::create_dir_all(root.join("plugins"))?;
+    crate::plugin::scaffold(root)?;
+    let ignore = root.join(".gitignore");
+    let current = fs::read_to_string(&ignore).unwrap_or_default();
+    if !current.lines().any(|l| l.trim() == "/target") {
+        write(ignore, &format!("{}/target\n", current))?;
+    }
+    Ok(())
+}
+
+const STATIC_MAIN_RS: &str = r#"//! A Laterite static website with plugins.
+//!
+//! `main` hands off to the framework's `Bootstrap`, which reads `[theme] folder`
+//! from the configuration and runs in static mode: `build` renders the theme
+//! folder into `dist/` with every plugin's markup, components and site files,
+//! and `serve` previews it. `lat theme build` and `lat serve` run this binary.
+
+use lateritecmf::prelude::*;
+use lateritecmf::web::theme::ThemeModule;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    Bootstrap::new("config")
+        .module(ThemeModule)
+        // Every plugin under plugins/, as listed in plugins/plugins.toml.
+        .modules(plugins_manifest::all())
+        .run()
+        .await
+}
+"#;
 
 /// Writes a static website: a theme folder in its export layout, the site
 /// config its base URL is read from, and a deploy script for a static host.
@@ -1030,6 +1091,27 @@ mod tests {
             .contains("lat theme build --out dist"));
         assert!(!dir.join("Cargo.toml").exists(), "no Rust project");
         assert!(!dir.join("storage").exists(), "no database");
+
+        // The first plugin brings a Cargo project; the site stays a theme folder.
+        scaffold_static_crate(&dir, None).unwrap();
+        let cargo = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("name = \"acme\""), "{cargo}");
+        assert!(cargo.contains("features = [\"sqlite\"]"), "{cargo}");
+        let main = fs::read_to_string(dir.join("src/main.rs")).unwrap();
+        assert!(main.contains(".module(ThemeModule)"), "{main}");
+        assert!(dir.join("plugins/plugins.toml").is_file());
+        assert!(dir.join("plugins-manifest/Cargo.toml").is_file());
+        let ignore = fs::read_to_string(dir.join(".gitignore")).unwrap();
+        assert!(
+            ignore.contains("/dist") && ignore.contains("/target"),
+            "{ignore}"
+        );
+        scaffold_static_crate(&dir, None).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("Cargo.toml")).unwrap(),
+            cargo,
+            "idempotent"
+        );
     }
 
     #[test]

@@ -60,7 +60,7 @@ pub enum PluginCommand {
 pub fn run(command: PluginCommand) -> Result<()> {
     let project = crate::project::Project::locate()?;
     match command {
-        PluginCommand::Add { source, r#as } => add(&project.root, &source, r#as.as_deref()),
+        PluginCommand::Add { source, r#as } => add_plugin(&project.root, &source, r#as.as_deref()),
         PluginCommand::Remove { name, delete } => remove(&project.root, &name, delete),
         PluginCommand::Sync => sync(&project.root),
         PluginCommand::List => list(&project.root),
@@ -142,6 +142,10 @@ struct LateriteMetadata {
     /// `Module::id()`. The marketplace keys on it, and it is what a person
     /// installing by name asked for.
     plugin: String,
+    /// Whether the module works in a static website (no admin, a build
+    /// instead of a server). A static project refuses a plugin without it.
+    #[serde(default, rename = "static")]
+    static_site: bool,
 }
 
 #[derive(Deserialize)]
@@ -290,6 +294,15 @@ fn check_compatible(root: &Path, manifest: &CargoManifest, crate_name: &str) -> 
         );
     };
 
+    if is_static_site(root) && !declared.static_site {
+        bail!(
+            "{crate_name} does not support a static website: its marker lacks `static = true`.\n\
+             A plugin that builds statically declares it:\n\n    \
+             [package.metadata.laterite]\n    plugin = \"{}\"\n    static = true",
+            declared.plugin
+        );
+    }
+
     if let (Some((named, req)), Some(version)) =
         (framework_requirement(manifest), app_framework_version(root))
     {
@@ -427,6 +440,28 @@ pub fn scaffold(root: &Path) -> Result<()> {
 
 // ---------------------------------------------------------------- commands
 
+/// Installs a plugin. A static website without a Cargo project of its own
+/// gets one first, since a plugin is compiled into a binary.
+pub(crate) fn add_plugin(root: &Path, source: &str, folder: Option<&str>) -> Result<()> {
+    if is_static_site(root) && !root.join("Cargo.toml").is_file() {
+        crate::new::scaffold_static_crate(root, None)?;
+        println!(
+            "Added a Cargo project to {}: a plugin is compiled into the site's own binary, \
+             which `lat serve` and `lat theme build` now run.",
+            root.display()
+        );
+    }
+    add(root, source, folder)
+}
+
+/// Whether the project at `root` is a static website (`[theme] folder`).
+fn is_static_site(root: &Path) -> bool {
+    crate::project::Project::locate_from(root)
+        .ok()
+        .and_then(|p| crate::theme::site_config_of(&p).ok())
+        .is_some_and(|site| site.folder.is_some())
+}
+
 fn add(root: &Path, source: &str, folder: Option<&str>) -> Result<()> {
     let dir = root.join(PLUGINS_DIR);
     fs::create_dir_all(&dir)?;
@@ -503,7 +538,11 @@ fn finish_add(root: &Path, dir: &Path, entry: &Entry, existing: &[Entry]) -> Res
             entry.path
         );
     }
-    println!("Rebuild to pick it up; enable or disable it from the admin afterwards.");
+    if is_static_site(root) {
+        println!("The next `lat theme build` or `lat serve` compiles it in.");
+    } else {
+        println!("Rebuild to pick it up; enable or disable it from the admin afterwards.");
+    }
     Ok(())
 }
 

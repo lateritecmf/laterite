@@ -14,7 +14,7 @@ lat <command> --help
 
 Command | Description | Options | Example
 --- | --- | --- | ---
-`new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a theme folder with no database. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme Blog"`
+`new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a theme folder with no database. `--plugin <SOURCE>`: install a plugin, repeatable. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme Blog"`
 `make:migration <DESCRIPTION>` | Scaffold a migration file in this crate's `src/migrations/`. | `--path <PATH>`: the crate directory, default `.`. | `lat make:migration create_articles`
 `make:plugin <ID>` | Scaffold a plugin crate; `<ID>` is `vendor.name`. | `--path <PATH>`: where to create it, default `.`. `--admin`: scaffold the admin half. | `lat make:plugin acme.blog --admin`
 `make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. | `lat make:resource article --field title:text,body:text`
@@ -48,7 +48,7 @@ Command | Description | Options | Example
 
 Command | Description | Options | Example
 --- | --- | --- | ---
-`plugin add <SOURCE>` | Add a plugin from a local path or a git URL, and record it. | `--as <FOLDER>`: the folder under `plugins/`, default the crate's name. | `lat plugin add ../blog-plugin`
+`plugin add <SOURCE>` | Add a plugin from a local path or a git URL, and record it. | `--as <FOLDER>`: the folder under `plugins/`, default the crate's name. In a static website the first add writes its Cargo project and a plugin needs `static = true`. | `lat plugin add ../blog-plugin`
 `plugin remove <NAME>` | Remove a plugin from the list by crate name or folder. | `--delete`: also delete its folder. | `lat plugin remove acme-blog --delete`
 `plugin sync` | Regenerate the `plugins-manifest` crate from `plugins/plugins.toml`. | None. | `lat plugin sync`
 `plugin list` | List the plugins this application compiles in. | None. | `lat plugin list`

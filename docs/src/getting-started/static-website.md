@@ -110,6 +110,48 @@ lat theme build --out dist
 
 `netlify.toml` points Netlify at it and serves `dist/`.
 
+## Add a plugin
+
+```bash
+lat plugin add https://github.com/rainmill/discovery-plugin
+lat new "Acme" --static --plugin ../discovery-plugin
+```
+
+The first plugin gives the site a Cargo project (`Cargo.toml`, `src/main.rs`,
+`plugins/`); `lat serve` and `lat theme build` run that binary from then on,
+and the plugin takes part in the build. A plugin a static website can use
+declares it in its manifest:
+
+```toml
+[package.metadata.laterite]
+plugin = "rainmill.discovery"
+static = true
+```
+
+A plugin without `static = true` is refused. A plugin's definitions live
+under `plugins/<module id>/`:
+
+```text
+acme/
+├── plugins/
+│   ├── plugins.toml
+│   └── rainmill.discovery/
+│       ├── robots.yaml
+│       └── sitemap.yaml
+├── src/main.rs
+└── Cargo.toml
+```
+
+```yaml
+# plugins/rainmill.discovery/robots.yaml
+groups:
+  - agents: ["*"]
+    disallow: ["/drafts/"]
+```
+
+What each plugin reads is on its own page; the discovery plugin writes
+`robots.txt` and a `sitemap.xml` of every page the build wrote.
+
 ## Move to an application
 
 ```bash

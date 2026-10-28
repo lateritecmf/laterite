@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Static websites take plugins: the first `lat plugin add` gives the site a Cargo project whose
+  binary builds and previews it; `Bootstrap` runs in static mode when `[theme] folder` is set.
+- `Module::supports_static`, `static_seed` and `site_files` (additive defaults); the site file
+  envelope in `laterite_core::site`; a `static = true` plugin marker the installer checks.
+
 ## [0.9.26] - 2026-10-28
 
 The Static website slice: `lat new` scaffolds a site with no database, built

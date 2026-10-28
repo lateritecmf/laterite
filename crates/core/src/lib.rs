@@ -28,6 +28,7 @@ pub mod record;
 pub mod registry;
 pub mod schedule;
 pub mod search;
+pub mod site;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -48,7 +49,7 @@ pub use laterite_macros::{t, tn, tp};
 pub use listeners::Timestamps;
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
-pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry};
+pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};
 pub use query::AnyRowExt;
 pub use queue::Queue;
 pub use record::{
@@ -56,4 +57,5 @@ pub use record::{
 };
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use schedule::Schedule;
+pub use site::{SiteContext, SiteFile};
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

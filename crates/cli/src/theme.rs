@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
+use laterite_admin::statics::{self, Copy};
 use laterite_core::Db;
 use laterite_web::theme::{archive, folder};
 use std::path::{Path, PathBuf};
@@ -62,6 +63,11 @@ pub struct ServeArgs {
 /// and `copy` in `config/default.toml`, paths relative to the project root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SiteConfig {
+    /// The project root, when a project was found.
+    pub root: Option<PathBuf>,
+    /// Whether the project has a Cargo project of its own (a static website
+    /// with plugins, or an application).
+    pub has_crate: bool,
     /// The theme folder, absolute.
     pub folder: Option<PathBuf>,
     /// `<src>:<dest>` copies, their sources made absolute.
@@ -102,6 +108,8 @@ pub fn site_config_of(project: &crate::project::Project) -> Result<SiteConfig> {
     let only: Only = project.load()?;
     let root = &project.root;
     Ok(SiteConfig {
+        root: Some(root.clone()),
+        has_crate: root.join("Cargo.toml").is_file(),
         folder: only.theme.folder.map(|f| root.join(f)),
         copy: only
             .theme
@@ -143,7 +151,21 @@ pub async fn run(command: ThemeCommand, database_url: Option<String>) -> Result<
     // reads the application's database. The folder is `--from`, else what the
     // project's config states.
     let site = site_config();
+    let own_binary = site.folder.is_some() && site.has_crate;
     match command {
+        // A static project with plugins builds through its binary, which
+        // links them; the copies named here are applied afterwards.
+        ThemeCommand::Build(args) if args.from.is_none() && own_binary => {
+            let root = site.root.clone().unwrap_or_default();
+            let mut run = vec!["build".to_string(), "--out".to_string()];
+            run.push(args.out.to_string_lossy().to_string());
+            if let Some(base_url) = &args.base_url {
+                run.push("--base-url".to_string());
+                run.push(base_url.clone());
+            }
+            project_binary(&root, &run, None)?;
+            apply_copies(&flag_copies(&args.copy)?, &args.out)
+        }
         ThemeCommand::Build(args) if args.from.is_some() || site.folder.is_some() => {
             let dir = args
                 .from
@@ -152,13 +174,18 @@ pub async fn run(command: ThemeCommand, database_url: Option<String>) -> Result<
                 .unwrap_or_default();
             let loaded = folder::load(&dir).await?;
             let base_url = args.base_url.clone().unwrap_or_else(base_url_from_project);
-            let copies = [site_copies(&site)?, copies(&args.copy, true)?].concat();
+            let copies = [site_copies(&site)?, flag_copies(&args.copy)?].concat();
             build(&loaded.db, &loaded.code, &args, &base_url, &copies).await
+        }
+        ThemeCommand::Serve(args) if args.from.is_none() && own_binary => {
+            let root = site.root.clone().unwrap_or_default();
+            let listen = args.listen.or(site.listen.clone());
+            project_binary(&root, &["serve".to_string()], listen.as_deref())
         }
         ThemeCommand::Serve(mut args) => {
             args.from = args.from.or(site.folder.clone());
             args.listen = args.listen.or(site.listen.clone());
-            let copies = [site_copies(&site)?, copies(&args.copy, true)?].concat();
+            let copies = [site_copies(&site)?, flag_copies(&args.copy)?].concat();
             serve(args, copies).await
         }
         command => {
@@ -211,7 +238,7 @@ async fn run_with_db(command: ThemeCommand, db: Db) -> Result<()> {
                 "name the theme to build, pass --from <folder>, or set [theme] folder in config/default.toml",
             )?;
             let base_url = args.base_url.clone().unwrap_or_else(base_url_from_project);
-            let copies = copies(&args.copy, true)?;
+            let copies = flag_copies(&args.copy)?;
             build(&db, &code, &args, &base_url, &copies).await?;
         }
         ThemeCommand::Serve(_) => unreachable!("served without a database"),
@@ -233,20 +260,15 @@ async fn run_with_db(command: ThemeCommand, db: Db) -> Result<()> {
     Ok(())
 }
 
-/// A directory to copy into the output: the source, the destination under the
-/// output root, and whether a missing source fails the build (a `--copy` on
-/// the command line) or is noted and skipped (one the config declares, such
-/// as a handbook only the deploy build puts in place).
-#[derive(Debug, Clone)]
-pub(crate) struct Copy {
-    src: PathBuf,
-    dest: String,
-    required: bool,
+/// The config's copies, each optional: a declared source absent on this
+/// machine is skipped with a note.
+pub(crate) fn site_copies(site: &SiteConfig) -> Result<Vec<Copy>> {
+    Copy::parse(&site.copy, Path::new("."), false)
 }
 
-/// The config's copies, each optional.
-pub(crate) fn site_copies(site: &SiteConfig) -> Result<Vec<Copy>> {
-    copies(&site.copy, false)
+/// Copies named on the command line, each required.
+fn flag_copies(values: &[String]) -> Result<Vec<Copy>> {
+    Copy::parse(values, Path::new("."), true)
 }
 
 /// Builds `code` from `db` into the output, then the copies.
@@ -276,12 +298,16 @@ async fn build(
             report.skipped.join(", ")
         );
     }
+    apply_copies(copies, &args.out)
+}
+
+fn apply_copies(copies: &[Copy], out: &Path) -> Result<()> {
     for copy in copies {
-        if copy_into(&args.out, base_url, copy)? {
+        if copy.apply(out)? {
             println!(
                 "Copied {} to {}/{}",
                 copy.src.display(),
-                args.out.display(),
+                out.display(),
                 copy.dest
             );
         }
@@ -289,237 +315,54 @@ async fn build(
     Ok(())
 }
 
-/// Parses copy values: `<src>:<dest>`, the destination relative to the
-/// output root and never climbing out of it.
-fn copies(values: &[String], required: bool) -> Result<Vec<Copy>> {
-    values
-        .iter()
-        .map(|value| {
-            let (src, dest) = value
-                .rsplit_once(':')
-                .filter(|(src, dest)| !src.is_empty() && !dest.is_empty())
-                .with_context(|| format!("--copy takes <src>:<dest>, got {value:?}"))?;
-            let dest = dest.trim_matches('/');
-            if dest.split('/').any(|part| part == "..") {
-                anyhow::bail!("--copy destination {dest:?} climbs out of the output");
-            }
-            Ok(Copy {
-                src: PathBuf::from(src),
-                dest: dest.to_string(),
-                required,
-            })
-        })
-        .collect()
-}
-
-/// Copies the directory into `<out>/<dest>`. `Ok(false)` when an optional
-/// source is absent, after saying so.
-fn copy_into(out: &Path, base_url: &str, copy: &Copy) -> Result<bool> {
-    let (src, dest) = (&copy.src, copy.dest.as_str());
-    if !src.is_dir() {
-        if copy.required {
-            anyhow::bail!("copy source {} is not a directory", src.display());
-        }
-        println!(
-            "Skipped the copy of {} to {dest}: not a directory here",
-            src.display()
-        );
-        return Ok(false);
-    }
-    // A source holding the output would copy the output into itself without end.
-    let src_abs = src.canonicalize()?;
-    if out
-        .canonicalize()
-        .is_ok_and(|out_abs| out_abs.starts_with(&src_abs))
-    {
-        anyhow::bail!(
-            "--copy source {} contains the output directory",
-            src.display()
-        );
-    }
-    laterite_web::StaticSite::new(out, base_url)?
-        .assets(src, dest)
-        .with_context(|| format!("could not copy {} into {dest}", src.display()))?;
-    Ok(true)
-}
-
-/// `lat theme serve --from <dir>`: builds the folder into a scratch directory
-/// and serves it, rebuilding when a file in the folder changes. What the
-/// browser shows is what `build` writes, byte for byte.
+/// `lat theme serve`: previews a theme folder, rebuilt on every change, from
+/// `lat` alone. A static project with a Cargo project of its own previews
+/// through its binary instead (see [`project_binary`]).
 pub(crate) async fn serve(args: ServeArgs, copies: Vec<Copy>) -> Result<()> {
-    use std::sync::{Arc, Mutex};
-
     let from = args.from.context(
         "name the theme folder to preview: --from <folder>, or [theme] folder in config/default.toml",
     )?;
-    let dir = from
-        .canonicalize()
-        .with_context(|| format!("no theme folder at {}", from.display()))?;
     let listen = args.listen.unwrap_or_else(|| "127.0.0.1:8080".to_string());
     let base_url = format!("http://{listen}");
-    let out = std::env::temp_dir().join(format!("lat-theme-serve-{}", std::process::id()));
-    let preview = Arc::new(Preview {
-        dir,
-        out,
-        base_url: base_url.clone(),
-        copies,
-        built: Mutex::new(None),
-    });
-    Arc::clone(&preview).rebuild().await?;
-    println!(
-        "Previewing {} at {base_url} (rebuilt on change; Ctrl-C to stop)",
-        preview.dir.display()
-    );
-
-    let app = axum::Router::new()
-        .fallback(axum::routing::get(serve_file))
-        .with_state(Arc::clone(&preview));
-    let listener = tokio::net::TcpListener::bind(&listen)
-        .await
-        .with_context(|| format!("could not listen on {listen}"))?;
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await;
-    let _ = std::fs::remove_dir_all(&preview.out);
-    result.context("the preview server failed")
-}
-
-/// The preview's folder, its scratch output and when it was last built.
-struct Preview {
-    dir: PathBuf,
-    out: PathBuf,
-    base_url: String,
-    copies: Vec<Copy>,
-    /// The newest change the last build saw.
-    built: std::sync::Mutex<Option<std::time::SystemTime>>,
-}
-
-impl Preview {
-    /// The newest modification time under the folder.
-    fn newest_change(&self) -> std::time::SystemTime {
-        let mut newest = std::time::SystemTime::UNIX_EPOCH;
-        let mut pending = vec![self.dir.clone()];
-        while let Some(folder) = pending.pop() {
-            let Ok(read) = std::fs::read_dir(&folder) else {
-                continue;
-            };
-            for entry in read.flatten() {
-                let path = entry.path();
-                if entry.file_name().to_string_lossy().starts_with('.') {
-                    continue;
-                }
-                if path.is_dir() {
-                    pending.push(path);
-                } else if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
-                    newest = newest.max(modified);
-                }
-            }
-        }
-        newest
-    }
-
-    /// Rebuilds when the folder changed since the last build. The load and
-    /// the build run on a blocking thread with their own `block_on`, since the
-    /// migration runner's future is not `Send` and a request handler's must be.
-    async fn rebuild(self: std::sync::Arc<Self>) -> Result<()> {
-        tokio::task::spawn_blocking(move || {
-            let newest = self.newest_change();
-            let mut built = self.built.lock().unwrap_or_else(|e| e.into_inner());
-            if *built == Some(newest) {
-                return Ok(());
-            }
-            tokio::runtime::Handle::current().block_on(async {
-                let loaded = folder::load(&self.dir).await?;
-                let _ = std::fs::remove_dir_all(&self.out);
-                laterite_web::theme::build::build(
-                    &loaded.db,
-                    &loaded.code,
-                    &self.out,
-                    &self.base_url,
-                )
+    let dir = from.clone();
+    let rebuild: statics::Rebuild = std::sync::Arc::new(move |out: PathBuf| {
+        let dir = dir.clone();
+        let base_url = base_url.clone();
+        let copies = copies.clone();
+        Box::pin(async move {
+            let loaded = folder::load(&dir).await?;
+            laterite_web::theme::build::build(&loaded.db, &loaded.code, &out, &base_url)
                 .await
                 .with_context(|| format!("could not build the theme {:?}", loaded.code))?;
-                for copy in &self.copies {
-                    copy_into(&self.out, &self.base_url, copy)?;
-                }
-                anyhow::Ok(())
-            })?;
-            *built = Some(newest);
+            for copy in &copies {
+                copy.apply(&out)?;
+            }
             Ok(())
         })
-        .await
-        .context("the preview build panicked")?
-    }
+    });
+    statics::preview(from, &listen, rebuild).await
 }
 
-/// Serves one file of the built preview: a clean URL maps to its
-/// `index.html`, anything else to the file at that path; an unknown URL gets
-/// the theme's `404.html` when it has one.
-async fn serve_file(
-    axum::extract::State(preview): axum::extract::State<std::sync::Arc<Preview>>,
-    uri: axum::http::Uri,
-) -> axum::response::Response {
-    use axum::http::{header, StatusCode};
-    use axum::response::IntoResponse;
-
-    if let Err(e) = std::sync::Arc::clone(&preview).rebuild().await {
-        let text = format!("Build failed:\n\n{e:#}\n");
-        return (StatusCode::INTERNAL_SERVER_ERROR, text).into_response();
+/// Runs a static project's own binary: `cargo run -- <args>` in the project
+/// root, so the plugins it links take part in the build or the preview.
+pub(crate) fn project_binary(root: &Path, args: &[String], listen: Option<&str>) -> Result<()> {
+    let project = crate::project::Project::locate_from(root)?;
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("run")
+        .arg("--quiet")
+        .current_dir(root)
+        .arg("--")
+        .args(args);
+    if let Some(listen) = listen {
+        cmd.env(project.env_key("SERVER__LISTEN"), listen);
     }
-    let path = uri.path().trim_matches('/');
-    if path.split('/').any(|part| part == "..") {
-        return StatusCode::NOT_FOUND.into_response();
+    let status = cmd
+        .status()
+        .context("could not run `cargo run`; is the Rust toolchain installed and on PATH?")?;
+    if !status.success() {
+        anyhow::bail!("the site's binary exited with {status}");
     }
-    let candidates = if path.is_empty() {
-        vec![preview.out.join("index.html")]
-    } else {
-        vec![
-            preview.out.join(path),
-            preview.out.join(path).join("index.html"),
-        ]
-    };
-    for file in candidates {
-        if file.is_file() {
-            if let Ok(bytes) = std::fs::read(&file) {
-                let mime = mime_of(&file);
-                return ([(header::CONTENT_TYPE, mime)], bytes).into_response();
-            }
-        }
-    }
-    let missing = preview.out.join("404.html");
-    match std::fs::read(&missing) {
-        Ok(bytes) => (
-            StatusCode::NOT_FOUND,
-            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-            bytes,
-        )
-            .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
-    }
-}
-
-/// A content type from the file's extension, for the few kinds a site serves.
-fn mime_of(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("html") | Some("htm") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
-        Some("json") => "application/json",
-        Some("xml") => "application/xml",
-        Some("txt") => "text/plain; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("ico") => "image/x-icon",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        Some("pdf") => "application/pdf",
-        _ => "application/octet-stream",
-    }
+    Ok(())
 }
 
 /// The site's origin from the application found upward: `app.url`, else
@@ -579,6 +422,8 @@ mod tests {
 
         std::fs::write(root.join("config/default.toml"), "[app]\nname = \"Acme\"\n").unwrap();
         let project = crate::project::Project::locate_from(&root).unwrap();
-        assert_eq!(site_config_of(&project).unwrap(), SiteConfig::default());
+        let bare = site_config_of(&project).unwrap();
+        assert_eq!(bare.folder, None);
+        assert!(bare.copy.is_empty() && bare.listen.is_none() && !bare.has_crate);
     }
 }

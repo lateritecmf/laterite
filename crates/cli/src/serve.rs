@@ -37,7 +37,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     let project = Project::locate()?;
     // A static website has no binary to run: serving it is the theme preview.
     let site = crate::theme::site_config_of(&project).unwrap_or_default();
-    if let Some(folder) = site.folder.clone() {
+    if let Some(folder) = site.folder.clone().filter(|_| !site.has_crate) {
         let listen = resolve_listen(&args, &current_listen(&project));
         let copies = crate::theme::site_copies(&site)?;
         return crate::theme::serve(

@@ -52,6 +52,7 @@ mod session;
 pub mod settings;
 pub mod skin;
 mod sql;
+pub mod statics;
 pub mod ui;
 mod upload;
 mod users;
@@ -115,6 +116,8 @@ pub trait AdminRegistry {
     /// Mounts a route outside the admin, at a literal path: robots.txt, a
     /// sitemap, a feed, a webhook receiver.
     fn add_public_route(&mut self, route: routes::PublicRouteReg);
+    /// Contributes the renderer a static website builds with. See [`statics`].
+    fn add_static_renderer(&mut self, renderer: std::sync::Arc<dyn statics::StaticRenderer>);
     /// Adds a menu entry or section. See [`nav::NavItem`].
     fn add_nav(&mut self, item: nav::NavItem);
     /// Changes another module's resource before it mounts. See [`ResourceHook`].
@@ -148,6 +151,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_screen(&mut self, screen: routes::ScreenReg) {
         self.add(screen);
+    }
+    fn add_static_renderer(&mut self, renderer: std::sync::Arc<dyn statics::StaticRenderer>) {
+        self.add(statics::StaticRendererReg(renderer));
     }
     fn add_public_route(&mut self, route: routes::PublicRouteReg) {
         self.add(route);

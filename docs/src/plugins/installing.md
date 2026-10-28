@@ -19,6 +19,8 @@ $ cargo build
 A checkout outside the project is linked into `plugins/`, not copied. `--as
 <folder>` picks the folder name.
 
+In a static website (see [Static Website](../getting-started/static-website.md)) the first `lat plugin add` writes the site's Cargo project, and only a plugin whose marker says `static = true` is accepted.
+
 ## Edit the list
 
 ```toml

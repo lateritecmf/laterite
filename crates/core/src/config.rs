@@ -8,9 +8,12 @@ use serde::Deserialize;
 
 use crate::error::{CoreError, CoreResult};
 
-/// Database connection settings.
+/// Database connection settings. [`Default`] is unset (an empty `url`): an
+/// application without a `[database]` section fails to boot naming it, and a
+/// static website, which has none, builds on [`DatabaseConfig::memory`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
+    #[serde(default)]
     pub url: String,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
@@ -18,11 +21,57 @@ pub struct DatabaseConfig {
     pub acquire_timeout_secs: u64,
 }
 
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            max_connections: default_max_connections(),
+            acquire_timeout_secs: default_acquire_timeout_secs(),
+        }
+    }
+}
+
+impl DatabaseConfig {
+    /// Whether no database was configured.
+    pub fn is_unset(&self) -> bool {
+        self.url.trim().is_empty()
+    }
+
+    /// A private in-memory SQLite, one connection so there is one database.
+    pub fn memory() -> Self {
+        Self {
+            url: "sqlite::memory:".to_string(),
+            max_connections: 1,
+            acquire_timeout_secs: 5,
+        }
+    }
+}
+
+/// A static website's theme folder and what rides along into its build.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ThemeConfig {
+    /// The theme folder, relative to the project root; its name is the
+    /// theme's code. Set, the project is a static website.
+    pub folder: Option<String>,
+    /// Directories copied into the build output, `<src>:<dest>`, relative to
+    /// the project root.
+    pub copy: Vec<String>,
+}
+
 /// HTTP listener settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     #[serde(default = "default_listen")]
     pub listen: String,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            listen: default_listen(),
+        }
+    }
 }
 
 /// Application-level metadata. The `name` is the human-readable application

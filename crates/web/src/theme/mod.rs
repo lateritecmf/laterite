@@ -207,6 +207,11 @@ impl Module for ThemeModule {
     fn migrations(&self) -> MigrationSet {
         migrations::migrations()
     }
+    /// A static website is a theme folder, so the theme module is in every
+    /// static project.
+    fn supports_static(&self) -> bool {
+        true
+    }
     /// The Themes screen mounts at the panel's top level (`/admin/themes`),
     /// reached from the settings index.
     fn admin_base(&self) -> Option<&'static str> {
@@ -226,6 +231,7 @@ impl Module for ThemeModule {
         let components = std::sync::Arc::new(std::sync::OnceLock::new());
         registry.add_screen(admin::screen_with(std::sync::Arc::clone(&components)));
         registry.add_public_route(site::route());
+        registry.add_static_renderer(std::sync::Arc::new(folder::Renderer));
         registry.add_snippet_source(std::sync::Arc::new(snippet::Source));
         registry.add_snippet_source(std::sync::Arc::new(snippet::ComponentSource { components }));
     }

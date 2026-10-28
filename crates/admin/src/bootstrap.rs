@@ -8,8 +8,10 @@
 //! `register`, and the app adds extra routes via [`Bootstrap::extend`].
 
 use std::collections::{HashMap, HashSet};
+
+use anyhow::Context as _;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axum::Router;
 use laterite_auth::{AuthConfig, AuthService};
@@ -53,8 +55,15 @@ mod env_prefix_tests {
 pub struct AppConfig {
     #[serde(default)]
     pub app: AppMeta,
+    #[serde(default)]
     pub server: ServerConfig,
+    /// Unset for a static website, which builds on an in-memory database.
+    #[serde(default)]
     pub database: DatabaseConfig,
+    /// A static website's theme folder; set, the binary builds and previews
+    /// the site instead of serving an admin.
+    #[serde(default)]
+    pub theme: laterite_core::config::ThemeConfig,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
@@ -214,9 +223,19 @@ impl Bootstrap {
     /// [--stop-when-empty] [--queue a,b]` (a worker alone) or `schedule run
     /// [--once]` (the ticker alone). The scaffolded `main` calls this, so
     /// `lat queue work` and `lat schedule run` have something to run.
+    ///
+    /// A static website (`[theme] folder` in the config) takes `build
+    /// [--out DIR] [--base-url URL]` to render itself, and `serve` (the
+    /// default) previews it, rebuilt on every change.
     pub async fn run(self) -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().skip(1).collect();
+        let is_static = self.theme_config()?.folder.is_some();
         match args.first().map(String::as_str) {
+            None | Some("serve") if is_static => self.prepare().await?.preview().await,
+            Some("build") if is_static => self.prepare().await?.build_from_args(&args[1..]).await,
+            Some("build") => anyhow::bail!(
+                "`build` renders a static website, and this configuration names no `[theme] folder`"
+            ),
             None | Some("serve") => self.serve().await,
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
@@ -225,9 +244,25 @@ impl Bootstrap {
                 self.prepare().await?.tick(&args[2..]).await
             }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `queue work` or `schedule run`"
+                "unknown command `{other}`: the application takes `serve` (the default), `build`, `queue work` or `schedule run`"
             ),
         }
+    }
+
+    /// The `[theme]` section alone, read before anything else so the binary
+    /// knows which kind of project it is.
+    fn theme_config(&self) -> anyhow::Result<laterite_core::config::ThemeConfig> {
+        #[derive(Deserialize, Default)]
+        struct Only {
+            #[serde(default)]
+            theme: laterite_core::config::ThemeConfig,
+        }
+        let env_prefix = resolve_env_prefix(
+            self.env_prefix.clone(),
+            config::declared_env_prefix(&self.config_dir)?,
+        );
+        let only: Only = config::load(&self.config_dir, &env_prefix)?;
+        Ok(only.theme)
     }
 
     /// Everything before listening: config, the database, migrations, the
@@ -245,10 +280,22 @@ impl Bootstrap {
             self.env_prefix.clone(),
             config::declared_env_prefix(&self.config_dir)?,
         );
-        let config: AppConfig = config::load(&self.config_dir, &env_prefix)?;
+        let mut config: AppConfig = config::load(&self.config_dir, &env_prefix)?;
         // Debug gates the cause on error pages; the log records it regardless.
         laterite_core::config::set_debug(config.app.debug);
 
+        // A static website has no database to name: it builds on a private
+        // in-memory one. Anything else without one is a configuration gap.
+        if config.database.is_unset() {
+            if config.theme.folder.is_some() {
+                config.database = laterite_core::config::DatabaseConfig::memory();
+            } else {
+                anyhow::bail!(
+                    "no [database] in {}: set `database.url`, or `[theme] folder` for a static website",
+                    self.config_dir.display()
+                );
+            }
+        }
         let db = laterite_core::db::connect(&config.database).await?;
 
         // Plugins (registered via `modules`) are quarantine-eligible; built-ins and
@@ -438,6 +485,8 @@ impl Bootstrap {
             .into_iter()
             .filter(|m| !failed.contains_key(m.id().as_str()))
             .collect();
+        // Kept past the registry's move into `Prepared`, for a static build.
+        let active_ids: Vec<String> = active.iter().map(|m| m.id().to_string()).collect();
         let bases: HashMap<String, Option<&'static str>> = active
             .iter()
             .map(|m| (m.id().to_string(), m.admin_base()))
@@ -708,6 +757,7 @@ impl Bootstrap {
         // that introduces it.
         laterite_auth::store::sync_system_roles(&db, &crate::system_roles(&permissions)).await?;
 
+        let plugin_defined = std::sync::Arc::new(contributions);
         let mut app = router(
             auth,
             db.clone(),
@@ -731,15 +781,29 @@ impl Bootstrap {
                 // Whatever is left is plugin-defined: types the framework knows
                 // nothing about, kept so one module's route can read another's
                 // contributions.
-                plugin_defined: std::sync::Arc::new(contributions),
+                plugin_defined: std::sync::Arc::clone(&plugin_defined),
             },
             admin_config,
             std::sync::Arc::new(catalogs.build()),
         );
 
+        let static_site = config.theme.folder.as_ref().map(|folder| {
+            let root = self
+                .config_dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            StaticSite {
+                root: root.clone(),
+                folder: root.join(folder),
+                copies: config.theme.copy.clone(),
+                origin: origin.clone(),
+                plugin_defined: std::sync::Arc::clone(&plugin_defined),
+            }
+        });
         if let Some(extend) = self.extend {
             let ctx = BootstrapCtx {
-                db,
+                db: db.clone(),
                 capabilities,
                 translator: Translator::new(&config.app.locale),
                 events,
@@ -759,8 +823,25 @@ impl Bootstrap {
             queue,
             schedule,
             schedule_mode,
+            db,
+            registry,
+            active_ids,
+            static_site,
         })
     }
+}
+
+/// What a static website's build needs beyond the prepared application.
+struct StaticSite {
+    /// The project root, the directory holding `config/`.
+    root: PathBuf,
+    /// The theme folder, absolute.
+    folder: PathBuf,
+    /// The config's `theme.copy` values.
+    copies: Vec<String>,
+    /// The site's origin from `app.url`, else the listen address.
+    origin: String,
+    plugin_defined: std::sync::Arc<Registry>,
 }
 
 /// An application ready to listen or to work.
@@ -771,9 +852,142 @@ struct Prepared {
     queue: laterite_core::Queue,
     schedule: laterite_core::Schedule,
     schedule_mode: laterite_core::schedule::Mode,
+    db: laterite_core::Db,
+    /// Every registered module, for a static build's seeds and site files.
+    registry: ModuleRegistry,
+    /// The ids of the modules that loaded, in dependency order.
+    active_ids: Vec<String>,
+    static_site: Option<StaticSite>,
 }
 
 impl Prepared {
+    /// `build [--out DIR] [--base-url URL]`.
+    async fn build_from_args(self, args: &[String]) -> anyhow::Result<()> {
+        let mut out = PathBuf::from("dist");
+        let mut base_url: Option<String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--out" | "-o" => {
+                    out = PathBuf::from(args.get(i + 1).context("--out takes a directory")?);
+                    i += 2;
+                }
+                "--base-url" => {
+                    base_url = Some(
+                        args.get(i + 1)
+                            .context("--base-url takes an origin")?
+                            .clone(),
+                    );
+                    i += 2;
+                }
+                other => {
+                    anyhow::bail!("unknown option `{other}`: build takes --out and --base-url")
+                }
+            }
+        }
+        self.build_static(&out, base_url.as_deref()).await
+    }
+
+    /// Renders the static website into `out`: the theme folder loaded afresh,
+    /// every module's seed, the pages through the contributed renderer, the
+    /// modules' site files, then the config's copies.
+    async fn build_static(&self, out: &Path, base_url: Option<&str>) -> anyhow::Result<()> {
+        let site = self.static_site.as_ref().context(
+            "this configuration names no `[theme] folder`, so there is nothing to build",
+        )?;
+        let renderer = site
+            .plugin_defined
+            .contributions::<crate::statics::StaticRendererReg>()
+            .into_iter()
+            .next()
+            .map(|c| std::sync::Arc::clone(&c.item.0))
+            .context("no static renderer is registered: add `.module(ThemeModule)` in main")?;
+        let base_url = base_url.unwrap_or(&site.origin).trim_end_matches('/');
+        std::fs::create_dir_all(out)?;
+        let cx = crate::statics::StaticBuildCx {
+            db: &self.db,
+            folder: &site.folder,
+            out,
+            base_url,
+            contributions: &site.plugin_defined,
+        };
+        let code = renderer.load(&cx).await?;
+        let modules: Vec<&dyn Module> = self
+            .registry
+            .ordered()?
+            .into_iter()
+            .filter(|m| self.active_ids.iter().any(|id| id == m.id().as_str()))
+            .collect();
+        for module in &modules {
+            let seed = laterite_core::StaticSeedCx {
+                db: &self.db,
+                root: &site.root,
+                files: site.root.join("plugins").join(module.id().as_str()),
+            };
+            module.static_seed(&seed).await.with_context(|| {
+                format!("{} could not seed its static definitions", module.id())
+            })?;
+        }
+        let pages = renderer.build(&cx, &code).await?;
+        println!(
+            "Wrote {} page(s) to {} for {base_url}",
+            pages.len(),
+            out.display()
+        );
+        for url in &pages {
+            println!("  {url}");
+        }
+        let site_cx = laterite_core::SiteContext::new(base_url);
+        for module in &modules {
+            let files_cx = laterite_core::SiteFilesCx {
+                db: &self.db,
+                registry: &site.plugin_defined,
+                site: &site_cx,
+                root: &site.root,
+                files: site.root.join("plugins").join(module.id().as_str()),
+                pages: &pages,
+            };
+            for file in module
+                .site_files(&files_cx)
+                .await
+                .with_context(|| format!("{} could not render its site files", module.id()))?
+            {
+                crate::statics::write_site_file(out, file.path(), &file.render(&site_cx))?;
+                println!("  {} ({})", file.path(), module.id());
+            }
+        }
+        for copy in crate::statics::Copy::parse(&site.copies, &site.root, false)? {
+            if copy.apply(out)? {
+                println!(
+                    "Copied {} to {}/{}",
+                    copy.src.display(),
+                    out.display(),
+                    copy.dest
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Serves the static website from a scratch build, rebuilt on change.
+    async fn preview(self) -> anyhow::Result<()> {
+        let folder = self
+            .static_site
+            .as_ref()
+            .context(
+                "this configuration names no `[theme] folder`, so there is nothing to preview",
+            )?
+            .folder
+            .clone();
+        let listen = self.listen.clone();
+        let prepared = std::sync::Arc::new(self);
+        let rebuild: crate::statics::Rebuild = std::sync::Arc::new(move |out: PathBuf| {
+            let prepared = std::sync::Arc::clone(&prepared);
+            Box::pin(async move { prepared.build_static(&out, None).await })
+        });
+        crate::statics::preview(folder, &listen, rebuild).await
+    }
+
     async fn serve(self) -> anyhow::Result<()> {
         let listener = bind(&self.listen).await?;
         println!("{}", self.banner);
