@@ -116,6 +116,19 @@ Key | Description
 `mail.to` | A development override for every recipient.
 `mail.smtp.*` | `host`, `port`, `encryption` (`starttls`, `tls`, `none`), `username`, `password`, `timeout_seconds`.
 
+## Set `[theme]`
+
+```toml
+[theme]
+folder = "themes/acme"
+copy = ["static:static"]
+```
+
+Key | Default | Meaning
+--- | --- | ---
+`folder` | none | A static website's theme folder, relative to the project. Set, `lat serve` previews it and `lat theme build` renders it. See [Static Website](../getting-started/static-website.md).
+`copy` | `[]` | Directories copied into the build output, `<src>:<dest>`, relative to the project; one absent on this machine is skipped with a note.
+
 ## Mount a module's screens
 
 A module's screens namespace under its identity: `acme.places`

@@ -14,8 +14,8 @@ and previewed from its theme folder by `lat theme`.
 
 ### Added
 
-- `lat new --static` scaffolds a static website as a theme folder; `lat theme build --from <dir>`
-  and `lat theme serve --from <dir>` build and preview it with no application, `--copy` adds directories.
+- `lat new --static` scaffolds a static website: a theme folder named by `[theme] folder` in its
+  config, which `lat serve` previews and `lat theme build` renders with no database; `--from`, `--copy`.
 - `theme::folder::load` and `archive::import_dir` read a theme folder into an in-memory database.
 
 ### Changed

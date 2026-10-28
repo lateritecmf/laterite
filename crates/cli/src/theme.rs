@@ -23,10 +23,10 @@ pub enum ThemeCommand {
 
 #[derive(Args)]
 pub struct BuildArgs {
-    /// The theme's code. Not needed with `--from`, where the folder names it.
+    /// The theme's code. Not needed for a theme folder, which names it.
     pub code: Option<String>,
     /// Build from a theme folder (its export layout) with no application and
-    /// no database; the folder's name is the theme's code.
+    /// no database. Default: the project's `theme.folder`.
     #[arg(long, value_name = "DIR")]
     pub from: Option<PathBuf>,
     /// The output directory. Default: `dist`.
@@ -37,22 +37,83 @@ pub struct BuildArgs {
     #[arg(long)]
     pub base_url: Option<String>,
     /// Copy a directory into the output: `<src>:<dest>` (`docs/book:docs`
-    /// puts `docs/book/` at `<out>/docs/`). Repeatable.
+    /// puts `docs/book/` at `<out>/docs/`). Repeatable, added to the
+    /// project's `theme.copy`.
     #[arg(long, value_name = "SRC:DEST")]
     pub copy: Vec<String>,
 }
 
 #[derive(Args)]
 pub struct ServeArgs {
-    /// The theme folder to preview; its name is the theme's code.
+    /// The theme folder to preview; its name is the theme's code. Default:
+    /// the project's `theme.folder`.
     #[arg(long, value_name = "DIR")]
-    pub from: PathBuf,
-    /// The address to listen on.
-    #[arg(long, default_value = "127.0.0.1:8080")]
-    pub listen: String,
+    pub from: Option<PathBuf>,
+    /// The address to listen on. Default: the project's `server.listen`,
+    /// else `127.0.0.1:8080`.
+    #[arg(long)]
+    pub listen: Option<String>,
     /// Copy a directory into the preview: `<src>:<dest>`, as `build --copy`.
     #[arg(long, value_name = "SRC:DEST")]
     pub copy: Vec<String>,
+}
+
+/// What a static website's project states for `lat theme`: `[theme] folder`
+/// and `copy` in `config/default.toml`, paths relative to the project root.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SiteConfig {
+    /// The theme folder, absolute.
+    pub folder: Option<PathBuf>,
+    /// `<src>:<dest>` copies, their sources made absolute.
+    pub copy: Vec<String>,
+    /// The project's `server.listen`, for the preview.
+    pub listen: Option<String>,
+}
+
+/// The site config of the project found upward, or an empty one.
+pub fn site_config() -> SiteConfig {
+    crate::project::Project::locate()
+        .ok()
+        .and_then(|p| site_config_of(&p).ok())
+        .unwrap_or_default()
+}
+
+/// The site config of `project`.
+pub fn site_config_of(project: &crate::project::Project) -> Result<SiteConfig> {
+    #[derive(serde::Deserialize, Default)]
+    struct Theme {
+        #[serde(default)]
+        folder: Option<String>,
+        #[serde(default)]
+        copy: Vec<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Server {
+        #[serde(default)]
+        listen: Option<String>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    struct Only {
+        #[serde(default)]
+        theme: Theme,
+        #[serde(default)]
+        server: Server,
+    }
+    let only: Only = project.load()?;
+    let root = &project.root;
+    Ok(SiteConfig {
+        folder: only.theme.folder.map(|f| root.join(f)),
+        copy: only
+            .theme
+            .copy
+            .into_iter()
+            .map(|value| match value.rsplit_once(':') {
+                Some((src, dest)) => format!("{}:{dest}", root.join(src).display()),
+                None => value,
+            })
+            .collect(),
+        listen: only.server.listen,
+    })
 }
 
 #[derive(Args)]
@@ -79,15 +140,27 @@ pub struct ImportArgs {
 
 pub async fn run(command: ThemeCommand, database_url: Option<String>) -> Result<()> {
     // A build or preview from a folder needs no application; everything else
-    // reads the application's database.
+    // reads the application's database. The folder is `--from`, else what the
+    // project's config states.
+    let site = site_config();
     match command {
-        ThemeCommand::Build(args) if args.from.is_some() => {
-            let dir = args.from.clone().unwrap_or_default();
+        ThemeCommand::Build(args) if args.from.is_some() || site.folder.is_some() => {
+            let dir = args
+                .from
+                .clone()
+                .or(site.folder.clone())
+                .unwrap_or_default();
             let loaded = folder::load(&dir).await?;
             let base_url = args.base_url.clone().unwrap_or_else(base_url_from_project);
-            build(&loaded.db, &loaded.code, &args, &base_url).await
+            let copies = [site_copies(&site)?, copies(&args.copy, true)?].concat();
+            build(&loaded.db, &loaded.code, &args, &base_url, &copies).await
         }
-        ThemeCommand::Serve(args) => serve(args).await,
+        ThemeCommand::Serve(mut args) => {
+            args.from = args.from.or(site.folder.clone());
+            args.listen = args.listen.or(site.listen.clone());
+            let copies = [site_copies(&site)?, copies(&args.copy, true)?].concat();
+            serve(args, copies).await
+        }
         command => {
             let db = crate::connect(database_url).await?;
             run_with_db(command, db).await
@@ -134,12 +207,12 @@ async fn run_with_db(command: ThemeCommand, db: Db) -> Result<()> {
             }
         }
         ThemeCommand::Build(args) => {
-            let code = args
-                .code
-                .clone()
-                .context("name the theme to build, or pass --from <folder>")?;
+            let code = args.code.clone().context(
+                "name the theme to build, pass --from <folder>, or set [theme] folder in config/default.toml",
+            )?;
             let base_url = args.base_url.clone().unwrap_or_else(base_url_from_project);
-            build(&db, &code, &args, &base_url).await?;
+            let copies = copies(&args.copy, true)?;
+            build(&db, &code, &args, &base_url, &copies).await?;
         }
         ThemeCommand::Serve(_) => unreachable!("served without a database"),
         ThemeCommand::List => {
@@ -160,8 +233,30 @@ async fn run_with_db(command: ThemeCommand, db: Db) -> Result<()> {
     Ok(())
 }
 
-/// Builds `code` from `db` into the output, then the `--copy` directories.
-async fn build(db: &Db, code: &str, args: &BuildArgs, base_url: &str) -> Result<()> {
+/// A directory to copy into the output: the source, the destination under the
+/// output root, and whether a missing source fails the build (a `--copy` on
+/// the command line) or is noted and skipped (one the config declares, such
+/// as a handbook only the deploy build puts in place).
+#[derive(Debug, Clone)]
+pub(crate) struct Copy {
+    src: PathBuf,
+    dest: String,
+    required: bool,
+}
+
+/// The config's copies, each optional.
+pub(crate) fn site_copies(site: &SiteConfig) -> Result<Vec<Copy>> {
+    copies(&site.copy, false)
+}
+
+/// Builds `code` from `db` into the output, then the copies.
+async fn build(
+    db: &Db,
+    code: &str,
+    args: &BuildArgs,
+    base_url: &str,
+    copies: &[Copy],
+) -> Result<()> {
     let report = laterite_web::theme::build::build(db, code, &args.out, base_url)
         .await
         .with_context(|| format!("could not build the theme {code:?}"))?;
@@ -181,16 +276,22 @@ async fn build(db: &Db, code: &str, args: &BuildArgs, base_url: &str) -> Result<
             report.skipped.join(", ")
         );
     }
-    for (src, dest) in copies(&args.copy)? {
-        copy_into(&args.out, base_url, &src, &dest)?;
-        println!("Copied {} to {}/{dest}", src.display(), args.out.display());
+    for copy in copies {
+        if copy_into(&args.out, base_url, copy)? {
+            println!(
+                "Copied {} to {}/{}",
+                copy.src.display(),
+                args.out.display(),
+                copy.dest
+            );
+        }
     }
     Ok(())
 }
 
-/// Parses `--copy` values: `<src>:<dest>`, the destination relative to the
+/// Parses copy values: `<src>:<dest>`, the destination relative to the
 /// output root and never climbing out of it.
-fn copies(values: &[String]) -> Result<Vec<(PathBuf, String)>> {
+fn copies(values: &[String], required: bool) -> Result<Vec<Copy>> {
     values
         .iter()
         .map(|value| {
@@ -202,15 +303,28 @@ fn copies(values: &[String]) -> Result<Vec<(PathBuf, String)>> {
             if dest.split('/').any(|part| part == "..") {
                 anyhow::bail!("--copy destination {dest:?} climbs out of the output");
             }
-            Ok((PathBuf::from(src), dest.to_string()))
+            Ok(Copy {
+                src: PathBuf::from(src),
+                dest: dest.to_string(),
+                required,
+            })
         })
         .collect()
 }
 
-/// Copies `src` into `<out>/<dest>`.
-fn copy_into(out: &Path, base_url: &str, src: &Path, dest: &str) -> Result<()> {
+/// Copies the directory into `<out>/<dest>`. `Ok(false)` when an optional
+/// source is absent, after saying so.
+fn copy_into(out: &Path, base_url: &str, copy: &Copy) -> Result<bool> {
+    let (src, dest) = (&copy.src, copy.dest.as_str());
     if !src.is_dir() {
-        anyhow::bail!("--copy source {} is not a directory", src.display());
+        if copy.required {
+            anyhow::bail!("copy source {} is not a directory", src.display());
+        }
+        println!(
+            "Skipped the copy of {} to {dest}: not a directory here",
+            src.display()
+        );
+        return Ok(false);
     }
     // A source holding the output would copy the output into itself without end.
     let src_abs = src.canonicalize()?;
@@ -225,22 +339,25 @@ fn copy_into(out: &Path, base_url: &str, src: &Path, dest: &str) -> Result<()> {
     }
     laterite_web::StaticSite::new(out, base_url)?
         .assets(src, dest)
-        .with_context(|| format!("could not copy {} into {dest}", src.display()))
+        .with_context(|| format!("could not copy {} into {dest}", src.display()))?;
+    Ok(true)
 }
 
 /// `lat theme serve --from <dir>`: builds the folder into a scratch directory
 /// and serves it, rebuilding when a file in the folder changes. What the
 /// browser shows is what `build` writes, byte for byte.
-async fn serve(args: ServeArgs) -> Result<()> {
+pub(crate) async fn serve(args: ServeArgs, copies: Vec<Copy>) -> Result<()> {
     use std::sync::{Arc, Mutex};
 
-    let dir = args
-        .from
+    let from = args.from.context(
+        "name the theme folder to preview: --from <folder>, or [theme] folder in config/default.toml",
+    )?;
+    let dir = from
         .canonicalize()
-        .with_context(|| format!("no theme folder at {}", args.from.display()))?;
-    let base_url = format!("http://{}", args.listen);
+        .with_context(|| format!("no theme folder at {}", from.display()))?;
+    let listen = args.listen.unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let base_url = format!("http://{listen}");
     let out = std::env::temp_dir().join(format!("lat-theme-serve-{}", std::process::id()));
-    let copies = copies(&args.copy)?;
     let preview = Arc::new(Preview {
         dir,
         out,
@@ -257,9 +374,9 @@ async fn serve(args: ServeArgs) -> Result<()> {
     let app = axum::Router::new()
         .fallback(axum::routing::get(serve_file))
         .with_state(Arc::clone(&preview));
-    let listener = tokio::net::TcpListener::bind(&args.listen)
+    let listener = tokio::net::TcpListener::bind(&listen)
         .await
-        .with_context(|| format!("could not listen on {}", args.listen))?;
+        .with_context(|| format!("could not listen on {listen}"))?;
     let result = axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
@@ -274,7 +391,7 @@ struct Preview {
     dir: PathBuf,
     out: PathBuf,
     base_url: String,
-    copies: Vec<(PathBuf, String)>,
+    copies: Vec<Copy>,
     /// The newest change the last build saw.
     built: std::sync::Mutex<Option<std::time::SystemTime>>,
 }
@@ -324,8 +441,8 @@ impl Preview {
                 )
                 .await
                 .with_context(|| format!("could not build the theme {:?}", loaded.code))?;
-                for (src, dest) in &self.copies {
-                    copy_into(&self.out, &self.base_url, src, dest)?;
+                for copy in &self.copies {
+                    copy_into(&self.out, &self.base_url, copy)?;
                 }
                 anyhow::Ok(())
             })?;
@@ -432,4 +549,36 @@ fn base_url_from_project() -> String {
         only.app.url.as_deref(),
         only.server.listen.as_deref().unwrap_or("127.0.0.1:8080"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_project_states_its_theme_folder_and_copies() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("acme");
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(
+            root.join("config/default.toml"),
+            "[app]\nname = \"Acme\"\n[server]\nlisten = \"127.0.0.1:3000\"\n[theme]\nfolder = \"themes/acme\"\ncopy = [\"static:static\", \"docs/book:docs\"]\n",
+        )
+        .unwrap();
+        let project = crate::project::Project::locate_from(&root.join("config")).unwrap();
+        let site = site_config_of(&project).unwrap();
+        assert_eq!(site.folder, Some(root.join("themes/acme")));
+        assert_eq!(
+            site.copy,
+            vec![
+                format!("{}:static", root.join("static").display()),
+                format!("{}:docs", root.join("docs/book").display()),
+            ]
+        );
+        assert_eq!(site.listen.as_deref(), Some("127.0.0.1:3000"));
+
+        std::fs::write(root.join("config/default.toml"), "[app]\nname = \"Acme\"\n").unwrap();
+        let project = crate::project::Project::locate_from(&root).unwrap();
+        assert_eq!(site_config_of(&project).unwrap(), SiteConfig::default());
+    }
 }

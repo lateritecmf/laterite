@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
         Command::MakeMigration(args) => make::run(args),
         Command::MakePlugin(args) => make::run_plugin(args),
         Command::MakeResource(args) => make::run_resource(args),
-        Command::Serve(args) => serve::run(args),
+        Command::Serve(args) => serve::run(args).await,
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,

@@ -23,7 +23,7 @@ Command | Description | Options | Example
 
 Command | Description | Options | Example
 --- | --- | --- | ---
-`serve` | Run this application, optionally overriding the address. | `--host <HOST>`, `--port <PORT>`, `--listen <HOST:PORT>`, `--release`: build and run optimised. | `lat serve --port 3000`
+`serve` | Run this application, or preview a static website's theme folder, optionally overriding the address. | `--host <HOST>`, `--port <PORT>`, `--listen <HOST:PORT>`, `--release`: build and run optimised. | `lat serve --port 3000`
 `doctor` | Check that this application is set up to run. | None. | `lat doctor`
 
 ## Local domains
@@ -70,8 +70,8 @@ Command | Description | Options | Example
 `theme export <CODE>` | Write a theme and its templates to a zip. | `-o, --out <FILE>`, default `<code>.zip`. | `lat theme export acme -o acme.zip`
 `theme import <CODE> <FILE>` | Create or update a theme from a zip. | `--replace`: replace templates and config the theme already has; each replaced template keeps a revision. | `lat theme import acme acme.zip --replace`
 `theme list` | List the themes. | None. | `lat theme list`
-`theme build [CODE]` | Render a theme's fixed pages and assets to a directory, for a static host. | `--from <DIR>`: a theme folder instead of the database. `-o, --out <DIR>`, default `dist`. `--base-url <URL>`, default `app.url`, else one derived from `server.listen`. `--copy <SRC>:<DEST>`: a directory copied into the output; repeatable. | `lat theme build --from themes/acme --copy docs/book:docs`
-`theme serve` | Preview a theme folder, rebuilt on every change. | `--from <DIR>`. `--listen <HOST:PORT>`, default `127.0.0.1:8080`. `--copy <SRC>:<DEST>`. | `lat theme serve --from themes/acme`
+`theme build [CODE]` | Render a theme's fixed pages and assets to a directory, for a static host. | `--from <DIR>`: a theme folder instead of the database, default `theme.folder`. `-o, --out <DIR>`, default `dist`. `--base-url <URL>`, default `app.url`, else one derived from `server.listen`. `--copy <SRC>:<DEST>`: a directory copied into the output; repeatable, added to `theme.copy`. | `lat theme build --copy docs/book:docs`
+`theme serve` | Preview a theme folder, rebuilt on every change. | `--from <DIR>`, default `theme.folder`. `--listen <HOST:PORT>`, default `server.listen`. `--copy <SRC>:<DEST>`. | `lat theme serve`
 
 ## Media
 

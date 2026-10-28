@@ -93,8 +93,8 @@ pub async fn run(args: NewArgs) -> Result<()> {
         println!("Scaffolded ./{name}");
         println!("\nDone. Next steps:\n");
         println!("    cd {name}");
-        println!("    lat theme serve --from themes/{name}    # preview at http://127.0.0.1:8080");
-        println!("    lat theme build --from themes/{name}    # write dist/ for any static host");
+        println!("    lat serve          # preview at http://127.0.0.1:8080, rebuilt on change");
+        println!("    lat theme build    # write dist/ for any static host");
         return Ok(());
     }
     // The generated app is a Rust project; warn (not fail) if the toolchain is
@@ -566,9 +566,9 @@ fn scaffold_static(dir: &Path, name: &str, display_name: &str, url: &str) -> Res
     write(theme_dir.join("assets/css/site.css"), STATIC_CSS)?;
     write(
         dir.join("config/default.toml"),
-        &static_default_toml(display_name, url),
+        &static_default_toml(display_name, url, name),
     )?;
-    write(dir.join("build.sh"), &static_build_sh(name))?;
+    write(dir.join("build.sh"), STATIC_BUILD_SH)?;
     write(dir.join("netlify.toml"), STATIC_NETLIFY)?;
     write(dir.join(".gitignore"), "/dist\n")?;
     write(dir.join("README.md"), &static_readme(display_name, name))?;
@@ -667,18 +667,19 @@ a { color: var(--accent); }
 .site-footer { padding: 24px; color: var(--muted); font-size: 0.9rem; text-align: center; }
 "#;
 
-fn static_default_toml(display_name: &str, url: &str) -> String {
+fn static_default_toml(display_name: &str, url: &str, name: &str) -> String {
     format!(
-        "# The site's own settings. `lat theme build` reads `app.url` for canonical links.\n\
-         [app]\nname = {}\nurl = {}\n",
+        "# The site's settings: `lat serve` previews the theme folder and `lat theme build`\n\
+         # renders it, with `app.url` as the origin of canonical links.\n\
+         [app]\nname = {}\nurl = {}\n\n\
+         [theme]\nfolder = \"themes/{name}\"\n\
+         # Directories copied into the output, as <src>:<dest>.\ncopy = []\n",
         toml_string(display_name),
         toml_string(url)
     )
 }
 
-fn static_build_sh(name: &str) -> String {
-    format!(
-        r#"#!/usr/bin/env bash
+const STATIC_BUILD_SH: &str = r#"#!/usr/bin/env bash
 # Builds the site into dist/ on a static host (Netlify, Cloudflare Pages, a
 # CI runner). Installs the Rust toolchain and the lat tool when they are
 # missing; both are cached by the host between builds.
@@ -694,10 +695,8 @@ if ! command -v lat >/dev/null 2>&1; then
   cargo install laterite-cli --locked
 fi
 
-lat theme build --from themes/{name} --out dist
-"#
-    )
-}
+lat theme build --out dist
+"#;
 
 const STATIC_NETLIFY: &str = r#"# Netlify builds the site with build.sh and serves dist/.
 [build]
@@ -726,13 +725,13 @@ no application code.
 
 ## Preview
 
-    lat theme serve --from themes/{name}
+    lat serve
 
 Then open http://127.0.0.1:8080. Every change is picked up on the next load.
 
 ## Build
 
-    lat theme build --from themes/{name}
+    lat theme build
 
 Writes `dist/`, ready for any static host. `build.sh` does the same on a host
 that starts from nothing; `netlify.toml` points Netlify at it.
@@ -1021,10 +1020,14 @@ mod tests {
             config.contains("url = \"https://acme.example\""),
             "{config}"
         );
+        assert!(
+            config.contains("[theme]\nfolder = \"themes/acme\""),
+            "{config}"
+        );
         assert!(dir.join("netlify.toml").is_file());
         assert!(fs::read_to_string(dir.join("build.sh"))
             .unwrap()
-            .contains("lat theme build --from themes/acme --out dist"));
+            .contains("lat theme build --out dist"));
         assert!(!dir.join("Cargo.toml").exists(), "no Rust project");
         assert!(!dir.join("storage").exists(), "no database");
     }

@@ -1,7 +1,9 @@
 //! `lat serve`: run the application found from the current directory upward.
 //!
-//! A Laterite application is a standalone binary that serves itself, so this is
-//! a thin convenience over `cargo run`: it translates `--host`/`--port`/`--listen`
+//! A static website (a project with `[theme] folder`) is previewed from its
+//! theme folder instead, rebuilt on every change. A Laterite application is a
+//! standalone binary that serves itself, so this is a thin convenience over
+//! `cargo run`: it translates `--host`/`--port`/`--listen`
 //! into the `<PREFIX>__SERVER__LISTEN` override the config layer already honours,
 //! under the prefix the app declares, so a quick bind-address change needs no
 //! config edit. With no flags it runs the app on its configured address.
@@ -31,8 +33,23 @@ pub struct ServeArgs {
     release: bool,
 }
 
-pub fn run(args: ServeArgs) -> Result<()> {
+pub async fn run(args: ServeArgs) -> Result<()> {
     let project = Project::locate()?;
+    // A static website has no binary to run: serving it is the theme preview.
+    let site = crate::theme::site_config_of(&project).unwrap_or_default();
+    if let Some(folder) = site.folder.clone() {
+        let listen = resolve_listen(&args, &current_listen(&project));
+        let copies = crate::theme::site_copies(&site)?;
+        return crate::theme::serve(
+            crate::theme::ServeArgs {
+                from: Some(folder),
+                listen: listen.or(site.listen),
+                copy: Vec::new(),
+            },
+            copies,
+        )
+        .await;
+    }
     if !project.root.join("Cargo.toml").is_file() {
         bail!(
             "run `lat serve` inside a Laterite application (one created by `lat new`): \

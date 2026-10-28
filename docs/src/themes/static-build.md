@@ -13,21 +13,23 @@ Flag | Default | Meaning
 --- | --- | ---
 `--out` | `dist` | The output directory.
 `--base-url` | the application's `app.url`, else one derived from `server.listen` | The origin `url()` and the canonical link use.
-`--from <DIR>` | | Build a theme folder with no application; the folder's name is the code. See [Static Website](../getting-started/static-website.md).
-`--copy <SRC>:<DEST>` | none | A directory copied into the output at `<DEST>`. Repeatable.
+`--from <DIR>` | the project's `theme.folder` | Build a theme folder with no application; the folder's name is the code. See [Static Website](../getting-started/static-website.md).
+`--copy <SRC>:<DEST>` | the project's `theme.copy` | A directory copied into the output at `<DEST>`. Repeatable.
 
 ## Preview a theme folder
 
 ```bash
-lat theme serve --from themes/acme
+lat theme serve
 lat theme serve --from themes/acme --listen 127.0.0.1:3000 --copy docs/book:docs
 ```
 
 Flag | Default | Meaning
 --- | --- | ---
-`--from <DIR>` | required | The theme folder.
-`--listen` | `127.0.0.1:8080` | The address.
-`--copy <SRC>:<DEST>` | none | As `build --copy`.
+`--from <DIR>` | the project's `theme.folder` | The theme folder.
+`--listen` | the project's `server.listen`, else `127.0.0.1:8080` | The address.
+`--copy <SRC>:<DEST>` | the project's `theme.copy` | As `build --copy`.
+
+`lat serve` in a project with `theme.folder` is this preview.
 
 ## Load a theme folder from Rust
 
