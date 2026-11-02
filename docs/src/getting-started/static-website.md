@@ -128,8 +128,9 @@ plugin = "rainmill.discovery"
 static = true
 ```
 
-A plugin without `static = true` is refused. A plugin's definitions live
-under `plugins/<module id>/`:
+A plugin without `static = true` is refused at install; one whose module
+answers `supports_static` false stops the build, by name. A plugin's
+definitions live under `plugins/<module id>/`:
 
 ```text
 acme/

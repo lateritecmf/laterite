@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A static build refuses a plugin whose module does not support it, by name; `Bootstrap::build`
+  renders a static website from code.
+
 ## [0.9.27] - 2026-10-28
 
 The Static plugins slice: a static website takes plugins, compiled into a

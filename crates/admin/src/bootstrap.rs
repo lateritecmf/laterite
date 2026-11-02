@@ -218,6 +218,13 @@ impl Bootstrap {
         self.prepare().await?.serve().await
     }
 
+    /// Renders a static website (`[theme] folder` in the config) into `out`:
+    /// the theme folder, every module's seed and site files, then the
+    /// config's copies. `base_url` overrides `app.url` for canonical links.
+    pub async fn build(self, out: &Path, base_url: Option<&str>) -> anyhow::Result<()> {
+        self.prepare().await?.build_static(out, base_url).await
+    }
+
     /// Reads the process's own arguments and does what they ask: `serve`
     /// (the default, as [`Bootstrap::serve`]), `queue work [--once]
     /// [--stop-when-empty] [--queue a,b]` (a worker alone) or `schedule run
@@ -356,6 +363,23 @@ impl Bootstrap {
         // registration so a module's tables and contributions follow its
         // requirements'.
         let ordered = registry.ordered()?;
+
+        // A static website compiles its plugins in, and a plugin's install
+        // marker is a claim; the module's own answer is the check. One that
+        // does not support a static build stops it here, by name, before
+        // anything migrates.
+        if config.theme.folder.is_some() {
+            if let Some(module) = ordered
+                .iter()
+                .find(|m| plugin_ids.contains(m.id().as_str()) && !m.supports_static())
+            {
+                anyhow::bail!(
+                    "the plugin {} does not support a static website (its module answers \
+                     `supports_static` false); remove it with `lat plugin remove`",
+                    module.id()
+                );
+            }
+        }
 
         // Narrow to the modules that will actually load. Config can disable a
         // plugin, and any plugin that requires a disabled one is skipped in turn.

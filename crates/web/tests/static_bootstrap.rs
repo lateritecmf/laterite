@@ -1,0 +1,120 @@
+//! A static website built by `Bootstrap` in static mode: the theme folder,
+//! a plugin's site files, the config's copies; and a plugin that does not
+//! support a static build stops it by name. Imports only the public API.
+
+use laterite_admin::Bootstrap;
+use laterite_core::strata::async_trait;
+use laterite_core::{CoreResult, Module, ModuleId, SiteFile, SiteFilesCx};
+use laterite_web::theme::ThemeModule;
+use std::fs;
+use std::path::Path;
+
+fn project(root: &Path) {
+    fs::create_dir_all(root.join("config")).unwrap();
+    fs::write(
+        root.join("config/default.toml"),
+        "[app]\nname = \"Acme\"\nurl = \"https://acme.example\"\n[theme]\nfolder = \"themes/acme\"\ncopy = [\"static:static\", \"missing:docs\"]\n",
+    )
+    .unwrap();
+    let theme = root.join("themes/acme");
+    fs::create_dir_all(theme.join("layouts")).unwrap();
+    fs::create_dir_all(theme.join("pages")).unwrap();
+    fs::write(theme.join("theme.yaml"), "name: Acme\nauthor: Acme\n").unwrap();
+    fs::write(
+        theme.join("layouts/default.htm"),
+        "<!doctype html><html><head>{{ head }}</head><body>{% block page %}{% endblock %}</body></html>",
+    )
+    .unwrap();
+    fs::write(
+        theme.join("pages/home.htm"),
+        "url: /\nlayout: default\ntitle: Acme\n==\n<h1>{{ this.page.title }}</h1>",
+    )
+    .unwrap();
+    fs::write(
+        theme.join("pages/about.htm"),
+        "url: /about\nlayout: default\ntitle: About\n==\n<h1>About</h1>",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("static")).unwrap();
+    fs::write(root.join("static/site.css"), "body{}").unwrap();
+}
+
+/// A plugin that writes `humans.txt` listing the pages it was told about.
+struct Humans;
+
+struct HumansFile(String);
+
+impl SiteFile for HumansFile {
+    fn path(&self) -> &str {
+        "/humans.txt"
+    }
+    fn content_type(&self) -> std::borrow::Cow<'static, str> {
+        "text/plain".into()
+    }
+    fn render(&self, cx: &laterite_core::SiteContext) -> String {
+        format!("{}\n{}", cx.base_url, self.0)
+    }
+}
+
+#[async_trait]
+impl Module for Humans {
+    fn id(&self) -> ModuleId {
+        ModuleId::new("acme.humans")
+    }
+    fn supports_static(&self) -> bool {
+        true
+    }
+    async fn site_files(&self, cx: &SiteFilesCx<'_>) -> CoreResult<Vec<Box<dyn SiteFile>>> {
+        Ok(vec![Box::new(HumansFile(cx.pages.join(",")))])
+    }
+}
+
+/// A plugin that only works with an admin.
+struct AdminOnly;
+
+impl Module for AdminOnly {
+    fn id(&self) -> ModuleId {
+        ModuleId::new("acme.adminonly")
+    }
+}
+
+#[tokio::test]
+async fn a_static_build_writes_pages_plugin_files_and_copies() {
+    let tmp = tempfile::tempdir().unwrap();
+    project(tmp.path());
+    let out = tmp.path().join("dist");
+    Bootstrap::new(tmp.path().join("config"))
+        .module(ThemeModule)
+        .modules(vec![Box::new(Humans)])
+        .build(&out, None)
+        .await
+        .unwrap();
+    let home = fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(home.contains("<h1>Acme</h1>"), "{home}");
+    assert!(
+        home.contains(r#"<link rel="canonical" href="https://acme.example/">"#),
+        "{home}"
+    );
+    assert!(out.join("about/index.html").is_file());
+    let humans = fs::read_to_string(out.join("humans.txt")).unwrap();
+    assert_eq!(humans, "https://acme.example\n/,/about");
+    assert!(out.join("static/site.css").is_file(), "the config's copy");
+    assert!(
+        !out.join("docs").exists(),
+        "a missing config copy is skipped"
+    );
+}
+
+#[tokio::test]
+async fn a_plugin_without_static_support_stops_the_build_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    project(tmp.path());
+    let err = Bootstrap::new(tmp.path().join("config"))
+        .module(ThemeModule)
+        .modules(vec![Box::new(AdminOnly)])
+        .build(&tmp.path().join("dist"), None)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("acme.adminonly"), "{err:#}");
+    assert!(err.to_string().contains("supports_static"), "{err:#}");
+}
