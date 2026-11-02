@@ -771,6 +771,19 @@ fn clone(dir: &Path, url: &str, folder: Option<&str>) -> Result<Entry> {
     if !status.success() {
         bail!("git clone failed for {url}");
     }
+    // The clone is vendored: its files belong to this application's repo,
+    // so a fresh checkout builds. Keeping `.git` would make the folder an
+    // embedded repository, which git records as an empty pointer. The list's
+    // `source` keeps where it came from.
+    let nested = target.join(".git");
+    if nested.exists() {
+        if nested.is_dir() {
+            fs::remove_dir_all(&nested)
+        } else {
+            fs::remove_file(&nested)
+        }
+        .with_context(|| format!("removing {}", nested.display()))?;
+    }
     Ok(Entry {
         path: name,
         source: Some(url.to_string()),

@@ -275,11 +275,22 @@ impl Bootstrap {
     /// Everything before listening: config, the database, migrations, the
     /// registry, the router, the services.
     async fn prepare(self) -> anyhow::Result<Prepared> {
-        // Log subscriber (RUST_LOG, default below); try_init yields to an app's own.
+        // Log subscriber (RUST_LOG, default below); try_init yields to an app's
+        // own. A static build is a command, not a server: its boot log is
+        // noise beside its own report, so only warnings show by default.
+        let quiet = self
+            .theme_config()
+            .map(|t| t.folder.is_some())
+            .unwrap_or(false);
         let _ = tracing_subscriber::fmt()
             .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,sqlx=warn")),
+                tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                    tracing_subscriber::EnvFilter::new(if quiet {
+                        "warn"
+                    } else {
+                        "info,sqlx=warn"
+                    })
+                }),
             )
             .try_init();
 
@@ -1299,7 +1310,9 @@ pub fn crypt_from_config(
         Some(key) => laterite_core::Crypt::from_config(key, &config.app.previous_keys)
             .map_err(|e| anyhow::anyhow!("app.key: {e}")),
         None => {
-            if !config.app.debug {
+            // A static website seals nothing and signs nothing, so it has no
+            // key to miss.
+            if !config.app.debug && config.theme.folder.is_none() {
                 tracing::warn!(
                     "app.key is not set; the key derives from backend.secret or the stored key. Run `lat key generate`."
                 );

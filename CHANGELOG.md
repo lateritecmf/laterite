@@ -12,6 +12,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A static build refuses a plugin whose module does not support it, by name; `Bootstrap::build`
   renders a static website from code.
 
+### Changed
+
+- A static build's binary logs warnings only by default (`RUST_LOG` overrides) and skips the
+  `app.key` warning.
+- `lat plugin add <git url>` vendors the clone without its `.git`, so the plugin's files are
+  committed with the application instead of an empty embedded-repository pointer.
+
 ## [0.9.27] - 2026-10-28
 
 The Static plugins slice: a static website takes plugins, compiled into a
