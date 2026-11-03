@@ -425,7 +425,12 @@ impl DefaultPersister {
         Self {
             entity: config.entity.clone(),
             id_field: config.id_field.clone(),
-            columns: config.fields.iter().map(|f| f.name.clone()).collect(),
+            columns: config
+                .fields
+                .iter()
+                .filter(|f| !f.transient)
+                .map(|f| f.name.clone())
+                .collect(),
         }
     }
 }
@@ -586,6 +591,29 @@ mod pipeline_tests {
                 .push((format!("update:{id}"), rec.to_text_map()));
             Ok(())
         }
+    }
+
+    /// The built-in writer never names a transient field as a column.
+    #[test]
+    fn the_default_persister_leaves_transient_fields_out() {
+        let config = FormConfig {
+            enter: Default::default(),
+            confirm_leave: true,
+            focus: Default::default(),
+            entity: "samples".to_string(),
+            title: "Sample".into(),
+            base_path: "/admin/samples".to_string(),
+            id_field: "id".to_string(),
+            fields: vec![
+                crate::form::FormField::text("code", "Code"),
+                crate::form::FormField::password("secret", "Secret").transient(),
+            ],
+            persist: None,
+            timestamps: false,
+            done_path: None,
+        };
+        let persister = DefaultPersister::from_config(&config);
+        assert_eq!(persister.columns, vec!["code".to_string()]);
     }
 
     /// Records deletes, and can refuse them.

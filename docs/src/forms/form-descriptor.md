@@ -84,6 +84,7 @@ Key | Default | Description
 `enter` | the form's | `submit`, `off`, `next`.
 `preset`, `trigger` | none | Follows or watches another field. See [Field Dependencies](field-dependencies.md).
 `hidden` | `false` | Submitted but never shown: a plain hidden input carrying its value.
+`transient` | `false` | Shown and submitted with no column behind it: not loaded, not written by the built-in writer; the form's `persist` handler reads it (a password field).
 `translatable` | `false` | Marks the value as translatable content, for a translation plugin to manage.
 
 A key the type does not read is refused, naming the entry and the keys it

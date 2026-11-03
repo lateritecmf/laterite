@@ -73,6 +73,10 @@ pub struct FormField {
     /// Submitted but never shown: a plain hidden input carrying its value. The
     /// foreign key of a related record's form is one.
     pub hidden: bool,
+    /// Shown and submitted with no column behind it: the loader does not
+    /// select it and the built-in writer leaves it out, so a persister reads
+    /// it from the record (a password set through a form, say).
+    pub transient: bool,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
 }
@@ -437,6 +441,7 @@ impl<'de> Deserialize<'de> for FormField {
                         "preset" => field.preset = map.next_value()?,
                         "trigger" => field.trigger = map.next_value()?,
                         "hidden" => field.hidden = map.next_value()?,
+                        "transient" => field.transient = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -476,6 +481,9 @@ impl Serialize for FormField {
         if self.hidden {
             map.serialize_entry("hidden", &true)?;
         }
+        if self.transient {
+            map.serialize_entry("transient", &true)?;
+        }
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
@@ -510,6 +518,7 @@ impl FormField {
             preset: None,
             trigger: None,
             hidden: false,
+            transient: false,
         }
     }
 
@@ -667,6 +676,13 @@ impl FormField {
     /// Starts a new row.
     pub fn break_row(mut self) -> Self {
         self.break_row = true;
+        self
+    }
+
+    /// Marks the field transient: shown and submitted, never loaded from or
+    /// written to a column. The form's persister handles its value.
+    pub fn transient(mut self) -> Self {
+        self.transient = true;
         self
     }
 }
@@ -1437,7 +1453,7 @@ pub(crate) async fn load_values(
     let (sql, values) = {
         let cast = text_cast(db.backend);
         let mut select = Query::select();
-        for field in &form.config.fields {
+        for field in form.config.fields.iter().filter(|f| !f.transient) {
             select.expr_as(
                 Expr::col(Alias::new(&field.name)).cast_as(Alias::new(cast)),
                 Alias::new(&field.name),
@@ -1462,7 +1478,11 @@ pub(crate) async fn load_values(
             .iter()
             .zip(&form.fields)
             .map(|(f, prepared)| {
-                let stored = row.get_text_opt(f.name.as_str()).ok().flatten();
+                let stored = if f.transient {
+                    None
+                } else {
+                    row.get_text_opt(f.name.as_str()).ok().flatten()
+                };
                 let value = prepared
                     .field_type
                     .to_control(stored.as_deref(), &prepared.opts);
@@ -2089,6 +2109,60 @@ mod tests {
             &[],
         )
         .unwrap()
+    }
+
+    /// A transient field is data on the form and nothing in the table: it
+    /// round-trips through the descriptor, and loading a record leaves it
+    /// empty instead of selecting a column that does not exist.
+    #[test]
+    fn a_transient_field_round_trips_through_the_descriptor() {
+        let field = FormField::password("secret", "Secret").transient();
+        let json = serde_json::to_value(&field).unwrap();
+        assert_eq!(json["transient"], serde_json::Value::Bool(true));
+        let back: FormField = serde_json::from_value(json).unwrap();
+        assert!(back.transient);
+        let plain: FormField =
+            serde_json::from_str(r#"{"name":"code","label":"Code","type":"text"}"#).unwrap();
+        assert!(!plain.transient);
+        assert!(!serde_json::to_value(&plain)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("transient"));
+    }
+
+    #[tokio::test]
+    async fn loading_a_record_skips_transient_fields() {
+        let (db, _guard) = test_db().await;
+        sqlx::query("INSERT INTO samples (code, name) VALUES ('c1', 'Chair')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let form = PreparedForm::prepare(
+            FormConfig {
+                enter: Default::default(),
+                confirm_leave: true,
+                focus: Default::default(),
+                entity: "samples".to_string(),
+                title: "Sample".into(),
+                base_path: "/admin/samples".to_string(),
+                id_field: "id".to_string(),
+                fields: vec![
+                    FormField::text("code", "Code").required(),
+                    FormField::password("secret", "Secret").transient(),
+                ],
+                persist: None,
+                timestamps: false,
+                done_path: None,
+            },
+            &crate::field::builtin_registry(),
+            &PersisterRegistry::new(),
+            &[],
+        )
+        .unwrap();
+        let values = load_values(&db, &form, "1").await.unwrap().unwrap();
+        assert_eq!(values.get("code").map(String::as_str), Some("c1"));
+        assert_eq!(values.get("secret").map(String::as_str), Some(""));
     }
 
     /// The whole delete path against a real table: the row is read, the

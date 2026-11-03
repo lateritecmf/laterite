@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `transient: true` on a form field (`FormField::transient()`): shown and
+  submitted with no column behind it, for a persister to read (a password field).
+
 ## [0.9.28] - 2026-11-03
 
 The Static from a database slice: a theme lives in the database, in its
