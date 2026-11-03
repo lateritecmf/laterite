@@ -20,6 +20,9 @@ pub enum ThemeCommand {
     Build(BuildArgs),
     /// Preview a theme folder in the browser, rebuilt on every change.
     Serve(ServeArgs),
+    /// Make the theme's saved changes visible to the host: the source's
+    /// publish step (a git push), then the build hook when one is set.
+    Publish,
 }
 
 #[derive(Args)]
@@ -182,6 +185,17 @@ pub async fn run(command: ThemeCommand, database_url: Option<String>) -> Result<
             let listen = args.listen.or(site.listen.clone());
             project_binary(&root, &["serve".to_string()], listen.as_deref())
         }
+        ThemeCommand::Publish if own_binary => {
+            let root = site.root.clone().unwrap_or_default();
+            project_binary(&root, &["publish".to_string()], None)
+        }
+        ThemeCommand::Publish => {
+            println!(
+                "Nothing to publish from here: a code-free site is published by committing its \
+                 theme folder; a site with a binary publishes through it."
+            );
+            Ok(())
+        }
         ThemeCommand::Serve(mut args) => {
             args.from = args.from.or(site.folder.clone());
             args.listen = args.listen.or(site.listen.clone());
@@ -241,7 +255,9 @@ async fn run_with_db(command: ThemeCommand, db: Db) -> Result<()> {
             let copies = flag_copies(&args.copy)?;
             build(&db, &code, &args, &base_url, &copies).await?;
         }
-        ThemeCommand::Serve(_) => unreachable!("served without a database"),
+        ThemeCommand::Serve(_) | ThemeCommand::Publish => {
+            unreachable!("handled without a database")
+        }
         ThemeCommand::List => {
             let active = laterite_web::theme::active_theme(&db)
                 .await?

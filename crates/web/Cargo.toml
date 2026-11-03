@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# The `git` theme source: the theme folder committed on every save and
+# pushed on publish, through the git command.
+theme-git = []
+
 [dependencies]
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }

@@ -15,8 +15,13 @@ lat theme build    # dist/
 Prompt | Value
 --- | ---
 **What are you building?** | An application with an admin panel, or a static website.
+**Where does the site's content live?** | In this folder as files you edit (`--content files`, what `--static` alone means); in this folder, edited in the admin (`folder`); in this folder, committed by the admin (`git`); in a database with the admin beside it (`database`).
 **Application name** | Any text; its slug names the folder and the theme.
-**Site URL** | The origin canonical links use. Default `https://<slug>.example`.
+**Site URL** | The origin canonical links use.
+**Database**, **Build hook URL** | For `database`: the connection, and the host's hook (blank to set later).
+**First administrator** | For every choice but `files`: username, email, password.
+
+A site whose content is edited in the admin is an application whose build is static: it carries the Cargo project, `src/main.rs` with the theme module, the framework's own tables in `storage/site.db` (or the database named), and the theme folder. `lat serve` runs its admin; `lat theme build` renders `dist/`; `lat theme publish` pushes (`git`) or calls the build hook (`database`). Default `https://<slug>.example`.
 
 ## See what it generates
 
@@ -109,6 +114,48 @@ lat theme build --out dist
 ```
 
 `netlify.toml` points Netlify at it and serves `dist/`.
+
+## Choose where the content lives
+
+```toml
+[theme]
+folder = "themes/acme"
+source = "folder"
+```
+
+Source | The theme is | Edited | Published
+--- | --- | --- | ---
+`database` | the rows in `[database]` | in the admin | `lat theme publish` calls `theme.publish.hook`
+`folder` | the theme folder | in your editor, or in the admin, which writes the files | commit the folder
+`git` | the theme folder | in the admin, which commits every save | `lat theme publish` pushes
+a module's | its own | its own | its own
+
+`folder` and `database` are always available; `git` needs the `theme-git` feature:
+
+```toml
+lateritecmf = { version = "0.9", features = ["sqlite", "theme-git"] }
+```
+
+```toml
+[theme]
+folder = "themes/acme"
+source = "git"
+
+[theme.git]
+remote = "origin"
+branch = "main"
+
+[theme.publish]
+hook = "https://api.netlify.com/build_hooks/..."
+```
+
+Key | Default | Meaning
+--- | --- | ---
+`theme.source` | `database` | The source by code.
+`theme.git.remote`, `theme.git.branch` | `origin`, `main` | Where `publish` pushes.
+`theme.publish.hook` | none | A URL `lat theme publish` posts to after the source published; the host rebuilds on it.
+
+A file-backed source is read in before every build, and every save in the admin is written back. The framework's own tables (users, sessions, settings, logs) stay in `[database]`.
 
 ## Add a plugin
 

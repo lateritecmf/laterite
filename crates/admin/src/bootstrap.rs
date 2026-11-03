@@ -236,13 +236,14 @@ impl Bootstrap {
     /// default) previews it, rebuilt on every change.
     pub async fn run(self) -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let is_static = self.theme_config()?.folder.is_some();
+        // A project with no database of its own has nothing to serve but the
+        // build; one with a database serves its admin, and `build` renders
+        // the theme its source holds.
+        let code_free = self.theme_config()?.folder.is_some() && self.database_unset()?;
         match args.first().map(String::as_str) {
-            None | Some("serve") if is_static => self.prepare().await?.preview().await,
-            Some("build") if is_static => self.prepare().await?.build_from_args(&args[1..]).await,
-            Some("build") => anyhow::bail!(
-                "`build` renders a static website, and this configuration names no `[theme] folder`"
-            ),
+            None | Some("serve") if code_free => self.prepare().await?.preview().await,
+            Some("build") => self.prepare().await?.build_from_args(&args[1..]).await,
+            Some("publish") => self.prepare().await?.publish().await,
             None | Some("serve") => self.serve().await,
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
@@ -251,9 +252,24 @@ impl Bootstrap {
                 self.prepare().await?.tick(&args[2..]).await
             }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `build`, `queue work` or `schedule run`"
+                "unknown command `{other}`: the application takes `serve` (the default), `build`, `publish`, `queue work` or `schedule run`"
             ),
         }
+    }
+
+    /// Whether the configuration names no database.
+    fn database_unset(&self) -> anyhow::Result<bool> {
+        #[derive(Deserialize, Default)]
+        struct Only {
+            #[serde(default)]
+            database: DatabaseConfig,
+        }
+        let env_prefix = resolve_env_prefix(
+            self.env_prefix.clone(),
+            config::declared_env_prefix(&self.config_dir)?,
+        );
+        let only: Only = config::load(&self.config_dir, &env_prefix)?;
+        Ok(only.database.is_unset())
     }
 
     /// The `[theme]` section alone, read before anything else so the binary
@@ -488,6 +504,17 @@ impl Bootstrap {
                 }
             }
         }
+        // The project itself, for a module whose boot or screens read where
+        // the theme lives: the theme module pulls a file-backed source here.
+        contributions.set_owner(FRAMEWORK_OWNER);
+        contributions.add(crate::statics::SiteProject {
+            root: self
+                .config_dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(".")),
+            theme: config.theme.clone(),
+        });
         // Resolve where each module's screens mount before any route is built,
         // so a namespace, a declared base and a deployment override all land in
         // one place and a clash is caught below.
@@ -822,20 +849,20 @@ impl Bootstrap {
             std::sync::Arc::new(catalogs.build()),
         );
 
-        let static_site = config.theme.folder.as_ref().map(|folder| {
+        let static_site = {
             let root = self
                 .config_dir
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_else(|| PathBuf::from("."));
             StaticSite {
-                root: root.clone(),
-                folder: root.join(folder),
-                copies: config.theme.copy.clone(),
+                folder: config.theme.folder.as_ref().map(|f| root.join(f)),
+                root,
+                theme: config.theme.clone(),
                 origin: origin.clone(),
                 plugin_defined: std::sync::Arc::clone(&plugin_defined),
             }
-        });
+        };
         if let Some(extend) = self.extend {
             let ctx = BootstrapCtx {
                 db: db.clone(),
@@ -866,14 +893,17 @@ impl Bootstrap {
     }
 }
 
+/// The owner of the contributions the framework itself makes at boot.
+const FRAMEWORK_OWNER: laterite_core::ModuleId = laterite_core::ModuleId::new("laterite.backend");
+
 /// What a static website's build needs beyond the prepared application.
 struct StaticSite {
     /// The project root, the directory holding `config/`.
     root: PathBuf,
-    /// The theme folder, absolute.
-    folder: PathBuf,
-    /// The config's `theme.copy` values.
-    copies: Vec<String>,
+    /// The theme folder, absolute, when the config names one.
+    folder: Option<PathBuf>,
+    /// The `[theme]` section.
+    theme: laterite_core::config::ThemeConfig,
     /// The site's origin from `app.url`, else the listen address.
     origin: String,
     plugin_defined: std::sync::Arc<Registry>,
@@ -892,7 +922,7 @@ struct Prepared {
     registry: ModuleRegistry,
     /// The ids of the modules that loaded, in dependency order.
     active_ids: Vec<String>,
-    static_site: Option<StaticSite>,
+    static_site: StaticSite,
 }
 
 impl Prepared {
@@ -927,9 +957,7 @@ impl Prepared {
     /// every module's seed, the pages through the contributed renderer, the
     /// modules' site files, then the config's copies.
     async fn build_static(&self, out: &Path, base_url: Option<&str>) -> anyhow::Result<()> {
-        let site = self.static_site.as_ref().context(
-            "this configuration names no `[theme] folder`, so there is nothing to build",
-        )?;
+        let site = &self.static_site;
         let renderer = site
             .plugin_defined
             .contributions::<crate::statics::StaticRendererReg>()
@@ -941,7 +969,8 @@ impl Prepared {
         std::fs::create_dir_all(out)?;
         let cx = crate::statics::StaticBuildCx {
             db: &self.db,
-            folder: &site.folder,
+            root: &site.root,
+            theme: &site.theme,
             out,
             base_url,
             contributions: &site.plugin_defined,
@@ -991,7 +1020,7 @@ impl Prepared {
                 println!("  {} ({})", file.path(), module.id());
             }
         }
-        for copy in crate::statics::Copy::parse(&site.copies, &site.root, false)? {
+        for copy in crate::statics::Copy::parse(&site.theme.copy, &site.root, false)? {
             if copy.apply(out)? {
                 println!(
                     "Copied {} to {}/{}",
@@ -1004,16 +1033,39 @@ impl Prepared {
         Ok(())
     }
 
+    /// `publish`: makes the pushed theme changes visible to the host through
+    /// the renderer's source, then calls the build hook when one is set.
+    async fn publish(self) -> anyhow::Result<()> {
+        let site = &self.static_site;
+        let renderer = site
+            .plugin_defined
+            .contributions::<crate::statics::StaticRendererReg>()
+            .into_iter()
+            .next()
+            .map(|c| std::sync::Arc::clone(&c.item.0))
+            .context("no static renderer is registered: add `.module(ThemeModule)` in main")?;
+        let cx = crate::statics::StaticBuildCx {
+            db: &self.db,
+            root: &site.root,
+            theme: &site.theme,
+            out: Path::new("dist"),
+            base_url: &site.origin,
+            contributions: &site.plugin_defined,
+        };
+        let note = renderer.publish(&cx).await?;
+        println!("{note}");
+        if let Some(hook) = &site.theme.publish.hook {
+            crate::statics::call_hook(hook).await?;
+            println!("Called the build hook.");
+        }
+        Ok(())
+    }
+
     /// Serves the static website from a scratch build, rebuilt on change.
     async fn preview(self) -> anyhow::Result<()> {
-        let folder = self
-            .static_site
-            .as_ref()
-            .context(
-                "this configuration names no `[theme] folder`, so there is nothing to preview",
-            )?
-            .folder
-            .clone();
+        let folder = self.static_site.folder.clone().context(
+            "this configuration names no `[theme] folder`, so there is nothing to preview",
+        )?;
         let listen = self.listen.clone();
         let prepared = std::sync::Arc::new(self);
         let rebuild: crate::statics::Rebuild = std::sync::Arc::new(move |out: PathBuf| {

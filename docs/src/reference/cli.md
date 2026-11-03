@@ -14,7 +14,7 @@ lat <command> --help
 
 Command | Description | Options | Example
 --- | --- | --- | ---
-`new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a theme folder with no database. `--plugin <SOURCE>`: install a plugin, repeatable. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme Blog"`
+`new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a static website. `--content files\|folder\|git\|database`: where its content lives, default `files`. `--plugin <SOURCE>`: install a plugin, repeatable. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme" --static --content git`
 `make:migration <DESCRIPTION>` | Scaffold a migration file in this crate's `src/migrations/`. | `--path <PATH>`: the crate directory, default `.`. | `lat make:migration create_articles`
 `make:plugin <ID>` | Scaffold a plugin crate; `<ID>` is `vendor.name`. | `--path <PATH>`: where to create it, default `.`. `--admin`: scaffold the admin half. | `lat make:plugin acme.blog --admin`
 `make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. | `lat make:resource article --field title:text,body:text`
@@ -72,6 +72,7 @@ Command | Description | Options | Example
 `theme list` | List the themes. | None. | `lat theme list`
 `theme build [CODE]` | Render a theme's fixed pages and assets to a directory, for a static host. | `--from <DIR>`: a theme folder instead of the database, default `theme.folder`. `-o, --out <DIR>`, default `dist`. `--base-url <URL>`, default `app.url`, else one derived from `server.listen`. `--copy <SRC>:<DEST>`: a directory copied into the output; repeatable, added to `theme.copy`. | `lat theme build --copy docs/book:docs`
 `theme serve` | Preview a theme folder, rebuilt on every change. | `--from <DIR>`, default `theme.folder`. `--listen <HOST:PORT>`, default `server.listen`. `--copy <SRC>:<DEST>`. | `lat theme serve`
+`theme publish` | Make the theme's saved changes visible to the host: the source's publish step, then `theme.publish.hook`. | None. | `lat theme publish`
 
 ## Media
 

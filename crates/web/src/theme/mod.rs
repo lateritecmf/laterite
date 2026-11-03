@@ -35,6 +35,7 @@ pub mod router;
 mod schema;
 pub mod site;
 pub mod snippet;
+pub mod source;
 pub mod store;
 
 pub use engine::{check, variant, Engine, EngineCache, RenderError};
@@ -51,17 +52,45 @@ pub const NAMESPACE: &str = "laterite.theme::templates";
 pub struct Themes {
     db: Db,
     cache: laterite_core::Cache,
+    /// The theme source every write is pushed to, with its project; `None`
+    /// writes the rows alone.
+    source: Option<(std::sync::Arc<dyn source::ThemeSource>, source::SiteProject)>,
 }
 
 impl Themes {
     pub fn new(db: Db, cache: laterite_core::Cache) -> Self {
         cache.allow(NAMESPACE);
-        Self { db, cache }
+        Self {
+            db,
+            cache,
+            source: None,
+        }
     }
 
-    /// The store a route writes through.
+    /// A store that pushes every write to `source` in `project`.
+    pub fn with_source(
+        mut self,
+        source: std::sync::Arc<dyn source::ThemeSource>,
+        project: source::SiteProject,
+    ) -> Self {
+        self.source = Some((source, project));
+        self
+    }
+
+    /// The store a route writes through: with the project's source when the
+    /// application contributed one.
     pub fn of(ctx: &laterite_admin::routes::RouteCtx) -> Self {
-        Self::new(ctx.db().clone(), ctx.cache().clone())
+        let store = Self::new(ctx.db().clone(), ctx.cache().clone());
+        match ctx.contributions::<source::SiteProject>().first() {
+            Some(project) => match source::resolve(ctx.plugin_defined(), &project.theme) {
+                Ok(source) => store.with_source(source, (*project).clone()),
+                Err(e) => {
+                    tracing::error!(error = %e, "the theme source is not available");
+                    store
+                }
+            },
+            None => store,
+        }
     }
 
     pub fn db(&self) -> &Db {
@@ -73,10 +102,56 @@ impl Themes {
         outcome
     }
 
+    /// Pushes a change to the source once the rows hold it.
+    async fn pushed<T>(
+        &self,
+        outcome: Result<T, ThemeError>,
+        change: source::Change,
+    ) -> Result<T, ThemeError> {
+        let outcome = self.bumped(outcome).await?;
+        if let Some((source, project)) = &self.source {
+            let cx = source::SourceCx {
+                db: &self.db,
+                root: &project.root,
+                config: &project.theme,
+            };
+            source.push(&cx, &change).await?;
+        }
+        Ok(outcome)
+    }
+
+    /// The code of the theme with `theme_id`.
+    async fn theme_code(&self, theme_id: i64) -> Result<String, ThemeError> {
+        store::theme_by_id(&self.db, theme_id).await.map(|t| t.code)
+    }
+
+    /// Makes the pushed changes visible to the host, through the source.
+    pub async fn publish(&self) -> Result<source::Published, ThemeError> {
+        match &self.source {
+            Some((source, project)) => {
+                let cx = source::SourceCx {
+                    db: &self.db,
+                    root: &project.root,
+                    config: &project.theme,
+                };
+                source.publish(&cx).await
+            }
+            None => Ok(source::Published {
+                note: "no theme source is configured".into(),
+            }),
+        }
+    }
+
     /// See [`store::create_theme`].
     pub async fn create_theme(&self, code: &str, config_yaml: &str) -> Result<Theme, ThemeError> {
         let outcome = store::create_theme(&self.db, code, config_yaml).await;
-        self.bumped(outcome).await
+        self.pushed(
+            outcome,
+            source::Change::Theme {
+                theme: code.to_string(),
+            },
+        )
+        .await
     }
 
     /// See [`store::update_theme_config`].
@@ -86,7 +161,13 @@ impl Themes {
         config_yaml: &str,
     ) -> Result<Theme, ThemeError> {
         let outcome = store::update_theme_config(&self.db, code, config_yaml).await;
-        self.bumped(outcome).await
+        self.pushed(
+            outcome,
+            source::Change::Config {
+                theme: code.to_string(),
+            },
+        )
+        .await
     }
 
     /// See [`store::save_settings`].
@@ -96,7 +177,13 @@ impl Themes {
         settings: &serde_json::Value,
     ) -> Result<(), ThemeError> {
         let outcome = store::save_settings(&self.db, code, settings).await;
-        self.bumped(outcome).await
+        self.pushed(
+            outcome,
+            source::Change::Settings {
+                theme: code.to_string(),
+            },
+        )
+        .await
     }
 
     /// See [`store::set_locked`].
@@ -140,13 +227,37 @@ impl Themes {
     ) -> Result<Template, ThemeError> {
         let outcome =
             store::save_template(&self.db, theme_id, kind, path, settings, markup, saved_by).await;
-        self.bumped(outcome).await
+        let theme = self.theme_code(theme_id).await?;
+        self.pushed(
+            outcome,
+            source::Change::Template {
+                theme,
+                kind,
+                path: path.to_string(),
+            },
+        )
+        .await
     }
 
     /// See [`store::delete_template`].
     pub async fn delete_template(&self, id: i64) -> Result<(), ThemeError> {
+        let removed = store::template(&self.db, id).await?;
         let outcome = store::delete_template(&self.db, id).await;
-        self.bumped(outcome).await
+        match removed {
+            Some(t) => {
+                let theme = self.theme_code(t.theme_id).await?;
+                self.pushed(
+                    outcome,
+                    source::Change::TemplateRemoved {
+                        theme,
+                        kind: t.kind,
+                        path: t.path,
+                    },
+                )
+                .await
+            }
+            None => self.bumped(outcome).await,
+        }
     }
 
     /// See [`store::restore_revision`].
@@ -156,7 +267,14 @@ impl Themes {
         saved_by: Option<i64>,
     ) -> Result<Template, ThemeError> {
         let outcome = store::restore_revision(&self.db, revision_id, saved_by).await;
-        self.bumped(outcome).await
+        let restored = self.bumped(outcome).await?;
+        let theme = self.theme_code(restored.theme_id).await?;
+        let change = source::Change::Template {
+            theme,
+            kind: restored.kind,
+            path: restored.path.clone(),
+        };
+        self.pushed(Ok(restored), change).await
     }
 
     /// See [`archive::import`].
@@ -168,7 +286,13 @@ impl Themes {
         saved_by: Option<i64>,
     ) -> Result<archive::ImportReport, ThemeError> {
         let outcome = archive::import(&self.db, code, bytes, replace, saved_by).await;
-        self.bumped(outcome).await
+        self.pushed(
+            outcome,
+            source::Change::Theme {
+                theme: code.to_string(),
+            },
+        )
+        .await
     }
 }
 
@@ -200,6 +324,7 @@ use std::str::FromStr;
 /// registers the Themes screen under `web.manage_themes`.
 pub struct ThemeModule;
 
+#[laterite_core::strata::async_trait]
 impl Module for ThemeModule {
     fn id(&self) -> ModuleId {
         ModuleId::new(migrations::MODULE_ID)
@@ -211,6 +336,32 @@ impl Module for ThemeModule {
     /// static project.
     fn supports_static(&self) -> bool {
         true
+    }
+    /// A file-backed theme source is pulled into the rows, so the site and
+    /// the admin see the files as they stand.
+    async fn boot(&self, cx: &laterite_core::BootCx<'_>) -> laterite_core::CoreResult<()> {
+        let Some(project) = cx
+            .registry
+            .contributions::<source::SiteProject>()
+            .first()
+            .map(|c| c.item.clone())
+        else {
+            return Ok(());
+        };
+        if !project.theme.is_file_backed() {
+            return Ok(());
+        }
+        let source = source::resolve(cx.registry, &project.theme)
+            .map_err(|e| laterite_core::CoreError::Config(e.to_string()))?;
+        let scx = source::SourceCx {
+            db: cx.db,
+            root: &project.root,
+            config: &project.theme,
+        };
+        source
+            .pull(&scx)
+            .await
+            .map_err(|e| laterite_core::CoreError::Config(format!("theme source: {e}")))
     }
     /// The Themes screen mounts at the panel's top level (`/admin/themes`),
     /// reached from the settings index.
@@ -232,6 +383,19 @@ impl Module for ThemeModule {
         registry.add_screen(admin::screen_with(std::sync::Arc::clone(&components)));
         registry.add_public_route(site::route());
         registry.add_static_renderer(std::sync::Arc::new(folder::Renderer));
+        registry.add(source::ThemeSourceReg::new(
+            "database",
+            std::sync::Arc::new(source::Database),
+        ));
+        registry.add(source::ThemeSourceReg::new(
+            "folder",
+            std::sync::Arc::new(source::Folder),
+        ));
+        #[cfg(feature = "theme-git")]
+        registry.add(source::ThemeSourceReg::new(
+            "git",
+            std::sync::Arc::new(source::Git),
+        ));
         registry.add_snippet_source(std::sync::Arc::new(snippet::Source));
         registry.add_snippet_source(std::sync::Arc::new(snippet::ComponentSource { components }));
     }

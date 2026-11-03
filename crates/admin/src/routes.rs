@@ -253,6 +253,12 @@ impl RouteCtx {
     /// it from their `register`, and the route reads them here: the framework
     /// never learns the type, and registration order does not matter because
     /// everything is collected before any route runs.
+    /// Every contribution the framework did not consume, for a module that
+    /// resolves another's by code.
+    pub fn plugin_defined(&self) -> &Registry {
+        &self.plugin_defined
+    }
+
     pub fn contributions<T: Send + Sync + 'static>(&self) -> Vec<&T> {
         self.plugin_defined.items::<T>()
     }

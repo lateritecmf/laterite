@@ -467,7 +467,7 @@ pub async fn chain(db: &Db, code: &str) -> Result<Vec<Theme>, ThemeError> {
     Ok(out)
 }
 
-async fn theme_by_id(db: &Db, id: i64) -> Result<Theme, ThemeError> {
+pub async fn theme_by_id(db: &Db, id: i64) -> Result<Theme, ThemeError> {
     let (sql, values) = build(
         db.backend,
         Query::select()

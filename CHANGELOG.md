@@ -9,6 +9,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Theme sources (`laterite_web::theme::source`): `[theme] source` chooses where the theme lives,
+  `database` or `folder` built in, `git` behind `theme-git`; the admin writes every save through it.
+- `Bootstrap` takes `build` for any project and `publish` (the source's publish, then
+  `theme.publish.hook`); `lat theme publish`.
+
 - A static build refuses a plugin whose module does not support it, by name; `Bootstrap::build`
   renders a static website from code.
 

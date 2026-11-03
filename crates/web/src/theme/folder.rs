@@ -82,8 +82,34 @@ impl laterite_admin::statics::StaticRenderer for Renderer {
         &self,
         cx: &laterite_admin::statics::StaticBuildCx<'_>,
     ) -> anyhow::Result<String> {
-        let (code, _) = load_into(cx.db, cx.folder).await?;
-        Ok(code)
+        let source = super::source::resolve(cx.contributions, cx.theme)?;
+        let scx = super::source::SourceCx {
+            db: cx.db,
+            root: cx.root,
+            config: cx.theme,
+        };
+        source.pull(&scx).await?;
+        // A file-backed theme is the folder's; the rows' is the active one.
+        if cx.theme.is_file_backed() {
+            return Ok(scx.folder_code()?);
+        }
+        super::active_theme(cx.db)
+            .await?
+            .map(|t| t.code)
+            .context("no theme is active: pick one in the admin, or name a [theme] folder")
+    }
+
+    async fn publish(
+        &self,
+        cx: &laterite_admin::statics::StaticBuildCx<'_>,
+    ) -> anyhow::Result<String> {
+        let source = super::source::resolve(cx.contributions, cx.theme)?;
+        let scx = super::source::SourceCx {
+            db: cx.db,
+            root: cx.root,
+            config: cx.theme,
+        };
+        Ok(source.publish(&scx).await?.note)
     }
 
     async fn build(

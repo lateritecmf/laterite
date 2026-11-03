@@ -39,6 +39,12 @@ pub struct NewArgs {
     /// A static website gets a Cargo project with its first plugin.
     #[arg(long = "plugin", value_name = "SOURCE")]
     pub plugins: Vec<String>,
+    /// Where a static website's content lives: `files` (this folder, edited
+    /// in your editor), `folder` (this folder, edited in the admin), `git`
+    /// (this folder, committed by the admin) or `database`. Prompted if
+    /// omitted; `--static` alone means `files`.
+    #[arg(long, value_enum)]
+    pub content: Option<Content>,
 }
 
 /// The database connection the installer assembled.
@@ -91,7 +97,13 @@ pub async fn run(args: NewArgs) -> Result<()> {
     if !is_writable(Path::new(".")) {
         bail!("the current directory is not writable; run this where you can create '{name}'");
     }
-    if static_site {
+    let content = match (static_site, args.content) {
+        (false, _) => None,
+        (true, Some(content)) => Some(content),
+        (true, None) if args.r#static => Some(Content::Files),
+        (true, None) => Some(ask_content(&theme)?),
+    };
+    if content == Some(Content::Files) {
         let url = site_url(&theme, &name)?;
         scaffold_static(&dir, &name, &display_name, &url).context("could not scaffold the site")?;
         println!("Scaffolded ./{name}");
@@ -108,6 +120,20 @@ pub async fn run(args: NewArgs) -> Result<()> {
         println!("    lat theme build    # write dist/ for any static host");
         return Ok(());
     }
+    // A static website with an admin is an application whose build is
+    // static: the same scaffold, plus the theme folder and `[theme]`.
+    let site = match content {
+        Some(content) => Some(SiteShape {
+            content,
+            url: site_url(&theme, &name)?,
+            hook: if content == Content::Database {
+                build_hook(&theme)?
+            } else {
+                None
+            },
+        }),
+        None => None,
+    };
     // The generated app is a Rust project; warn (not fail) if the toolchain is
     // absent, since it is needed to build and run what we scaffold.
     if !has_cargo() {
@@ -119,7 +145,12 @@ pub async fn run(args: NewArgs) -> Result<()> {
 
     let timezone = timezone(&theme)?;
     let listen = listen_address(&theme)?;
-    let conn = connection(&theme, &name)?;
+    // A folder or git site keeps the framework's own tables in SQLite and
+    // asks nothing; the database shape asks where the content lives.
+    let conn = match site.as_ref().map(|s| s.content) {
+        Some(Content::Folder) | Some(Content::Git) => sqlite_connection(),
+        _ => connection(&theme, &name)?,
+    };
 
     // Scaffold first so the app's storage directory exists before a SQLite
     // database is created inside it.
@@ -131,9 +162,14 @@ pub async fn run(args: NewArgs) -> Result<()> {
         &listen,
         &conn,
         framework.as_deref(),
+        site.as_ref(),
     )
     .context("could not scaffold the project")?;
     println!("Scaffolded ./{name}");
+    for source in &args.plugins {
+        crate::plugin::add_plugin(&dir, source, None)
+            .with_context(|| format!("could not add the plugin {source}"))?;
+    }
 
     // Connect, offering to create the database if it does not exist yet.
     let db = connect(&theme, &conn, &dir)
@@ -141,7 +177,14 @@ pub async fn run(args: NewArgs) -> Result<()> {
         .context("could not reach the database")?;
     println!("Connected to the database.");
 
-    laterite_core::migration::run(&db.pool, db.backend, &laterite_admin::builtin_migrations())
+    let mut migrations = laterite_admin::builtin_migrations();
+    if site.is_some() {
+        // A site's binary registers the theme module, so its tables come now.
+        migrations.push(laterite_core::Module::migrations(
+            &laterite_web::theme::ThemeModule,
+        ));
+    }
+    laterite_core::migration::run(&db.pool, db.backend, &migrations)
         .await
         .context("could not apply the framework migrations")?;
     println!("Applied the framework migrations.");
@@ -150,12 +193,71 @@ pub async fn run(args: NewArgs) -> Result<()> {
         .await
         .context("could not create the administrator")?;
 
+    // The database shape starts from the scaffolded theme: imported once and
+    // made the site's theme, so the first build and the admin have it.
+    if site
+        .as_ref()
+        .is_some_and(|s| s.content == Content::Database)
+    {
+        let folder = dir.join("themes").join(&name);
+        laterite_web::theme::folder::load_into(&db, &folder)
+            .await
+            .context("could not import the starting theme")?;
+        laterite_web::theme::set_active_theme(&db, &name)
+            .await
+            .context("could not make the starting theme active")?;
+        println!("Imported themes/{name} into the database as the site's theme.");
+    }
+
     let admin_url = format!("{}/admin", laterite_core::config::base_url(None, &listen));
     println!("\nDone. Next steps:\n");
     println!("    cd {name}");
-    println!("    cargo run          # or: lat serve");
-    println!("\nThen open {admin_url} and sign in.");
+    match site.as_ref().map(|s| s.content) {
+        Some(Content::Folder) => {
+            println!("    lat serve            # the admin at {admin_url}, the site beside it");
+            println!(
+                "    lat theme build      # render dist/ from themes/{name}, as the host does"
+            );
+            println!("\nEvery save in the admin writes themes/{name}; commit it to publish.");
+        }
+        Some(Content::Git) => {
+            println!("    lat serve            # the admin at {admin_url}, the site beside it");
+            println!("    lat theme publish    # push the commits the admin made");
+            println!("    lat theme build      # render dist/, as the host does on push");
+        }
+        Some(Content::Database) => {
+            println!("    lat serve            # the admin at {admin_url}, the site beside it");
+            println!("    lat theme build      # render dist/ from the database, as the host does");
+            println!("    lat theme publish    # call the build hook");
+            println!(
+                "\nDeploy the admin beside the database, and give the host LAT__DATABASE__URL."
+            );
+        }
+        _ => {
+            println!("    cargo run          # or: lat serve");
+            println!("\nThen open {admin_url} and sign in.");
+        }
+    }
     Ok(())
+}
+
+/// A static website with an admin: what `lat new` asked beyond an application.
+struct SiteShape {
+    content: Content,
+    url: String,
+    hook: Option<String>,
+}
+
+/// The framework's own tables in a SQLite file under `storage/`.
+fn sqlite_connection() -> Connection {
+    let rel = "storage/site.db";
+    Connection {
+        backend: DbBackend::Sqlite,
+        config_url: format!("sqlite://{rel}?mode=rwc"),
+        admin_url: None,
+        db_name: None,
+        sqlite_relpath: Some(rel.to_string()),
+    }
 }
 
 /// Asks what is being made: an application (true) or a static website.
@@ -169,6 +271,62 @@ fn ask_application(theme: &ColorfulTheme) -> Result<bool> {
         .default(0)
         .interact()?
         == 0)
+}
+
+/// Where a static website's content lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Content {
+    /// The theme folder, edited in your editor; no binary, no database.
+    Files,
+    /// The theme folder, edited in the admin, which writes the files.
+    Folder,
+    /// The theme folder, committed by the admin on every save.
+    Git,
+    /// The database, with the admin beside it; the host builds from it.
+    Database,
+}
+
+impl Content {
+    /// The `[theme] source` code the choice sets.
+    fn source(self) -> &'static str {
+        match self {
+            Content::Files | Content::Folder => "folder",
+            Content::Git => "git",
+            Content::Database => "database",
+        }
+    }
+}
+
+/// Asks where a static website's content lives.
+fn ask_content(theme: &ColorfulTheme) -> Result<Content> {
+    Ok(
+        match Select::with_theme(theme)
+            .with_prompt("Where does the site's content live?")
+            .items(&[
+                "In this folder, as files you edit",
+                "In this folder, edited in the admin",
+                "In this folder, committed by the admin (git)",
+                "In a database, with the admin beside it",
+            ])
+            .default(0)
+            .interact()?
+        {
+            0 => Content::Files,
+            1 => Content::Folder,
+            2 => Content::Git,
+            _ => Content::Database,
+        },
+    )
+}
+
+/// Prompts for the host's build hook, for the database shape.
+fn build_hook(theme: &ColorfulTheme) -> Result<Option<String>> {
+    let hook: String = Input::with_theme(theme)
+        .with_prompt("Build hook URL (blank to set later in config)")
+        .allow_empty(true)
+        .interact_text()?;
+    let hook = hook.trim().to_string();
+    Ok((!hook.is_empty()).then_some(hook))
 }
 
 /// Prompts for the site's origin, written to `config/default.toml` as
@@ -497,6 +655,7 @@ async fn create_admin(theme: &ColorfulTheme, db: &Db) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scaffold(
     dir: &Path,
     name: &str,
@@ -505,6 +664,7 @@ fn scaffold(
     listen: &str,
     conn: &Connection,
     framework: Option<&Path>,
+    site: Option<&SiteShape>,
 ) -> Result<()> {
     fs::create_dir_all(dir.join("src"))?;
     fs::create_dir_all(dir.join("config"))?;
@@ -526,11 +686,22 @@ fn scaffold(
         DbBackend::Sqlite => "sqlite",
     };
 
+    let mut features = vec![feature];
+    if site.is_some_and(|s| s.content == Content::Git) {
+        features.push("theme-git");
+    }
     write(
         dir.join("Cargo.toml"),
-        &cargo_toml(name, feature, framework),
+        &cargo_toml(name, &features, framework),
     )?;
-    write(dir.join("src/main.rs"), MAIN_RS)?;
+    write(
+        dir.join("src/main.rs"),
+        if site.is_some() {
+            SITE_MAIN_RS
+        } else {
+            MAIN_RS
+        },
+    )?;
     // The plugin layout: an empty list and an empty generated manifest, so
     // `lat plugin add` works here immediately instead of needing the workspace,
     // the dependency and the `.modules` call wired by hand.
@@ -540,14 +711,124 @@ fn scaffold(
     write(dir.join("src/migrations/mod.rs"), &migrations_mod_rs(name))?;
     write(
         dir.join("config/default.toml"),
-        &default_toml(display_name, timezone, listen),
+        &default_toml(display_name, timezone, listen, site.map(|s| (name, s))),
     )?;
     write(dir.join("config/local.toml"), &local_toml(&conn.config_url))?;
-    write(dir.join(".gitignore"), GITIGNORE)?;
-    write(dir.join("README.md"), &readme(display_name))?;
+    match site {
+        Some(shape) => {
+            write(dir.join(".gitignore"), &format!("{GITIGNORE}/dist\n"))?;
+            write(
+                dir.join("README.md"),
+                &site_readme(display_name, name, shape),
+            )?;
+            // The theme folder is the site for the folder and git shapes, and
+            // the starting point the database shape imports.
+            write_theme_files(&dir.join("themes").join(name), display_name)?;
+            write(dir.join("build.sh"), STATIC_BUILD_SH)?;
+            write(dir.join("netlify.toml"), STATIC_NETLIFY)?;
+        }
+        None => {
+            write(dir.join(".gitignore"), GITIGNORE)?;
+            write(dir.join("README.md"), &readme(display_name))?;
+        }
+    }
     // Track the otherwise-empty storage directory, but not its contents.
     write(dir.join("storage/.gitkeep"), "")?;
     Ok(())
+}
+
+/// The `main` of a static website with an admin: the theme module is in,
+/// and `Bootstrap` builds statically on `build`, serves the admin otherwise.
+const SITE_MAIN_RS: &str = r#"//! A Laterite static website with an admin.
+//!
+//! `main` hands off to the framework's `Bootstrap`: `serve` runs the admin
+//! (and the site beside it, for preview), `build` renders the theme its source
+//! holds into `dist/`, `publish` makes saved changes visible to the host.
+//! `lat serve`, `lat theme build` and `lat theme publish` run this binary.
+
+use lateritecmf::prelude::*;
+use lateritecmf::web::theme::ThemeModule;
+
+mod migrations;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    Bootstrap::new("config")
+        .module(ThemeModule)
+        // Every plugin under plugins/, as listed in plugins/plugins.toml.
+        .modules(plugins_manifest::all())
+        .module(migrations::AppModule)
+        .run()
+        .await
+}
+"#;
+
+fn site_readme(display_name: &str, name: &str, shape: &SiteShape) -> String {
+    let (edit, publish) = match shape.content {
+        Content::Folder => (
+            format!("Every save in the admin writes a file under `themes/{name}/`."),
+            "Commit the theme folder; the host builds on push.".to_string(),
+        ),
+        Content::Git => (
+            format!("Every save in the admin commits a file under `themes/{name}/`."),
+            "`lat theme publish` pushes the commits; the host builds on push.".to_string(),
+        ),
+        _ => (
+            "Every save in the admin writes the database.".to_string(),
+            "`lat theme publish` calls the host's build hook (`theme.publish.hook`); the host \
+             builds from the database it reaches through `LAT__DATABASE__URL`."
+                .to_string(),
+        ),
+    };
+    format!(
+        r#"# {display_name}
+
+A static website with an admin, built with Laterite. The site is rendered to
+`dist/`; the admin edits it.
+
+## Edit
+
+    lat serve
+
+Then open http://127.0.0.1:8080/admin and sign in. {edit}
+
+## Build
+
+    lat theme build
+
+Writes `dist/`, ready for any static host; `build.sh` does the same on a host
+that starts from nothing, and `netlify.toml` points Netlify at it.
+
+## Publish
+
+{publish}
+"#
+    )
+}
+
+/// Writes the starting theme: a layout, three pages, a nav partial, a
+/// content block and a stylesheet.
+fn write_theme_files(theme_dir: &Path, display_name: &str) -> Result<()> {
+    for sub in ["layouts", "pages", "partials", "content", "assets/css"] {
+        fs::create_dir_all(theme_dir.join(sub))?;
+    }
+    write(
+        theme_dir.join("theme.yaml"),
+        &static_theme_yaml(display_name),
+    )?;
+    write(theme_dir.join("layouts/default.htm"), STATIC_LAYOUT)?;
+    write(theme_dir.join("pages/home.htm"), &static_home(display_name))?;
+    write(theme_dir.join("pages/about.htm"), STATIC_ABOUT)?;
+    write(theme_dir.join("pages/404.htm"), STATIC_404)?;
+    write(
+        theme_dir.join("partials/nav.htm"),
+        &static_nav(display_name),
+    )?;
+    write(
+        theme_dir.join("content/intro.md"),
+        &static_intro(display_name),
+    )?;
+    write(theme_dir.join("assets/css/site.css"), STATIC_CSS)
 }
 
 /// Gives a static website a Cargo project of its own, so plugins compile
@@ -566,7 +847,7 @@ pub(crate) fn scaffold_static_crate(root: &Path, framework: Option<&Path>) -> Re
     fs::create_dir_all(root.join("src"))?;
     write(
         root.join("Cargo.toml"),
-        &cargo_toml(&name, "sqlite", framework),
+        &cargo_toml(&name, &["sqlite"], framework),
     )?;
     write(root.join("src/main.rs"), STATIC_MAIN_RS)?;
     fs::create_dir_all(root.join("plugins"))?;
@@ -603,28 +884,8 @@ async fn main() -> anyhow::Result<()> {
 /// Writes a static website: a theme folder in its export layout, the site
 /// config its base URL is read from, and a deploy script for a static host.
 fn scaffold_static(dir: &Path, name: &str, display_name: &str, url: &str) -> Result<()> {
-    let theme_dir = dir.join("themes").join(name);
-    for sub in ["layouts", "pages", "partials", "content", "assets/css"] {
-        fs::create_dir_all(theme_dir.join(sub))?;
-    }
+    write_theme_files(&dir.join("themes").join(name), display_name)?;
     fs::create_dir_all(dir.join("config"))?;
-    write(
-        theme_dir.join("theme.yaml"),
-        &static_theme_yaml(display_name),
-    )?;
-    write(theme_dir.join("layouts/default.htm"), STATIC_LAYOUT)?;
-    write(theme_dir.join("pages/home.htm"), &static_home(display_name))?;
-    write(theme_dir.join("pages/about.htm"), STATIC_ABOUT)?;
-    write(theme_dir.join("pages/404.htm"), STATIC_404)?;
-    write(
-        theme_dir.join("partials/nav.htm"),
-        &static_nav(display_name),
-    )?;
-    write(
-        theme_dir.join("content/intro.md"),
-        &static_intro(display_name),
-    )?;
-    write(theme_dir.join("assets/css/site.css"), STATIC_CSS)?;
     write(
         dir.join("config/default.toml"),
         &static_default_toml(display_name, url, name),
@@ -850,7 +1111,13 @@ fn set_dir_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
-fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
+fn cargo_toml(name: &str, features: &[&str], framework: Option<&Path>) -> String {
+    let feature = features
+        .iter()
+        .map(|f| format!("\"{f}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let feature = feature.as_str();
     // The app depends on the umbrella, whose driver feature links the sqlx
     // driver everywhere, and on laterite-core directly for the migrations that
     // `lat make:migration` scaffolds with `laterite_core` paths (the same paths
@@ -859,7 +1126,7 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
     // is a local checkout, so path deps, not versions.
     let laterite_deps = match framework {
         Some(root) => format!(
-            "lateritecmf = {{ path = {umbrella:?}, features = [\"{feature}\"] }}\n\
+            "lateritecmf = {{ path = {umbrella:?}, features = [{feature}] }}\n\
              laterite-core = {{ path = {core:?} }}\n\
              laterite-admin = {{ path = {admin:?} }}",
             umbrella = root.join("crates/lateritecmf").display().to_string(),
@@ -867,7 +1134,7 @@ fn cargo_toml(name: &str, feature: &str, framework: Option<&Path>) -> String {
             admin = root.join("crates/admin").display().to_string(),
         ),
         None => format!(
-            "lateritecmf = {{ version = \"0.9\", features = [\"{feature}\"] }}\n\
+            "lateritecmf = {{ version = \"0.9\", features = [{feature}] }}\n\
              laterite-core = \"0.9\"\n\
              laterite-admin = \"0.9\""
         ),
@@ -981,10 +1248,43 @@ impl Module for AppModule {{
     )
 }
 
-fn default_toml(app_name: &str, timezone: &str, listen: &str) -> String {
+fn default_toml(
+    app_name: &str,
+    timezone: &str,
+    listen: &str,
+    site: Option<(&str, &SiteShape)>,
+) -> String {
     // The display name is written as a TOML basic string, so escape backslashes
     // and quotes.
     let app_name = app_name.replace('\\', "\\\\").replace('"', "\\\"");
+    let (url_line, theme) = match site {
+        Some((name, shape)) => {
+            let mut theme = format!(
+                "\n# Where the theme lives: the folder below, edited through the admin, or the\n\
+                 # database. `lat theme build` renders it to dist/.\n\
+                 [theme]\nfolder = \"themes/{name}\"\nsource = \"{}\"\n\
+                 # Directories copied into the output, as <src>:<dest>.\ncopy = []\n",
+                shape.content.source()
+            );
+            if shape.content == Content::Git {
+                theme.push_str("\n[theme.git]\nremote = \"origin\"\nbranch = \"main\"\n");
+            }
+            if shape.content == Content::Database {
+                theme.push_str(&format!(
+                    "\n# The host's build hook, called by `lat theme publish`.\n[theme.publish]\n{}\n",
+                    match &shape.hook {
+                        Some(hook) => format!("hook = {}", toml_string(hook)),
+                        None => "# hook = \"https://api.netlify.com/build_hooks/...\"".to_string(),
+                    }
+                ));
+            }
+            (format!("url = {}", toml_string(&shape.url)), theme)
+        }
+        None => (
+            "# url = \"https://acme.example\"".to_string(),
+            String::new(),
+        ),
+    };
     format!(
         r#"# Committed defaults. Secrets (the database URL) live in local.toml, which is
 # git-ignored. Override any value with LAT__SECTION__KEY environment variables.
@@ -999,7 +1299,7 @@ env_prefix = "LAT"
 # The public base URL absolute links build on (the admin banner, later emails and
 # share cards). When unset it is derived from the bind address below. Set it to
 # your real origin behind a proxy or a local domain, e.g. "https://acme.test".
-# url = "https://acme.example"
+{url_line}
 
 [server]
 listen = "{listen}"
@@ -1010,7 +1310,7 @@ secure_cookie = false
 # The URL path the admin panel mounts under (default "/admin"). Move or obscure
 # it by setting, e.g., "/manage".
 # path = "/admin"
-"#
+{theme}"#
     )
 }
 
@@ -1141,7 +1441,7 @@ mod tests {
 
     #[test]
     fn cargo_toml_uses_published_versions_by_default() {
-        let toml = cargo_toml("acme", "sqlite", None);
+        let toml = cargo_toml("acme", &["sqlite"], None);
         assert!(toml.contains("lateritecmf = { version = \"0.9\", features = [\"sqlite\"] }"));
         assert!(toml.contains("laterite-core = \"0.9\""));
         assert!(toml.contains("laterite-admin = \"0.9\""));
@@ -1162,7 +1462,7 @@ mod tests {
     /// dropped into a `lat new` app silently do nothing.
     #[test]
     fn a_new_app_is_wired_for_plugins() {
-        let toml = cargo_toml("acme", "sqlite", None);
+        let toml = cargo_toml("acme", &["sqlite"], None);
         assert!(toml.contains(r#"members = ["plugins-manifest"]"#), "{toml}");
         assert!(toml.contains(r#"plugins-manifest = { path = "plugins-manifest" }"#));
         assert!(toml.contains("[workspace.dependencies]"));
@@ -1174,7 +1474,7 @@ mod tests {
     /// type from the one Bootstrap wants.
     #[test]
     fn dev_mode_patches_the_framework_for_plugins() {
-        let toml = cargo_toml("acme", "sqlite", Some(Path::new("/opt/laterite")));
+        let toml = cargo_toml("acme", &["sqlite"], Some(Path::new("/opt/laterite")));
         assert!(toml.contains("[patch.crates-io]"), "{toml}");
         assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
     }
@@ -1182,7 +1482,7 @@ mod tests {
     #[test]
     fn cargo_toml_uses_path_deps_in_dev_mode() {
         let root = Path::new("/opt/laterite");
-        let toml = cargo_toml("acme", "postgres", Some(root));
+        let toml = cargo_toml("acme", &["postgres"], Some(root));
         // Path dependencies to the local checkout, with the driver feature on
         // the umbrella.
         assert!(toml.contains(
@@ -1259,6 +1559,7 @@ mod tests {
             "0.0.0.0:9090",
             &conn,
             None,
+            None,
         )
         .unwrap();
 
@@ -1298,6 +1599,66 @@ mod tests {
         let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();
         // The database sits in the app's storage folder, path relative to the app.
         assert!(local.contains("sqlite://storage/database.db"));
+    }
+
+    #[test]
+    fn a_site_with_an_admin_is_an_application_with_a_theme_section() {
+        for (content, source, feature) in [
+            (Content::Folder, "folder", false),
+            (Content::Git, "git", true),
+            (Content::Database, "database", false),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("acme");
+            let shape = SiteShape {
+                content,
+                url: "https://acme.example".to_string(),
+                hook: (content == Content::Database)
+                    .then(|| "https://hooks.example/build".to_string()),
+            };
+            let conn = sqlite_connection();
+            scaffold(
+                &dir,
+                "acme",
+                "Acme",
+                "UTC",
+                "127.0.0.1:8080",
+                &conn,
+                None,
+                Some(&shape),
+            )
+            .unwrap();
+            let config = fs::read_to_string(dir.join("config/default.toml")).unwrap();
+            assert!(
+                config.contains("url = \"https://acme.example\""),
+                "{config}"
+            );
+            assert!(
+                config.contains(&format!(
+                    "[theme]\nfolder = \"themes/acme\"\nsource = \"{source}\""
+                )),
+                "{config}"
+            );
+            assert_eq!(
+                config.contains("[theme.git]"),
+                content == Content::Git,
+                "{config}"
+            );
+            assert_eq!(
+                config.contains("hook = \"https://hooks.example/build\""),
+                content == Content::Database,
+                "{config}"
+            );
+            let cargo = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+            assert_eq!(cargo.contains("\"theme-git\""), feature, "{cargo}");
+            let main = fs::read_to_string(dir.join("src/main.rs")).unwrap();
+            assert!(main.contains(".module(ThemeModule)"), "{main}");
+            assert!(dir.join("themes/acme/pages/home.htm").is_file());
+            assert!(dir.join("build.sh").is_file() && dir.join("netlify.toml").is_file());
+            assert!(fs::read_to_string(dir.join(".gitignore"))
+                .unwrap()
+                .contains("/dist"));
+        }
     }
 
     #[test]

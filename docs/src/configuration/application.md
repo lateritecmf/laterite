@@ -128,6 +128,9 @@ Key | Default | Meaning
 --- | --- | ---
 `folder` | none | A static website's theme folder, relative to the project. Set, `lat serve` previews it and `lat theme build` renders it. See [Static Website](../getting-started/static-website.md).
 `copy` | `[]` | Directories copied into the build output, `<src>:<dest>`, relative to the project; one absent on this machine is skipped with a note.
+`source` | `database` | Where the theme lives: `database`, `folder`, `git` (feature `theme-git`), or a code a module registered.
+`git.remote`, `git.branch` | `origin`, `main` | Where the `git` source pushes on publish.
+`publish.hook` | none | A build hook URL `publish` posts to.
 
 ## Mount a module's screens
 

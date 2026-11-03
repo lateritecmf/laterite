@@ -47,7 +47,7 @@ impl DatabaseConfig {
     }
 }
 
-/// A static website's theme folder and what rides along into its build.
+/// Where a site's theme lives and what rides along into its build.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ThemeConfig {
@@ -57,6 +57,59 @@ pub struct ThemeConfig {
     /// Directories copied into the build output, `<src>:<dest>`, relative to
     /// the project root.
     pub copy: Vec<String>,
+    /// The theme source: `database` (the rows the engine renders from),
+    /// `folder` (the theme folder, read at boot and written on every save),
+    /// `git` (the folder, committed on every save and pushed on publish), or
+    /// a code a module registered. Unset, it is `folder` when a folder is
+    /// named and `database` otherwise; read it through
+    /// [`ThemeConfig::effective_source`].
+    pub source: String,
+    /// The `git` source's remote and branch.
+    pub git: ThemeGitConfig,
+    /// How a build is published: a host's build hook to call.
+    pub publish: ThemePublishConfig,
+}
+
+impl ThemeConfig {
+    /// The source in force: `source` as set, else `folder` when a folder is
+    /// named, else `database`.
+    pub fn effective_source(&self) -> &str {
+        match self.source.trim() {
+            "" if self.folder.is_some() => "folder",
+            "" => "database",
+            code => code,
+        }
+    }
+
+    /// Whether the theme lives in files rather than in the database.
+    pub fn is_file_backed(&self) -> bool {
+        self.effective_source() != "database"
+    }
+}
+
+/// The `git` theme source's settings.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ThemeGitConfig {
+    pub remote: String,
+    pub branch: String,
+}
+
+impl Default for ThemeGitConfig {
+    fn default() -> Self {
+        Self {
+            remote: "origin".to_string(),
+            branch: "main".to_string(),
+        }
+    }
+}
+
+/// How a build reaches its host.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ThemePublishConfig {
+    /// A build hook URL the host rebuilds on when posted to.
+    pub hook: Option<String>,
 }
 
 /// HTTP listener settings.

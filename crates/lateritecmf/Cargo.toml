@@ -21,3 +21,5 @@ postgres = ["laterite-admin/postgres"]
 mysql = ["laterite-admin/mysql"]
 sqlite = ["laterite-admin/sqlite"]
 s3 = ["laterite-media/s3"]
+# The `git` theme source.
+theme-git = ["laterite-web/theme-git"]

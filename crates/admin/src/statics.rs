@@ -15,7 +15,10 @@ use laterite_core::{Db, Registry, SiteContext};
 /// them).
 pub struct StaticBuildCx<'a> {
     pub db: &'a Db,
-    pub folder: &'a Path,
+    /// The project root, the directory holding `config/`.
+    pub root: &'a Path,
+    /// The `[theme]` section: the folder, the source, the copies.
+    pub theme: &'a laterite_core::config::ThemeConfig,
     pub out: &'a Path,
     pub base_url: &'a str,
     pub contributions: &'a Registry,
@@ -25,12 +28,15 @@ pub struct StaticBuildCx<'a> {
 /// one; [`crate::bootstrap::Bootstrap`] calls it in static mode.
 #[async_trait]
 pub trait StaticRenderer: Send + Sync {
-    /// Loads the theme folder into the database afresh and returns the
-    /// theme's code.
+    /// Brings the theme into the database from its source and returns the
+    /// code of the theme to build.
     async fn load(&self, cx: &StaticBuildCx<'_>) -> Result<String>;
     /// Renders the theme's pages and assets into `cx.out`, returning the
     /// page URLs written.
     async fn build(&self, cx: &StaticBuildCx<'_>, code: &str) -> Result<Vec<String>>;
+    /// Makes the theme's pushed changes visible to the host through its
+    /// source, returning a note for the operator.
+    async fn publish(&self, cx: &StaticBuildCx<'_>) -> Result<String>;
 }
 
 /// The renderer a module contributes.
@@ -282,6 +288,48 @@ pub fn mime_of(path: &Path) -> &'static str {
         Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
+}
+
+/// Posts to a host's build hook, the request a static host rebuilds on.
+pub async fn call_hook(hook: &str) -> Result<()> {
+    if !(hook.starts_with("https://") || hook.starts_with("http://")) {
+        anyhow::bail!("the build hook {hook:?} is not a URL");
+    }
+    let url = hook.to_string();
+    let out = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("curl")
+            .args([
+                "-fsS",
+                "-X",
+                "POST",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                &url,
+            ])
+            .output()
+    })
+    .await
+    .context("the hook call panicked")?
+    .context("could not run curl to call the build hook")?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "the build hook answered {}: {}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// The project a theme source works in: the root (the directory holding
+/// `config/`) and the `[theme]` section. Contributed at boot for the theme
+/// module and its screens to read.
+#[derive(Debug, Clone)]
+pub struct SiteProject {
+    pub root: PathBuf,
+    pub theme: laterite_core::config::ThemeConfig,
 }
 
 /// The site context a static build renders site files with: no admin path.
