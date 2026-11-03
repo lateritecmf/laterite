@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A section's sidebar lists its entries without a group heading when it has
+  one group, so a plugin section no longer repeats its own name.
+
 ### Added
 
 - `transient: true` on a form field (`FormField::transient()`): shown and

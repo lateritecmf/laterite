@@ -69,8 +69,12 @@
     {% if !shell.sidebar.is_empty() %}
     <aside class="lat-sidebar" data-lat-widget="menu-order" data-menu-post="{{ shell.base }}/preferences/menu" data-menu-hierarchy="backend.settings" data-menu-vertical data-menu-csrf="{{ shell.csrf_token }}">
       {% for group in shell.sidebar %}
+      {% if shell.sidebar.len() > 1 %}
       <details class="lat-sidebar__group" open>
         <summary class="lat-sidebar__grouphead"><span>{{ group.name }}</span><span class="lat-sidebar__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+      {% else %}
+      <div class="lat-sidebar__group">
+      {% endif %}
         {% for item in group.items %}
         <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}" data-lat-key="{{ item.key }}" draggable="true">
           <span class="lat-sidebar__icon">{{ item.icon|safe }}</span>
@@ -80,7 +84,7 @@
           </span>
         </a>
         {% endfor %}
-      </details>
+      {% if shell.sidebar.len() > 1 %}</details>{% else %}</div>{% endif %}
       {% endfor %}
     </aside>
     {% endif %}
