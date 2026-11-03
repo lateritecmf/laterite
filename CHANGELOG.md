@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.9.28] - 2026-11-03
+
+The Static from a database slice: a theme lives in the database, in its
+folder, or in git, behind one seam the admin writes through.
+
 ### Added
 
 - Theme sources (`laterite_web::theme::source`): `[theme] source` chooses where the theme lives,
