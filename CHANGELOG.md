@@ -9,11 +9,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- A resource form shows a field's `help` text; only settings forms did.
 - A section's sidebar lists its entries without a group heading when it has
   one group, so a plugin section no longer repeats its own name.
 
 ### Added
 
+- A `section` field type: a heading with a line beneath that groups the
+  fields after it, stored nowhere.
 - A settings screen as a file: `laterite_admin::settings!("admin/settings.yaml")`
   and `settings::from_yaml`, taking the form descriptor's field entries.
 - `transient: true` on a form field (`FormField::transient()`): shown and

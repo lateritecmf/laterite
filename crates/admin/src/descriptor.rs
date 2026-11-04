@@ -432,6 +432,7 @@ order: 10
 fields:
   title:            { label: Site title, rules: [required] }
   tagline:          {}
+  visibility:       { type: section, help: What visitors see. }
   maintenance_mode: { type: switch }
 "#;
 
@@ -444,10 +445,12 @@ fields:
         assert_eq!(item.icon.as_deref(), Some("sliders-horizontal"));
         assert_eq!(item.permission.as_deref(), Some("acme.manage_site"));
         assert_eq!(item.order, 10);
-        assert_eq!(item.fields.len(), 3);
+        assert_eq!(item.fields.len(), 4);
         assert_eq!(item.fields[0].label.source(), "Site title");
         assert_eq!(item.fields[1].label.source(), "Tagline");
-        assert_eq!(item.fields[2].field_type, "switch");
+        assert_eq!(item.fields[2].field_type, "section");
+        assert_eq!(item.fields[2].label.source(), "Visibility");
+        assert_eq!(item.fields[3].field_type, "switch");
     }
 
     #[test]

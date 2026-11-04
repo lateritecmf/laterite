@@ -1453,7 +1453,13 @@ pub(crate) async fn load_values(
     let (sql, values) = {
         let cast = text_cast(db.backend);
         let mut select = Query::select();
-        for field in form.config.fields.iter().filter(|f| !f.transient) {
+        for (field, _) in form
+            .config
+            .fields
+            .iter()
+            .zip(&form.fields)
+            .filter(|(f, pf)| !f.transient && pf.field_type.stores())
+        {
             select.expr_as(
                 Expr::col(Alias::new(&field.name)).cast_as(Alias::new(cast)),
                 Alias::new(&field.name),
@@ -1478,7 +1484,7 @@ pub(crate) async fn load_values(
             .iter()
             .zip(&form.fields)
             .map(|(f, prepared)| {
-                let stored = if f.transient {
+                let stored = if f.transient || !prepared.field_type.stores() {
                     None
                 } else {
                     row.get_text_opt(f.name.as_str()).ok().flatten()
@@ -1699,6 +1705,8 @@ fn build(
                 id: f.name.clone(),
                 label,
                 control,
+                help: f.help.as_ref().map(|h| shell.tt(h)),
+                section: !pf.field_type.stores(),
                 required,
                 enter: f.enter.attribute(),
                 layout: layout_classes(f.span, f.break_row),
@@ -1765,6 +1773,10 @@ struct FieldView {
     /// The control HTML, rendered by the field-type registry (override-aware).
     /// The framework owns the surrounding chrome (label, required marker, errors).
     control: String,
+    /// The line beneath the control, localized.
+    help: Option<String>,
+    /// A `section` field: the label is a heading over the fields after it.
+    section: bool,
     required: bool,
     errors: Vec<String>,
     /// The field's own Enter rule (`off`, `next`), or empty for the form's.
@@ -1844,6 +1856,8 @@ pub struct ValueFieldView {
     /// The control's DOM id, which the label points at.
     pub id: String,
     pub help: Option<String>,
+    /// A `section` field: a heading, no control.
+    pub section: bool,
     /// The control, rendered by the field's own type.
     pub control: String,
     /// Wrapper classes for the span and a row break, each led by a space.
@@ -1994,6 +2008,7 @@ pub(crate) fn value_views(
                 label,
                 id: f.name.clone(),
                 help: f.help.as_ref().map(|h| shell.tt(h)),
+                section: f.field_type == "section",
                 control,
                 layout: layout_classes(f.span, f.break_row),
                 attrs: behaviour_attrs(f),
@@ -2132,7 +2147,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loading_a_record_skips_transient_fields() {
+    async fn loading_a_record_skips_transient_and_section_fields() {
         let (db, _guard) = test_db().await;
         sqlx::query("INSERT INTO samples (code, name) VALUES ('c1', 'Chair')")
             .execute(&db.pool)
@@ -2148,6 +2163,7 @@ mod tests {
                 base_path: "/admin/samples".to_string(),
                 id_field: "id".to_string(),
                 fields: vec![
+                    FormField::of("intro", "Details", "section"),
                     FormField::text("code", "Code").required(),
                     FormField::password("secret", "Secret").transient(),
                 ],
@@ -2163,6 +2179,8 @@ mod tests {
         let values = load_values(&db, &form, "1").await.unwrap().unwrap();
         assert_eq!(values.get("code").map(String::as_str), Some("c1"));
         assert_eq!(values.get("secret").map(String::as_str), Some(""));
+        // A section stores nothing, so the loader asked for no such column.
+        assert_eq!(values.get("intro").map(String::as_str), Some(""));
     }
 
     /// The whole delete path against a real table: the row is read, the

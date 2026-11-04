@@ -201,6 +201,13 @@ pub trait FieldType: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Whether a column stands behind the field. `false` for a type that is
+    /// chrome on the form (a section heading): the loader never selects it
+    /// and the writer never names it. Default `true`.
+    fn stores(&self) -> bool {
+        true
+    }
+
     /// Builds the serialisable presentation payload. Pure, no IO.
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm;
 
@@ -1496,6 +1503,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(SelectField),
         Arc::new(ChecklistField),
         Arc::new(SwitchField),
+        Arc::new(SectionField),
         Arc::new(DateField),
         Arc::new(PasswordField),
         Arc::new(SensitiveField::new(Arc::new(
@@ -2515,6 +2523,46 @@ impl FieldType for SwitchField {
             on: stored_is_on(Some(vm.value.as_text())),
         })
         .unwrap_or_default()
+    }
+}
+
+/// A heading that groups the fields after it: its label is the heading and
+/// its help the line beneath. Nothing is stored or submitted.
+pub(crate) struct SectionField;
+
+impl FieldType for SectionField {
+    fn view_key(&self) -> &'static str {
+        "section"
+    }
+
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&[])
+    }
+
+    fn stores(&self) -> bool {
+        false
+    }
+
+    fn to_attr(
+        &self,
+        _field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(None)
+    }
+
+    fn to_control(&self, _stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        String::new()
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        scalar_vm("section", cx)
+    }
+
+    fn render_default(&self, _vm: &FieldVm) -> Markup {
+        // The wrapper renders the heading and the help; there is no control.
+        Markup::default()
     }
 }
 

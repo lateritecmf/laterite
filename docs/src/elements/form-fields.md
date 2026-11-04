@@ -147,6 +147,18 @@ fields:
 
 No keys. A yes or no over a boolean column.
 
+## section
+
+```yaml
+fields:
+  delivery:  { type: section, label: Delivery, help: Where and when the order ships. }
+  address:   {}
+  ship_date: { type: date }
+```
+
+No keys. A heading over the fields after it, with `help` as the line beneath.
+Nothing is stored or submitted.
+
 ## date
 
 ```yaml
