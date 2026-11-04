@@ -83,6 +83,12 @@ impl ResourceFeature for ImportFeature {
             .route("/runs/{id}/status", get(run_status))
             .route("/runs/{id}/import", post(import_now))
             .route("/runs/{id}/refused.csv", get(refused_csv))
+            // The default request body limit is two megabytes; a CSV may be
+            // bigger, so the import's own limit bounds the body instead. A
+            // layer wraps the routes added before it, so it sits last.
+            .layer(axum::extract::DefaultBodyLimit::max(
+                usize::try_from(UPLOAD_LIMIT).unwrap_or(usize::MAX) + 1024 * 1024,
+            ))
             .with_state(app)
     }
 }
@@ -250,12 +256,30 @@ async fn upload(
                 let name = field.file_name().unwrap_or("import.csv").to_string();
                 let mut bytes = Vec::new();
                 let mut too_large = false;
-                while let Ok(Some(chunk)) = field.chunk().await {
-                    if bytes.len() as u64 + chunk.len() as u64 > UPLOAD_LIMIT {
-                        too_large = true;
-                        break;
+                let mut cut_short = false;
+                loop {
+                    match field.chunk().await {
+                        Ok(Some(chunk)) => {
+                            if bytes.len() as u64 + chunk.len() as u64 > UPLOAD_LIMIT {
+                                too_large = true;
+                                break;
+                            }
+                            bytes.extend_from_slice(&chunk);
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            tracing::warn!(error = %e, name = %name, "an import upload was cut short");
+                            cut_short = true;
+                            break;
+                        }
                     }
-                    bytes.extend_from_slice(&chunk);
+                }
+                if cut_short {
+                    session.push_flash(
+                        FlashLevel::Error,
+                        t!("The file did not arrive in full. Try again."),
+                    );
+                    return Redirect::to(&back).into_response();
                 }
                 if too_large {
                     session.push_flash(

@@ -177,6 +177,13 @@ impl Screen for MediaScreen {
             .route("/{id}/move", post(move_file))
             .route("/{id}/crop", post(crop_file))
             .route("/{id}/delete", post(delete_file))
+            // The framework's default request body limit is two megabytes,
+            // which is under most photographs; uploads are bounded by
+            // `UPLOAD_LIMIT` instead, with room for the multipart framing. A
+            // layer wraps the routes added before it, so it sits last.
+            .layer(axum::extract::DefaultBodyLimit::max(
+                usize::try_from(UPLOAD_LIMIT).unwrap_or(usize::MAX) + 1024 * 1024,
+            ))
             .with_state(state)
     }
 }
@@ -1030,15 +1037,32 @@ async fn upload(
                     .unwrap_or_else(|| "upload".to_string());
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut too_large = false;
-                while let Ok(Some(chunk)) = field.chunk().await {
-                    if bytes.len() as u64 + chunk.len() as u64 > UPLOAD_LIMIT {
-                        too_large = true;
-                        break;
+                let mut cut_short = false;
+                loop {
+                    match field.chunk().await {
+                        Ok(Some(chunk)) => {
+                            if bytes.len() as u64 + chunk.len() as u64 > UPLOAD_LIMIT {
+                                too_large = true;
+                                break;
+                            }
+                            bytes.extend_from_slice(&chunk);
+                        }
+                        Ok(None) => break,
+                        // The body ended early or a limit cut it: what arrived
+                        // is not the file, so nothing of it is stored.
+                        Err(e) => {
+                            tracing::warn!(error = %e, name = %name, "an upload was cut short");
+                            cut_short = true;
+                            break;
+                        }
                     }
-                    bytes.extend_from_slice(&chunk);
                 }
                 if too_large {
                     refused.push(refuse(name, t!("Larger than the upload limit.")));
+                    continue;
+                }
+                if cut_short {
+                    refused.push(refuse(name, t!("The upload did not arrive in full.")));
                     continue;
                 }
                 if bytes.is_empty() {
@@ -1162,17 +1186,47 @@ struct DirectStartForm {
     size: u64,
 }
 
+/// The text fields of a multipart body the uploader script sends (it posts
+/// `FormData`, so these routes read multipart like the upload itself). The
+/// token is the extractor's; everything else lands here by name.
+async fn text_fields(upload: &mut VerifiedUpload) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    while let Ok(Some(field)) = upload.next_field().await {
+        let Some(name) = field.name().map(str::to_string) else {
+            continue;
+        };
+        if let Ok(text) = field.text().await {
+            out.insert(name, text);
+        }
+    }
+    out
+}
+
+impl DirectStartForm {
+    fn from_fields(fields: &HashMap<String, String>) -> Self {
+        Self {
+            name: fields.get("name").cloned().unwrap_or_default(),
+            content_type: fields.get("content_type").cloned().unwrap_or_default(),
+            size: fields
+                .get("size")
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or_default(),
+        }
+    }
+}
+
 /// The uploader asks before sending: a disk that presigns answers with a PUT
 /// URL under a quarantine prefix the server chose; any other answers that the
 /// file goes through the application.
 async fn direct_start(
     State(app): App,
     Extension(user): Extension<AuthenticatedUser>,
-    Form(form): Form<DirectStartForm>,
+    mut upload: VerifiedUpload,
 ) -> Response {
     if !user.permissions.allows(UPLOAD) {
         return forbidden();
     }
+    let form = DirectStartForm::from_fields(&text_fields(&mut upload).await);
     if form.size > UPLOAD_LIMIT {
         return axum::Json(serde_json::json!({ "direct": false, "reason": "too large" }))
             .into_response();
@@ -1227,6 +1281,16 @@ struct DirectCompleteForm {
     folder: String,
 }
 
+impl DirectCompleteForm {
+    fn from_fields(fields: &HashMap<String, String>) -> Self {
+        Self {
+            path: fields.get("path").cloned().unwrap_or_default(),
+            name: fields.get("name").cloned().unwrap_or_default(),
+            folder: fields.get("folder").cloned().unwrap_or_default(),
+        }
+    }
+}
+
 /// The browser finished its PUT: the server reads the quarantined object,
 /// sniffs and hashes it, strips an image's metadata, stores it under its hash,
 /// records it and removes the quarantine copy. The client never names a blob
@@ -1235,11 +1299,12 @@ async fn direct_complete(
     State(app): App,
     Extension(shell): Extension<Shell>,
     Extension(user): Extension<AuthenticatedUser>,
-    Form(form): Form<DirectCompleteForm>,
+    mut upload: VerifiedUpload,
 ) -> Response {
     if !user.permissions.allows(UPLOAD) {
         return forbidden();
     }
+    let form = DirectCompleteForm::from_fields(&text_fields(&mut upload).await);
     let ctx = &app.ctx;
     let refused = |reason: Text| {
         axum::Json(serde_json::json!({
@@ -1273,8 +1338,16 @@ async fn direct_complete(
     };
     use futures::TryStreamExt;
     let mut bytes: Vec<u8> = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
-    while let Ok(Some(chunk)) = stream.try_next().await {
-        bytes.extend_from_slice(&chunk);
+    loop {
+        match stream.try_next().await {
+            Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(error = %e, "a quarantined upload could not be read");
+                let _ = disk.delete(path).await;
+                return refused(t!("The upload could not be found."));
+            }
+        }
     }
     if !sanitize::extension_allowed(&form.name, ctx.upload_extensions()) {
         let _ = disk.delete(path).await;

@@ -588,6 +588,44 @@ fn wide_png(w: u32, h: u32) -> Vec<u8> {
     out
 }
 
+/// A file past the framework's default two-megabyte request body limit is
+/// stored whole: the media routes carry their own limit, and a body that is
+/// cut short is refused rather than kept truncated.
+#[tokio::test]
+async fn an_upload_over_two_megabytes_is_stored_whole() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let big = wide_png(1000, 800);
+    assert!(big.len() > 2 * 1024 * 1024, "{} bytes", big.len());
+    let req = Request::builder()
+        .method("POST")
+        .uri("/admin/media/upload")
+        .header("cookie", format!("{SESSION_COOKIE}={root}"))
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", "tok-123")
+        .header("x-requested-with", "fetch")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(multipart(&[], &[("big.png", &big)])))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let out: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = out["stored"][0]["id"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("{out}"));
+    let r = record::find(&db, id).await.unwrap().unwrap();
+    assert_eq!(r.size as usize, big.len(), "stored whole");
+    assert_eq!((r.width, r.height), (Some(1000), Some(800)));
+}
+
 /// A crop keeps the format, lands as a new file in the folder by default, and
 /// rewrites the original in place when asked, dropping its variants.
 #[tokio::test]
@@ -676,7 +714,9 @@ async fn a_direct_upload_is_promoted_from_quarantine() {
     let app = app(&db, dir.path());
     let (root, _) = sessions(&db).await;
 
-    let ask = |path: &str, body: &str| {
+    // The uploader posts FormData, so these routes take multipart like the
+    // upload itself.
+    let ask = |path: &str, fields: &[(&str, &str)]| {
         Request::builder()
             .method("POST")
             .uri(path)
@@ -684,15 +724,22 @@ async fn a_direct_upload_is_promoted_from_quarantine() {
             .header("sec-fetch-site", "same-origin")
             .header("x-csrf-token", "tok-123")
             .header("x-requested-with", "fetch")
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from(body.to_string()))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={BOUNDARY}"),
+            )
+            .body(Body::from(multipart(fields, &[])))
             .unwrap()
     };
     let response = app
         .clone()
         .oneshot(ask(
             "/admin/media/direct",
-            "name=clip.png&content_type=image%2Fpng&size=100",
+            &[
+                ("name", "clip.png"),
+                ("content_type", "image/png"),
+                ("size", "100"),
+            ],
         ))
         .await
         .unwrap();
@@ -714,7 +761,7 @@ async fn a_direct_upload_is_promoted_from_quarantine() {
         .clone()
         .oneshot(ask(
             "/admin/media/direct/complete",
-            &format!("path={quarantine}&name=clip.png&folder="),
+            &[("path", quarantine), ("name", "clip.png"), ("folder", "")],
         ))
         .await
         .unwrap();
@@ -737,7 +784,11 @@ async fn a_direct_upload_is_promoted_from_quarantine() {
         .clone()
         .oneshot(ask(
             "/admin/media/direct/complete",
-            "path=blobs/aa/bb/aabb&name=x.png&folder=",
+            &[
+                ("path", "blobs/aa/bb/aabb"),
+                ("name", "x.png"),
+                ("folder", ""),
+            ],
         ))
         .await
         .unwrap();

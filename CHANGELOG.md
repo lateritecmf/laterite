@@ -9,6 +9,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- An upload larger than two megabytes is stored whole: the request body limit
+  on the media and import routes now follows the upload limit, and a body cut
+  short is refused instead of stored truncated.
+- The direct-upload routes read the multipart body the uploader sends, so an
+  upload no longer logs a refused request token before falling back.
 - Uploading a binary file no longer fails with "could not be stored": the
   SVG sniffer sliced lossily decoded text on a byte index.
 - A resource form shows a field's `help` text; only settings forms did.
