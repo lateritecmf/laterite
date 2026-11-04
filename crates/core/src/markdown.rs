@@ -27,6 +27,118 @@ pub fn render(text: &str) -> String {
     out
 }
 
+/// Renders markdown as plain text: the words of headings and paragraphs on
+/// their own lines, list items marked, a link's address kept beside its
+/// text when the two differ, emphasis and raw HTML dropped. The plain-text
+/// part of a message is made this way from its one body.
+pub fn to_text(text: &str) -> String {
+    use pulldown_cmark::{Options, Parser};
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+    let mut out = String::with_capacity(text.len());
+    let mut link: Option<(String, String)> = None;
+    let mut ordered: Vec<Option<u64>> = Vec::new();
+    for event in Parser::new_ext(text, options) {
+        match event {
+            Event::Text(t) | Event::Code(t) => match &mut link {
+                Some((_, label)) => label.push_str(&t),
+                None => out.push_str(&t),
+            },
+            Event::SoftBreak => out.push(' '),
+            Event::HardBreak => out.push('\n'),
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                link = Some((dest_url.to_string(), String::new()));
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some((url, label)) = link.take() {
+                    let label = label.trim().to_string();
+                    if label.is_empty() || label == url {
+                        out.push_str(&url);
+                    } else {
+                        out.push_str(&label);
+                        out.push_str(" (");
+                        out.push_str(&url);
+                        out.push(')');
+                    }
+                }
+            }
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                link = Some((dest_url.to_string(), String::new()));
+            }
+            Event::End(TagEnd::Image) => {
+                if let Some((_, alt)) = link.take() {
+                    out.push_str(alt.trim());
+                }
+            }
+            Event::Start(Tag::List(first)) => ordered.push(first),
+            Event::End(TagEnd::List(_)) => {
+                ordered.pop();
+                out.push('\n');
+            }
+            Event::Start(Tag::Item) => {
+                let depth = ordered.len().saturating_sub(1);
+                out.push_str(&"  ".repeat(depth));
+                match ordered.last_mut() {
+                    Some(Some(n)) => {
+                        out.push_str(&format!("{n}. "));
+                        *n += 1;
+                    }
+                    _ => out.push_str("- "),
+                }
+            }
+            Event::End(TagEnd::Item) => out.push('\n'),
+            Event::End(TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::BlockQuote(_)) => {
+                out.push_str("\n\n");
+            }
+            Event::End(TagEnd::CodeBlock) => out.push_str("\n\n"),
+            Event::End(TagEnd::TableRow | TagEnd::TableHead) => out.push('\n'),
+            Event::End(TagEnd::TableCell) => out.push_str("  "),
+            Event::End(TagEnd::Table) => out.push('\n'),
+            Event::Rule => out.push_str("\n----\n\n"),
+            Event::Html(html) | Event::InlineHtml(html) => out.push_str(&strip_tags(&html)),
+            Event::TaskListMarker(done) => out.push_str(if done { "[x] " } else { "[ ] " }),
+            _ => {}
+        }
+    }
+    let mut tidy = String::with_capacity(out.len());
+    let mut blank = 0;
+    for line in out.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            blank += 1;
+            if blank > 1 {
+                continue;
+            }
+        } else {
+            blank = 0;
+        }
+        tidy.push_str(line);
+        tidy.push('\n');
+    }
+    tidy.trim().to_string()
+}
+
+/// Raw HTML inside markdown, reduced to its text.
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
 /// Gives every heading without an id one derived from its text, unique
 /// within the document (`-2`, `-3` on a repeat).
 fn with_heading_ids(mut events: Vec<Event<'_>>) -> Vec<Event<'_>> {
@@ -90,6 +202,17 @@ fn slug(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn plain_text_keeps_the_words_and_the_links() {
+        let text = super::to_text(
+            "# Hello Ada\n\nYour account on **Acme** is ready.\n\n- [Sign in](https://acme.example/in)\n- <https://acme.example>\n\n<p>Raw &amp; <b>bold</b></p>",
+        );
+        assert_eq!(
+            text,
+            "Hello Ada\n\nYour account on Acme is ready.\n\n- Sign in (https://acme.example/in)\n- https://acme.example\n\nRaw & bold"
+        );
+    }
+
     use super::render;
 
     #[test]

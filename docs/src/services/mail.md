@@ -37,14 +37,11 @@ fn register(&self, registry: &mut Registry) {
 ```
 
 ```text
-subject = "Welcome, {{ name }}"
-layout = "default"
-description = "Sent when an account is made."
-==
-Welcome {{ name }}.
-
-{{ partial("button", url=link, body="Sign in") }}
-==
+---
+subject: Welcome, {{ name }}
+layout: default
+description: Sent when an account is made.
+---
 # Hello {{ name }}
 
 Your account on **{{ app_name }}** is ready.
@@ -53,12 +50,35 @@ Your account on **{{ app_name }}** is ready.
 {{ partial("button", url=link, body=body) }}
 ```
 
-Section | Holds
+Part | Holds
 --- | ---
-Header | `subject`, `layout` (`default` unless set), `description`; a layout or partial has `name`.
-First `==` | The text body.
-Second `==` | The HTML body, written as Markdown.
-Third `==` | A layout's CSS, which reads the brand as `{{ brand.button_bg }}`.
+Front matter | `subject`, `layout` (`default` unless set), `description`; a layout or partial has `name`.
+Body | A template's body, written as Markdown; a layout's or partial's, as HTML.
+
+The plain-text part is made from the body, with each partial's text form. A
+message that needs its own text part registers a `.txt` beside the `.htm`:
+
+```rust
+registry.add_mail_template_with_text(
+    "acme.blog::welcome",
+    include_str!("../mail/welcome.htm"),
+    include_str!("../mail/welcome.txt"),
+);
+```
+
+```text
+Welcome {{ name }}.
+
+{{ partial("button", url=link, body="Sign in") }}
+```
+
+A layout's text wrapper and a partial's text form register the same way
+(`add_mail_layout_with_text`, `add_mail_partial_with_text`). A layout's CSS
+goes in a `<style>` element in its HTML, reading the brand as
+`{{ brand.button_bg }}`.
+
+The older form, a `key = "value"` header and sections split by a line of
+`==` (text, HTML, CSS), still reads and is logged as deprecated.
 
 A layout receives `content`, `subject`, `app_name`, `css` and `brand_css`. An undefined variable renders empty. A template edited in the admin keeps its edit until it is reset to the file.
 

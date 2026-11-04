@@ -13,7 +13,9 @@ use laterite_core::Db;
 use std::io::{Cursor, Read, Write};
 use zip::write::SimpleFileOptions;
 
-/// The line between a template file's settings and its markup.
+/// The line that opens and closes a template file's front matter.
+const FENCE: &str = "---";
+/// The older line between a file's settings and its markup, still read.
 const SEPARATOR: &str = "==";
 /// The most an archive may hold once read, so a hostile zip cannot exhaust memory.
 const MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -31,21 +33,36 @@ pub struct ImportReport {
     pub ignored: Vec<String>,
 }
 
-/// A template as its file holds it.
+/// A template as its file holds it: YAML front matter between `---` lines,
+/// then the markup; the markup alone when there are no settings.
 pub fn file_body(settings: &serde_json::Value, markup: &str) -> String {
     match settings.as_object() {
         Some(map) if !map.is_empty() => {
             let yaml = serde_saphyr::to_string(settings).unwrap_or_default();
-            format!("{}\n{SEPARATOR}\n{markup}", yaml.trim_end())
+            format!("{FENCE}\n{}\n{FENCE}\n{markup}", yaml.trim_end())
         }
         _ => markup.to_string(),
     }
 }
 
-/// A file's settings and markup, split at the first `==` line when there is
-/// one and the part above it is YAML.
+/// A file's settings and markup: front matter between `---` lines, or, in
+/// the older form, YAML above the first `==` line.
 pub fn parse_body(body: &str) -> Result<(serde_json::Value, String), ThemeError> {
     let body = body.replace("\r\n", "\n");
+    if let Some(rest) = body.strip_prefix(&format!("{FENCE}\n")) {
+        let (front, markup) = match rest.split_once(&format!("\n{FENCE}\n")) {
+            Some(parts) => parts,
+            None => match rest.strip_suffix(&format!("\n{FENCE}")) {
+                Some(front) => (front, ""),
+                None => {
+                    return Err(ThemeError::Config(
+                        "the front matter opened with `---` never closes".into(),
+                    ))
+                }
+            },
+        };
+        return Ok((settings_of(front, "front matter")?, markup.to_string()));
+    }
     let Some(at) = body
         .split_inclusive('\n')
         .scan(0usize, |offset, line| {
@@ -58,21 +75,27 @@ pub fn parse_body(body: &str) -> Result<(serde_json::Value, String), ThemeError>
     else {
         return Ok((serde_json::json!({}), body));
     };
-    let settings: serde_json::Value = serde_saphyr::from_str(&body[..at])
-        .map_err(|e| ThemeError::Config(format!("the settings above `==` do not parse: {e}")))?;
-    if !settings.is_object() && !settings.is_null() {
-        return Err(ThemeError::Config(
-            "the settings above `==` must be a mapping".into(),
-        ));
-    }
-    let settings = if settings.is_null() {
-        serde_json::json!({})
-    } else {
-        settings
-    };
+    tracing::warn!(
+        "a theme file uses the `==` section form; write it as front matter between `---` lines (the old form goes in the next minor)"
+    );
+    let settings = settings_of(&body[..at], "settings above `==`")?;
     let rest = &body[at..];
     let markup = rest.split_once('\n').map(|(_, m)| m).unwrap_or("");
     Ok((settings, markup.to_string()))
+}
+
+/// YAML settings as a mapping; nothing is an empty mapping.
+fn settings_of(yaml: &str, what: &str) -> Result<serde_json::Value, ThemeError> {
+    let settings: serde_json::Value = serde_saphyr::from_str(yaml)
+        .map_err(|e| ThemeError::Config(format!("the {what} do not parse: {e}")))?;
+    if !settings.is_object() && !settings.is_null() {
+        return Err(ThemeError::Config(format!("the {what} must be a mapping")));
+    }
+    Ok(if settings.is_null() {
+        serde_json::json!({})
+    } else {
+        settings
+    })
 }
 
 /// The theme `code` as a zip.

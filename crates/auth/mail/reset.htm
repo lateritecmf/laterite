@@ -1,15 +1,8 @@
-subject = "Reset your password on {{ app_name }}"
-layout = "default"
-description = "Sent when someone asks for a password reset from the sign-in page."
-==
-Hello {{ name }},
-
-Someone asked to reset the password for {{ username }} on {{ app_name }}.
-
-Choose a new password here (the link works for {{ expires }}): {{ link }}
-
-If that was not you, ignore this message; nothing changes until the link is used.
-==
+---
+subject: "Reset your password on {{ app_name }}"
+layout: default
+description: Sent when someone asks for a password reset from the sign-in page.
+---
 # Reset your password
 
 Someone asked to reset the password for **{{ username }}** on **{{ app_name }}**.

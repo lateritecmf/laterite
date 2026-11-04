@@ -200,7 +200,9 @@ fn template_fields(shell: &Shell, layouts: &[Layout], new: bool) -> Vec<FormFiel
     fields.push(
         FormField::of("content_text", t!("Text body"), "codeeditor")
             .options(serde_json::json!({ "language": "jinja", "rows": 12 }))
-            .help(t!("Blank: the HTML body is reduced to text.")),
+            .help(t!(
+                "Blank: the text part is made from the body, with the partials' text forms."
+            )),
     );
     let _ = shell;
     fields
@@ -215,12 +217,14 @@ fn layout_fields(new: bool) -> Vec<FormField> {
     fields.push(
         FormField::of("content_html", t!("HTML"), "codeeditor")
             .options(serde_json::json!({ "language": "jinja", "rows": 24 }))
-            .help(t!("`{{ content }}` is the rendered body; `{{ css }}` and `{{ brand_css }}` the stylesheets.")),
+            .help(t!("`{{ content }}` is the rendered body; `{{ brand_css }}` the brand stylesheet, `{{ brand.button_bg }}` a brand colour; a `<style>` element here carries the layout's own CSS.")),
     );
     fields.push(
         FormField::of("content_css", t!("CSS"), "codeeditor")
             .options(serde_json::json!({ "language": "css", "rows": 16 }))
-            .help(t!("`{{ brand.button_bg }}` reads a brand colour.")),
+            .help(t!(
+                "Optional, for a layout that keeps its stylesheet apart from the HTML."
+            )),
     );
     fields.push(
         FormField::of("content_text", t!("Text"), "codeeditor")

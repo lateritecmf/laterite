@@ -924,11 +924,12 @@ const STATIC_LAYOUT: &str = r#"<!doctype html>
 
 fn static_home(display_name: &str) -> String {
     format!(
-        r#"url: /
+        r#"---
+url: /
 layout: default
 title: {display_name}
 description: Welcome to {display_name}.
-==
+---
 <section class="hero">
   <h1>{{{{ this.page.title }}}}</h1>
   <p class="lead">{{{{ this.page.description }}}}</p>
@@ -938,20 +939,22 @@ description: Welcome to {display_name}.
     )
 }
 
-const STATIC_ABOUT: &str = r#"url: /about
+const STATIC_ABOUT: &str = r#"---
+url: /about
 layout: default
 title: About
 description: Who we are and what we do.
-==
+---
 <h1>{{ this.page.title }}</h1>
 <p>{{ this.page.description }}</p>
 "#;
 
-const STATIC_404: &str = r#"url: /404
+const STATIC_404: &str = r#"---
+url: /404
 layout: default
 title: Page not found
 meta_robots: noindex
-==
+---
 <h1>Page not found</h1>
 <p>There is nothing at this address. <a href="{{ url('/') }}">Go to the home page</a>.</p>
 "#;
@@ -1060,7 +1063,7 @@ that starts from nothing; `netlify.toml` points Netlify at it.
 
 ## Grow
 
-Add a page under `pages/` with its URL in the settings above the `==` line.
+Add a page under `pages/` with its URL in the front matter above the markup.
 To manage the site from an admin panel later, run `lat new` for an application
 and `lat theme import {name} <zip>` from `lat theme export` of this folder.
 "#
@@ -1374,8 +1377,11 @@ mod tests {
             assert!(theme.join(file).is_file(), "{file}");
         }
         let home = fs::read_to_string(theme.join("pages/home.htm")).unwrap();
-        assert!(home.starts_with("url: /\nlayout: default\n"), "{home}");
-        assert!(home.contains("\n==\n"), "the settings end at the separator");
+        assert!(home.starts_with("---\nurl: /\nlayout: default\n"), "{home}");
+        assert!(
+            home.contains("\n---\n<section"),
+            "the front matter closes before the markup"
+        );
         let config = fs::read_to_string(dir.join("config/default.toml")).unwrap();
         assert!(
             config.contains("url = \"https://acme.example\""),

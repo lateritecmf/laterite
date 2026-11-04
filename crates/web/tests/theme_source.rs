@@ -28,7 +28,7 @@ fn theme_folder(root: &Path) {
     .unwrap();
     fs::write(
         dir.join("pages/home.htm"),
-        "url: /\nlayout: default\n==\n<h1>Home</h1>",
+        "---\nurl: /\nlayout: default\n---\n<h1>Home</h1>",
     )
     .unwrap();
 }
@@ -77,7 +77,8 @@ async fn the_folder_source_writes_every_save_back_and_reads_the_folder_in() {
         .unwrap();
     let about = fs::read_to_string(tmp.path().join("themes/acme/pages/about.htm")).unwrap();
     assert!(
-        about.starts_with("layout: default\nurl: /about\n==\n") || about.contains("url: /about"),
+        about.starts_with("---\nlayout: default\nurl: /about\n---\n")
+            || about.contains("url: /about"),
         "{about}"
     );
     assert!(about.ends_with("<h1>About</h1>"), "{about}");
@@ -118,7 +119,7 @@ async fn the_folder_source_writes_every_save_back_and_reads_the_folder_in() {
     // The folder wins on the next pull: an edit on disk replaces the rows.
     fs::write(
         tmp.path().join("themes/acme/pages/home.htm"),
-        "url: /\nlayout: default\n==\n<h1>Edited on disk</h1>",
+        "---\nurl: /\nlayout: default\n---\n<h1>Edited on disk</h1>",
     )
     .unwrap();
     Folder.pull(&cx).await.unwrap();

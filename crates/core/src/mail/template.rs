@@ -2,10 +2,14 @@
 //! admin may edit, and the renderer that turns a template and its variables
 //! into a subject, a text body and an HTML body.
 //!
-//! A file has a header of `key = "value"` lines, then sections split by a
-//! line of `==`: the text body, the HTML body and, for a layout, the CSS.
-//! Bodies are templates (`{{ name }}`, `{% if %}`, `{{ text|markdown }}`);
-//! a template's HTML body is Markdown. Partials are called as
+//! A file is YAML front matter between `---` lines, then one body: a
+//! template's body is Markdown, a layout's or partial's is HTML. The
+//! plain-text part of a message is made from the same body, through the
+//! partials' text forms, unless a `.txt` file registered beside the `.htm`
+//! supplies it. Bodies are templates (`{{ name }}`, `{% if %}`,
+//! `{{ text|markdown }}`). The older form, a `key = "value"` header and
+//! sections split by a line of `==` (text, HTML, CSS), still reads and is
+//! logged as deprecated. Partials are called as
 //! `{{ partial("button", url=link, body="Sign in") }}`; a longer body is
 //! captured first with `{% set body %}...{% endset %}`.
 
@@ -28,6 +32,9 @@ use crate::Db;
 pub struct MailTemplateReg {
     pub code: &'static str,
     pub file: &'static str,
+    /// An explicit plain-text body, a template of its own; `None` derives
+    /// the text from the body.
+    pub text: Option<&'static str>,
 }
 
 /// A layout file under a code.
@@ -35,6 +42,9 @@ pub struct MailTemplateReg {
 pub struct MailLayoutReg {
     pub code: &'static str,
     pub file: &'static str,
+    /// The text wrapper (`{{ content }}` and a signature); `None` wraps
+    /// the text in nothing.
+    pub text: Option<&'static str>,
 }
 
 /// A partial file under a code.
@@ -42,6 +52,9 @@ pub struct MailLayoutReg {
 pub struct MailPartialReg {
     pub code: &'static str,
     pub file: &'static str,
+    /// The partial's text form (`{{ body }}: {{ url }}` for a button);
+    /// `None` renders the partial as nothing in the text part.
+    pub text: Option<&'static str>,
 }
 
 /// The cache namespace every rendered template depends on; an edit bumps
@@ -55,12 +68,35 @@ pub struct Sections {
     pub text: String,
     pub html: String,
     pub css: String,
+    /// The file used the older `==` form.
+    pub separated: bool,
 }
 
-/// Parses a sectioned file. With one section it is the HTML body alone;
-/// with two, the header and the HTML body; with three, header, text and
-/// HTML; with four, header, text, HTML and CSS.
+/// Parses a file: YAML front matter between `---` lines and one body, or
+/// the older form (a `key = "value"` header and sections split by `==`:
+/// with one section the HTML body alone; with two, header and HTML; with
+/// three, header, text and HTML; with four, header, text, HTML and CSS).
 pub fn parse_file(file: &str) -> Sections {
+    let file = file.trim_start_matches('\u{feff}');
+    if let Some(rest) = file
+        .strip_prefix("---\n")
+        .or_else(|| file.strip_prefix("---\r\n"))
+    {
+        let (front, body) = match rest.split_once("\n---\n") {
+            Some(parts) => parts,
+            None => match rest.split_once("\n---\r\n") {
+                Some(parts) => parts,
+                None => (rest.trim_end_matches(['-', '\n', '\r']), ""),
+            },
+        };
+        return Sections {
+            settings: front_matter(front),
+            text: String::new(),
+            html: body.trim_matches('\n').to_string(),
+            css: String::new(),
+            separated: false,
+        };
+    }
     let parts: Vec<&str> = file.split("\n==\n").collect();
     let parts: Vec<String> = parts
         .into_iter()
@@ -113,7 +149,26 @@ pub fn parse_file(file: &str) -> Sections {
         text,
         html,
         css,
+        separated: true,
     }
+}
+
+/// The front matter as strings: a scalar reads as written, anything else as
+/// its JSON. Front matter that does not parse as YAML has no settings.
+fn front_matter(front: &str) -> BTreeMap<String, String> {
+    let parsed: Result<BTreeMap<String, serde_json::Value>, _> = serde_saphyr::from_str(front);
+    parsed
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, value)| {
+            let text = match value {
+                serde_json::Value::String(text) => text,
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            (key, text)
+        })
+        .collect()
 }
 
 /// A template row: what a message is rendered from.
@@ -195,9 +250,9 @@ pub(crate) enum MailPartials {
 /// The files as registered, kept so a row resets to its file.
 #[derive(Default)]
 struct Files {
-    templates: HashMap<&'static str, &'static str>,
-    layouts: HashMap<&'static str, &'static str>,
-    partials: HashMap<&'static str, &'static str>,
+    templates: HashMap<&'static str, (&'static str, Option<&'static str>)>,
+    layouts: HashMap<&'static str, (&'static str, Option<&'static str>)>,
+    partials: HashMap<&'static str, (&'static str, Option<&'static str>)>,
 }
 
 struct Inner {
@@ -268,13 +323,20 @@ impl Templates {
     ) -> CoreResult<()> {
         {
             let mut files = self.inner.files.write().unwrap_or_else(|e| e.into_inner());
-            files.templates = templates.iter().map(|r| (r.code, r.file)).collect();
-            files.layouts = layouts.iter().map(|r| (r.code, r.file)).collect();
-            files.partials = partials.iter().map(|r| (r.code, r.file)).collect();
+            files.templates = templates
+                .iter()
+                .map(|r| (r.code, (r.file, r.text)))
+                .collect();
+            files.layouts = layouts.iter().map(|r| (r.code, (r.file, r.text))).collect();
+            files.partials = partials
+                .iter()
+                .map(|r| (r.code, (r.file, r.text)))
+                .collect();
         }
         let db = &self.inner.db;
         for reg in templates {
-            let row = template_from_file(reg.code, reg.file);
+            deprecated_form(reg.code, reg.file);
+            let row = template_from_file(reg.code, reg.file, reg.text);
             if find_template(db, reg.code)
                 .await?
                 .is_none_or(|t| !t.is_custom)
@@ -283,7 +345,8 @@ impl Templates {
             }
         }
         for reg in layouts {
-            let row = layout_from_file(reg.code, reg.file);
+            deprecated_form(reg.code, reg.file);
+            let row = layout_from_file(reg.code, reg.file, reg.text);
             if find_layout(db, reg.code)
                 .await?
                 .is_none_or(|l| !l.is_custom)
@@ -292,7 +355,8 @@ impl Templates {
             }
         }
         for reg in partials {
-            let row = partial_from_file(reg.code, reg.file);
+            deprecated_form(reg.code, reg.file);
+            let row = partial_from_file(reg.code, reg.file, reg.text);
             if find_partial(db, reg.code)
                 .await?
                 .is_none_or(|p| !p.is_custom)
@@ -376,7 +440,7 @@ impl Templates {
         let Some(file) = file else {
             return Ok(false);
         };
-        upsert_template(&self.inner.db, &template_from_file(code, file)).await?;
+        upsert_template(&self.inner.db, &template_from_file(code, file.0, file.1)).await?;
         self.bump().await;
         Ok(true)
     }
@@ -386,7 +450,7 @@ impl Templates {
         let Some(file) = file else {
             return Ok(false);
         };
-        upsert_layout(&self.inner.db, &layout_from_file(code, file)).await?;
+        upsert_layout(&self.inner.db, &layout_from_file(code, file.0, file.1)).await?;
         self.bump().await;
         Ok(true)
     }
@@ -396,7 +460,7 @@ impl Templates {
         let Some(file) = file else {
             return Ok(false);
         };
-        upsert_partial(&self.inner.db, &partial_from_file(code, file)).await?;
+        upsert_partial(&self.inner.db, &partial_from_file(code, file.0, file.1)).await?;
         self.bump().await;
         Ok(true)
     }
@@ -443,7 +507,10 @@ impl Templates {
         self.file_of(|f| f.partials.get(code).copied()).is_some()
     }
 
-    fn file_of(&self, pick: impl FnOnce(&Files) -> Option<&'static str>) -> Option<&'static str> {
+    fn file_of(
+        &self,
+        pick: impl FnOnce(&Files) -> Option<(&'static str, Option<&'static str>)>,
+    ) -> Option<(&'static str, Option<&'static str>)> {
         let files = self.inner.files.read().unwrap_or_else(|e| e.into_inner());
         pick(&files)
     }
@@ -549,13 +616,14 @@ impl Templates {
                 let brand = brand_values(&brand_css);
                 let css = html_env
                     .get_template("css")?
-                    .render(minijinja::context! { brand => brand, ..base.clone() })?;
+                    .render(minijinja::context! { brand => brand.clone(), ..base.clone() })?;
                 let page = html_env
                     .get_template("layout")?
                     .render(minijinja::context! {
                         content => Value::from_safe_string(body_html),
                         css => Value::from_safe_string(css.clone()),
                         brand_css => Value::from_safe_string(brand_css.clone()),
+                        brand => brand,
                         subject => subject.clone(),
                         ..base.clone()
                     })?;
@@ -576,8 +644,13 @@ impl Templates {
         if let Some(layout) = layout {
             text_env.add_template_owned("layout".to_string(), layout.content_text.clone())?;
         }
+        // No text body: the one body rendered with the partials' text forms,
+        // then read as plain text.
         let body_text = if bundle.template.content_text.trim().is_empty() {
-            text_of(&body_source)
+            text_env
+                .add_template_owned("derived".to_string(), bundle.template.content_html.clone())?;
+            let source = text_env.get_template("derived")?.render(&base)?;
+            crate::markdown::to_text(&source)
         } else {
             text_env.get_template("body")?.render(&base)?
         };
@@ -654,6 +727,16 @@ fn environment(partials: &[Partial], text: bool) -> Environment<'static> {
     env
 }
 
+/// Logs a file still in the `==` form, once per boot.
+fn deprecated_form(code: &str, file: &str) {
+    if parse_file(file).separated {
+        tracing::warn!(
+            code,
+            "mail file uses the `==` section form; write it as front matter and one body (the old form goes in the next minor)"
+        );
+    }
+}
+
 /// The brand stylesheet's custom properties as a map, for a layout's CSS to
 /// read as `{{ brand.button_bg }}`.
 fn brand_values(css: &str) -> BTreeMap<String, String> {
@@ -675,26 +758,6 @@ fn brand_values(css: &str) -> BTreeMap<String, String> {
     out
 }
 
-/// A plain-text reading of a Markdown or HTML body: tags gone, entities
-/// resolved, blank lines kept.
-fn text_of(source: &str) -> String {
-    let mut out = String::with_capacity(source.len());
-    let mut in_tag = false;
-    for ch in source.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(ch),
-            _ => {}
-        }
-    }
-    out.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-}
-
 fn tidy_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut blank = 0;
@@ -714,7 +777,7 @@ fn tidy_text(text: &str) -> String {
     out.trim().to_string()
 }
 
-fn template_from_file(code: &str, file: &str) -> Template {
+fn template_from_file(code: &str, file: &str, text: Option<&str>) -> Template {
     let s = parse_file(file);
     Template {
         code: code.to_string(),
@@ -726,13 +789,13 @@ fn template_from_file(code: &str, file: &str) -> Template {
             .cloned()
             .filter(|l| !l.is_empty())
             .or_else(|| Some("default".to_string())),
-        content_text: s.text,
+        content_text: text.map(str::to_string).unwrap_or(s.text),
         content_html: s.html,
         is_custom: false,
     }
 }
 
-fn layout_from_file(code: &str, file: &str) -> Layout {
+fn layout_from_file(code: &str, file: &str, text: Option<&str>) -> Layout {
     let s = parse_file(file);
     Layout {
         code: code.to_string(),
@@ -741,14 +804,14 @@ fn layout_from_file(code: &str, file: &str) -> Layout {
             .get("name")
             .cloned()
             .unwrap_or_else(|| code.to_string()),
-        content_text: s.text,
+        content_text: text.map(str::to_string).unwrap_or(s.text),
         content_html: s.html,
         content_css: s.css,
         is_custom: false,
     }
 }
 
-fn partial_from_file(code: &str, file: &str) -> Partial {
+fn partial_from_file(code: &str, file: &str, text: Option<&str>) -> Partial {
     let s = parse_file(file);
     Partial {
         code: code.to_string(),
@@ -757,7 +820,7 @@ fn partial_from_file(code: &str, file: &str) -> Partial {
             .get("name")
             .cloned()
             .unwrap_or_else(|| code.to_string()),
-        content_text: s.text,
+        content_text: text.map(str::to_string).unwrap_or(s.text),
         content_html: s.html,
         is_custom: false,
     }
@@ -1079,14 +1142,33 @@ mod tests {
             "name = L\n==\n{{ content }}\n==\n<html>{{ content }}</html>\n==\nbody { color: red }",
         );
         assert_eq!(four.css, "body { color: red }");
+        assert!(four.separated);
     }
 
     #[test]
-    fn brand_properties_become_a_map_and_text_loses_its_tags() {
+    fn front_matter_and_one_body_is_the_file() {
+        let s = parse_file(
+            "---\nsubject: Hi {{ name }}\nlayout: plain\ndescription: \"A note: short.\"\n---\n# Hi {{ name }}\n\nWelcome.\n",
+        );
+        assert!(!s.separated);
+        assert_eq!(s.settings["subject"], "Hi {{ name }}");
+        assert_eq!(s.settings["layout"], "plain");
+        assert_eq!(s.settings["description"], "A note: short.");
+        assert_eq!(s.html, "# Hi {{ name }}\n\nWelcome.");
+        assert!(s.text.is_empty() && s.css.is_empty());
+        let bom = parse_file("\u{feff}---\nname: Button\n---\n<a>{{ body }}</a>\n");
+        assert_eq!(bom.settings["name"], "Button");
+        assert_eq!(bom.html, "<a>{{ body }}</a>");
+        let empty = parse_file("---\nname: Empty\n---\n");
+        assert_eq!(empty.settings["name"], "Empty");
+        assert!(empty.html.is_empty());
+    }
+
+    #[test]
+    fn brand_properties_become_a_map() {
         let map = brand_values(":root { --mail-button-bg: #c0392b; --mail-text-color: #222; }");
         assert_eq!(map["button_bg"], "#c0392b");
         assert_eq!(map["text_color"], "#222");
-        assert_eq!(text_of("<p>Hi &amp; bye</p>"), "Hi & bye");
         assert_eq!(tidy_text("a\n\n\n\nb  \n"), "a\n\nb");
     }
 }

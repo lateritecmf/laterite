@@ -25,14 +25,11 @@ async fn test_db() -> (laterite_core::Db, laterite_core::testing::TestGuard) {
     .await
 }
 
-const WELCOME: &str = r#"subject = "Welcome, {{ name }}"
-layout = "default"
-description = "Sent when an account is made."
-==
-Welcome {{ name }}.
-
-{{ partial("button", url=link, body="Sign in") }}
-==
+const WELCOME: &str = r#"---
+subject: Welcome, {{ name }}
+layout: default
+description: Sent when an account is made.
+---
 # Hello {{ name }}
 
 Your account on **{{ app_name }}** is ready.
@@ -42,6 +39,15 @@ Your account on **{{ app_name }}** is ready.
 
 {% set note %}Questions? Reply to this message.{% endset %}
 {{ partial("subcopy", body=note) }}
+"#;
+
+/// The older `==` form, still read for one release.
+const SEPARATED: &str = r#"subject = "Hi {{ name }}"
+layout = "plain"
+==
+Hi {{ name }}, in text.
+==
+# Hi {{ name }}
 "#;
 
 fn registered() -> (
@@ -55,6 +61,7 @@ fn registered() -> (
     MailModule.register(&mut registry);
     registry.set_owner(laterite_core::ModuleId::new("acme.blog"));
     registry.add_mail_template("acme.blog::welcome", WELCOME);
+    registry.add_mail_template("acme.blog::hi", SEPARATED);
     (
         registry.take::<MailTemplateReg>(),
         registry.take::<MailLayoutReg>(),
@@ -122,8 +129,21 @@ async fn templates_seed_render_and_reset() {
         .await
         .unwrap();
     assert_eq!(rendered.subject, "Welcome, Ada");
-    assert!(rendered.text.contains("Welcome Ada."), "{}", rendered.text);
-    assert!(rendered.text.contains("Sign in: https://acme.example/in"));
+    assert!(
+        rendered.text.contains("Your account on Acme is ready."),
+        "the text part is made from the one body: {}",
+        rendered.text
+    );
+    assert!(
+        rendered.text.contains("Sign in: https://acme.example/in"),
+        "the button partial's text form: {}",
+        rendered.text
+    );
+    assert!(
+        rendered.text.ends_with("--\nAcme") || rendered.text.contains("--\nAcme"),
+        "the layout's text wrapper signs off: {}",
+        rendered.text
+    );
     let html = rendered.html.unwrap();
     assert!(html.contains("<h1"), "markdown became html: {html}");
     assert!(html.contains("<strong>Acme</strong>"));
@@ -141,6 +161,14 @@ async fn templates_seed_render_and_reset() {
         .await
         .unwrap();
     assert_eq!(bare.subject, "Welcome,");
+    // The older `==` form still renders, with its own text body.
+    let old = templates
+        .render("acme.blog::hi", &serde_json::json!({"name": "Ada"}))
+        .await
+        .unwrap();
+    assert_eq!(old.subject, "Hi Ada");
+    assert!(old.text.starts_with("Hi Ada, in text."), "{}", old.text);
+    assert!(old.html.unwrap().contains("<h1"));
     assert!(templates
         .render("acme.blog::nothing", &serde_json::json!({}))
         .await

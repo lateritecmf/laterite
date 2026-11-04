@@ -14,12 +14,13 @@ const CONFIG: &str =
     "name: Base\nauthor: Acme\nform:\n  fields:\n    site_name:\n      label: Site name\n      type: text\n";
 
 #[test]
-fn a_file_carries_settings_above_the_separator() {
+fn a_file_carries_settings_as_front_matter() {
     let body = archive::file_body(
         &serde_json::json!({"url": "/", "layout": "default"}),
         "<h1>x</h1>",
     );
-    assert!(body.ends_with("\n==\n<h1>x</h1>"), "{body}");
+    assert!(body.starts_with("---\n"), "{body}");
+    assert!(body.ends_with("\n---\n<h1>x</h1>"), "{body}");
     let (settings, markup) = archive::parse_body(&body).unwrap();
     assert_eq!(
         settings,
@@ -31,7 +32,17 @@ fn a_file_carries_settings_above_the_separator() {
     let (settings, markup) = archive::parse_body("no separator\nat all").unwrap();
     assert_eq!(settings, serde_json::json!({}));
     assert_eq!(markup, "no separator\nat all");
-    // Text above the separator must be a mapping.
+    // Front matter must be a mapping and must close.
+    assert!(archive::parse_body("---\nplain\n---\nx").is_err());
+    assert!(archive::parse_body("---\n- a list\n---\nx").is_err());
+    assert!(archive::parse_body("---\nurl: /\nx").is_err());
+    let (settings, markup) = archive::parse_body("---\nurl: /\n---\n").unwrap();
+    assert_eq!(settings, serde_json::json!({"url": "/"}));
+    assert!(markup.is_empty());
+    // The older `==` form still reads, with the same rules.
+    let (settings, markup) = archive::parse_body("url: /old\n==\n<h1>old</h1>").unwrap();
+    assert_eq!(settings, serde_json::json!({"url": "/old"}));
+    assert_eq!(markup, "<h1>old</h1>");
     assert!(archive::parse_body("plain\n==\nx").is_err());
     assert!(archive::parse_body("- a list\n==\nx").is_err());
 }

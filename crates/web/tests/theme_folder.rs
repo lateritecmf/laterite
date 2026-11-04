@@ -18,17 +18,17 @@ fn theme_folder(root: &std::path::Path) -> std::path::PathBuf {
     .unwrap();
     fs::write(
         dir.join("pages/home.htm"),
-        "url: /\nlayout: default\ntitle: Acme\n==\n<h1>{{ this.page.title }}</h1>{{ content(\"intro.md\") }}",
+        "---\nurl: /\nlayout: default\ntitle: Acme\n---\n<h1>{{ this.page.title }}</h1>{{ content(\"intro.md\") }}",
     )
     .unwrap();
     fs::write(
         dir.join("pages/404.htm"),
-        "url: /404\nlayout: default\ntitle: Missing\n==\n<h1>Missing</h1>",
+        "---\nurl: /404\nlayout: default\ntitle: Missing\n---\n<h1>Missing</h1>",
     )
     .unwrap();
     fs::write(
         dir.join("pages/post.htm"),
-        "url: /post/:slug\nlayout: default\n==\n<h1>{{ this.params.slug }}</h1>",
+        "---\nurl: /post/:slug\nlayout: default\n---\n<h1>{{ this.params.slug }}</h1>",
     )
     .unwrap();
     fs::write(

@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Deprecated
+
+- The `==` section form of a mail or theme file; it still reads, logged as
+  deprecated, and goes in the next minor.
+
 ### Fixed
 
 - An upload larger than two megabytes is stored whole: the request body limit
@@ -22,6 +27,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Theme files (pages, layouts, partials) as YAML front matter between `---`
+  lines and the markup; export writes that form and import reads both.
+- Mail files as YAML front matter and one body: the text part is made from
+  the body with the partials' text forms, or from a `.txt` registered beside
+  it (`add_mail_template_with_text` and the layout and partial forms).
+- `laterite_core::markdown::to_text`: Markdown as plain text.
 - A `section` field type: a heading with a line beneath that groups the
   fields after it, stored nowhere.
 - A settings screen as a file: `laterite_admin::settings!("admin/settings.yaml")`

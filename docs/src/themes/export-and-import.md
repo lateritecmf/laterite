@@ -21,12 +21,13 @@ acme.zip
 └── assets/css/site.css
 ```
 
-A template with settings carries them as YAML above a `==` line:
+A template with settings carries them as YAML front matter between `---` lines:
 
 ```text
+---
 url: /
 layout: default
-==
+---
 {% extends "layouts/default.htm" %}
 ```
 

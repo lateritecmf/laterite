@@ -27,12 +27,12 @@ fn project(root: &Path) {
     .unwrap();
     fs::write(
         theme.join("pages/home.htm"),
-        "url: /\nlayout: default\ntitle: Acme\n==\n<h1>{{ this.page.title }}</h1>",
+        "---\nurl: /\nlayout: default\ntitle: Acme\n---\n<h1>{{ this.page.title }}</h1>",
     )
     .unwrap();
     fs::write(
         theme.join("pages/about.htm"),
-        "url: /about\nlayout: default\ntitle: About\n==\n<h1>About</h1>",
+        "---\nurl: /about\nlayout: default\ntitle: About\n---\n<h1>About</h1>",
     )
     .unwrap();
     fs::create_dir_all(root.join("static")).unwrap();

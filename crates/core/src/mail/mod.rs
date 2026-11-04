@@ -58,14 +58,50 @@ impl Module for MailModule {
     }
     fn register(&self, registry: &mut Registry) {
         registry.add(crate::cache::CacheNamespace::new("templates"));
-        registry.add_mail_layout("default", include_str!("../../mail/layouts/default.htm"));
-        registry.add_mail_layout("plain", include_str!("../../mail/layouts/plain.htm"));
-        registry.add_mail_partial("header", include_str!("../../mail/partials/header.htm"));
-        registry.add_mail_partial("footer", include_str!("../../mail/partials/footer.htm"));
-        registry.add_mail_partial("button", include_str!("../../mail/partials/button.htm"));
-        registry.add_mail_partial("panel", include_str!("../../mail/partials/panel.htm"));
-        registry.add_mail_partial("table", include_str!("../../mail/partials/table.htm"));
-        registry.add_mail_partial("subcopy", include_str!("../../mail/partials/subcopy.htm"));
+        registry.add_mail_layout_with_text(
+            "default",
+            include_str!("../../mail/layouts/default.htm"),
+            include_str!("../../mail/layouts/default.txt"),
+        );
+        registry.add_mail_layout_with_text(
+            "plain",
+            include_str!("../../mail/layouts/plain.htm"),
+            include_str!("../../mail/layouts/plain.txt"),
+        );
+        for (code, file, text) in [
+            (
+                "header",
+                include_str!("../../mail/partials/header.htm"),
+                include_str!("../../mail/partials/header.txt"),
+            ),
+            (
+                "footer",
+                include_str!("../../mail/partials/footer.htm"),
+                include_str!("../../mail/partials/footer.txt"),
+            ),
+            (
+                "button",
+                include_str!("../../mail/partials/button.htm"),
+                include_str!("../../mail/partials/button.txt"),
+            ),
+            (
+                "panel",
+                include_str!("../../mail/partials/panel.htm"),
+                include_str!("../../mail/partials/panel.txt"),
+            ),
+            (
+                "table",
+                include_str!("../../mail/partials/table.htm"),
+                include_str!("../../mail/partials/table.txt"),
+            ),
+            (
+                "subcopy",
+                include_str!("../../mail/partials/subcopy.htm"),
+                include_str!("../../mail/partials/subcopy.txt"),
+            ),
+        ] {
+            registry.add_mail_partial_with_text(code, file, text);
+        }
         registry.add_mail_template(TEST_TEMPLATE, include_str!("../../mail/templates/test.htm"));
         registry.add_job::<SendMail>();
     }
@@ -302,24 +338,94 @@ impl std::fmt::Debug for MailDriverReg {
 
 /// The typed ways to contribute mail: templates, layouts, partials, drivers.
 pub trait MailRegistry {
-    /// A template file under `code` (`acme.blog::welcome`).
+    /// A template file under `code` (`acme.blog::welcome`); the text part is
+    /// derived from its body.
     fn add_mail_template(&mut self, code: &'static str, file: &'static str);
+    /// A template file with its own plain-text body (a `.txt` beside it).
+    fn add_mail_template_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    );
     /// A layout file under `code` (`default`).
     fn add_mail_layout(&mut self, code: &'static str, file: &'static str);
+    /// A layout file with the text wrapper beside it.
+    fn add_mail_layout_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    );
     /// A partial file under `code` (`button`).
     fn add_mail_partial(&mut self, code: &'static str, file: &'static str);
+    /// A partial file with its text form beside it.
+    fn add_mail_partial_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    );
     fn add_mail_driver(&mut self, driver: MailDriverReg);
 }
 
 impl MailRegistry for Registry {
     fn add_mail_template(&mut self, code: &'static str, file: &'static str) {
-        self.add(MailTemplateReg { code, file });
+        self.add(MailTemplateReg {
+            code,
+            file,
+            text: None,
+        });
+    }
+    fn add_mail_template_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    ) {
+        self.add(MailTemplateReg {
+            code,
+            file,
+            text: Some(text),
+        });
     }
     fn add_mail_layout(&mut self, code: &'static str, file: &'static str) {
-        self.add(MailLayoutReg { code, file });
+        self.add(MailLayoutReg {
+            code,
+            file,
+            text: None,
+        });
+    }
+    fn add_mail_layout_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    ) {
+        self.add(MailLayoutReg {
+            code,
+            file,
+            text: Some(text),
+        });
     }
     fn add_mail_partial(&mut self, code: &'static str, file: &'static str) {
-        self.add(MailPartialReg { code, file });
+        self.add(MailPartialReg {
+            code,
+            file,
+            text: None,
+        });
+    }
+    fn add_mail_partial_with_text(
+        &mut self,
+        code: &'static str,
+        file: &'static str,
+        text: &'static str,
+    ) {
+        self.add(MailPartialReg {
+            code,
+            file,
+            text: Some(text),
+        });
     }
     fn add_mail_driver(&mut self, driver: MailDriverReg) {
         self.add(driver);

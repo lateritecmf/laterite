@@ -2511,6 +2511,7 @@ dependencies = [
  "sea-query",
  "secrecy",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "sqlx",
  "tempfile",

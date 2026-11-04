@@ -42,14 +42,15 @@ acme/
 └── README.md
 ```
 
-A page carries its settings above a `==` line:
+A page carries its settings as front matter above the markup:
 
 ```text
+---
 url: /about
 layout: default
 title: About
 description: Who we are and what we do.
-==
+---
 <h1>{{ this.page.title }}</h1>
 <p>{{ this.page.description }}</p>
 ```

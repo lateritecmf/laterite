@@ -21,6 +21,8 @@ croner = { workspace = true }
 css-inline = { workspace = true }
 lettre = { workspace = true, optional = true }
 minijinja = { workspace = true }
+# YAML front matter on mail and theme files.
+serde-saphyr = { workspace = true }
 config = { workspace = true }
 laterite-macros = { workspace = true }
 email_address = "0.2.9"
