@@ -46,7 +46,47 @@ laterite_admin::settings::set(&db, "acme.site", &value.unwrap_or_default()).awai
 
 ## Edit it in the admin
 
-Register a `SettingsItem` from your module's `register`:
+Write the screen as a file beside the crate and register it from your
+module's `register`:
+
+```yaml
+# admin/settings.yaml
+code: acme.site
+label: Site
+description: Public site title, tagline, and a maintenance switch.
+category: General
+icon: sliders-horizontal
+permission: acme.manage_site
+order: 10
+fields:
+  title:            { label: Site title, rules: [required] }
+  tagline:          {}
+  maintenance_mode: { type: switch }
+```
+
+```rust
+registry.add_settings(laterite_admin::settings!("admin/settings.yaml"));
+```
+
+`code` is the model's `CODE`. `fields` takes the entries a form descriptor
+takes: see [Form Descriptor](../forms/form-descriptor.md). A label left out
+is the field name, humanized. The file is read at compile time; a file read at
+run time goes through `laterite_admin::settings::from_yaml(text, name)`.
+
+Key | Default | Meaning
+--- | --- | ---
+`code` | required | The model's `CODE`.
+`label` | required | The menu label.
+`description` | none | Under the label in the settings index. At most 72 characters.
+`hint` | none | Above the form.
+`category` | the band's name | Groups items in the index, in order of first appearance.
+`icon` | a generic glyph | An [icon](../reference/icons.md). An unknown name stops the boot.
+`permission` | any operator | Hides the item from operators without the grant.
+`order`, `slot` | `0`, `application` | Sort within the band; the band (`laterite_core::arrange::slot`).
+`per_operator` | `false` | A value kept per operator; see below.
+`confirm_leave` | `true` | Ask before leaving with changes unsaved.
+
+The same screen, built in Rust:
 
 ```rust
 use laterite_admin::form::FormField;

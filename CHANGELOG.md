@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A settings screen as a file: `laterite_admin::settings!("admin/settings.yaml")`
+  and `settings::from_yaml`, taking the form descriptor's field entries.
 - `transient: true` on a form field (`FormField::transient()`): shown and
   submitted with no column behind it, for a persister to read (a password field).
 

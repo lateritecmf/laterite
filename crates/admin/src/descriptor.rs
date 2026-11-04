@@ -32,6 +32,7 @@
 use serde::Deserialize;
 
 use crate::form::FormConfig;
+use crate::form::FormField;
 use crate::list::ListConfig;
 use crate::relation::RelationConfig;
 use crate::{ImportConfig, Resource};
@@ -224,6 +225,129 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     Ok(resource)
 }
 
+/// One settings screen as a file: the model's code, how the index lists it,
+/// and the form fields, the same field entries a resource's form takes.
+///
+/// ```yaml
+/// code: acme.site
+/// label: Site
+/// description: Public site title, tagline, and a maintenance switch.
+/// category: General
+/// icon: sliders-horizontal
+/// permission: acme.manage_site
+/// fields:
+///   title:            { label: Site title }
+///   tagline:          {}
+///   maintenance_mode: { type: switch }
+/// ```
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsFile {
+    /// The model's `SettingsModel::CODE`.
+    code: String,
+    label: Text,
+    #[serde(default)]
+    description: Option<Text>,
+    #[serde(default)]
+    hint: Option<Text>,
+    #[serde(default)]
+    category: Option<Text>,
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    permission: Option<String>,
+    #[serde(default)]
+    order: Option<i32>,
+    #[serde(default)]
+    slot: Option<i32>,
+    /// A value kept per operator (`PreferencesModel`) instead of once.
+    #[serde(default)]
+    per_operator: bool,
+    #[serde(default)]
+    confirm_leave: Option<bool>,
+    #[serde(default, deserialize_with = "crate::keyed::deserialize")]
+    fields: Vec<FormField>,
+}
+
+/// Reads a settings screen from the contents of a settings file.
+///
+/// `source` names the file in any error. The item still needs its model: the
+/// struct the application reads, whose `CODE` the file's `code` names.
+pub fn settings_from_yaml(
+    yaml: &str,
+    source: &str,
+) -> Result<crate::settings::SettingsItem, DescriptorError> {
+    let file: SettingsFile = serde_saphyr::from_str(yaml).map_err(|e| DescriptorError {
+        source: source.to_string(),
+        message: e.to_string(),
+    })?;
+    let fields = crate::field::builtin_registry();
+    let mut entries = file.fields;
+    for field in &mut entries {
+        if field.label.source().is_empty() {
+            field.label = humanize(&field.name);
+        }
+        if let Some(field_type) = fields.get(&field.field_type) {
+            crate::field::check_field_keys(field, field_type.as_ref()).map_err(|e| {
+                DescriptorError {
+                    source: source.to_string(),
+                    message: format!("field `{}` (`{}`): {e}", field.name, field.field_type),
+                }
+            })?;
+        }
+    }
+    let mut item = crate::settings::SettingsItem::new(file.code, file.label, entries);
+    if let Some(text) = file.description {
+        item = item.description(text);
+    }
+    if let Some(text) = file.hint {
+        item = item.hint(text);
+    }
+    if let Some(text) = file.category {
+        item = item.category(text);
+    }
+    if let Some(icon) = file.icon {
+        item = item.icon(icon);
+    }
+    if let Some(permission) = file.permission {
+        item = item.permission(permission);
+    }
+    if let Some(order) = file.order {
+        item = item.order(order);
+    }
+    if let Some(slot) = file.slot {
+        item = item.slot(slot);
+    }
+    if let Some(ask) = file.confirm_leave {
+        item = item.confirm_leave(ask);
+    }
+    if file.per_operator {
+        item = item.per_operator();
+    }
+    Ok(item)
+}
+
+/// Reads a settings file at compile time, relative to the crate's manifest,
+/// the way [`resource!`] reads a resource.
+///
+/// ```rust,ignore
+/// registry.add_settings(laterite_admin::settings!("admin/settings.yaml"));
+/// ```
+#[macro_export]
+macro_rules! settings {
+    ($path:literal) => {
+        $crate::descriptor::settings_from_yaml(
+            ::std::include_str!(::std::concat!(
+                ::std::env!("CARGO_MANIFEST_DIR"),
+                "/",
+                $path
+            )),
+            $path,
+        )
+        .unwrap_or_else(|e| ::std::panic!("{e}"))
+    };
+}
+
 /// Reads a descriptor file at compile time, relative to the crate's manifest.
 ///
 /// ```rust,ignore
@@ -296,6 +420,58 @@ form:
   fields:
     title: { rules: [required] }
 "#;
+
+    const SITE_SETTINGS: &str = r#"
+code: acme.site
+label: Site
+description: Public site title and tagline.
+category: General
+icon: sliders-horizontal
+permission: acme.manage_site
+order: 10
+fields:
+  title:            { label: Site title, rules: [required] }
+  tagline:          {}
+  maintenance_mode: { type: switch }
+"#;
+
+    #[test]
+    fn a_file_describes_one_settings_screen() {
+        let item = settings_from_yaml(SITE_SETTINGS, "settings.yaml").expect("reads");
+        assert_eq!(item.code, "acme.site");
+        assert_eq!(item.label.source(), "Site");
+        assert_eq!(item.category.source(), "General");
+        assert_eq!(item.icon.as_deref(), Some("sliders-horizontal"));
+        assert_eq!(item.permission.as_deref(), Some("acme.manage_site"));
+        assert_eq!(item.order, 10);
+        assert_eq!(item.fields.len(), 3);
+        assert_eq!(item.fields[0].label.source(), "Site title");
+        assert_eq!(item.fields[1].label.source(), "Tagline");
+        assert_eq!(item.fields[2].field_type, "switch");
+    }
+
+    #[test]
+    fn a_settings_file_refuses_an_unknown_key_and_a_bad_field_key() {
+        let err = settings_from_yaml(
+            "code: a
+label: A
+colour: red
+",
+            "s.yaml",
+        )
+        .unwrap_err();
+        assert!(err.message.contains("colour"), "{err}");
+        let err = settings_from_yaml(
+            "code: a
+label: A
+fields:
+  n: { type: switch, rows: 4 }
+",
+            "s.yaml",
+        )
+        .unwrap_err();
+        assert!(err.message.contains("field `n`"), "{err}");
+    }
 
     #[test]
     fn a_file_describes_one_resource() {

@@ -18,6 +18,7 @@ pub mod mail_brand;
 pub mod migrations;
 pub mod store;
 
+pub use crate::descriptor::settings_from_yaml as from_yaml;
 pub use brand::BrandSetting;
 pub use migrations::{migrations, MODULE_ID};
 pub use store::{
