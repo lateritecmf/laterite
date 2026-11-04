@@ -70,8 +70,11 @@ pub fn is_svg(head: &[u8]) -> bool {
             break;
         }
     }
-    rest.len() >= 4
-        && rest[..4].eq_ignore_ascii_case("<svg")
+    // Compare bytes: binary input decodes to replacement characters three
+    // bytes wide, so a byte index into the text need not be a char boundary.
+    let bytes = rest.as_bytes();
+    bytes.len() >= 4
+        && bytes[..4].eq_ignore_ascii_case(b"<svg")
         && rest[4..]
             .chars()
             .next()
@@ -430,6 +433,18 @@ mod tests {
         ));
         assert!(!is_svg(b"<svgfoo>"));
         assert!(!is_svg(b"<html><svg></svg></html>"));
+    }
+
+    /// Binary bytes decode to replacement characters wider than one byte;
+    /// sniffing them must answer no, never panic on a byte index.
+    #[test]
+    fn binary_input_is_not_an_svg() {
+        assert!(!is_svg(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"));
+        assert!(!is_svg(b"\xff\xd8\xff\xe0\x00\x10JFIF"));
+        assert!(!is_svg(b"\xff\xfe<s"));
+        assert!(!is_svg(b"\xef\xbb\xbf"));
+        assert!(!is_svg(b""));
+        assert!(svg(b"\x89PNG\r\n\x1a\n").is_none());
         assert!(!is_svg(b"\x89PNG"));
     }
 

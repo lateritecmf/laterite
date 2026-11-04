@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- Uploading a binary file no longer fails with "could not be stored": the
+  SVG sniffer sliced lossily decoded text on a byte index.
 - A resource form shows a field's `help` text; only settings forms did.
 - A section's sidebar lists its entries without a group heading when it has
   one group, so a plugin section no longer repeats its own name.
