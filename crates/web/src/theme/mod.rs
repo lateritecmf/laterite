@@ -361,7 +361,15 @@ impl Module for ThemeModule {
         source
             .pull(&scx)
             .await
-            .map_err(|e| laterite_core::CoreError::Config(format!("theme source: {e}")))
+            .map_err(|e| laterite_core::CoreError::Config(format!("theme source: {e}")))?;
+        // The folder is the site's theme: what the build renders and what the
+        // server serves, with nothing to pick in the admin.
+        let code = scx
+            .folder_code()
+            .map_err(|e| laterite_core::CoreError::Config(e.to_string()))?;
+        set_active_theme(cx.db, &code)
+            .await
+            .map_err(|e| laterite_core::CoreError::Config(e.to_string()))
     }
     /// The Themes screen mounts at the panel's top level (`/admin/themes`),
     /// reached from the settings index.

@@ -147,9 +147,17 @@ async fn attached_components_run_and_read_under_their_alias() {
     .unwrap();
     let list = regs();
     let refs: Vec<&ComponentReg> = list.iter().collect();
-    theme::build::build_with(&db, "base", out.path(), "https://acme.test", &[], &refs)
-        .await
-        .unwrap();
+    theme::build::build_with(
+        &db,
+        "base",
+        out.path(),
+        "https://acme.test",
+        &[],
+        &refs,
+        &[],
+    )
+    .await
+    .unwrap();
     let home = std::fs::read_to_string(out.path().join("index.html")).unwrap();
     assert_eq!(home, "[post-1,post-2][Site of base]home");
 }

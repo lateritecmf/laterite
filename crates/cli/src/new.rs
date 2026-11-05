@@ -45,6 +45,24 @@ pub struct NewArgs {
     /// omitted; `--static` alone means `files`.
     #[arg(long, value_enum)]
     pub content: Option<Content>,
+    /// The site's origin (`https://acme.example`). Prompted if omitted.
+    #[arg(long)]
+    pub url: Option<String>,
+    /// The IANA timezone (`Asia/Kolkata`). Prompted if omitted.
+    #[arg(long)]
+    pub timezone: Option<String>,
+    /// The bind address (`127.0.0.1:8080`). Prompted if omitted.
+    #[arg(long)]
+    pub listen: Option<String>,
+    /// The first administrator's username; with `--admin-email`,
+    /// `--admin-name` and the password on `LAT_NEW_ADMIN_PASSWORD`, no
+    /// prompt is shown. Prompted if omitted.
+    #[arg(long)]
+    pub admin: Option<String>,
+    #[arg(long)]
+    pub admin_email: Option<String>,
+    #[arg(long)]
+    pub admin_name: Option<String>,
 }
 
 /// The database connection the installer assembled.
@@ -79,7 +97,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
     let theme = ColorfulTheme::default();
     println!("Setting up a new Laterite application.\n");
 
-    let framework = framework_path(args.framework_path)?;
+    let framework = framework_path(args.framework_path.clone())?;
     if let Some(root) = &framework {
         println!(
             "Development mode: building the app against the framework at {}\n",
@@ -88,7 +106,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
     }
 
     let static_site = args.r#static || !ask_application(&theme)?;
-    let (display_name, name) = app_meta(&theme, args.name)?;
+    let (display_name, name) = app_meta(&theme, args.name.clone())?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
         bail!("a file or directory named '{name}' already exists here");
@@ -104,7 +122,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
         (true, None) => Some(ask_content(&theme)?),
     };
     if content == Some(Content::Files) {
-        let url = site_url(&theme, &name)?;
+        let url = site_url(&theme, &name, args.url.as_deref())?;
         scaffold_static(&dir, &name, &display_name, &url).context("could not scaffold the site")?;
         println!("Scaffolded ./{name}");
         if !args.plugins.is_empty() {
@@ -125,7 +143,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
     let site = match content {
         Some(content) => Some(SiteShape {
             content,
-            url: site_url(&theme, &name)?,
+            url: site_url(&theme, &name, args.url.as_deref())?,
             hook: if content == Content::Database {
                 build_hook(&theme)?
             } else {
@@ -143,8 +161,8 @@ pub async fn run(args: NewArgs) -> Result<()> {
         );
     }
 
-    let timezone = timezone(&theme)?;
-    let listen = listen_address(&theme)?;
+    let timezone = timezone(&theme, args.timezone.as_deref())?;
+    let listen = listen_address(&theme, args.listen.as_deref())?;
     // A folder or git site keeps the framework's own tables in SQLite and
     // asks nothing; the database shape asks where the content lives.
     let conn = match site.as_ref().map(|s| s.content) {
@@ -197,7 +215,7 @@ pub async fn run(args: NewArgs) -> Result<()> {
         .context("could not apply the framework migrations")?;
     println!("Applied the framework migrations.");
 
-    create_admin(&theme, &db)
+    create_admin(&theme, &db, &args)
         .await
         .context("could not create the administrator")?;
 
@@ -339,7 +357,13 @@ fn build_hook(theme: &ColorfulTheme) -> Result<Option<String>> {
 
 /// Prompts for the site's origin, written to `config/default.toml` as
 /// `app.url` so `lat theme build` forms canonical links from it.
-fn site_url(theme: &ColorfulTheme, name: &str) -> Result<String> {
+fn site_url(theme: &ColorfulTheme, name: &str, given: Option<&str>) -> Result<String> {
+    if let Some(url) = given {
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            bail!("--url is an origin starting with http:// or https://");
+        }
+        return Ok(url.trim_end_matches('/').to_string());
+    }
     let url: String = Input::with_theme(theme)
         .with_prompt("Site URL")
         .default(format!("https://{name}.example"))
@@ -444,10 +468,17 @@ fn validate_crate_name(s: &str) -> Result<(), String> {
     }
 }
 
-fn timezone(theme: &ColorfulTheme) -> Result<String> {
+fn timezone(theme: &ColorfulTheme, given: Option<&str>) -> Result<String> {
     // Fuzzy-search the whole IANA database: type to filter (e.g. "kolk"), then
     // arrow-select. The result is always a valid zone, so no separate validation.
     let zones: Vec<&str> = chrono_tz::TZ_VARIANTS.iter().map(|tz| tz.name()).collect();
+    if let Some(zone) = given {
+        return zones
+            .iter()
+            .find(|z| z.eq_ignore_ascii_case(zone))
+            .map(|z| z.to_string())
+            .ok_or_else(|| anyhow::anyhow!("--timezone `{zone}` is not an IANA zone"));
+    }
     // Pre-fill the search with the system timezone (or UTC) so the prompt opens
     // filtered to it and highlighted, pointing at the likely answer. A plain
     // default index does not scroll a long fuzzy list into view; the query does.
@@ -463,7 +494,11 @@ fn timezone(theme: &ColorfulTheme) -> Result<String> {
 
 /// Prompts for the HTTP bind address (`host:port`), defaulting to a loopback
 /// address so a fresh app is reachable only locally until deliberately opened up.
-fn listen_address(theme: &ColorfulTheme) -> Result<String> {
+fn listen_address(theme: &ColorfulTheme, given: Option<&str>) -> Result<String> {
+    if let Some(listen) = given {
+        valid_listen(listen).map_err(|e| anyhow::anyhow!("--listen: {e}"))?;
+        return Ok(listen.to_string());
+    }
     let listen: String = Input::with_theme(theme)
         .with_prompt("Listen address (host:port)")
         .default("127.0.0.1:8080".to_string())
@@ -632,22 +667,48 @@ async fn try_pool(url: &str) -> Result<AnyPool, sqlx::Error> {
     AnyPoolOptions::new().max_connections(1).connect(url).await
 }
 
-async fn create_admin(theme: &ColorfulTheme, db: &Db) -> Result<()> {
-    println!("\nCreate the first administrator:");
-    let username: String = Input::with_theme(theme)
-        .with_prompt("Username")
-        .default("admin".to_string())
-        .interact_text()?;
-    let email: String = Input::with_theme(theme)
-        .with_prompt("Email")
-        .interact_text()?;
-    let first_name: String = Input::with_theme(theme)
-        .with_prompt("First name")
-        .interact_text()?;
-    let password = Password::with_theme(theme)
-        .with_prompt("Password")
-        .with_confirmation("Confirm password", "the passwords do not match")
-        .interact()?;
+/// The environment variable `lat new` reads the first administrator's
+/// password from when `--admin` is given, so a script never puts it on a
+/// command line.
+pub const ADMIN_PASSWORD_ENV: &str = "LAT_NEW_ADMIN_PASSWORD";
+
+async fn create_admin(theme: &ColorfulTheme, db: &Db, args: &NewArgs) -> Result<()> {
+    let (username, email, first_name, password) = match &args.admin {
+        Some(username) => {
+            let email = args
+                .admin_email
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--admin needs --admin-email"))?;
+            let first_name = args
+                .admin_name
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--admin needs --admin-name"))?;
+            let password = std::env::var(ADMIN_PASSWORD_ENV).map_err(|_| {
+                anyhow::anyhow!(
+                    "--admin reads the password from {ADMIN_PASSWORD_ENV}, which is not set"
+                )
+            })?;
+            (username.clone(), email, first_name, password)
+        }
+        None => {
+            println!("\nCreate the first administrator:");
+            let username: String = Input::with_theme(theme)
+                .with_prompt("Username")
+                .default("admin".to_string())
+                .interact_text()?;
+            let email: String = Input::with_theme(theme)
+                .with_prompt("Email")
+                .interact_text()?;
+            let first_name: String = Input::with_theme(theme)
+                .with_prompt("First name")
+                .interact_text()?;
+            let password = Password::with_theme(theme)
+                .with_prompt("Password")
+                .with_confirmation("Confirm password", "the passwords do not match")
+                .interact()?;
+            (username, email, first_name, password)
+        }
+    };
 
     let auth = AuthService::new(db.clone(), AuthConfig::default());
     auth.create_superuser(NewOperator {
@@ -866,7 +927,70 @@ pub(crate) fn scaffold_first_collection(dir: &Path, name: &str, git: bool) -> Re
         posts.join("hello.md"),
         "---\ntitle: Hello\npublished: true\n---\nThe first post. Edit it in the admin, or in this file.\n",
     )?;
+    // The theme's side: a list page, a page per post, and the nav link.
+    let theme = dir.join("themes").join(name);
+    let pages = theme.join("pages");
+    fs::create_dir_all(&pages)?;
+    write(pages.join("posts.htm"), &collection_list_page(&vendor))?;
+    write(pages.join("post.htm"), &collection_item_page(&vendor))?;
+    let nav = theme.join("partials").join("nav.htm");
+    if let Ok(current) = fs::read_to_string(&nav) {
+        if !current.contains("url('/posts')") {
+            let link = "  <a href=\"{{ url('/posts') }}\">Posts</a>\n";
+            let patched = match current.rfind("</nav>") {
+                Some(i) => format!("{}{link}{}", &current[..i], &current[i..]),
+                None => format!("{current}{link}"),
+            };
+            write(nav, &patched)?;
+        }
+    }
     Ok(())
+}
+
+/// The list page of the first collection: every published post.
+fn collection_list_page(vendor: &str) -> String {
+    format!(
+        r#"---
+url: /posts
+layout: default
+title: Posts
+description: Everything published so far.
+components:
+  posts: {{ component: "{vendor}.site.posts" }}
+---
+<h1>{{{{ this.page.title }}}}</h1>
+<ul class="posts">
+{{% for post in posts.items if post.published %}}
+  <li><a href="{{{{ url(post.url) }}}}">{{{{ post.title }}}}</a></li>
+{{% else %}}
+  <li>Nothing published yet.</li>
+{{% endfor %}}
+</ul>
+"#
+    )
+}
+
+/// One post, at its slug.
+fn collection_item_page(vendor: &str) -> String {
+    format!(
+        r#"---
+url: /posts/:slug
+layout: default
+title: Post
+components:
+  post: {{ component: "{vendor}.site.posts", slug: "{{{{ :slug }}}}" }}
+---
+{{% if post.item and post.item.published %}}
+<article class="post">
+  <h1>{{{{ post.item.title }}}}</h1>
+  {{{{ post.item.body_html|safe }}}}
+</article>
+{{% else %}}
+<h1>Not published</h1>
+<p><a href="{{{{ url('/posts') }}}}">Back to the posts</a></p>
+{{% endif %}}
+"#
+    )
 }
 
 /// Gives a static website a Cargo project of its own, so plugins compile
@@ -1191,9 +1315,11 @@ fn cargo_toml(name: &str, features: &[&str], framework: Option<&Path>) -> String
              # framework and its Module is a different type from this one's.\n\
              [patch.crates-io]\n\
              laterite-core = {{ path = {core:?} }}\n\
-             laterite-admin = {{ path = {admin:?} }}\n",
+             laterite-admin = {{ path = {admin:?} }}\n\
+             laterite-web = {{ path = {web:?} }}\n",
             core = root.join("crates/core").display().to_string(),
             admin = root.join("crates/admin").display().to_string(),
+            web = root.join("crates/web").display().to_string(),
         ),
         None => String::new(),
     };
@@ -1521,6 +1647,7 @@ mod tests {
         let toml = cargo_toml("acme", &["sqlite"], Some(Path::new("/opt/laterite")));
         assert!(toml.contains("[patch.crates-io]"), "{toml}");
         assert!(toml.contains(r#"laterite-core = { path = "/opt/laterite/crates/core" }"#));
+        assert!(toml.contains(r#"laterite-web = { path = "/opt/laterite/crates/web" }"#));
     }
 
     #[test]
@@ -1687,6 +1814,15 @@ mod tests {
         );
         let hello = fs::read_to_string(dir.join("content/posts/hello.md")).unwrap();
         assert!(hello.starts_with("---\ntitle: Hello\n"), "{hello}");
+        let list = fs::read_to_string(dir.join("themes/acme-blog/pages/posts.htm")).unwrap();
+        assert!(
+            list.contains("component: \"acme_blog.site.posts\""),
+            "{list}"
+        );
+        let item = fs::read_to_string(dir.join("themes/acme-blog/pages/post.htm")).unwrap();
+        assert!(item.contains("url: /posts/:slug"), "{item}");
+        let nav = fs::read_to_string(dir.join("themes/acme-blog/partials/nav.htm")).unwrap();
+        assert!(nav.contains("url('/posts')"), "{nav}");
     }
 
     #[test]

@@ -102,3 +102,73 @@ async fn a_theme_builds_its_fixed_pages_and_assets() {
     );
     assert!(!out.path().join("secret").exists());
 }
+
+/// A page with parameters is built once per set a module answers for its
+/// pattern, each at the URL the parameters fill.
+#[tokio::test]
+async fn a_page_with_parameters_is_built_for_every_set_a_module_answers() {
+    use laterite_web::theme::build::{Paths, PathsReg};
+    use laterite_web::theme::router::Params;
+    use laterite_web::theme::ThemeError;
+
+    struct Slugs;
+    #[laterite_core::strata::async_trait]
+    impl Paths for Slugs {
+        async fn params(&self, _db: &Db) -> Result<Vec<Params>, ThemeError> {
+            Ok(["first", "second"]
+                .into_iter()
+                .map(|slug| {
+                    let mut p = Params::new();
+                    p.insert("slug".into(), slug.into());
+                    p
+                })
+                .collect())
+        }
+    }
+
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "post.htm",
+        Some(serde_json::json!({"url": "/blog/:slug"})),
+        "post {{ this.params.slug }} at {{ this.url }}",
+        None,
+    )
+    .await
+    .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "orphan.htm",
+        Some(serde_json::json!({"url": "/orphan/:id"})),
+        "x",
+        None,
+    )
+    .await
+    .unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let reg = PathsReg::new("/blog/:slug", std::sync::Arc::new(Slugs));
+    let report = build::build_with(
+        &db,
+        "base",
+        out.path(),
+        "https://acme.test",
+        &[],
+        &[],
+        &[&reg],
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.pages, vec!["/blog/first", "/blog/second"]);
+    assert_eq!(report.skipped, vec!["orphan"]);
+    let first = std::fs::read_to_string(out.path().join("blog/first/index.html")).unwrap();
+    assert!(first.starts_with("post first at "), "{first}");
+    assert!(first.contains("blog&#x2f;first&#x2f;"), "{first}");
+    assert!(out.path().join("blog/second/index.html").is_file());
+}

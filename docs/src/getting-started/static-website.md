@@ -21,7 +21,7 @@ Prompt | Value
 **Database**, **Build hook URL** | For `database`: the connection, and the host's hook (blank to set later).
 **First administrator** | For every choice but `files`: username, email, password.
 
-A site whose content is edited in the admin is an application whose build is static: it carries the Cargo project, `src/main.rs` with the theme module, the framework's own tables in `storage/site.db` (or the database named), and the theme folder. A `folder` or `git` site also carries its first plugin, `plugins/site-plugin`, with a `post` collection kept as [records in files](../database/records-in-files.md) under `content/posts/`. `lat serve` runs its admin; `lat theme build` renders `dist/`; `lat theme publish` pushes (`git`) or calls the build hook (`database`). Default `https://<slug>.example`.
+A site whose content is edited in the admin is an application whose build is static: it carries the Cargo project, `src/main.rs` with the theme module, the framework's own tables in `storage/site.db` (or the database named), and the theme folder. A `folder` or `git` site also carries its first plugin, `plugins/site-plugin`, with a `post` collection kept as [records in files](../database/records-in-files.md) under `content/posts/`, the `posts` component the theme reads it through, and the pages `/posts` and `/posts/:slug` built per record. Folders named in `theme.copy` are served by `lat serve` as the build copies them. `lat serve` runs its admin; `lat theme build` renders `dist/`; `lat theme publish` pushes (`git`) or calls the build hook (`database`). Default `https://<slug>.example`.
 
 ## See what it generates
 

@@ -183,6 +183,47 @@ impl Pattern {
         self.dynamic_count == 0
     }
 
+    /// The URL the pattern spells for `params`: a static build's page for
+    /// one record. `None` when a required parameter is missing or a value
+    /// fails its expression; an optional parameter without a value is left
+    /// out, with its default when it has one.
+    pub fn fill(&self, params: &Params) -> Option<String> {
+        let mut url = String::new();
+        for segment in &self.segments {
+            match segment {
+                Segment::Static(text) => {
+                    url.push('/');
+                    url.push_str(text);
+                }
+                Segment::Param {
+                    name,
+                    optional,
+                    default,
+                    regex,
+                    ..
+                } => {
+                    let value = match params.get(name) {
+                        Some(value) if !value.is_empty() => value.clone(),
+                        _ => match default {
+                            Some(default) => default.clone(),
+                            None if *optional => continue,
+                            None => return None,
+                        },
+                    };
+                    if regex.as_ref().is_some_and(|re| !re.is_match(&value)) {
+                        return None;
+                    }
+                    url.push('/');
+                    url.push_str(&value);
+                }
+            }
+        }
+        if url.is_empty() {
+            url.push('/');
+        }
+        Some(url)
+    }
+
     /// The parameter names, in order.
     pub fn params(&self) -> Vec<&str> {
         self.segments

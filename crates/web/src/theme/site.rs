@@ -25,6 +25,7 @@ use laterite_admin::axum::routing::get;
 use laterite_admin::axum::Router;
 use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx};
 use laterite_admin::settings::SettingsModel;
+use laterite_admin::statics::SiteProject;
 use laterite_admin::{http_cache, AdminError};
 use laterite_core::Db;
 use minijinja::value::{Serde, Value};
@@ -47,6 +48,69 @@ struct SiteState {
     markup: Vec<Arc<dyn Markup>>,
     /// The components every module registered.
     components: Vec<Arc<ComponentReg>>,
+    /// The config's `theme.copy` folders, `(served under, read from)`, so
+    /// the server shows what the build copies.
+    copies: Vec<(String, std::path::PathBuf)>,
+}
+
+/// The `theme.copy` entries as the server serves them: `<src>:<dest>` from
+/// the project root, each served under `/<dest>/`.
+fn copies(ctx: &RouteCtx) -> Vec<(String, std::path::PathBuf)> {
+    let Some(project) = ctx.contributions::<SiteProject>().into_iter().next() else {
+        return Vec::new();
+    };
+    project
+        .theme
+        .copy
+        .iter()
+        .filter_map(|entry| {
+            let (src, dest) = entry.split_once(':')?;
+            let dest = dest.trim_matches('/');
+            if dest.is_empty() || src.contains("..") {
+                return None;
+            }
+            Some((dest.to_string(), project.root.join(src)))
+        })
+        .collect()
+}
+
+/// A copied file the request names, by its extension's type.
+fn copied_file(copies: &[(String, std::path::PathBuf)], path: &str) -> Option<Response> {
+    let rest = path.trim_start_matches('/');
+    for (dest, src) in copies {
+        let Some(inner) = rest
+            .strip_prefix(dest.as_str())
+            .and_then(|r| r.strip_prefix('/'))
+        else {
+            continue;
+        };
+        if inner.is_empty() || inner.split('/').any(|part| part == "..") {
+            continue;
+        }
+        let file = src.join(inner);
+        let Ok(body) = std::fs::read(&file) else {
+            continue;
+        };
+        let mime = match file.extension().and_then(|e| e.to_str()) {
+            Some("webp") => "image/webp",
+            Some("png") => "image/png",
+            Some("jpg" | "jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("svg") => "image/svg+xml",
+            Some("ico") => "image/x-icon",
+            Some("css") => "text/css; charset=utf-8",
+            Some("js") => "text/javascript; charset=utf-8",
+            Some("json") => "application/json",
+            Some("txt") => "text/plain; charset=utf-8",
+            Some("pdf") => "application/pdf",
+            Some("woff2") => "font/woff2",
+            Some("woff") => "font/woff",
+            Some("mp4") => "video/mp4",
+            _ => "application/octet-stream",
+        };
+        return Some(([(header::CONTENT_TYPE, mime)], body).into_response());
+    }
+    None
 }
 
 impl PublicRoute for Site {
@@ -62,6 +126,7 @@ impl PublicRoute for Site {
             .map(|r| Arc::new(r.clone()))
             .collect();
         let state = Arc::new(SiteState {
+            copies: copies(ctx),
             ctx: ctx.clone(),
             engines: EngineCache::with_cache(ctx.cache().clone()),
             markup,
@@ -188,6 +253,10 @@ async fn serve(
     if path == admin || path.starts_with(&format!("{admin}/")) {
         ctx.record_unserved(method.as_str(), &path, 404).await;
         return AdminError::NotFound.into_response();
+    }
+    // A file the config copies into the build is served from its folder.
+    if let Some(response) = copied_file(&site.copies, &path) {
+        return response;
     }
     // An operator with the themes permission sees their edit theme and hidden pages.
     let operator = ctx.operator(&headers).await;

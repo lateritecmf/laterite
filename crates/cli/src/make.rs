@@ -297,6 +297,8 @@ mod tests {
         let plugin_dir = plugin.path().join("site-plugin");
         let cargo = fs::read_to_string(plugin_dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("static = true"), "{cargo}");
+        let lib = fs::read_to_string(plugin_dir.join("src/lib.rs")).unwrap();
+        assert!(lib.contains("fn supports_static(&self) -> bool"), "{lib}");
         assert!(
             cargo.contains(&format!("laterite-core = \"{}\"", framework_requirement())),
             "{cargo}"
@@ -317,6 +319,21 @@ mod tests {
         );
         assert!(lib.contains("registry.add_permission(admin::post::permission());"));
         assert!(!lib.contains("let _ = registry;"));
+        assert!(lib.contains("mod site;"), "{lib}");
+        assert!(
+            lib.contains("        site::post::register(registry);"),
+            "{lib}"
+        );
+        let site = fs::read_to_string(plugin_dir.join("src/site/post.rs")).unwrap();
+        assert!(site.contains("\"acme.site.posts\""), "{site}");
+        assert!(site.contains("\"/posts/:slug\""), "{site}");
+        assert!(
+            site.contains("const BODY: Option<&str> = Some(\"body\");"),
+            "{site}"
+        );
+        let cargo = fs::read_to_string(plugin_dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("laterite-web = "), "{cargo}");
+        assert!(cargo.contains("serde_json = \"1\""), "{cargo}");
 
         let migration =
             fs::read_to_string(src.join("migrations").join("m0001_create_articles.rs")).unwrap();
@@ -437,7 +454,10 @@ pub fn run_plugin(args: MakePluginArgs) -> Result<()> {
         &root.join("Cargo.toml"),
         &plugin_cargo(&crate_name, &args.id, args.r#static),
     )?;
-    write(&root.join("src/lib.rs"), &plugin_lib(&args.id, args.admin))?;
+    write(
+        &root.join("src/lib.rs"),
+        &plugin_lib(&args.id, args.admin, args.r#static),
+    )?;
     write(&root.join(".gitignore"), "/target\n")?;
     if args.admin {
         fs::create_dir_all(root.join("src/admin"))?;
@@ -501,7 +521,7 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
     )
 }
 
-fn plugin_lib(id: &str, admin: bool) -> String {
+fn plugin_lib(id: &str, admin: bool, static_site: bool) -> String {
     let admin_mod = if admin { "mod admin;\n\n" } else { "" };
     let register = if admin {
         "\n    fn register(&self, registry: &mut Registry) {\n        \
@@ -512,6 +532,13 @@ fn plugin_lib(id: &str, admin: bool) -> String {
         ""
     };
     let registry_import = if admin { ", Registry" } else { "" };
+    let static_impl = if static_site {
+        "\n    /// Builds into a static website: its tables are read at build time\n    \
+         /// and its records live in the site's files.\n    \
+         fn supports_static(&self) -> bool {\n        true\n    }\n"
+    } else {
+        ""
+    };
     format!(
         r#"//! A Laterite plugin.
 
@@ -536,7 +563,7 @@ impl Module for Plugin {{
     fn migrations(&self) -> MigrationSet {{
         MigrationSet::new("{id}", Vec::new())
     }}
-{register}}}
+{static_impl}{register}}}
 "#
     )
 }
@@ -660,7 +687,7 @@ impl FieldKind {
         match self {
             Self::Text => format!("ColumnDef::new({ident}).text()"),
             Self::Integer => format!("ColumnDef::new({ident}).big_integer()"),
-            Self::Boolean => format!("bool_col({ident}).not_null().default(false)"),
+            Self::Boolean => format!("bool_col({ident}).not_null().default(0)"),
             Self::DateTime => format!("ColumnDef::new({ident}).text()"),
         }
     }
@@ -806,11 +833,35 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     wire_lib(&src.join("lib.rs"), &module_id)?;
     let registered = register_in_lib(&src.join("lib.rs"), &entity)?;
 
+    // A sourced resource is a collection the site shows: a component for the
+    // theme and the pages the build renders, one per record.
+    let site_file = if let Some(shape) = &source {
+        let site_dir = src.join("site");
+        fs::create_dir_all(&site_dir)?;
+        let file = site_dir.join(format!("{entity}.rs"));
+        if file.exists() {
+            bail!("{} already exists", file.display());
+        }
+        fs::write(
+            &file,
+            site_module(&module_id, &entity, &table, &fields, shape),
+        )?;
+        declare_site_module(&site_dir.join("mod.rs"), &entity)?;
+        let placed = wire_site(&src.join("lib.rs"), &entity)?;
+        add_dependencies(&args.path.join("Cargo.toml"))?;
+        Some((file, placed))
+    } else {
+        None
+    };
+
     println!("Created the {entity} resource:");
     if let Some(file) = migration {
         println!("  {}", file.display());
     }
     println!("  {}", admin.display());
+    if let Some((file, _)) = &site_file {
+        println!("  {}", file.display());
+    }
     println!("  appended to {} and {}", schema.display(), store.display());
     if registered {
         println!("  registered in src/lib.rs");
@@ -828,8 +879,251 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
             "\nThe records live in {}/ as <slug>.{ext}; the folder is read when the application starts.",
             shape.path
         );
+        println!(
+            "The theme reads them through the `{module_id}.{table}` component; a page at /{table}/:slug is built per record."
+        );
+        if matches!(site_file, Some((_, false))) {
+            println!("Call site::{entity}::register(registry) from your Module::register.");
+        }
     }
     Ok(())
+}
+
+/// Adds `pub mod <entity>;` to `src/site/mod.rs`, creating it if absent.
+fn declare_site_module(path: &Path, entity: &str) -> Result<()> {
+    let mut contents = if path.is_file() {
+        fs::read_to_string(path)?
+    } else {
+        "//! The site's side of this plugin: components the theme reads and the\n\
+         //! pages the build renders.\n"
+            .to_string()
+    };
+    let decl = format!("pub mod {entity};");
+    if !contents.contains(&decl) {
+        if !contents.ends_with('\n') {
+            contents.push('\n');
+        }
+        contents.push_str(&format!("\n{decl}\n"));
+    }
+    fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
+}
+
+/// Declares `mod site;` in the crate root and calls the entity's `register`
+/// from the module's `register`, so the component and the pages are known.
+/// Returns whether the call was placed; a crate root without the scaffolded
+/// `register` gets the instruction printed instead.
+fn wire_site(lib: &Path, entity: &str) -> Result<bool> {
+    let Ok(mut src) = fs::read_to_string(lib) else {
+        return Ok(false);
+    };
+    if !src.contains("mod site;") {
+        let at = src.find("\nuse ").map(|i| i + 1).unwrap_or(src.len());
+        src.insert_str(at, "mod site;\n\n");
+    }
+    let call = format!("        site::{entity}::register(registry);\n");
+    let head = "    fn register(&self, registry: &mut Registry) {\n";
+    let placed = if src.contains(&call) {
+        true
+    } else if let Some(i) = src.find(head) {
+        src.insert_str(i + head.len(), &call);
+        true
+    } else {
+        false
+    };
+    fs::write(lib, src).with_context(|| format!("writing {}", lib.display()))?;
+    Ok(placed)
+}
+
+/// Adds the crates the site module uses to a plugin's manifest when absent.
+fn add_dependencies(manifest: &Path) -> Result<()> {
+    let Ok(mut toml) = fs::read_to_string(manifest) else {
+        return Ok(());
+    };
+    let req = framework_requirement();
+    let mut lines = Vec::new();
+    if !toml.contains("\nlaterite-web") {
+        lines.push(format!("laterite-web = \"{req}\""));
+    }
+    if !toml.contains("\nserde_json") {
+        lines.push("serde_json = \"1\"".to_string());
+    }
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let header = "[dependencies]\n";
+    match toml.find(header) {
+        Some(i) => toml.insert_str(i + header.len(), &format!("{}\n", lines.join("\n"))),
+        None => toml.push_str(&format!("\n[dependencies]\n{}\n", lines.join("\n"))),
+    }
+    fs::write(manifest, toml).with_context(|| format!("writing {}", manifest.display()))
+}
+
+/// The site module of a sourced resource: a component the theme reads the
+/// records through, and the pages the build renders for them.
+fn site_module(
+    module_id: &str,
+    entity: &str,
+    table: &str,
+    fields: &[Field],
+    shape: &SourceShape,
+) -> String {
+    let code = if module_id.is_empty() {
+        table.to_string()
+    } else {
+        format!("{module_id}.{table}")
+    };
+    let columns: String = fields
+        .iter()
+        .map(|f| format!("    \"{}\",\n", f.name))
+        .collect();
+    let switches = fields
+        .iter()
+        .filter(|f| f.kind == FieldKind::Boolean)
+        .map(|f| format!("\"{}\"", f.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let plural_title = pascal(table);
+    let body = if shape.markdown() {
+        "Some(\"body\")"
+    } else {
+        "None"
+    };
+    format!(
+        r#"//! The {table} on the site: the `{code}` component a page attaches,
+//! and the pages the build renders, one per record at `/{table}/:slug`.
+//!
+//! ```yaml
+//! # pages/{entity}.htm
+//! url: /{table}/:slug
+//! components:
+//!   {entity}: {{ component: "{code}", slug: "{{{{ :slug }}}}" }}
+//! ```
+
+use std::sync::Arc;
+
+use laterite_core::query::{{bind_values, build, text_cast, AnyRowExt}};
+use laterite_core::strata::async_trait;
+use laterite_core::{{Db, Registry}};
+use laterite_web::theme::build::{{PathsReg, TableKeys}};
+use laterite_web::theme::component::{{
+    Component, ComponentContext, ComponentOutput, ComponentReg, PropertyDef, PropertyKind,
+}};
+use laterite_web::theme::ThemeError;
+use sea_query::{{Alias, Expr, Order, Query}};
+use serde_json::{{json, Map, Value}};
+
+/// The columns a template reads, in the form's order.
+const COLUMNS: &[&str] = &[
+{columns}];
+
+/// The switches, spelled as booleans.
+const SWITCHES: &[&str] = &[{switches}];
+
+/// The markdown column rendered to `body_html`, when there is one.
+const BODY: Option<&str> = {body};
+
+/// Registers the component and the pages the build renders.
+pub fn register(registry: &mut Registry) {{
+    registry.add(ComponentReg::new(
+        "{code}",
+        "{plural_title}",
+        Arc::new({plural_title}),
+    ));
+    registry.add(PathsReg::new(
+        "/{table}/:slug",
+        Arc::new(TableKeys::new("{table}", "slug")),
+    ));
+}}
+
+/// `{plural_title}`: every record newest first, or one by `slug`; `limit`
+/// caps the list. Read as `<alias>.items` and `<alias>.item`.
+pub struct {plural_title};
+
+#[async_trait]
+impl Component for {plural_title} {{
+    fn properties(&self) -> Vec<PropertyDef> {{
+        vec![
+            PropertyDef::new("slug", "Slug", PropertyKind::Text).default(""),
+            PropertyDef::new("limit", "How many", PropertyKind::Number).default(0),
+        ]
+    }}
+
+    async fn run(&self, cx: &ComponentContext<'_>) -> Result<ComponentOutput, ThemeError> {{
+        let slug = cx.properties["slug"].as_str().unwrap_or_default();
+        let limit = cx.properties["limit"].as_u64().filter(|n| *n > 0);
+        let items = rows(cx.db, slug, limit).await?;
+        let item = items.first().cloned().unwrap_or(Value::Null);
+        Ok(ComponentOutput::data(json!({{ "items": items, "item": item }})))
+    }}
+}}
+
+/// The rows as a template sees them: every column as text, switches as
+/// booleans, `url` added, and `body_html` when the body is markdown.
+async fn rows(db: &Db, slug: &str, limit: Option<u64>) -> Result<Vec<Value>, ThemeError> {{
+    // Built and dropped before the await: sea-query's identifiers are not `Send`.
+    let (sql, values) = {{
+        let cast = text_cast(db.backend);
+        let mut select = Query::select();
+        for column in COLUMNS {{
+            select.expr_as(
+                Expr::col(Alias::new(*column)).cast_as(Alias::new(cast)),
+                Alias::new(*column),
+            );
+        }}
+        select
+            .from(Alias::new("{table}"))
+            .order_by(Alias::new("created_at"), Order::Desc);
+        if !slug.is_empty() {{
+            select.and_where(Expr::col(Alias::new("slug")).eq(slug));
+        }}
+        if let Some(limit) = limit {{
+            select.limit(limit);
+        }}
+        build(db.backend, select)
+    }};
+    let fetched = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await
+        .map_err(|e| ThemeError::Config(e.to_string()))?;
+    let mut out = Vec::with_capacity(fetched.len());
+    for row in fetched {{
+        let mut object = Map::new();
+        for column in COLUMNS {{
+            let text = row
+                .get_text_opt(column)
+                .map_err(|e| ThemeError::Config(e.to_string()))?;
+            let value = match text {{
+                None => Value::Null,
+                Some(t) if SWITCHES.contains(column) => {{
+                    Value::Bool(matches!(t.as_str(), "1" | "true"))
+                }}
+                Some(t) => Value::String(t),
+            }};
+            object.insert((*column).to_string(), value);
+        }}
+        let slug = object
+            .get("slug")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        object.insert("url".into(), json!(format!("/{table}/{{slug}}")));
+        if let Some(body) = BODY {{
+            let text = object
+                .get(body)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            object.insert(
+                "body_html".into(),
+                json!(laterite_core::markdown::render(&text)),
+            );
+        }}
+        out.push(Value::Object(object));
+    }}
+    Ok(out)
+}}
+"#
+    )
 }
 
 /// Fills the register placeholders `make:plugin --admin` left, for the first

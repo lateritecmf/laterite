@@ -40,7 +40,11 @@ impl laterite_core::Migration for Posts {
                 )
                 .col(ColumnDef::new(Alias::new("slug")).text().not_null())
                 .col(ColumnDef::new(Alias::new("title")).text().not_null())
-                .col(laterite_core::bool_col(Alias::new("pinned")).null())
+                .col(
+                    laterite_core::bool_col(Alias::new("pinned"))
+                        .not_null()
+                        .default(0),
+                )
                 .col(ColumnDef::new(Alias::new("body")).text().null())
                 .col(ColumnDef::new(Alias::new("created_at")).text().not_null())
                 .col(ColumnDef::new(Alias::new("updated_at")).text().not_null())

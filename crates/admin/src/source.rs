@@ -19,7 +19,8 @@ use crate::Resource;
 
 /// The stored columns of a form, in its order, each with the shape its
 /// file spells it in: a switch is `true`, a number input is a number, a
-/// repeater or checklist is structured data, anything else text. A type
+/// repeater, checklist or JSON code editor is structured data, anything
+/// else text. A type
 /// the registry does not know stores text. A form with `timestamps` marks
 /// the table as stamped.
 pub fn columns(form: &FormConfig, types: &FieldRegistry) -> Columns {
@@ -34,6 +35,11 @@ pub fn columns(form: &FormConfig, types: &FieldRegistry) -> Columns {
                 "repeater" | "checklist" => Shape::Json,
                 "text" if f.options.get("input").and_then(|v| v.as_str()) == Some("number") => {
                     Shape::Number
+                }
+                "codeeditor"
+                    if f.options.get("language").and_then(|v| v.as_str()) == Some("json") =>
+                {
+                    Shape::Json
                 }
                 _ => Shape::Text,
             };
@@ -137,6 +143,8 @@ mod tests {
                     .options(serde_json::json!({ "input": "number" })),
                 FormField::of("about", "About", "section"),
                 FormField::repeater("tracks", "Tracks", vec![FormField::text("name", "Name")]),
+                FormField::of("meta", "Meta", "codeeditor")
+                    .options(serde_json::json!({ "language": "json" })),
                 FormField::text("secret", "Secret").transient(),
             ],
         )
@@ -145,9 +153,13 @@ mod tests {
         assert_eq!(columns.id, "id");
         assert!(columns.timestamps);
         let names: Vec<&str> = columns.stored.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["slug", "title", "pinned", "capacity", "tracks"]);
+        assert_eq!(
+            names,
+            ["slug", "title", "pinned", "capacity", "tracks", "meta"]
+        );
         assert_eq!(columns.stored[2].shape, Shape::Bool);
         assert_eq!(columns.stored[3].shape, Shape::Number);
         assert_eq!(columns.stored[4].shape, Shape::Json);
+        assert_eq!(columns.stored[5].shape, Shape::Json);
     }
 }

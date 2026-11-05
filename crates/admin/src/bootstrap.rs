@@ -510,11 +510,7 @@ impl Bootstrap {
         // the theme lives: the theme module pulls a file-backed source here.
         contributions.set_owner(FRAMEWORK_OWNER);
         contributions.add(crate::statics::SiteProject {
-            root: self
-                .config_dir
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(".")),
+            root: project_root(&self.config_dir),
             theme: config.theme.clone(),
         });
         // Resolve where each module's screens mount before any route is built,
@@ -668,11 +664,7 @@ impl Bootstrap {
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
         // A sourced resource's folder is read into its table before anything
         // serves, and its listener keeps the folder in step from here on.
-        let root = self
-            .config_dir
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
+        let root = project_root(&self.config_dir);
         let sources = contributions.take::<laterite_core::source::RecordSourceReg>();
         listeners
             .extend(crate::source::sync(&db, &root, &resources, &field_types, &sources).await?);
@@ -862,11 +854,7 @@ impl Bootstrap {
         );
 
         let static_site = {
-            let root = self
-                .config_dir
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("."));
+            let root = project_root(&self.config_dir);
             StaticSite {
                 folder: config.theme.folder.as_ref().map(|f| root.join(f)),
                 root,
@@ -903,6 +891,16 @@ impl Bootstrap {
             active_ids,
             static_site,
         })
+    }
+}
+
+/// The project root: the directory holding `config/`. A relative `config`
+/// has an empty parent, which is the current directory, never an empty path
+/// (a subprocess cannot start in one).
+fn project_root(config_dir: &Path) -> PathBuf {
+    match config_dir.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
     }
 }
 

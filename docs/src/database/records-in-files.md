@@ -144,6 +144,32 @@ rebuilds the site.
 git push origin main
 ```
 
+## Build a page per record
+
+```rust
+use laterite_web::theme::build::{PathsReg, TableKeys};
+
+registry.add(PathsReg::new(
+    "/posts/:slug",
+    Arc::new(TableKeys::new("posts", "slug")),
+));
+```
+
+```yaml
+# pages/post.htm
+url: /posts/:slug
+components:
+  post: { component: "acme.posts", slug: "{{ :slug }}" }
+```
+
+Name | Gives
+--- | ---
+`PathsReg::new(pattern, paths)` | The pattern's pages: the build renders it once per set of parameters `paths` answers.
+`TableKeys::new(table, column)` | One set per value of `column`, under the parameter of that name; `.param(name)` renames it.
+`Paths` | A trait for any other answer: `async fn params(&self, db) -> Vec<Params>`.
+
+`lat make:resource --source` writes a `src/site/<entity>.rs` with the component and the `PathsReg` for `/<table>/:slug`, registered from the module. A pattern no module answers for is skipped by the build.
+
 ## Register a source
 
 ```rust

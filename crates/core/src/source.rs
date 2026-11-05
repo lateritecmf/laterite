@@ -585,6 +585,13 @@ fn record_from(
         }
         rec.set(name.clone(), attr(value));
     }
+    // A switch the file leaves out is off: the stored column is never NULL
+    // for it, so a pull does not fail a NOT NULL constraint on an update.
+    for column in &columns.stored {
+        if column.shape == Shape::Bool && !rec.contains(&column.name) {
+            rec.set(column.name.clone(), false);
+        }
+    }
     rec.set(source.key.clone(), entry.key.clone());
     if let Some(body) = &source.body {
         rec.set(body.clone(), entry.body.clone().unwrap_or_default());

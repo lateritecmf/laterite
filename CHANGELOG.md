@@ -14,6 +14,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- A pull keeps a switch the file leaves out at off, so a NOT NULL column
+  survives a re-read; a static site's git source runs in the project root
+  when the binary is started with a relative `config` directory.
+- A file-backed theme is the site's active theme once its folder is read,
+  so `serve` renders a `folder` or `git` site's pages, as `build` did.
+- A scaffolded boolean column defaults to `0`, not `false`: Postgres refused
+  the boolean default on the integer column `bool_col` makes.
 - A settings sidebar group an operator folds stays folded on the next page,
   kept as their own preference and cleared by the menu's Reset.
 - An upload larger than two megabytes is stored whole: the request body limit
@@ -40,6 +47,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `lat new` with `folder` or `git` content scaffolds a first plugin with a
   `post` collection in `content/posts`; `lat make:plugin --static` declares
   static support, and a plugin scaffold pins the running framework version.
+- `lat new` runs unattended with `--url`, `--timezone`, `--listen` and
+  `--admin` (password from `LAT_NEW_ADMIN_PASSWORD`); a development scaffold
+  patches `laterite-web` too. A JSON code editor field is structured data in
+  a record's file.
+- A static build renders a page with parameters once per set a `PathsReg`
+  answers for its pattern (`TableKeys` for a table's keys); `lat make:resource
+  --source` scaffolds the collection's component and paths, and `lat new`
+  its `/posts` pages. `lat serve` serves the `theme.copy` folders.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

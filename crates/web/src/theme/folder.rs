@@ -63,12 +63,23 @@ pub async fn load_into(db: &Db, dir: &Path) -> anyhow::Result<(String, archive::
     if !dir.join("theme.yaml").is_file() {
         anyhow::bail!("{} has no theme.yaml", dir.display());
     }
+    // A reload replaces the rows, the active theme's included: the folder is
+    // the truth, so the delete guard that protects an operator's delete does
+    // not apply. Activity is set aside for the swap and restored after.
+    let settings: super::ThemeSettings = laterite_admin::settings::load(db).await?;
+    let was_active = settings.active.as_deref() == Some(code.as_str());
     if super::store::find_theme(db, &code).await?.is_some() {
+        if was_active {
+            laterite_admin::settings::save(db, &super::ThemeSettings { active: None }).await?;
+        }
         super::store::delete_theme(db, &code).await?;
     }
     let report = archive::import_dir(db, &code, dir, true, None)
         .await
         .with_context(|| format!("could not load the theme folder {}", dir.display()))?;
+    if was_active {
+        super::set_active_theme(db, &code).await?;
+    }
     Ok((code, report))
 }
 
@@ -129,10 +140,23 @@ impl laterite_admin::statics::StaticRenderer for Renderer {
             .into_iter()
             .map(|c| c.item)
             .collect();
-        let report =
-            super::build::build_with(cx.db, code, cx.out, cx.base_url, &markup, &components)
-                .await
-                .with_context(|| format!("could not build the theme {code:?}"))?;
+        let paths: Vec<&super::build::PathsReg> = cx
+            .contributions
+            .contributions::<super::build::PathsReg>()
+            .into_iter()
+            .map(|c| c.item)
+            .collect();
+        let report = super::build::build_with(
+            cx.db,
+            code,
+            cx.out,
+            cx.base_url,
+            &markup,
+            &components,
+            &paths,
+        )
+        .await
+        .with_context(|| format!("could not build the theme {code:?}"))?;
         if !report.skipped.is_empty() {
             println!(
                 "Skipped {} page(s) with parameters or hidden: {}",
