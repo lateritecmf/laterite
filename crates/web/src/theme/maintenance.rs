@@ -69,15 +69,15 @@ pub fn notice(message: &str) -> String {
 pub const VISITOR_QUERY: &str = "maintenance=visitor";
 
 /// The bar an exempt operator sees at the foot of every page while the mode
-/// is on: a notice, the visitor's view, and the setting.
-pub fn operator_bar(path: &str, admin_path: &str) -> String {
+/// is on: a notice, the visitor's view, and the setting at `settings_url`.
+pub fn operator_bar(path: &str, settings_url: &str) -> String {
     format!(
         "{}<span>Maintenance mode is on. Visitors see the maintenance page.</span>\
          <a href=\"{}?{VISITOR_QUERY}\" style=\"{LINK}\">View as a visitor</a>\
-         <a href=\"{}/settings/web/maintenance\" style=\"{LINK}\">Turn it off</a></div>",
+         <a href=\"{}\" style=\"{LINK}\">Turn it off</a></div>",
         bar_open(),
         crate::escape(path),
-        crate::escape(admin_path),
+        crate::escape(settings_url),
     )
 }
 
@@ -122,12 +122,12 @@ mod tests {
 
     #[test]
     fn the_links_escape_the_path() {
-        let bar = operator_bar("/a\"b", "/admin");
+        let bar = operator_bar("/a\"b", "/admin/web/maintenance");
         assert!(
             bar.contains("href=\"/a&quot;b?maintenance=visitor\""),
             "{bar}"
         );
-        assert!(bar.contains("/admin/settings/web/maintenance"));
+        assert!(bar.contains("href=\"/admin/web/maintenance\""), "{bar}");
         assert!(visitor_bar("/p").contains("href=\"/p\""));
     }
 }

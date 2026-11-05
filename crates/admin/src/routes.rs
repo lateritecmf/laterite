@@ -44,6 +44,7 @@ pub struct RouteCtx {
     plugin_defined: Arc<Registry>,
     events: Events,
     forms: Forms,
+    settings_paths: Arc<HashMap<String, String>>,
 }
 
 impl RouteCtx {
@@ -66,6 +67,7 @@ impl RouteCtx {
         plugin_defined: Arc<Registry>,
         events: Events,
         forms: Forms,
+        settings_paths: Arc<HashMap<String, String>>,
     ) -> Self {
         Self {
             db,
@@ -86,7 +88,15 @@ impl RouteCtx {
             plugin_defined,
             events,
             forms,
+            settings_paths,
         }
+    }
+
+    /// Where a settings screen is served, by its storage code
+    /// (`web.maintenance`), under the admin mount and the deployment's path
+    /// overrides; `None` for a code no module registered.
+    pub fn settings_path(&self, code: &str) -> Option<String> {
+        self.settings_paths.get(code).cloned()
     }
 
     /// Appends one audit entry for a mutation `user` just performed through a
@@ -460,6 +470,7 @@ impl RouteCtxBuilder {
             self.plugin_defined
                 .unwrap_or_else(|| Arc::new(Registry::new())),
             events,
+            Arc::new(HashMap::new()),
             Arc::new(HashMap::new()),
         )
     }

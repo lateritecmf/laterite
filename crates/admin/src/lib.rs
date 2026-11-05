@@ -233,6 +233,20 @@ const REMEMBER_COOKIE: &str = "laterite_remember";
 pub(crate) const ICON_SPRITE: &str = "icons.svg";
 
 /// Shared state for the admin router. Constructed by [`router`].
+/// Every registered settings screen's path by its storage code, as
+/// [`routes::RouteCtx::settings_path`] answers it.
+fn settings_paths(
+    items: &[settings::SettingsItem],
+    admin_path: &str,
+) -> Arc<std::collections::HashMap<String, String>> {
+    Arc::new(
+        items
+            .iter()
+            .map(|item| (item.code.clone(), item.path(admin_path)))
+            .collect(),
+    )
+}
+
 #[derive(Clone)]
 pub(crate) struct AdminState {
     auth: AuthService,
@@ -2233,6 +2247,7 @@ pub fn router(
             state.plugin_defined.clone(),
             state.auth.events().clone(),
             forms.clone(),
+            settings_paths(&state.settings, &admin_path),
         );
         let info = routes::ResourceInfo::new(
             key,
@@ -2275,6 +2290,7 @@ pub fn router(
             state.plugin_defined.clone(),
             state.auth.events().clone(),
             forms.clone(),
+            settings_paths(&state.settings, &admin_path),
         );
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
@@ -2554,6 +2570,7 @@ pub fn router(
             &state.plugin_defined,
             state.auth.events(),
             &forms,
+            &settings_paths(&state.settings, &admin_path),
         ));
     // Unmatched URLs reach the site when a module registered one, else render
     // the styled 404; a handler panic renders the 500 either way.
@@ -2577,6 +2594,7 @@ pub fn router(
                 state.plugin_defined.clone(),
                 state.auth.events().clone(),
                 forms.clone(),
+                settings_paths(&state.settings, &admin_path),
             );
             app.fallback_service(site.route.mount(&ctx))
         }
@@ -2745,6 +2763,7 @@ fn mount_public(
     plugin_defined: &Arc<laterite_core::Registry>,
     events: &laterite_core::Events,
     forms: &form::Forms,
+    settings_paths: &Arc<std::collections::HashMap<String, String>>,
 ) -> Router<AdminState> {
     let mut router = Router::new();
     // The site mounts as the fallback, not as a nested service.
@@ -2767,6 +2786,7 @@ fn mount_public(
             plugin_defined.clone(),
             events.clone(),
             forms.clone(),
+            settings_paths.clone(),
         );
         // A nested service does not inherit the outer fallback, so without this a
         // request *below* a public route (`/robots.txt/anything`) escapes into

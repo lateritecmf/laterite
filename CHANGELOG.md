@@ -28,7 +28,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Added
 
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
-  page with the visitor's view (`?maintenance=visitor`) and the setting.
+  page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
+- `RouteCtx::settings_path(code)`: where a settings screen is served.
 - Theme files (pages, layouts, partials) as YAML front matter between `---`
   lines and the markup; export writes that form and import reads both.
 - Mail files as YAML front matter and one body: the text part is made from

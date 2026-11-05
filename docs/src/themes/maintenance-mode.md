@@ -26,7 +26,7 @@ A user with `web.manage_themes` sees the site as usual, with a bar at the foot o
 Link on the bar | Opens
 --- | ---
 View as a visitor | The same path with `?maintenance=visitor`: the maintenance page, status 503.
-Turn it off | `/admin/settings/web/maintenance`.
+Turn it off | The Maintenance mode settings screen.
 Back to the site | The path without the query, from the visitor's view.
 
 ```html

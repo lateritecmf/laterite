@@ -24,6 +24,7 @@ use laterite_admin::axum::response::{IntoResponse, Response};
 use laterite_admin::axum::routing::get;
 use laterite_admin::axum::Router;
 use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx};
+use laterite_admin::settings::SettingsModel;
 use laterite_admin::{http_cache, AdminError};
 use laterite_core::Db;
 use minijinja::value::{Serde, Value};
@@ -340,11 +341,16 @@ async fn serve(
         }),
     };
     match rendered {
-        Ok(body) if maintenance => html(
-            status,
-            maintenance::with_bar(body, &maintenance::operator_bar(&path, admin)),
-            preview,
-        ),
+        Ok(body) if maintenance => {
+            let settings_url = ctx
+                .settings_path(MaintenanceSettings::CODE)
+                .unwrap_or_else(|| format!("{admin}/settings"));
+            html(
+                status,
+                maintenance::with_bar(body, &maintenance::operator_bar(&path, &settings_url)),
+                preview,
+            )
+        }
         Ok(body) => html(status, body, preview),
         Err(e) => {
             tracing::error!(error = %e, theme = %theme.code, page = %name, "rendering a page failed");
