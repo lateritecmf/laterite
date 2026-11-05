@@ -88,4 +88,5 @@ lat make:resource article --field title:text --field body:text --field published
 
 Scaffolds the entity's migration, schema, store and admin screen, mounted at
 `/articles`. Field types: `text`, `integer`, `boolean`, `datetime`. See
-[Resource Features and Hooks](resource-hooks.md).
+[Resource Features and Hooks](resource-hooks.md). `--source content/articles`
+keeps the records as files; see [Records in Files](../database/records-in-files.md).

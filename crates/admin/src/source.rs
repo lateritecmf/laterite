@@ -19,7 +19,8 @@ use crate::Resource;
 /// The stored columns of a form, in its order, each with the shape its
 /// file spells it in: a switch is `true`, a number input is a number, a
 /// repeater or checklist is structured data, anything else text. A type
-/// the registry does not know stores text.
+/// the registry does not know stores text. A form with `timestamps` marks
+/// the table as stamped.
 pub fn columns(form: &FormConfig, types: &FieldRegistry) -> Columns {
     let stored = form
         .fields
@@ -38,7 +39,12 @@ pub fn columns(form: &FormConfig, types: &FieldRegistry) -> Columns {
             Column::new(&f.name, shape)
         })
         .collect();
-    Columns::new(&form.id_field, stored)
+    let columns = Columns::new(&form.id_field, stored);
+    if form.timestamps {
+        columns.timestamps()
+    } else {
+        columns
+    }
 }
 
 /// Checks every sourced resource, reads its folder into its table, and
@@ -115,9 +121,11 @@ mod tests {
                 FormField::repeater("tracks", "Tracks", vec![FormField::text("name", "Name")]),
                 FormField::text("secret", "Secret").transient(),
             ],
-        );
+        )
+        .timestamps();
         let columns = columns(&form, &crate::field::builtin_registry());
         assert_eq!(columns.id, "id");
+        assert!(columns.timestamps);
         let names: Vec<&str> = columns.stored.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["slug", "title", "pinned", "capacity", "tracks"]);
         assert_eq!(columns.stored[2].shape, Shape::Bool);

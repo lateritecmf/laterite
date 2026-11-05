@@ -17,7 +17,7 @@ Command | Description | Options | Example
 `new [NAME]` | Scaffold and set up a new application, or a static website (interactive). | `--static`: a static website. `--content files\|folder\|git\|database`: where its content lives, default `files`. `--plugin <SOURCE>`: install a plugin, repeatable. `--framework-path <PATH>`: build against a local framework checkout, also read from `LATERITE_FRAMEWORK_PATH`. | `lat new "Acme" --static --content git`
 `make:migration <DESCRIPTION>` | Scaffold a migration file in this crate's `src/migrations/`. | `--path <PATH>`: the crate directory, default `.`. | `lat make:migration create_articles`
 `make:plugin <ID>` | Scaffold a plugin crate; `<ID>` is `vendor.name`. | `--path <PATH>`: where to create it, default `.`. `--admin`: scaffold the admin half. | `lat make:plugin acme.blog --admin`
-`make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. | `lat make:resource article --field title:text,body:text`
+`make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. `--source <DIR>`: keep the records as files in that folder, keyed by a `slug` column; `--format yaml|json|markdown`, default `yaml`; `--git`: commit every save. See [Records in Files](../database/records-in-files.md). | `lat make:resource article --field title:text --source content/articles --format markdown --git`
 
 ## Run and check
 

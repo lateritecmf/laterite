@@ -40,6 +40,18 @@ Option | Description
 `body` | With `markdown`, the field the body under the front matter holds. Optional.
 `slug_from` | A field the key is derived from when a save leaves it blank. Optional.
 
+## Scaffold it
+
+```bash
+lat make:resource article --field title:text --source content/articles --format markdown --git
+```
+
+Flag | Description
+--- | ---
+`--source <DIR>` | The folder; a `slug` column names each file.
+`--format` | `yaml`, `json` or `markdown`; `markdown` adds a `body` column. Default `yaml`.
+`--git` | Commit every save.
+
 ## Declare it from Rust
 
 ```rust

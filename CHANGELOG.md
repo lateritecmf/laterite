@@ -33,6 +33,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   (yaml, json or markdown with front matter), read at boot and written back on
   every save; `kind = "git"` commits each write. A deleted record's snapshot
   now carries the form's columns, not only the list's.
+- `lat make:resource --source <DIR>` (`--format`, `--git`) scaffolds a resource
+  whose records are files.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

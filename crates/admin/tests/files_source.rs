@@ -42,6 +42,8 @@ impl laterite_core::Migration for Posts {
                 .col(ColumnDef::new(Alias::new("title")).text().not_null())
                 .col(laterite_core::bool_col(Alias::new("pinned")).null())
                 .col(ColumnDef::new(Alias::new("body")).text().null())
+                .col(ColumnDef::new(Alias::new("created_at")).text().not_null())
+                .col(ColumnDef::new(Alias::new("updated_at")).text().not_null())
                 .to_owned(),
         )
         .await
@@ -71,18 +73,21 @@ fn resource(kind: Kind) -> Resource {
         "Posts",
         ListConfig::new("posts", "Posts", vec![ListColumn::new("title", "Title")]).deletable(),
     )
-    .form(FormConfig::new(
-        "posts",
-        "Post",
-        "/posts",
-        "id",
-        vec![
-            FormField::text("slug", "Slug"),
-            FormField::text("title", "Title").required(),
-            FormField::switch("pinned", "Pinned"),
-            FormField::textarea("body", "Body"),
-        ],
-    ))
+    .form(
+        FormConfig::new(
+            "posts",
+            "Post",
+            "/posts",
+            "id",
+            vec![
+                FormField::text("slug", "Slug"),
+                FormField::text("title", "Title").required(),
+                FormField::switch("pinned", "Pinned"),
+                FormField::textarea("body", "Body"),
+            ],
+        )
+        .timestamps(),
+    )
     .permission("acme.manage_posts")
     .source(source(kind))
 }

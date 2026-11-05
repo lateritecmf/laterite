@@ -251,6 +251,62 @@ mod tests {
         assert!(migrations.join("m0002_add_flags.rs").exists());
     }
 
+    /// `--source` keys the resource by a slug, adds the body for markdown,
+    /// and declares the source on the resource.
+    #[test]
+    fn make_resource_with_a_source_scaffolds_a_file_backed_resource() {
+        let tmp = tempfile::tempdir().unwrap();
+        let crate_dir = tmp.path();
+        let src = crate_dir.join("src");
+        fs::create_dir_all(src.join("migrations")).unwrap();
+        fs::write(src.join("lib.rs"), "//! A plugin.\n").unwrap();
+        fs::write(
+            src.join("migrations").join("mod.rs"),
+            "//! Manifest.\n\nlaterite_core::migration_set! {\n    module_id: \"acme.blog\",\n}\n",
+        )
+        .unwrap();
+
+        run_resource(MakeResourceArgs {
+            name: "article".to_string(),
+            path: crate_dir.to_path_buf(),
+            field: vec!["title:text".to_string(), "published:boolean".to_string()],
+            source: Some("content/articles".to_string()),
+            format: "markdown".to_string(),
+            git: true,
+        })
+        .unwrap();
+
+        let admin = fs::read_to_string(src.join("admin").join("article.rs")).unwrap();
+        assert!(admin.contains("use laterite_core::source::{Format, Kind, Source};"));
+        assert!(admin.contains(".source(Source {"));
+        assert!(admin.contains("kind: Kind::Git,"));
+        assert!(admin.contains("path: \"content/articles\".into(),"));
+        assert!(admin.contains("format: Format::Markdown,"));
+        assert!(admin.contains("body: Some(\"body\".into()),"));
+        assert!(admin.contains("slug_from: Some(\"title\".into()),"));
+        assert!(admin.contains("FormField::text(\"slug\", \"Slug\").unique(),"));
+        assert!(admin.contains("FormField::textarea(\"body\", \"Body\"),"));
+        assert!(admin.contains("FormField::switch(\"published\", \"Published\"),"));
+
+        let migration =
+            fs::read_to_string(src.join("migrations").join("m0001_create_articles.rs")).unwrap();
+        assert!(migration.contains("Articles::Slug"));
+        assert!(migration.contains("Articles::Body"));
+
+        // Without a source nothing of it appears.
+        let plain = resource_admin(
+            "acme.blog",
+            "note",
+            "notes",
+            &[Field {
+                name: "title".to_string(),
+                kind: FieldKind::Text,
+            }],
+            None,
+        );
+        assert!(!plain.contains(".source("));
+    }
+
     /// An application's manifest carries its module impl after the set; the
     /// entry goes into the set, never into the impl's braces.
     #[test]
@@ -479,6 +535,51 @@ pub struct MakeResourceArgs {
     /// integer, boolean, datetime. Repeat the flag or comma-separate.
     #[arg(long, value_delimiter = ',')]
     field: Vec<String>,
+    /// Keep the records as files in this folder of the project
+    /// (`content/articles`): a `slug` column names each file.
+    #[arg(long)]
+    source: Option<String>,
+    /// The file format with `--source`: yaml, json or markdown (front matter
+    /// and a `body` column).
+    #[arg(long, default_value = "yaml")]
+    format: String,
+    /// With `--source`, commit every save.
+    #[arg(long)]
+    git: bool,
+}
+
+/// What `--source` adds to the scaffold.
+struct SourceShape {
+    path: String,
+    format: String,
+    git: bool,
+}
+
+impl SourceShape {
+    fn parse(args: &MakeResourceArgs) -> Result<Option<Self>> {
+        let Some(path) = &args.source else {
+            return Ok(None);
+        };
+        let path = path.trim().trim_matches('/').to_string();
+        if path.is_empty() || path.starts_with("..") || path.contains("/../") {
+            bail!("--source is a folder inside the project, like content/articles");
+        }
+        let format = match args.format.trim() {
+            "yaml" | "yml" => "yaml",
+            "json" => "json",
+            "markdown" | "md" => "markdown",
+            other => bail!("unknown format `{other}`. Use yaml, json or markdown"),
+        };
+        Ok(Some(Self {
+            path,
+            format: format.to_string(),
+            git: args.git,
+        }))
+    }
+
+    fn markdown(&self) -> bool {
+        self.format == "markdown"
+    }
 }
 
 /// A column an author asked for.
@@ -548,7 +649,8 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
         );
     }
 
-    let fields: Vec<Field> = args
+    let source = SourceShape::parse(&args)?;
+    let mut fields: Vec<Field> = args
         .field
         .iter()
         .filter(|f| !f.trim().is_empty())
@@ -564,6 +666,25 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
             })
         })
         .collect::<Result<_>>()?;
+    // A sourced resource is keyed by its slug, first on the form; a markdown
+    // one holds its body under the front matter.
+    if let Some(shape) = &source {
+        if !fields.iter().any(|f| f.name == "slug") {
+            fields.insert(
+                0,
+                Field {
+                    name: "slug".to_string(),
+                    kind: FieldKind::Text,
+                },
+            );
+        }
+        if shape.markdown() && !fields.iter().any(|f| f.name == "body") {
+            fields.push(Field {
+                name: "body".to_string(),
+                kind: FieldKind::Text,
+            });
+        }
+    }
 
     // The permission is namespaced by the module this crate registers, so two
     // plugins with an `article` resource do not fight over `article.manage`.
@@ -626,7 +747,10 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     if admin.exists() {
         bail!("{} already exists", admin.display());
     }
-    fs::write(&admin, resource_admin(&module_id, &entity, &table, &fields))?;
+    fs::write(
+        &admin,
+        resource_admin(&module_id, &entity, &table, &fields, source.as_ref()),
+    )?;
     declare_module(&admin_dir.join("mod.rs"), &entity)?;
 
     // The crate root has to declare what was just created, or the command leaves
@@ -642,6 +766,16 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     println!("\nRegister it from your Module::register:");
     println!("  registry.add_resource(admin::{entity}::resource());");
     println!("  registry.add_permission(admin::{entity}::permission());");
+    if let Some(shape) = &source {
+        let ext = match shape.format.as_str() {
+            "markdown" => "md",
+            other => other,
+        };
+        println!(
+            "\nThe records live in {}/ as <slug>.{ext}; the folder is read when the application starts.",
+            shape.path
+        );
+    }
     Ok(())
 }
 
@@ -903,7 +1037,13 @@ pub async fn find_{entity}(db: &Db, id: i64) -> CoreResult<Option<{name}>> {{
     )
 }
 
-fn resource_admin(module_id: &str, entity: &str, table: &str, fields: &[Field]) -> String {
+fn resource_admin(
+    module_id: &str,
+    entity: &str,
+    table: &str,
+    fields: &[Field],
+    source: Option<&SourceShape>,
+) -> String {
     // An application crate has no module marker; its permissions are its own.
     let permission = if module_id.is_empty() {
         format!("{entity}.manage")
@@ -926,21 +1066,56 @@ fn resource_admin(module_id: &str, entity: &str, table: &str, fields: &[Field]) 
     let form_fields: String = fields
         .iter()
         .map(|f| {
+            let constructor = match (source, f.name.as_str()) {
+                (Some(shape), "body") if shape.markdown() => "textarea",
+                _ => f.kind.form_field(),
+            };
+            let rules = match (source, f.name.as_str()) {
+                (Some(_), "slug") => ".unique()",
+                _ => "",
+            };
             format!(
-                "            FormField::{}(\"{}\", \"{}\"),\n",
-                f.kind.form_field(),
+                "            FormField::{constructor}(\"{}\", \"{}\"){rules},\n",
                 f.name,
                 label(&f.name)
             )
         })
         .collect();
+    let (source_use, source_call) = match source {
+        Some(shape) => {
+            let kind = if shape.git { "Git" } else { "Files" };
+            let format = match shape.format.as_str() {
+                "json" => "Json",
+                "markdown" => "Markdown",
+                _ => "Yaml",
+            };
+            let body = if shape.markdown() {
+                "Some(\"body\".into())"
+            } else {
+                "None"
+            };
+            let slug_from = fields
+                .iter()
+                .find(|f| f.kind == FieldKind::Text && f.name != "slug" && f.name != "body")
+                .map(|f| format!("Some(\"{}\".into())", f.name))
+                .unwrap_or_else(|| "None".to_string());
+            (
+                "use laterite_core::source::{Format, Kind, Source};\n".to_string(),
+                format!(
+                    "        .source(Source {{\n            kind: Kind::{kind},\n            path: \"{}\".into(),\n            format: Format::{format},\n            key: \"slug\".into(),\n            body: {body},\n            slug_from: {slug_from},\n        }})\n",
+                    shape.path
+                ),
+            )
+        }
+        None => (String::new(), String::new()),
+    };
     format!(
         r#"//! The {table} admin screen: a list and a create/edit form.
 
 use laterite_admin::form::{{FormConfig, FormField}};
 use laterite_admin::list::{{ListColumn, ListConfig}};
 use laterite_admin::{{Permission, Resource}};
-
+{source_use}
 /// The permission gating this resource. A resource with a form must declare one,
 /// or boot aborts.
 pub const MANAGE: &str = "{permission}";
@@ -954,7 +1129,7 @@ pub fn resource() -> Resource {{
     Resource::new("/{table}", "{plural_title}", list())
         .form(form())
         .permission(MANAGE)
-}}
+{source_call}}}
 
 fn list() -> ListConfig {{
     ListConfig::new(

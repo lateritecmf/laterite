@@ -20,6 +20,7 @@ use sea_query::{Alias, Expr, Query, SimpleExpr};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::listeners::{CREATED_AT, UPDATED_AT};
 use crate::query::{bind_values, build, text_cast, AnyRowExt};
 use crate::record::{Actor, AttrValue, ModelListener, Op, Record, SaveCx, SavedCx};
 use crate::validation::ErrorBag;
@@ -122,6 +123,9 @@ impl Column {
 pub struct Columns {
     pub id: String,
     pub stored: Vec<Column>,
+    /// The table has `created_at` and `updated_at`: a pull stamps them, and
+    /// the file never carries them.
+    pub timestamps: bool,
 }
 
 impl Columns {
@@ -129,7 +133,14 @@ impl Columns {
         Self {
             id: id.into(),
             stored,
+            timestamps: false,
         }
+    }
+
+    /// Marks the table as stamped (`created_at`, `updated_at`).
+    pub fn timestamps(mut self) -> Self {
+        self.timestamps = true;
+        self
     }
 
     fn has(&self, name: &str) -> bool {
@@ -523,6 +534,9 @@ fn update_sql(
             expr(rec.get(&column.name).unwrap_or(&AttrValue::Null)),
         );
     }
+    if columns.timestamps {
+        stmt.value(Alias::new(UPDATED_AT), expr(&now()));
+    }
     stmt.and_where(Expr::col(Alias::new(&columns.id)).eq(id));
     build(db.backend, stmt)
 }
@@ -533,7 +547,7 @@ fn insert_sql(
     columns: &Columns,
     rec: &Record,
 ) -> (String, sea_query::Values) {
-    let (names, values): (Vec<_>, Vec<_>) = columns
+    let (mut names, mut values): (Vec<_>, Vec<_>) = columns
         .stored
         .iter()
         .filter_map(|c| {
@@ -542,6 +556,13 @@ fn insert_sql(
                 .map(|v| (Alias::new(&c.name), expr(v)))
         })
         .unzip();
+    if columns.timestamps {
+        let stamp = now();
+        names.push(Alias::new(CREATED_AT));
+        values.push(expr(&stamp));
+        names.push(Alias::new(UPDATED_AT));
+        values.push(expr(&stamp));
+    }
     build(
         db.backend,
         Query::insert()
@@ -550,6 +571,10 @@ fn insert_sql(
             .values_panic(values)
             .to_owned(),
     )
+}
+
+fn now() -> AttrValue {
+    AttrValue::DateTime(chrono::Utc::now())
 }
 
 fn delete_sql(
