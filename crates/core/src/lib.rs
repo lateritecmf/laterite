@@ -29,6 +29,7 @@ pub mod registry;
 pub mod schedule;
 pub mod search;
 pub mod site;
+pub mod source;
 pub mod strata;
 #[cfg(feature = "testing")]
 pub mod testing;

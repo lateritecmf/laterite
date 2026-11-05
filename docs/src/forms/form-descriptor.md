@@ -47,6 +47,7 @@ Key | Description
 `form` | The create and edit screen. Optional.
 `import` | `true`, or `{ permission: ... }`, to let records be imported into the resource. Needs `form`. See [Bulk Import](../import-export/bulk-import.md). Optional.
 `relations` | Related records, keyed by name, each a section on the edit page. See [Related Records](relations.md). Needs `form`. Optional.
+`source` | Keeps the records as files in a folder of the project. See [Records in Files](../database/records-in-files.md). Needs `form`. Optional.
 
 `entity`, `path` and `id_field` reach both screens.
 

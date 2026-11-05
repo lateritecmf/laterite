@@ -29,6 +29,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A resource's `source` keeps its records as files in a folder of the project
+  (yaml, json or markdown with front matter), read at boot and written back on
+  every save; `kind = "git"` commits each write. A deleted record's snapshot
+  now carries the form's columns, not only the list's.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

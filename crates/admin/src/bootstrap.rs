@@ -662,8 +662,16 @@ impl Bootstrap {
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();
-        let listeners = contributions.take::<laterite_core::ModelListenerReg>();
+        let mut listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
+        // A sourced resource's folder is read into its table before anything
+        // serves, and its listener keeps the folder in step from here on.
+        let root = self
+            .config_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        listeners.extend(crate::source::sync(&db, &root, &resources, &field_types).await?);
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();

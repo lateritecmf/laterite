@@ -1,0 +1,990 @@
+//! Records kept as files: one file per record in a folder of the project,
+//! pulled into the entity's table at boot and written back on every save.
+//!
+//! A resource declares a [`Source`]. The admin reads and writes the entity's
+//! table as it does any other, and the source keeps the folder in step:
+//! [`pull`] reads every file into rows, and [`FilesListener`] writes the
+//! saved row's file and removes a deleted row's. With [`Kind::Git`] every
+//! write is also a commit, so the host's build runs on push.
+//!
+//! The file's name is the record's key column (`events/friday-night.yaml`
+//! has `slug = "friday-night"`), its front matter or document is the
+//! record's columns, and with the `markdown` format one column is the body
+//! under the front matter.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use async_trait::async_trait;
+use sea_query::{Alias, Expr, Query, SimpleExpr};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::query::{bind_values, build, text_cast, AnyRowExt};
+use crate::record::{Actor, AttrValue, ModelListener, Op, Record, SaveCx, SavedCx};
+use crate::validation::ErrorBag;
+use crate::{Db, Text};
+
+/// Where a resource's records live, as its descriptor declares it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Source {
+    /// `files` writes the folder; `git` also commits every write.
+    #[serde(default)]
+    pub kind: Kind,
+    /// The folder, relative to the project root (`content/events`).
+    pub path: String,
+    /// The file format; also the extension.
+    #[serde(default)]
+    pub format: Format,
+    /// The text column that names the file. Default `slug`.
+    #[serde(default = "default_key")]
+    pub key: String,
+    /// With `markdown`, the column the body under the front matter holds.
+    #[serde(default)]
+    pub body: Option<String>,
+    /// A column the key is derived from when a save leaves it blank
+    /// (`title`), through [`slugify`].
+    #[serde(default)]
+    pub slug_from: Option<String>,
+}
+
+fn default_key() -> String {
+    "slug".to_string()
+}
+
+/// What a write does beyond the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// The file is written.
+    #[default]
+    Files,
+    /// The file is written and committed, with the operator named in the
+    /// message.
+    Git,
+}
+
+/// How a record is spelled in its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Format {
+    /// A YAML document of the columns.
+    #[default]
+    Yaml,
+    /// A JSON object of the columns.
+    Json,
+    /// YAML front matter between `---` lines, then the body column.
+    Markdown,
+}
+
+impl Format {
+    /// The file extension, without the dot.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Format::Yaml => "yaml",
+            Format::Json => "json",
+            Format::Markdown => "md",
+        }
+    }
+}
+
+/// How a column's text is spelled in a file: a stored `1` is `true` for a
+/// switch, `3` is a number, and a repeater's JSON is structured data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Shape {
+    #[default]
+    Text,
+    Bool,
+    Number,
+    Json,
+}
+
+/// A stored column and its shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Column {
+    pub name: String,
+    pub shape: Shape,
+}
+
+impl Column {
+    pub fn new(name: impl Into<String>, shape: Shape) -> Self {
+        Self {
+            name: name.into(),
+            shape,
+        }
+    }
+}
+
+/// The table behind a sourced resource: its primary key and the columns its
+/// form stores, in the form's order (which is the file's order).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Columns {
+    pub id: String,
+    pub stored: Vec<Column>,
+}
+
+impl Columns {
+    pub fn new(id: impl Into<String>, stored: Vec<Column>) -> Self {
+        Self {
+            id: id.into(),
+            stored,
+        }
+    }
+
+    fn has(&self, name: &str) -> bool {
+        self.stored.iter().any(|c| c.name == name)
+    }
+}
+
+/// What went wrong reading or writing a source.
+#[derive(Debug, thiserror::Error)]
+pub enum SourceError {
+    /// The declaration does not fit the resource.
+    #[error("{0}")]
+    Config(String),
+    /// A file could not be read, parsed or written.
+    #[error("{path}: {message}")]
+    File { path: PathBuf, message: String },
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+    /// `git` refused, or is not installed.
+    #[error("git: {0}")]
+    Git(String),
+}
+
+/// What a pull did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PullReport {
+    pub created: usize,
+    pub updated: usize,
+    pub removed: usize,
+}
+
+/// One file, read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub key: String,
+    pub attrs: Map<String, Value>,
+    pub body: Option<String>,
+}
+
+impl Source {
+    /// Checks the declaration against the table: the folder stays inside the
+    /// project, the key and body name stored columns, and the body is only
+    /// for `markdown`.
+    pub fn validate(&self, columns: &Columns) -> Result<(), SourceError> {
+        let path = Path::new(&self.path);
+        if self.path.trim().is_empty()
+            || path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(SourceError::Config(format!(
+                "source.path `{}` must be a folder inside the project",
+                self.path
+            )));
+        }
+        if !columns.has(&self.key) {
+            return Err(SourceError::Config(format!(
+                "source.key `{}` is not a stored field of the form",
+                self.key
+            )));
+        }
+        match (&self.body, self.format) {
+            (Some(body), Format::Markdown) if !columns.has(body) => {
+                return Err(SourceError::Config(format!(
+                    "source.body `{body}` is not a stored field of the form"
+                )));
+            }
+            (Some(body), Format::Markdown) if body == &self.key => {
+                return Err(SourceError::Config(
+                    "source.body cannot be the key column".to_string(),
+                ));
+            }
+            (Some(_), Format::Markdown) | (None, _) => {}
+            (Some(_), _) => {
+                return Err(SourceError::Config(
+                    "source.body is only read with format = \"markdown\"".to_string(),
+                ));
+            }
+        }
+        if let Some(from) = &self.slug_from {
+            if !columns.has(from) {
+                return Err(SourceError::Config(format!(
+                    "source.slug_from `{from}` is not a stored field of the form"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// The folder, under the project root.
+    pub fn dir(&self, root: &Path) -> PathBuf {
+        root.join(&self.path)
+    }
+
+    /// The file a key names.
+    pub fn file_name(&self, key: &str) -> String {
+        format!("{key}.{}", self.format.extension())
+    }
+}
+
+/// Whether a key can name a file: letters, digits, dots, dashes and
+/// underscores, not starting with a dot.
+pub fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.starts_with('.')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// Lowercase ASCII letters and digits with single dashes between words:
+/// `"Friday Night, Live!"` is `friday-night-live`.
+pub fn slugify(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut dash = false;
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !dash && !out.is_empty() {
+            out.push('-');
+            dash = true;
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// Reads one file's text into its columns and body.
+pub fn parse(format: Format, text: &str) -> Result<(Map<String, Value>, Option<String>), String> {
+    let text = text.trim_start_matches('\u{feff}');
+    match format {
+        Format::Yaml => {
+            if text.trim().is_empty() {
+                return Ok((Map::new(), None));
+            }
+            let value: Value = serde_saphyr::from_str(text).map_err(|e| e.to_string())?;
+            object(value).map(|m| (m, None))
+        }
+        Format::Json => {
+            let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+            object(value).map(|m| (m, None))
+        }
+        Format::Markdown => {
+            let Some(rest) = text
+                .strip_prefix("---\n")
+                .or_else(|| text.strip_prefix("---\r\n"))
+            else {
+                return Ok((Map::new(), Some(text.to_string())));
+            };
+            let (front, body) = match rest.split_once("\n---\n") {
+                Some(parts) => parts,
+                None => match rest.split_once("\n---\r\n") {
+                    Some(parts) => parts,
+                    None => (rest.trim_end_matches(['-', '\n', '\r']), ""),
+                },
+            };
+            let attrs = if front.trim().is_empty() {
+                Map::new()
+            } else {
+                let value: Value = serde_saphyr::from_str(front).map_err(|e| e.to_string())?;
+                object(value)?
+            };
+            let body = body.strip_prefix('\n').unwrap_or(body);
+            Ok((attrs, Some(body.trim_end_matches('\n').to_string())))
+        }
+    }
+}
+
+fn object(value: Value) -> Result<Map<String, Value>, String> {
+    match value {
+        Value::Object(map) => Ok(map),
+        Value::Null => Ok(Map::new()),
+        _ => Err("the document is not a map of fields".to_string()),
+    }
+}
+
+/// Spells columns and a body as one file's text.
+pub fn render(format: Format, attrs: &Map<String, Value>, body: Option<&str>) -> String {
+    match format {
+        Format::Yaml => yaml(attrs),
+        Format::Json => {
+            let mut text = serde_json::to_string_pretty(attrs).unwrap_or_else(|_| "{}".into());
+            text.push('\n');
+            text
+        }
+        Format::Markdown => {
+            let body = body.unwrap_or_default();
+            format!("---\n{}---\n{body}\n", yaml(attrs))
+        }
+    }
+}
+
+fn yaml(attrs: &Map<String, Value>) -> String {
+    if attrs.is_empty() {
+        return String::new();
+    }
+    let mut text = serde_saphyr::to_string(attrs).unwrap_or_default();
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
+}
+
+/// Reads every file of the format in the folder, by key. A missing folder
+/// is empty.
+pub fn read_dir(dir: &Path, format: Format) -> Result<Vec<Entry>, SourceError> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let suffix = format!(".{}", format.extension());
+    let mut entries = Vec::new();
+    let listing = std::fs::read_dir(dir).map_err(|e| SourceError::File {
+        path: dir.to_path_buf(),
+        message: e.to_string(),
+    })?;
+    for item in listing {
+        let item = item.map_err(|e| SourceError::File {
+            path: dir.to_path_buf(),
+            message: e.to_string(),
+        })?;
+        let path = item.path();
+        let name = item.file_name().to_string_lossy().to_string();
+        let Some(key) = name.strip_suffix(&suffix) else {
+            continue;
+        };
+        if !path.is_file() {
+            continue;
+        }
+        if !valid_key(key) {
+            return Err(SourceError::File {
+                path,
+                message: "the file name must be letters, digits, dots, dashes and underscores"
+                    .to_string(),
+            });
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| SourceError::File {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
+        let (attrs, body) = parse(format, &text).map_err(|message| SourceError::File {
+            path: path.clone(),
+            message,
+        })?;
+        entries.push(Entry {
+            key: key.to_string(),
+            attrs,
+            body,
+        });
+    }
+    entries.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(entries)
+}
+
+/// A file's value as the attribute the table stores.
+fn attr(value: &Value) -> AttrValue {
+    match value {
+        Value::Null => AttrValue::Null,
+        Value::Bool(b) => AttrValue::Bool(*b),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => AttrValue::Int(i),
+            None => AttrValue::Float(n.as_f64().unwrap_or_default()),
+        },
+        Value::String(s) => AttrValue::Text(s.clone()),
+        other => AttrValue::Json(other.clone()),
+    }
+}
+
+fn expr(value: &AttrValue) -> SimpleExpr {
+    match value {
+        AttrValue::Null => SimpleExpr::Keyword(sea_query::Keyword::Null),
+        AttrValue::Int(i) => (*i).into(),
+        AttrValue::Float(f) => (*f).into(),
+        AttrValue::Bool(b) => i32::from(*b).into(),
+        AttrValue::Text(s) if s.is_empty() => SimpleExpr::Keyword(sea_query::Keyword::Null),
+        other => other.to_text().unwrap_or_default().into(),
+    }
+}
+
+/// A stored text as the file spells it, by the column's shape.
+fn spell(text: &str, shape: Shape) -> Value {
+    match shape {
+        Shape::Text => Value::String(text.to_string()),
+        Shape::Bool => Value::Bool(matches!(text, "1" | "true" | "on")),
+        Shape::Number => text
+            .parse::<i64>()
+            .map(Value::from)
+            .or_else(|_| text.parse::<f64>().map(Value::from))
+            .unwrap_or_else(|_| Value::String(text.to_string())),
+        Shape::Json => {
+            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+        }
+    }
+}
+
+/// The record a file holds, in the table's columns: every stored column
+/// the file names, the body column from the body. A key the form does not
+/// know is refused, since a save would drop it.
+fn record_from(
+    entity: &str,
+    columns: &Columns,
+    source: &Source,
+    entry: &Entry,
+    path: &Path,
+) -> Result<Record, SourceError> {
+    let mut rec = Record::new(entity);
+    for (name, value) in &entry.attrs {
+        if name == &columns.id {
+            continue;
+        }
+        if !columns.has(name) || source.body.as_deref() == Some(name) {
+            return Err(SourceError::File {
+                path: path.to_path_buf(),
+                message: format!("`{name}` is not a field of {entity}"),
+            });
+        }
+        rec.set(name.clone(), attr(value));
+    }
+    rec.set(source.key.clone(), entry.key.clone());
+    if let Some(body) = &source.body {
+        rec.set(body.clone(), entry.body.clone().unwrap_or_default());
+    }
+    Ok(rec)
+}
+
+/// Reads the folder into the table: a file's row is created or updated by
+/// key, and a row whose file is gone is removed. The files are the truth.
+pub async fn pull(
+    db: &Db,
+    root: &Path,
+    entity: &str,
+    columns: &Columns,
+    source: &Source,
+) -> Result<PullReport, SourceError> {
+    let dir = source.dir(root);
+    let entries = read_dir(&dir, source.format)?;
+    let existing = keys(db, entity, columns, source).await?;
+    let mut report = PullReport::default();
+    let mut seen = std::collections::HashSet::new();
+    for entry in &entries {
+        let path = dir.join(source.file_name(&entry.key));
+        let rec = record_from(entity, columns, source, entry, &path)?;
+        seen.insert(entry.key.clone());
+        match existing.get(&entry.key) {
+            Some(id) => {
+                let (sql, values) = update_sql(db, entity, columns, &rec, *id);
+                bind_values(sqlx::query(&sql), values)
+                    .execute(&db.pool)
+                    .await?;
+                report.updated += 1;
+            }
+            None => {
+                let (sql, bound) = insert_sql(db, entity, columns, &rec);
+                bind_values(sqlx::query(&sql), bound)
+                    .execute(&db.pool)
+                    .await?;
+                report.created += 1;
+            }
+        }
+    }
+    let gone: Vec<i64> = existing
+        .iter()
+        .filter(|(key, _)| !seen.contains(*key))
+        .map(|(_, id)| *id)
+        .collect();
+    if !gone.is_empty() {
+        let (sql, values) = delete_sql(db, entity, columns, &gone);
+        bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await?;
+        report.removed = gone.len();
+    }
+    Ok(report)
+}
+
+// The builders are scoped in these helpers: sea-query identifiers are
+// reference-counted (not `Send`), and one alive across an await would make
+// the listener's future non-`Send`.
+fn update_sql(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    rec: &Record,
+    id: i64,
+) -> (String, sea_query::Values) {
+    let mut stmt = Query::update();
+    stmt.table(Alias::new(entity));
+    for column in &columns.stored {
+        stmt.value(
+            Alias::new(&column.name),
+            expr(rec.get(&column.name).unwrap_or(&AttrValue::Null)),
+        );
+    }
+    stmt.and_where(Expr::col(Alias::new(&columns.id)).eq(id));
+    build(db.backend, stmt)
+}
+
+fn insert_sql(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    rec: &Record,
+) -> (String, sea_query::Values) {
+    let (names, values): (Vec<_>, Vec<_>) = columns
+        .stored
+        .iter()
+        .filter_map(|c| {
+            rec.get(&c.name)
+                .filter(|v| !v.is_null())
+                .map(|v| (Alias::new(&c.name), expr(v)))
+        })
+        .unzip();
+    build(
+        db.backend,
+        Query::insert()
+            .into_table(Alias::new(entity))
+            .columns(names)
+            .values_panic(values)
+            .to_owned(),
+    )
+}
+
+fn delete_sql(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    ids: &[i64],
+) -> (String, sea_query::Values) {
+    build(
+        db.backend,
+        Query::delete()
+            .from_table(Alias::new(entity))
+            .and_where(Expr::col(Alias::new(&columns.id)).is_in(ids.iter().copied()))
+            .to_owned(),
+    )
+}
+
+fn keys_sql(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    source: &Source,
+) -> (String, sea_query::Values) {
+    build(
+        db.backend,
+        Query::select()
+            .column(Alias::new(&columns.id))
+            .expr_as(
+                Expr::col(Alias::new(&source.key)).cast_as(Alias::new(text_cast(db.backend))),
+                Alias::new("source_key"),
+            )
+            .from(Alias::new(entity))
+            .to_owned(),
+    )
+}
+
+fn row_sql(db: &Db, entity: &str, columns: &Columns, id: i64) -> (String, sea_query::Values) {
+    let cast = text_cast(db.backend);
+    let mut select = Query::select();
+    for column in &columns.stored {
+        select.expr_as(
+            Expr::col(Alias::new(&column.name)).cast_as(Alias::new(cast)),
+            Alias::new(&column.name),
+        );
+    }
+    select
+        .from(Alias::new(entity))
+        .and_where(Expr::col(Alias::new(&columns.id)).eq(id));
+    build(db.backend, select)
+}
+
+/// Every row's key and id.
+async fn keys(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    source: &Source,
+) -> Result<HashMap<String, i64>, SourceError> {
+    let (sql, values) = keys_sql(db, entity, columns, source);
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let id = row.get_int(&columns.id)?;
+        if let Some(key) = row.get_text_opt("source_key")? {
+            map.insert(key, id);
+        }
+    }
+    Ok(map)
+}
+
+/// One row, as its file spells it.
+async fn row_file(
+    db: &Db,
+    entity: &str,
+    columns: &Columns,
+    source: &Source,
+    id: i64,
+) -> Result<Option<(String, String)>, SourceError> {
+    let (sql, values) = row_sql(db, entity, columns, id);
+    let Some(row) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let mut attrs = Map::new();
+    let mut body = None;
+    let mut key = None;
+    for column in &columns.stored {
+        let Some(text) = row.get_text_opt(&column.name)? else {
+            continue;
+        };
+        if column.name == source.key {
+            key = Some(text);
+        } else if source.body.as_deref() == Some(column.name.as_str()) {
+            body = Some(text);
+        } else {
+            attrs.insert(column.name.clone(), spell(&text, column.shape));
+        }
+    }
+    let Some(key) = key.filter(|k| valid_key(k)) else {
+        return Ok(None);
+    };
+    Ok(Some((key, render(source.format, &attrs, body.as_deref()))))
+}
+
+/// Keeps a sourced entity's folder in step with its table: the saved row's
+/// file is written and a deleted row's removed, after the write commits.
+pub struct FilesListener {
+    root: PathBuf,
+    entity: String,
+    columns: Columns,
+    source: Source,
+}
+
+impl FilesListener {
+    pub fn new(
+        root: impl Into<PathBuf>,
+        entity: impl Into<String>,
+        columns: Columns,
+        source: Source,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            entity: entity.into(),
+            columns,
+            source,
+        }
+    }
+
+    fn dir(&self) -> PathBuf {
+        self.source.dir(&self.root)
+    }
+
+    fn write(&self, key: &str, text: &str) -> Result<(), SourceError> {
+        let dir = self.dir();
+        std::fs::create_dir_all(&dir).map_err(|e| SourceError::File {
+            path: dir.clone(),
+            message: e.to_string(),
+        })?;
+        let path = dir.join(self.source.file_name(key));
+        std::fs::write(&path, text).map_err(|e| SourceError::File {
+            path,
+            message: e.to_string(),
+        })
+    }
+
+    fn remove(&self, key: &str) -> Result<(), SourceError> {
+        let path = self.dir().join(self.source.file_name(key));
+        if path.is_file() {
+            std::fs::remove_file(&path).map_err(|e| SourceError::File {
+                path,
+                message: e.to_string(),
+            })?;
+        }
+        Ok(())
+    }
+
+    fn commit(&self, message: &str, actor: &Actor) -> Result<(), SourceError> {
+        if self.source.kind != Kind::Git {
+            return Ok(());
+        }
+        let dir = self.dir().to_string_lossy().to_string();
+        git(&self.root, &["add", "-A", "--", &dir])?;
+        let staged = git(&self.root, &["diff", "--cached", "--quiet", "--", &dir]).is_err();
+        if staged {
+            let message = format!("{message} ({})", actor.label());
+            git(&self.root, &["commit", "-q", "-m", &message, "--", &dir])?;
+        }
+        Ok(())
+    }
+
+    async fn sync(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) -> Result<(), SourceError> {
+        let Some(id) = rec.id() else {
+            return Ok(());
+        };
+        let Some((key, text)) =
+            row_file(cx.db(), &self.entity, &self.columns, &self.source, id).await?
+        else {
+            return Ok(());
+        };
+        if op == Op::Update {
+            if let Some(previous) = rec.original(&self.source.key).and_then(AttrValue::as_str) {
+                if previous != key && valid_key(previous) {
+                    self.remove(previous)?;
+                }
+            }
+        }
+        self.write(&key, &text)?;
+        let verb = if op == Op::Create { "Added" } else { "Updated" };
+        self.commit(
+            &format!(
+                "{verb} {}/{}",
+                self.source.path,
+                self.source.file_name(&key)
+            ),
+            cx.actor(),
+        )
+    }
+}
+
+fn git(root: &Path, args: &[&str]) -> Result<String, SourceError> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| SourceError::Git(format!("could not run git: {e}")))?;
+    if !out.status.success() {
+        return Err(SourceError::Git(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+#[async_trait]
+impl ModelListener for FilesListener {
+    async fn before_save(
+        &self,
+        _cx: &mut SaveCx<'_>,
+        rec: &mut Record,
+        _op: Op,
+    ) -> Result<(), ErrorBag> {
+        let key = rec
+            .text(&self.source.key)
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .map(str::to_string);
+        let key = match (key, &self.source.slug_from) {
+            (Some(key), _) => key,
+            (None, Some(from)) => slugify(rec.text(from).unwrap_or_default()),
+            (None, None) => String::new(),
+        };
+        let mut errors = ErrorBag::default();
+        if key.is_empty() {
+            errors.add(
+                &self.source.key,
+                Text::new("This field names the file and is required."),
+            );
+        } else if !valid_key(&key) {
+            errors.add(
+                &self.source.key,
+                Text::new("Use letters, digits, dots, dashes and underscores."),
+            );
+        }
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+        rec.set(self.source.key.clone(), key);
+        Ok(())
+    }
+
+    async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) {
+        if let Err(e) = self.sync(cx, rec, op).await {
+            tracing::error!(entity = %self.entity, error = %e, "the record's file was not written");
+        }
+    }
+
+    async fn after_delete(&self, cx: &SavedCx<'_>, rec: &Record) {
+        let Some(key) = rec.text(&self.source.key).filter(|k| valid_key(k)) else {
+            return;
+        };
+        let result = self.remove(key).and_then(|()| {
+            self.commit(
+                &format!(
+                    "Removed {}/{}",
+                    self.source.path,
+                    self.source.file_name(key)
+                ),
+                cx.actor(),
+            )
+        });
+        if let Err(e) = result {
+            tracing::error!(entity = %self.entity, error = %e, "the record's file was not removed");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slugs_are_lowercase_ascii_with_single_dashes() {
+        assert_eq!(slugify("Friday Night, Live!"), "friday-night-live");
+        assert_eq!(slugify("  --Already-slug--  "), "already-slug");
+        assert_eq!(slugify("Ünïcode café"), "n-code-caf");
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn keys_are_file_names() {
+        assert!(valid_key("friday-night"));
+        assert!(valid_key("2026-11-05_wedding.v2"));
+        assert!(!valid_key(".hidden"));
+        assert!(!valid_key("a/b"));
+        assert!(!valid_key(""));
+        assert!(!valid_key("spa ce"));
+    }
+
+    #[test]
+    fn yaml_and_json_round_trip() {
+        let mut attrs = Map::new();
+        attrs.insert("title".into(), Value::String("Friday".into()));
+        attrs.insert("pinned".into(), Value::Bool(true));
+        attrs.insert("capacity".into(), Value::from(120));
+        for format in [Format::Yaml, Format::Json] {
+            let text = render(format, &attrs, None);
+            let (back, body) = parse(format, &text).unwrap();
+            assert_eq!(back, attrs, "{format:?}: {text}");
+            assert_eq!(body, None);
+        }
+    }
+
+    #[test]
+    fn markdown_keeps_front_matter_and_body() {
+        let mut attrs = Map::new();
+        attrs.insert("title".into(), Value::String("Hello".into()));
+        let text = render(Format::Markdown, &attrs, Some("# Hello\n\nA body."));
+        assert_eq!(text, "---\ntitle: Hello\n---\n# Hello\n\nA body.\n");
+        let (back, body) = parse(Format::Markdown, &text).unwrap();
+        assert_eq!(back, attrs);
+        assert_eq!(body.as_deref(), Some("# Hello\n\nA body."));
+    }
+
+    #[test]
+    fn markdown_without_front_matter_is_all_body() {
+        let (attrs, body) = parse(Format::Markdown, "Just text\n").unwrap();
+        assert!(attrs.is_empty());
+        assert_eq!(body.as_deref(), Some("Just text\n"));
+    }
+
+    #[test]
+    fn an_empty_yaml_file_is_an_empty_record() {
+        let (attrs, body) = parse(Format::Yaml, "").unwrap();
+        assert!(attrs.is_empty());
+        assert_eq!(body, None);
+        assert_eq!(render(Format::Yaml, &Map::new(), None), "");
+    }
+
+    #[test]
+    fn a_document_that_is_not_a_map_is_refused() {
+        assert!(parse(Format::Yaml, "- a\n- b\n").is_err());
+        assert!(parse(Format::Json, "[1, 2]").is_err());
+    }
+
+    #[test]
+    fn stored_text_is_spelled_by_shape() {
+        assert_eq!(spell("1", Shape::Bool), Value::Bool(true));
+        assert_eq!(spell("0", Shape::Bool), Value::Bool(false));
+        assert_eq!(spell("12", Shape::Number), Value::from(12));
+        assert_eq!(spell("1.5", Shape::Number), Value::from(1.5));
+        assert_eq!(spell("x", Shape::Number), Value::String("x".into()));
+        assert_eq!(
+            spell(r#"[{"a":1}]"#, Shape::Json),
+            serde_json::json!([{"a": 1}])
+        );
+        assert_eq!(spell("1", Shape::Text), Value::String("1".into()));
+    }
+
+    #[test]
+    fn the_declaration_is_checked_against_the_columns() {
+        let columns = Columns::new(
+            "id",
+            vec![
+                Column::new("slug", Shape::Text),
+                Column::new("title", Shape::Text),
+                Column::new("body", Shape::Text),
+            ],
+        );
+        let ok = Source {
+            kind: Kind::Files,
+            path: "content/posts".into(),
+            format: Format::Markdown,
+            key: "slug".into(),
+            body: Some("body".into()),
+            slug_from: Some("title".into()),
+        };
+        assert!(ok.validate(&columns).is_ok());
+        let mut bad = ok.clone();
+        bad.path = "../outside".into();
+        assert!(bad.validate(&columns).is_err());
+        let mut bad = ok.clone();
+        bad.key = "missing".into();
+        assert!(bad.validate(&columns).is_err());
+        let mut bad = ok.clone();
+        bad.format = Format::Yaml;
+        assert!(bad.validate(&columns).is_err(), "a body needs markdown");
+        let mut bad = ok.clone();
+        bad.body = Some("slug".into());
+        assert!(bad.validate(&columns).is_err());
+    }
+
+    #[test]
+    fn a_source_reads_from_yaml_with_defaults() {
+        let source: Source = serde_saphyr::from_str("path: content/events\n").unwrap();
+        assert_eq!(source.kind, Kind::Files);
+        assert_eq!(source.format, Format::Yaml);
+        assert_eq!(source.key, "slug");
+        let source: Source = serde_saphyr::from_str(
+            "kind: git\npath: content/posts\nformat: markdown\nbody: body\n",
+        )
+        .unwrap();
+        assert_eq!(source.kind, Kind::Git);
+        assert_eq!(source.file_name("hello"), "hello.md");
+    }
+
+    #[test]
+    fn a_folder_is_read_by_key_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("b.yaml"), "title: B\n").unwrap();
+        std::fs::write(dir.path().join("a.yaml"), "title: A\n").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
+        let entries = read_dir(dir.path(), Format::Yaml).unwrap();
+        let keys: Vec<&str> = entries.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(keys, ["a", "b"]);
+        assert_eq!(entries[0].attrs["title"], Value::String("A".into()));
+        assert!(read_dir(&dir.path().join("missing"), Format::Yaml)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_bad_file_name_or_document_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bad name.yaml"), "title: X\n").unwrap();
+        let err = read_dir(dir.path(), Format::Yaml).unwrap_err().to_string();
+        assert!(err.contains("bad name.yaml"), "{err}");
+        std::fs::remove_file(dir.path().join("bad name.yaml")).unwrap();
+        std::fs::write(dir.path().join("broken.yaml"), "- not\n- a map\n").unwrap();
+        let err = read_dir(dir.path(), Format::Yaml).unwrap_err().to_string();
+        assert!(err.contains("broken.yaml"), "{err}");
+    }
+}

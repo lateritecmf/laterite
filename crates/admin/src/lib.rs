@@ -51,6 +51,7 @@ mod scheduled;
 mod session;
 pub mod settings;
 pub mod skin;
+pub mod source;
 mod sql;
 pub mod statics;
 pub mod ui;
@@ -1352,6 +1353,8 @@ pub struct Resource {
     /// Where the menu entry sits: under a section, with an icon, at a
     /// position; or out of the menu. See [`nav::Placement`].
     pub menu: nav::Placement,
+    /// Where the records live as files, when they do. See [`Resource::source`].
+    pub source: Option<laterite_core::source::Source>,
 }
 
 /// What a resource declares when records may be imported into it: `import:
@@ -1530,7 +1533,18 @@ impl Resource {
             palette: None,
             relations: Vec::new(),
             menu: nav::Placement::default(),
+            source: None,
         }
+    }
+
+    /// Keeps the records as files in a folder of the project, one per
+    /// record: the folder is read into the table at boot, and every save
+    /// writes its file back (and commits it, with `kind = "git"`). Needs a
+    /// form; the source's key column names the file. See
+    /// [`laterite_core::source`].
+    pub fn source(mut self, source: laterite_core::source::Source) -> Self {
+        self.source = Some(source);
+        self
     }
 
     /// Lets the command palette find this resource's records through the
@@ -3339,7 +3353,10 @@ fn mount_resource(
                         resource.base_path
                     )
                 }),
-                None => Arc::new(persist::DefaultPersister::from_list(&resource.list)),
+                None => match &resource.form {
+                    Some(form) => Arc::new(persist::DefaultPersister::from_config(form)),
+                    None => Arc::new(persist::DefaultPersister::from_list(&resource.list)),
+                },
             };
         let ctx = Arc::new(bulk::BulkContext {
             base_path: resource.base_path.clone(),
@@ -5376,6 +5393,7 @@ fn builtin_resources() -> Vec<Resource> {
             import: None,
             palette: None,
             relations: Vec::new(),
+            source: None,
             menu: nav::Placement::default(),
         },
         Resource {
@@ -5389,6 +5407,7 @@ fn builtin_resources() -> Vec<Resource> {
             import: None,
             palette: None,
             relations: Vec::new(),
+            source: None,
             menu: nav::Placement::default(),
         },
         resource!("descriptors/audit-log.yaml"),
@@ -5766,6 +5785,7 @@ mod tests {
             import: None,
             palette: None,
             relations: Vec::new(),
+            source: None,
             menu: nav::Placement::default(),
         }
     }

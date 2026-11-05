@@ -70,6 +70,9 @@ struct ResourceFile {
     /// Where the menu entry sits, or `false` for none; see `nav::Placement`.
     #[serde(default, deserialize_with = "crate::nav::deserialize_placement")]
     menu: crate::nav::Placement,
+    /// Where the records live as files; see `laterite_core::source::Source`.
+    #[serde(default)]
+    source: Option<laterite_core::source::Source>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,6 +203,9 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         Some(ImportKey::Flag(false)) | None => {}
     }
     resource = resource.menu(file.menu);
+    if let Some(source) = file.source {
+        resource = resource.source(source);
+    }
     if let Some(source) = file.palette {
         resource = resource.palette(source);
     }
