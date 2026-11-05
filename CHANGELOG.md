@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- A settings sidebar group an operator folds stays folded on the next page,
+  kept as their own preference and cleared by the menu's Reset.
 - An upload larger than two megabytes is stored whole: the request body limit
   on the media and import routes now follows the upload limit, and a body cut
   short is refused instead of stored truncated.

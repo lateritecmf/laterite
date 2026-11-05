@@ -397,6 +397,12 @@ pub(crate) fn order_preference(hierarchy: &str) -> String {
     }
 }
 
+/// The preference key holding the groups an operator has folded in a
+/// hierarchy's sidebar, as a sequence of category keys.
+pub(crate) fn collapsed_preference(hierarchy: &str) -> String {
+    format!("menu.collapsed.{hierarchy}")
+}
+
 /// The hierarchies an operator may rearrange and move entries between.
 pub(crate) const OPERATOR_HIERARCHIES: [&str; 2] = [TOP_HIERARCHY, crate::settings::HIERARCHY];
 

@@ -2088,6 +2088,20 @@ window.lat.widget('cell', function () {});
 window.lat.widget('menu-order', function (nav) {
   var post = nav.getAttribute('data-menu-post');
   if (!post) return;
+  // A folded group stays folded: the toggle posts the folded set, so the next
+  // page renders it closed. The toggle event does not bubble, so capture it.
+  nav.addEventListener('toggle', function (e) {
+    var group = e.target;
+    if (!group.matches || !group.matches('details[data-lat-group]')) return;
+    var folded = Array.prototype.slice.call(nav.querySelectorAll('details[data-lat-group]:not([open])'))
+      .map(function (d) { return d.getAttribute('data-lat-group'); }).join(',');
+    var body = new URLSearchParams();
+    body.set('_csrf', nav.getAttribute('data-menu-csrf') || '');
+    body.set('collapsed', folded);
+    if (nav.getAttribute('data-menu-hierarchy')) body.set('hierarchy', nav.getAttribute('data-menu-hierarchy'));
+    fetch(post, { method: 'POST', body: body, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .catch(function () {});
+  }, true);
   var dragging = null;
   function tabs() { return Array.prototype.slice.call(nav.querySelectorAll('[data-lat-key]')); }
   function clear() { tabs().forEach(function (t) { t.classList.remove('is-drop-before', 'is-drop-after'); }); }

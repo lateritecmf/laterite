@@ -563,6 +563,7 @@ pub(crate) fn log_arrangement(items: &[SettingsItem], order: Option<&[String]>) 
 /// order, label, then the deployment's `[backend.order]` for
 /// `backend.settings`), grouped by category in order of first appearance,
 /// with `active_code` (if any) marked.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sidebar_groups(
     items: &[SettingsItem],
     admin_path: &str,
@@ -571,6 +572,7 @@ pub(crate) fn sidebar_groups(
     icons: crate::icons::Icons<'_>,
     order: Option<&[String]>,
     own_order: Option<&[String]>,
+    collapsed: &[String],
 ) -> Vec<CategoryView> {
     let placed: Vec<Placed<'_>> = items
         .iter()
@@ -604,10 +606,15 @@ pub(crate) fn sidebar_groups(
         };
         match groups.iter_mut().find(|g| g.name == category) {
             Some(group) => group.items.push(view),
-            None => groups.push(CategoryView {
-                name: category,
-                items: vec![view],
-            }),
+            None => {
+                let key = i.category.source().to_string();
+                groups.push(CategoryView {
+                    open: !collapsed.contains(&key),
+                    key,
+                    name: category,
+                    items: vec![view],
+                })
+            }
         }
     }
     groups
@@ -669,14 +676,24 @@ fn build(
 /// One category block in the context sidebar. Rendered by the shell.
 #[derive(Clone)]
 pub(crate) struct CategoryView {
+    /// The category as authored, which an operator's folded groups name.
+    pub(crate) key: String,
     pub(crate) name: String,
     pub(crate) items: Vec<ItemView>,
+    /// Whether the group shows its entries; an operator folds a group and
+    /// the shell keeps it folded.
+    pub(crate) open: bool,
 }
 
 impl CategoryView {
     /// One group of entries, as a menu section renders in the sidebar.
     pub(crate) fn new(name: String, items: Vec<ItemView>) -> Self {
-        Self { name, items }
+        Self {
+            key: name.clone(),
+            name,
+            items,
+            open: true,
+        }
     }
 }
 
@@ -1004,10 +1021,16 @@ mod tests {
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
             None,
             None,
+            &["System".to_string()],
         );
         // "Logs" holds the first-arranged item, so it comes before "System".
         assert_eq!(groups[0].name, "Logs");
         assert_eq!(groups[1].name, "System");
+        assert!(
+            groups[0].open && !groups[1].open,
+            "a folded group stays folded"
+        );
+        assert_eq!(groups[1].key, "System");
         // Within "System", Alpha (10) before Beta (20).
         assert_eq!(groups[1].items[0].label, "Alpha");
         assert_eq!(groups[1].items[1].label, "Beta");
@@ -1026,6 +1049,7 @@ mod tests {
             crate::icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
             None,
             None,
+            &[],
         );
         let active: Vec<&str> = groups
             .iter()

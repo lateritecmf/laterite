@@ -511,3 +511,65 @@ async fn an_operator_moves_and_orders_entries_for_themselves() {
         "reset: {html}"
     );
 }
+
+#[tokio::test]
+async fn a_folded_settings_group_stays_folded_until_unfolded() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    svc.set_session_data(&root, r#"{"v":1,"csrf":"tok-123"}"#)
+        .await
+        .unwrap();
+
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    let groups: Vec<&str> = html
+        .match_indices("data-lat-group=\"")
+        .map(|(at, m)| {
+            let rest = &html[at + m.len()..];
+            &rest[..rest.find('"').unwrap()]
+        })
+        .collect();
+    assert!(groups.len() >= 2, "the settings index has groups: {html}");
+    assert_eq!(
+        html.matches("data-lat-group=").count(),
+        html.matches("lat-sidebar__group\" data-lat-group=\"")
+            .count(),
+        "every group renders through the one template"
+    );
+    assert!(!html.contains("\"></summary>"), "{html}");
+    let folded = groups[1];
+    let open_before = html.matches("\" open>").count();
+    assert_eq!(open_before, groups.len(), "every group opens by default");
+
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/admin/preferences/menu",
+            &root,
+            &format!("hierarchy=backend.settings&collapsed={folded}"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert!(
+        html.contains(&format!("data-lat-group=\"{folded}\">")),
+        "the folded group renders closed: {html}"
+    );
+    assert_eq!(html.matches("\" open>").count(), groups.len() - 1);
+
+    // A blank unfolds them all; the Reset button's blank order clears it too.
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/admin/preferences/menu",
+            &root,
+            "hierarchy=backend.settings&collapsed=",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert_eq!(html.matches("\" open>").count(), groups.len());
+}

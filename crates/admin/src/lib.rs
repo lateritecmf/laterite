@@ -1081,6 +1081,8 @@ fn settings_context(
 struct OwnMenu {
     nav_order: Option<String>,
     settings_order: Option<String>,
+    /// The settings sidebar groups they folded, by category key.
+    settings_collapsed: Vec<String>,
     moves: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
 }
 
@@ -1093,6 +1095,10 @@ impl OwnMenu {
         };
         let nav_order = read(nav::order_preference(nav::TOP_HIERARCHY)).await;
         let settings_order = read(nav::order_preference(settings::HIERARCHY)).await;
+        let settings_collapsed = read(nav::collapsed_preference(settings::HIERARCHY))
+            .await
+            .map(|text| laterite_core::arrange::parse_sequence(&text))
+            .unwrap_or_default();
         let moves = read(nav::MOVES_PREFERENCE.to_string())
             .await
             .map(|json| nav::operator_moves(&json))
@@ -1100,6 +1106,7 @@ impl OwnMenu {
         Self {
             nav_order,
             settings_order,
+            settings_collapsed,
             moves,
         }
     }
@@ -1138,6 +1145,7 @@ fn resolve_nav_context(
     icons: icons::Icons<'_>,
     order: &std::collections::BTreeMap<String, Vec<String>>,
     own_settings_order: Option<&str>,
+    own_collapsed: &[String],
 ) -> (
     Vec<nav::NavNode>,
     Vec<settings::CategoryView>,
@@ -1163,6 +1171,7 @@ fn resolve_nav_context(
             icons,
             order.get(settings::HIERARCHY).map(Vec::as_slice),
             own_sequence.as_deref(),
+            own_collapsed,
         );
         return (visible_nav, sidebar, Some("settings".to_string()));
     }
@@ -3876,6 +3885,7 @@ async fn require_auth(
         icons::Icons::new(&state.icons, &state.sprite_url),
         &state.order,
         own.settings_order.as_deref(),
+        &own.settings_collapsed,
     );
     let brand = state.brand().await;
     let shell = Shell::new(
@@ -4854,6 +4864,9 @@ struct MenuOrderForm {
     /// Which hierarchy the order is for; the top bar when left out.
     #[serde(default)]
     hierarchy: String,
+    /// The sidebar groups folded, by category key; blank unfolds them all.
+    /// Sent on its own, without `order`.
+    collapsed: Option<String>,
 }
 
 /// Keeps the operator's own moves: each `place:<key>` field says `nav`,
@@ -4969,6 +4982,31 @@ async fn menu_order_update(
     if !nav::OPERATOR_HIERARCHIES.contains(&hierarchy) {
         return AdminError::NotFound.into_response();
     }
+    if let Some(collapsed) = &form.collapsed {
+        let key = nav::collapsed_preference(hierarchy);
+        let keys: Vec<&str> = collapsed
+            .split(',')
+            .map(str::trim)
+            .filter(|k| !k.is_empty() && k.len() <= 200)
+            .take(100)
+            .collect();
+        let result = if keys.is_empty() {
+            laterite_auth::store::clear_user_preference(&state.db, user.user.id, &key).await
+        } else {
+            laterite_auth::store::set_user_preference(
+                &state.db,
+                user.user.id,
+                &key,
+                &keys.join(","),
+            )
+            .await
+        };
+        if let Err(e) = result {
+            tracing::error!(error = %e, "storing the folded groups failed");
+            return render_error();
+        }
+        return axum::http::StatusCode::NO_CONTENT.into_response();
+    }
     let key = nav::order_preference(hierarchy);
     let result = if order.is_empty() {
         // A blank from the Reset button clears every own arrangement.
@@ -4976,6 +5014,11 @@ async fn menu_order_update(
         for key in nav::OPERATOR_HIERARCHIES
             .iter()
             .map(|h| nav::order_preference(h))
+            .chain(
+                nav::OPERATOR_HIERARCHIES
+                    .iter()
+                    .map(|h| nav::collapsed_preference(h)),
+            )
             .chain(std::iter::once(nav::MOVES_PREFERENCE.to_string()))
         {
             if let Err(e) =
@@ -6188,6 +6231,7 @@ mod tests {
                 icons::Icons::new(&laterite_core::icons::IconSet::new(), "/s.svg"),
                 &std::collections::BTreeMap::new(),
                 None,
+                &[],
             )
             .1
         };

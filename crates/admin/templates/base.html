@@ -70,7 +70,7 @@
     <aside class="lat-sidebar" data-lat-widget="menu-order" data-menu-post="{{ shell.base }}/preferences/menu" data-menu-hierarchy="backend.settings" data-menu-vertical data-menu-csrf="{{ shell.csrf_token }}">
       {% for group in shell.sidebar %}
       {% if shell.sidebar.len() > 1 %}
-      <details class="lat-sidebar__group" open>
+      <details class="lat-sidebar__group" data-lat-group="{{ group.key }}"{% if group.open %} open{% endif %}>
         <summary class="lat-sidebar__grouphead"><span>{{ group.name }}</span><span class="lat-sidebar__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></summary>
       {% else %}
       <div class="lat-sidebar__group">
