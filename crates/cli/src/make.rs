@@ -277,16 +277,46 @@ mod tests {
         .unwrap();
 
         let admin = fs::read_to_string(src.join("admin").join("article.rs")).unwrap();
-        assert!(admin.contains("use laterite_core::source::{Format, Kind, Source};"));
-        assert!(admin.contains(".source(Source {"));
-        assert!(admin.contains("kind: Kind::Git,"));
-        assert!(admin.contains("path: \"content/articles\".into(),"));
-        assert!(admin.contains("format: Format::Markdown,"));
-        assert!(admin.contains("body: Some(\"body\".into()),"));
-        assert!(admin.contains("slug_from: Some(\"title\".into()),"));
+        assert!(admin.contains("use laterite_core::source::{Format, Source};"));
+        assert!(admin.contains("Source::git(\"content/articles\", Format::Markdown)"));
+        assert!(admin.contains(".body(\"body\")"));
+        assert!(admin.contains(".slug_from(\"title\")"));
         assert!(admin.contains("FormField::text(\"slug\", \"Slug\").unique(),"));
         assert!(admin.contains("FormField::textarea(\"body\", \"Body\"),"));
         assert!(admin.contains("FormField::switch(\"published\", \"Published\"),"));
+
+        // A plugin scaffolded with `--admin` has its first resource registered.
+        let plugin = tempfile::tempdir().unwrap();
+        run_plugin(MakePluginArgs {
+            id: "acme.site".to_string(),
+            path: plugin.path().to_path_buf(),
+            admin: true,
+            r#static: true,
+        })
+        .unwrap();
+        let plugin_dir = plugin.path().join("site-plugin");
+        let cargo = fs::read_to_string(plugin_dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("static = true"), "{cargo}");
+        assert!(
+            cargo.contains(&format!("laterite-core = \"{}\"", framework_requirement())),
+            "{cargo}"
+        );
+        run_resource(MakeResourceArgs {
+            name: "post".to_string(),
+            path: plugin_dir.clone(),
+            field: vec!["title:text".to_string()],
+            source: Some("content/posts".to_string()),
+            format: "markdown".to_string(),
+            git: false,
+        })
+        .unwrap();
+        let lib = fs::read_to_string(plugin_dir.join("src/lib.rs")).unwrap();
+        assert!(
+            lib.contains("registry.add_resource(admin::post::resource());"),
+            "{lib}"
+        );
+        assert!(lib.contains("registry.add_permission(admin::post::permission());"));
+        assert!(!lib.contains("let _ = registry;"));
 
         let migration =
             fs::read_to_string(src.join("migrations").join("m0001_create_articles.rs")).unwrap();
@@ -352,13 +382,29 @@ mod tests {
 pub struct MakePluginArgs {
     /// The module id the plugin registers, as `vendor.name` (e.g. `acme.blog`).
     /// The crate is named `vendor-name` and the folder after it.
-    id: String,
+    pub(crate) id: String,
     /// Where to create it. Defaults to the current directory.
     #[arg(long, default_value = ".")]
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     /// Scaffold the admin half (descriptors, screens, settings).
     #[arg(long)]
-    admin: bool,
+    pub(crate) admin: bool,
+    /// Declare that the plugin builds into a static website (`static = true`
+    /// in its marker).
+    #[arg(long)]
+    pub(crate) r#static: bool,
+}
+
+/// The framework version requirement a scaffold writes: this tool's own
+/// major and minor, so a generated crate resolves to the framework it was
+/// made with.
+pub(crate) fn framework_requirement() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let mut parts = version.split('.');
+    match (parts.next(), parts.next()) {
+        (Some(major), Some(minor)) => format!("{major}.{minor}"),
+        _ => version.to_string(),
+    }
 }
 
 pub fn run_plugin(args: MakePluginArgs) -> Result<()> {
@@ -389,7 +435,7 @@ pub fn run_plugin(args: MakePluginArgs) -> Result<()> {
     fs::create_dir_all(root.join("src"))?;
     write(
         &root.join("Cargo.toml"),
-        &plugin_cargo(&crate_name, &args.id),
+        &plugin_cargo(&crate_name, &args.id, args.r#static),
     )?;
     write(&root.join("src/lib.rs"), &plugin_lib(&args.id, args.admin))?;
     write(&root.join(".gitignore"), "/target\n")?;
@@ -415,7 +461,9 @@ fn write(path: &Path, contents: &str) -> Result<()> {
     fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
 }
 
-fn plugin_cargo(crate_name: &str, id: &str) -> String {
+fn plugin_cargo(crate_name: &str, id: &str, static_site: bool) -> String {
+    let req = framework_requirement();
+    let static_line = if static_site { "static = true\n" } else { "" };
     format!(
         r#"[package]
 name = "{crate_name}"
@@ -429,13 +477,13 @@ license = "MIT OR Apache-2.0"
 # stated by the dependency requirement below, never repeated here.
 [package.metadata.laterite]
 plugin = "{id}"
-
+{static_line}
 [dependencies]
 # Version-only, so this manifest does not depend on where the crate sits. An
 # application building against a local framework checkout resolves these through
 # its own [patch.crates-io].
-laterite-core = "0.5"
-laterite-admin = "0.5"
+laterite-core = "{req}"
+laterite-admin = "{req}"
 # The schema identifier enums use sea-query's `Iden` derive, whose generated code
 # names the crate directly.
 sea-query = {{ version = "0.32", features = ["derive"] }}
@@ -447,7 +495,7 @@ sqlx = {{ version = "0.8", default-features = false, features = [
 chrono = {{ version = "0.4", default-features = false, features = ["clock"] }}
 
 [dev-dependencies]
-laterite-core = {{ version = "0.5", features = ["sqlite", "testing"] }}
+laterite-core = {{ version = "{req}", features = ["sqlite", "testing"] }}
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
 "#
     )
@@ -527,25 +575,25 @@ use laterite_admin::{list::ListConfig, Permission, Resource};
 pub struct MakeResourceArgs {
     /// The entity, singular and snake_case (e.g. `article`). The table is its
     /// plural, and the screen mounts at `/articles`.
-    name: String,
+    pub(crate) name: String,
     /// The crate to scaffold in. Defaults to the current directory.
     #[arg(long, default_value = ".")]
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     /// Columns beyond the id and timestamps, as `name:type`. Types: text,
     /// integer, boolean, datetime. Repeat the flag or comma-separate.
     #[arg(long, value_delimiter = ',')]
-    field: Vec<String>,
+    pub(crate) field: Vec<String>,
     /// Keep the records as files in this folder of the project
     /// (`content/articles`): a `slug` column names each file.
     #[arg(long)]
-    source: Option<String>,
+    pub(crate) source: Option<String>,
     /// The file format with `--source`: yaml, json or markdown (front matter
     /// and a `body` column).
     #[arg(long, default_value = "yaml")]
-    format: String,
+    pub(crate) format: String,
     /// With `--source`, commit every save.
     #[arg(long)]
-    git: bool,
+    pub(crate) git: bool,
 }
 
 /// What `--source` adds to the scaffold.
@@ -756,6 +804,7 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     // The crate root has to declare what was just created, or the command leaves
     // a crate that does not compile.
     wire_lib(&src.join("lib.rs"), &module_id)?;
+    let registered = register_in_lib(&src.join("lib.rs"), &entity)?;
 
     println!("Created the {entity} resource:");
     if let Some(file) = migration {
@@ -763,9 +812,13 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     }
     println!("  {}", admin.display());
     println!("  appended to {} and {}", schema.display(), store.display());
-    println!("\nRegister it from your Module::register:");
-    println!("  registry.add_resource(admin::{entity}::resource());");
-    println!("  registry.add_permission(admin::{entity}::permission());");
+    if registered {
+        println!("  registered in src/lib.rs");
+    } else {
+        println!("\nRegister it from your Module::register:");
+        println!("  registry.add_resource(admin::{entity}::resource());");
+        println!("  registry.add_permission(admin::{entity}::permission());");
+    }
     if let Some(shape) = &source {
         let ext = match shape.format.as_str() {
             "markdown" => "md",
@@ -777,6 +830,33 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Fills the register placeholders `make:plugin --admin` left, for the first
+/// resource. Returns whether it did; a later resource is registered by hand.
+fn register_in_lib(lib: &Path, entity: &str) -> Result<bool> {
+    let Ok(src) = fs::read_to_string(lib) else {
+        return Ok(false);
+    };
+    let placeholders = [
+        "        // registry.add_permission(admin::thing::permission());\n",
+        "        // registry.add_resource(admin::thing::resource());\n",
+    ];
+    if !placeholders.iter().all(|p| src.contains(p)) {
+        return Ok(false);
+    }
+    let wired = src
+        .replace(
+            placeholders[0],
+            &format!("        registry.add_permission(admin::{entity}::permission());\n"),
+        )
+        .replace(
+            placeholders[1],
+            &format!("        registry.add_resource(admin::{entity}::resource());\n"),
+        )
+        .replace("        let _ = registry;\n", "");
+    fs::write(lib, wired).with_context(|| format!("writing {}", lib.display()))?;
+    Ok(true)
 }
 
 /// Declares the modules a resource needs from the crate root, and points the
@@ -1083,26 +1163,26 @@ fn resource_admin(
         .collect();
     let (source_use, source_call) = match source {
         Some(shape) => {
-            let kind = if shape.git { "Git" } else { "Files" };
+            let constructor = if shape.git { "git" } else { "files" };
             let format = match shape.format.as_str() {
                 "json" => "Json",
                 "markdown" => "Markdown",
                 _ => "Yaml",
             };
             let body = if shape.markdown() {
-                "Some(\"body\".into())"
+                "\n                .body(\"body\")"
             } else {
-                "None"
+                ""
             };
             let slug_from = fields
                 .iter()
                 .find(|f| f.kind == FieldKind::Text && f.name != "slug" && f.name != "body")
-                .map(|f| format!("Some(\"{}\".into())", f.name))
-                .unwrap_or_else(|| "None".to_string());
+                .map(|f| format!("\n                .slug_from(\"{}\")", f.name))
+                .unwrap_or_default();
             (
-                "use laterite_core::source::{Format, Kind, Source};\n".to_string(),
+                "use laterite_core::source::{Format, Source};\n".to_string(),
                 format!(
-                    "        .source(Source {{\n            kind: Kind::{kind},\n            path: \"{}\".into(),\n            format: Format::{format},\n            key: \"slug\".into(),\n            body: {body},\n            slug_from: {slug_from},\n        }})\n",
+                    "        .source(\n            Source::{constructor}(\"{}\", Format::{format}){body}{slug_from},\n        )\n",
                     shape.path
                 ),
             )

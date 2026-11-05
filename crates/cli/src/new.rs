@@ -170,6 +170,14 @@ pub async fn run(args: NewArgs) -> Result<()> {
         crate::plugin::add_plugin(&dir, source, None)
             .with_context(|| format!("could not add the plugin {source}"))?;
     }
+    // A folder or git site edits records as files: its first plugin carries a
+    // `post` collection kept in content/posts, so the admin has something to
+    // edit on first sign-in.
+    if let Some(content @ (Content::Folder | Content::Git)) = site.as_ref().map(|s| s.content) {
+        scaffold_first_collection(&dir, &name, content == Content::Git)
+            .context("could not scaffold the first collection")?;
+        println!("Added plugins/site-plugin with a post collection in content/posts/.");
+    }
 
     // Connect, offering to create the database if it does not exist yet.
     let db = connect(&theme, &conn, &dir)
@@ -829,6 +837,36 @@ fn write_theme_files(theme_dir: &Path, display_name: &str) -> Result<()> {
         &static_intro(display_name),
     )?;
     write(theme_dir.join("assets/css/site.css"), STATIC_CSS)
+}
+
+/// A site's first plugin: `<name>.site`, listed in plugins/plugins.toml,
+/// with a `post` resource whose records live in `content/posts` as markdown
+/// (committed on every save when `git`), and one post to start from.
+pub(crate) fn scaffold_first_collection(dir: &Path, name: &str, git: bool) -> Result<()> {
+    let vendor = name.replace('-', "_");
+    crate::make::run_plugin(crate::make::MakePluginArgs {
+        id: format!("{vendor}.site"),
+        path: dir.join("plugins"),
+        admin: true,
+        r#static: true,
+    })?;
+    let plugin_dir = dir.join("plugins").join("site-plugin");
+    crate::plugin::add_plugin(dir, &plugin_dir.to_string_lossy(), None)?;
+    crate::make::run_resource(crate::make::MakeResourceArgs {
+        name: "post".to_string(),
+        path: plugin_dir,
+        field: vec!["title:text".to_string(), "published:boolean".to_string()],
+        source: Some("content/posts".to_string()),
+        format: "markdown".to_string(),
+        git,
+    })?;
+    let posts = dir.join("content").join("posts");
+    fs::create_dir_all(&posts)?;
+    write(
+        posts.join("hello.md"),
+        "---\ntitle: Hello\npublished: true\n---\nThe first post. Edit it in the admin, or in this file.\n",
+    )?;
+    Ok(())
 }
 
 /// Gives a static website a Cargo project of its own, so plugins compile
@@ -1605,6 +1643,50 @@ mod tests {
         let local = std::fs::read_to_string(dir.join("config/local.toml")).unwrap();
         // The database sits in the app's storage folder, path relative to the app.
         assert!(local.contains("sqlite://storage/database.db"));
+    }
+
+    /// A folder or git site gets its first plugin with a `post` collection
+    /// kept as markdown files, registered and listed, and one post to start.
+    #[test]
+    fn a_site_gets_a_first_collection_in_its_own_plugin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("acme-blog");
+        let shape = SiteShape {
+            content: Content::Git,
+            url: "https://acme.example".to_string(),
+            hook: None,
+        };
+        scaffold(
+            &dir,
+            "acme-blog",
+            "Acme",
+            "UTC",
+            "127.0.0.1:8080",
+            &sqlite_connection(),
+            None,
+            Some(&shape),
+        )
+        .unwrap();
+        scaffold_first_collection(&dir, "acme-blog", true).unwrap();
+
+        let plugin = dir.join("plugins/site-plugin");
+        let cargo = fs::read_to_string(plugin.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("plugin = \"acme_blog.site\""), "{cargo}");
+        assert!(cargo.contains("static = true"), "{cargo}");
+        let list = fs::read_to_string(dir.join("plugins/plugins.toml")).unwrap();
+        assert!(list.contains("site-plugin"), "{list}");
+        let admin = fs::read_to_string(plugin.join("src/admin/post.rs")).unwrap();
+        assert!(
+            admin.contains("Source::git(\"content/posts\", Format::Markdown)"),
+            "{admin}"
+        );
+        let lib = fs::read_to_string(plugin.join("src/lib.rs")).unwrap();
+        assert!(
+            lib.contains("registry.add_resource(admin::post::resource());"),
+            "{lib}"
+        );
+        let hello = fs::read_to_string(dir.join("content/posts/hello.md")).unwrap();
+        assert!(hello.starts_with("---\ntitle: Hello\n"), "{hello}");
     }
 
     #[test]

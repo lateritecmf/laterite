@@ -1,19 +1,22 @@
-//! Records kept as files: one file per record in a folder of the project,
-//! pulled into the entity's table at boot and written back on every save.
+//! Records kept outside the database: one file per record in a folder of
+//! the project, or a store a module registers, pulled into the entity's
+//! table at boot and written back on every save.
 //!
 //! A resource declares a [`Source`]. The admin reads and writes the entity's
-//! table as it does any other, and the source keeps the folder in step:
-//! [`pull`] reads every file into rows, and [`FilesListener`] writes the
-//! saved row's file and removes a deleted row's. With [`Kind::Git`] every
-//! write is also a commit, so the host's build runs on push.
+//! table as it does any other, and a [`RecordSource`] keeps the store in
+//! step: `pull` reads it into rows, `push` writes a saved row out, `remove`
+//! takes a deleted row away. `files` (the folder) and `git` (the folder,
+//! committed on every write) are built in; a module registers another as a
+//! [`RecordSourceReg`] and a resource names it by `kind`.
 //!
-//! The file's name is the record's key column (`events/friday-night.yaml`
+//! A file's name is the record's key column (`events/friday-night.yaml`
 //! has `slug = "friday-night"`), its front matter or document is the
 //! record's columns, and with the `markdown` format one column is the body
 //! under the front matter.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use sea_query::{Alias, Expr, Query, SimpleExpr};
@@ -28,11 +31,11 @@ use crate::{Db, Text};
 
 /// Where a resource's records live, as its descriptor declares it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Source {
-    /// `files` writes the folder; `git` also commits every write.
-    #[serde(default)]
-    pub kind: Kind,
+    /// `files` writes the folder, `git` also commits every write, or the
+    /// code of a source a module registered. Default `files`.
+    #[serde(default = "default_kind")]
+    pub kind: String,
     /// The folder, relative to the project root (`content/events`).
     pub path: String,
     /// The file format; also the extension.
@@ -48,23 +51,58 @@ pub struct Source {
     /// (`title`), through [`slugify`].
     #[serde(default)]
     pub slug_from: Option<String>,
+    /// Any other key, for a registered source's own settings.
+    #[serde(flatten)]
+    pub options: Map<String, Value>,
+}
+
+impl Source {
+    /// A folder source of the format, keyed by `slug`.
+    pub fn files(path: impl Into<String>, format: Format) -> Self {
+        Self {
+            kind: FILES.to_string(),
+            path: path.into(),
+            format,
+            key: default_key(),
+            body: None,
+            slug_from: None,
+            options: Map::new(),
+        }
+    }
+
+    /// The same, committed on every write.
+    pub fn git(path: impl Into<String>, format: Format) -> Self {
+        Self {
+            kind: GIT.to_string(),
+            ..Self::files(path, format)
+        }
+    }
+
+    /// Names the body column (`markdown`).
+    pub fn body(mut self, column: impl Into<String>) -> Self {
+        self.body = Some(column.into());
+        self
+    }
+
+    /// Names the column the key is derived from when blank.
+    pub fn slug_from(mut self, column: impl Into<String>) -> Self {
+        self.slug_from = Some(column.into());
+        self
+    }
 }
 
 fn default_key() -> String {
     "slug".to_string()
 }
 
-/// What a write does beyond the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    /// The file is written.
-    #[default]
-    Files,
-    /// The file is written and committed, with the operator named in the
-    /// message.
-    Git,
+fn default_kind() -> String {
+    FILES.to_string()
 }
+
+/// The built-in source that writes the folder.
+pub const FILES: &str = "files";
+/// The built-in source that writes the folder and commits every write.
+pub const GIT: &str = "git";
 
 /// How a record is spelled in its file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -239,6 +277,94 @@ impl Source {
     /// The file a key names.
     pub fn file_name(&self, key: &str) -> String {
         format!("{key}.{}", self.format.extension())
+    }
+}
+
+/// What a source is given to work with.
+pub struct SourceCx<'a> {
+    /// The database the table lives in.
+    pub db: &'a Db,
+    /// The project root, the directory holding `config/`.
+    pub root: &'a Path,
+    /// The entity's table.
+    pub entity: &'a str,
+    /// The table's columns.
+    pub columns: &'a Columns,
+    /// The declaration.
+    pub source: &'a Source,
+    /// Who is writing; `None` on a pull.
+    pub actor: Option<&'a Actor>,
+}
+
+impl SourceCx<'_> {
+    /// The folder, under the project root.
+    pub fn dir(&self) -> PathBuf {
+        self.source.dir(self.root)
+    }
+
+    /// The row with `id` as its file spells it: the key, the columns by
+    /// shape, and the body. `None` when the row is gone or has no usable key.
+    pub async fn row(&self, id: i64) -> Result<Option<Row>, SourceError> {
+        row_values(self.db, self.entity, self.columns, self.source, id).await
+    }
+}
+
+/// A row as a source writes it out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    pub key: String,
+    pub attrs: Map<String, Value>,
+    pub body: Option<String>,
+}
+
+/// A saved record, for a source to write out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pushed {
+    /// The row's id.
+    pub id: i64,
+    /// Whether it was created or updated.
+    pub op: Op,
+    /// The key before the save, when the save changed it: the source retires
+    /// what it kept under that key.
+    pub previous_key: Option<String>,
+}
+
+/// A place records live outside the database.
+#[async_trait]
+pub trait RecordSource: Send + Sync {
+    /// Reads the store into the table: a record is created or updated by
+    /// key, and a row whose record is gone is removed.
+    async fn pull(&self, cx: &SourceCx<'_>) -> Result<PullReport, SourceError>;
+    /// Writes one saved row out.
+    async fn push(&self, cx: &SourceCx<'_>, pushed: &Pushed) -> Result<(), SourceError>;
+    /// Takes one deleted row's record away.
+    async fn remove(&self, cx: &SourceCx<'_>, key: &str) -> Result<(), SourceError>;
+}
+
+/// A source a module contributes, chosen by a resource's `kind`.
+pub struct RecordSourceReg {
+    pub code: String,
+    pub source: Arc<dyn RecordSource>,
+}
+
+impl RecordSourceReg {
+    pub fn new(code: impl Into<String>, source: Arc<dyn RecordSource>) -> Self {
+        Self {
+            code: code.into(),
+            source,
+        }
+    }
+}
+
+/// The source a code names: `files`, `git`, or one of the registered.
+pub fn resolve(code: &str, registered: &[RecordSourceReg]) -> Option<Arc<dyn RecordSource>> {
+    match code {
+        FILES => Some(Arc::new(Files)),
+        GIT => Some(Arc::new(Git)),
+        other => registered
+            .iter()
+            .find(|r| r.code == other)
+            .map(|r| Arc::clone(&r.source)),
     }
 }
 
@@ -468,14 +594,16 @@ fn record_from(
 
 /// Reads the folder into the table: a file's row is created or updated by
 /// key, and a row whose file is gone is removed. The files are the truth.
-pub async fn pull(
-    db: &Db,
-    root: &Path,
-    entity: &str,
-    columns: &Columns,
-    source: &Source,
-) -> Result<PullReport, SourceError> {
-    let dir = source.dir(root);
+/// What the `files` source does on pull, for a source built on a folder.
+pub async fn pull(cx: &SourceCx<'_>) -> Result<PullReport, SourceError> {
+    let SourceCx {
+        db,
+        entity,
+        columns,
+        source,
+        ..
+    } = *cx;
+    let dir = cx.dir();
     let entries = read_dir(&dir, source.format)?;
     let existing = keys(db, entity, columns, source).await?;
     let mut report = PullReport::default();
@@ -647,14 +775,14 @@ async fn keys(
     Ok(map)
 }
 
-/// One row, as its file spells it.
-async fn row_file(
+/// One row as a source writes it: the key, the columns by shape, the body.
+pub async fn row_values(
     db: &Db,
     entity: &str,
     columns: &Columns,
     source: &Source,
     id: i64,
-) -> Result<Option<(String, String)>, SourceError> {
+) -> Result<Option<Row>, SourceError> {
     let (sql, values) = row_sql(db, entity, columns, id);
     let Some(row) = bind_values(sqlx::query(&sql), values)
         .fetch_optional(&db.pool)
@@ -680,52 +808,28 @@ async fn row_file(
     let Some(key) = key.filter(|k| valid_key(k)) else {
         return Ok(None);
     };
-    Ok(Some((key, render(source.format, &attrs, body.as_deref()))))
+    Ok(Some(Row { key, attrs, body }))
 }
 
-/// Keeps a sourced entity's folder in step with its table: the saved row's
-/// file is written and a deleted row's removed, after the write commits.
-pub struct FilesListener {
-    root: PathBuf,
-    entity: String,
-    columns: Columns,
-    source: Source,
-}
+/// The `files` source: the folder is written, one file per record.
+pub struct Files;
 
-impl FilesListener {
-    pub fn new(
-        root: impl Into<PathBuf>,
-        entity: impl Into<String>,
-        columns: Columns,
-        source: Source,
-    ) -> Self {
-        Self {
-            root: root.into(),
-            entity: entity.into(),
-            columns,
-            source,
-        }
-    }
-
-    fn dir(&self) -> PathBuf {
-        self.source.dir(&self.root)
-    }
-
-    fn write(&self, key: &str, text: &str) -> Result<(), SourceError> {
-        let dir = self.dir();
+impl Files {
+    fn write(cx: &SourceCx<'_>, key: &str, text: &str) -> Result<(), SourceError> {
+        let dir = cx.dir();
         std::fs::create_dir_all(&dir).map_err(|e| SourceError::File {
             path: dir.clone(),
             message: e.to_string(),
         })?;
-        let path = dir.join(self.source.file_name(key));
+        let path = dir.join(cx.source.file_name(key));
         std::fs::write(&path, text).map_err(|e| SourceError::File {
             path,
             message: e.to_string(),
         })
     }
 
-    fn remove(&self, key: &str) -> Result<(), SourceError> {
-        let path = self.dir().join(self.source.file_name(key));
+    fn remove_file(cx: &SourceCx<'_>, key: &str) -> Result<(), SourceError> {
+        let path = cx.dir().join(cx.source.file_name(key));
         if path.is_file() {
             std::fs::remove_file(&path).map_err(|e| SourceError::File {
                 path,
@@ -734,46 +838,83 @@ impl FilesListener {
         }
         Ok(())
     }
+}
 
-    fn commit(&self, message: &str, actor: &Actor) -> Result<(), SourceError> {
-        if self.source.kind != Kind::Git {
+#[async_trait]
+impl RecordSource for Files {
+    async fn pull(&self, cx: &SourceCx<'_>) -> Result<PullReport, SourceError> {
+        pull(cx).await
+    }
+
+    async fn push(&self, cx: &SourceCx<'_>, pushed: &Pushed) -> Result<(), SourceError> {
+        let Some(row) = cx.row(pushed.id).await? else {
             return Ok(());
+        };
+        if let Some(previous) = pushed.previous_key.as_deref() {
+            if previous != row.key && valid_key(previous) {
+                Self::remove_file(cx, previous)?;
+            }
         }
-        let dir = self.dir().to_string_lossy().to_string();
-        git(&self.root, &["add", "-A", "--", &dir])?;
-        let staged = git(&self.root, &["diff", "--cached", "--quiet", "--", &dir]).is_err();
+        let text = render(cx.source.format, &row.attrs, row.body.as_deref());
+        Self::write(cx, &row.key, &text)
+    }
+
+    async fn remove(&self, cx: &SourceCx<'_>, key: &str) -> Result<(), SourceError> {
+        Self::remove_file(cx, key)
+    }
+}
+
+/// The `git` source: the folder, committed on every write with the
+/// operator named in the message. Runs `git` in the project root.
+pub struct Git;
+
+impl Git {
+    fn commit(cx: &SourceCx<'_>, message: &str) -> Result<(), SourceError> {
+        let dir = cx.dir().to_string_lossy().to_string();
+        git(cx.root, &["add", "-A", "--", &dir])?;
+        let staged = git(cx.root, &["diff", "--cached", "--quiet", "--", &dir]).is_err();
         if staged {
-            let message = format!("{message} ({})", actor.label());
-            git(&self.root, &["commit", "-q", "-m", &message, "--", &dir])?;
+            let message = match cx.actor {
+                Some(actor) => format!("{message} ({})", actor.label()),
+                None => message.to_string(),
+            };
+            git(cx.root, &["commit", "-q", "-m", &message, "--", &dir])?;
         }
         Ok(())
     }
+}
 
-    async fn sync(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) -> Result<(), SourceError> {
-        let Some(id) = rec.id() else {
+#[async_trait]
+impl RecordSource for Git {
+    async fn pull(&self, cx: &SourceCx<'_>) -> Result<PullReport, SourceError> {
+        pull(cx).await
+    }
+
+    async fn push(&self, cx: &SourceCx<'_>, pushed: &Pushed) -> Result<(), SourceError> {
+        Files.push(cx, pushed).await?;
+        let Some(row) = cx.row(pushed.id).await? else {
             return Ok(());
         };
-        let Some((key, text)) =
-            row_file(cx.db(), &self.entity, &self.columns, &self.source, id).await?
-        else {
-            return Ok(());
+        let verb = if pushed.op == Op::Create {
+            "Added"
+        } else {
+            "Updated"
         };
-        if op == Op::Update {
-            if let Some(previous) = rec.original(&self.source.key).and_then(AttrValue::as_str) {
-                if previous != key && valid_key(previous) {
-                    self.remove(previous)?;
-                }
-            }
-        }
-        self.write(&key, &text)?;
-        let verb = if op == Op::Create { "Added" } else { "Updated" };
-        self.commit(
+        Self::commit(
+            cx,
             &format!(
                 "{verb} {}/{}",
-                self.source.path,
-                self.source.file_name(&key)
+                cx.source.path,
+                cx.source.file_name(&row.key)
             ),
-            cx.actor(),
+        )
+    }
+
+    async fn remove(&self, cx: &SourceCx<'_>, key: &str) -> Result<(), SourceError> {
+        Files.remove(cx, key).await?;
+        Self::commit(
+            cx,
+            &format!("Removed {}/{}", cx.source.path, cx.source.file_name(key)),
         )
     }
 }
@@ -794,8 +935,48 @@ fn git(root: &Path, args: &[&str]) -> Result<String, SourceError> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+/// Keeps a sourced entity's store in step with its table: a saved row is
+/// pushed and a deleted row removed, after the write commits. Before a
+/// save, the key is derived and checked.
+pub struct SourceListener {
+    root: PathBuf,
+    entity: String,
+    columns: Columns,
+    source: Source,
+    driver: Arc<dyn RecordSource>,
+}
+
+impl SourceListener {
+    pub fn new(
+        root: impl Into<PathBuf>,
+        entity: impl Into<String>,
+        columns: Columns,
+        source: Source,
+        driver: Arc<dyn RecordSource>,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            entity: entity.into(),
+            columns,
+            source,
+            driver,
+        }
+    }
+
+    fn cx<'a>(&'a self, db: &'a Db, actor: Option<&'a Actor>) -> SourceCx<'a> {
+        SourceCx {
+            db,
+            root: &self.root,
+            entity: &self.entity,
+            columns: &self.columns,
+            source: &self.source,
+            actor,
+        }
+    }
+}
+
 #[async_trait]
-impl ModelListener for FilesListener {
+impl ModelListener for SourceListener {
     async fn before_save(
         &self,
         _cx: &mut SaveCx<'_>,
@@ -832,8 +1013,20 @@ impl ModelListener for FilesListener {
     }
 
     async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, op: Op) {
-        if let Err(e) = self.sync(cx, rec, op).await {
-            tracing::error!(entity = %self.entity, error = %e, "the record's file was not written");
+        let Some(id) = rec.id() else {
+            return;
+        };
+        let pushed = Pushed {
+            id,
+            op,
+            previous_key: rec
+                .original(&self.source.key)
+                .and_then(AttrValue::as_str)
+                .map(str::to_string),
+        };
+        let scx = self.cx(cx.db(), Some(cx.actor()));
+        if let Err(e) = self.driver.push(&scx, &pushed).await {
+            tracing::error!(entity = %self.entity, error = %e, "the record was not written to its source");
         }
     }
 
@@ -841,18 +1034,9 @@ impl ModelListener for FilesListener {
         let Some(key) = rec.text(&self.source.key).filter(|k| valid_key(k)) else {
             return;
         };
-        let result = self.remove(key).and_then(|()| {
-            self.commit(
-                &format!(
-                    "Removed {}/{}",
-                    self.source.path,
-                    self.source.file_name(key)
-                ),
-                cx.actor(),
-            )
-        });
-        if let Err(e) = result {
-            tracing::error!(entity = %self.entity, error = %e, "the record's file was not removed");
+        let scx = self.cx(cx.db(), Some(cx.actor()));
+        if let Err(e) = self.driver.remove(&scx, key).await {
+            tracing::error!(entity = %self.entity, error = %e, "the record was not removed from its source");
         }
     }
 }
@@ -949,14 +1133,9 @@ mod tests {
                 Column::new("body", Shape::Text),
             ],
         );
-        let ok = Source {
-            kind: Kind::Files,
-            path: "content/posts".into(),
-            format: Format::Markdown,
-            key: "slug".into(),
-            body: Some("body".into()),
-            slug_from: Some("title".into()),
-        };
+        let ok = Source::files("content/posts", Format::Markdown)
+            .body("body")
+            .slug_from("title");
         assert!(ok.validate(&columns).is_ok());
         let mut bad = ok.clone();
         bad.path = "../outside".into();
@@ -975,15 +1154,43 @@ mod tests {
     #[test]
     fn a_source_reads_from_yaml_with_defaults() {
         let source: Source = serde_saphyr::from_str("path: content/events\n").unwrap();
-        assert_eq!(source.kind, Kind::Files);
+        assert_eq!(source.kind, FILES);
         assert_eq!(source.format, Format::Yaml);
         assert_eq!(source.key, "slug");
         let source: Source = serde_saphyr::from_str(
             "kind: git\npath: content/posts\nformat: markdown\nbody: body\n",
         )
         .unwrap();
-        assert_eq!(source.kind, Kind::Git);
+        assert_eq!(source.kind, GIT);
         assert_eq!(source.file_name("hello"), "hello.md");
+    }
+
+    #[test]
+    fn a_registered_source_has_extra_keys_and_resolves_by_code() {
+        let source: Source =
+            serde_saphyr::from_str("kind: acme.sheets\npath: content/guests\nsheet: Guests\n")
+                .unwrap();
+        assert_eq!(source.kind, "acme.sheets");
+        assert_eq!(source.options["sheet"], Value::String("Guests".into()));
+
+        struct Sheets;
+        #[async_trait]
+        impl RecordSource for Sheets {
+            async fn pull(&self, _cx: &SourceCx<'_>) -> Result<PullReport, SourceError> {
+                Ok(PullReport::default())
+            }
+            async fn push(&self, _cx: &SourceCx<'_>, _p: &Pushed) -> Result<(), SourceError> {
+                Ok(())
+            }
+            async fn remove(&self, _cx: &SourceCx<'_>, _key: &str) -> Result<(), SourceError> {
+                Ok(())
+            }
+        }
+        let registered = vec![RecordSourceReg::new("acme.sheets", Arc::new(Sheets))];
+        assert!(resolve("files", &registered).is_some());
+        assert!(resolve("git", &registered).is_some());
+        assert!(resolve("acme.sheets", &registered).is_some());
+        assert!(resolve("acme.other", &registered).is_none());
     }
 
     #[test]

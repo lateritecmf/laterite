@@ -29,14 +29,17 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
-- A resource's `source` keeps its records as files in a folder of the project
-  (yaml, json or markdown with front matter), read at boot and written back on
-  every save; `kind = "git"` commits each write. A deleted record's snapshot
-  now carries the form's columns, not only the list's.
+- A resource's `source` keeps its records outside the database: `files` (yaml,
+  json or markdown in a folder), `git` (the same, committed), or a `RecordSource`
+  a module registers; read at boot, pushed on every save. A deleted record's
+  snapshot now carries the form's columns, not only the list's.
 - `lat make:resource --source <DIR>` (`--format`, `--git`) scaffolds a resource
   whose records are files.
 - An application's `admin` command serves it and opens the admin in the
   browser, for an editor running the built binary on their own machine.
+- `lat new` with `folder` or `git` content scaffolds a first plugin with a
+  `post` collection in `content/posts`; `lat make:plugin --static` declares
+  static support, and a plugin scaffold pins the running framework version.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

@@ -2,14 +2,15 @@
 //! `source` and [`laterite_core::source`].
 //!
 //! Boot calls [`sync`]: every sourced resource's declaration is checked
-//! against its form, its folder is read into its table, and a listener is
-//! returned that writes each saved record's file back and removes a deleted
-//! record's. A resource with no `source` is untouched.
+//! against its form, its source is resolved by `kind` (`files`, `git`, or
+//! one a module registered), its store is read into its table, and a
+//! listener is returned that pushes each saved record and removes a deleted
+//! one. A resource with no `source` is untouched.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use laterite_core::source::{Column, Columns, FilesListener, Shape};
+use laterite_core::source::{Column, Columns, RecordSourceReg, Shape, SourceCx, SourceListener};
 use laterite_core::{Db, ModelListenerReg};
 
 use crate::field::{FieldRegistry, FieldTypeReg};
@@ -55,6 +56,7 @@ pub async fn sync(
     root: &Path,
     resources: &[Resource],
     field_types: &[FieldTypeReg],
+    sources: &[RecordSourceReg],
 ) -> anyhow::Result<Vec<ModelListenerReg>> {
     let mut types = crate::field::builtin_registry();
     for reg in field_types {
@@ -75,7 +77,22 @@ pub async fn sync(
         source
             .validate(&columns)
             .map_err(|e| anyhow::anyhow!("admin resource `{}`: {e}", resource.base_path))?;
-        let report = laterite_core::source::pull(db, root, &form.entity, &columns, source)
+        let Some(driver) = laterite_core::source::resolve(&source.kind, sources) else {
+            anyhow::bail!(
+                "admin resource `{}`: no source is registered as `{}` (built in: files, git)",
+                resource.base_path,
+                source.kind
+            );
+        };
+        let report = driver
+            .pull(&SourceCx {
+                db,
+                root,
+                entity: &form.entity,
+                columns: &columns,
+                source,
+                actor: None,
+            })
             .await
             .map_err(|e| anyhow::anyhow!("admin resource `{}`: {e}", resource.base_path))?;
         tracing::info!(
@@ -88,11 +105,12 @@ pub async fn sync(
         );
         listeners.push(ModelListenerReg::for_entity(
             form.entity.clone(),
-            Arc::new(FilesListener::new(
+            Arc::new(SourceListener::new(
                 root,
                 form.entity.clone(),
                 columns,
                 source.clone(),
+                driver,
             )),
         ));
     }

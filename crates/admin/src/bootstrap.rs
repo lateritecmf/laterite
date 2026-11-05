@@ -673,7 +673,9 @@ impl Bootstrap {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        listeners.extend(crate::source::sync(&db, &root, &resources, &field_types).await?);
+        let sources = contributions.take::<laterite_core::source::RecordSourceReg>();
+        listeners
+            .extend(crate::source::sync(&db, &root, &resources, &field_types, &sources).await?);
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();

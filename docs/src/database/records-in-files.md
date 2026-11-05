@@ -34,7 +34,7 @@ form:
 Option | Description
 --- | ---
 `path` | The folder, relative to the project root. Required.
-`kind` | `files` writes the file; `git` also commits it. Default `files`.
+`kind` | `files` writes the file; `git` also commits it; or the code of a source a module registered. Default `files`.
 `format` | `yaml`, `json`, or `markdown` (YAML front matter and a body). Default `yaml`.
 `key` | The text field that names the file. Default `slug`.
 `body` | With `markdown`, the field the body under the front matter holds. Optional.
@@ -56,20 +56,23 @@ Flag | Description
 
 ```rust
 use laterite_admin::Resource;
-use laterite_core::source::{Format, Kind, Source};
+use laterite_core::source::{Format, Source};
 
 let posts = Resource::new("/posts", "Posts", list)
     .form(form)
     .permission("acme.blog.manage_posts")
-    .source(Source {
-        kind: Kind::Git,
-        path: "content/posts".into(),
-        format: Format::Markdown,
-        key: "slug".into(),
-        body: Some("body".into()),
-        slug_from: Some("title".into()),
-    });
+    .source(
+        Source::git("content/posts", Format::Markdown)
+            .body("body")
+            .slug_from("title"),
+    );
 ```
+
+Constructor | Source
+--- | ---
+`Source::files(path, format)` | The folder, written.
+`Source::git(path, format)` | The folder, written and committed.
+`.body(column)`, `.slug_from(column)` | The options above.
 
 ## Write a file
 
@@ -140,3 +143,43 @@ rebuilds the site.
 ```bash
 git push origin main
 ```
+
+## Register a source
+
+```rust
+use laterite_core::source::{PullReport, Pushed, RecordSource, RecordSourceReg, SourceCx, SourceError};
+
+pub struct Sheets;
+
+#[async_trait]
+impl RecordSource for Sheets {
+    async fn pull(&self, cx: &SourceCx<'_>) -> Result<PullReport, SourceError> {
+        let sheet = cx.source.options["sheet"].as_str().unwrap_or_default();
+        todo!("read {sheet} into {}", cx.entity)
+    }
+    async fn push(&self, cx: &SourceCx<'_>, pushed: &Pushed) -> Result<(), SourceError> {
+        let row = cx.row(pushed.id).await?;
+        todo!("write {row:?}")
+    }
+    async fn remove(&self, cx: &SourceCx<'_>, key: &str) -> Result<(), SourceError> {
+        todo!("remove {key} from {}", cx.source.path)
+    }
+}
+
+registry.add(RecordSourceReg::new("acme.sheets", Arc::new(Sheets)));
+```
+
+```yaml
+source:
+  kind: acme.sheets
+  path: content/guests
+  sheet: Guests
+```
+
+Method | Called
+--- | ---
+`pull` | When the application starts. Creates or updates each row by key and removes the rest.
+`push` | After a save commits, with the row's id, the operation, and the key before a rename.
+`remove` | After a delete commits, with the row's key.
+
+`cx.row(id)` gives the row as the key, the columns by shape, and the body; `cx.source.options` holds the keys beyond the ones above; `cx.actor` names who is writing.

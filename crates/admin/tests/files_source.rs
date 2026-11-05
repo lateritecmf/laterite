@@ -10,7 +10,7 @@ use laterite_admin::form::{FormConfig, FormField};
 use laterite_admin::list::{ListColumn, ListConfig};
 use laterite_admin::{router, AdminConfig, Contributions, Permission, Resource};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
-use laterite_core::source::{Format, Kind, Source};
+use laterite_core::source::{Format, Source, FILES, GIT};
 use laterite_core::strata::*;
 use laterite_core::{t, AnyRowExt, CatalogStore, Db, ModelListenerReg};
 use sea_query::Alias;
@@ -56,18 +56,15 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     laterite_core::testing::connect_test(&migrations).await
 }
 
-fn source(kind: Kind) -> Source {
-    Source {
-        kind,
-        path: "content/posts".into(),
-        format: Format::Markdown,
-        key: "slug".into(),
-        body: Some("body".into()),
-        slug_from: Some("title".into()),
-    }
+fn source(kind: &str) -> Source {
+    let mut source = Source::files("content/posts", Format::Markdown)
+        .body("body")
+        .slug_from("title");
+    source.kind = kind.to_string();
+    source
 }
 
-fn resource(kind: Kind) -> Resource {
+fn resource(kind: &str) -> Resource {
     Resource::new(
         "/posts",
         "Posts",
@@ -94,13 +91,13 @@ fn resource(kind: Kind) -> Resource {
 
 /// Boots the resource as the framework does: the folder is read into the
 /// table and the listener comes back for the router.
-async fn boot(db: &Db, root: &Path, kind: Kind) -> Vec<ModelListenerReg> {
-    laterite_admin::source::sync(db, root, &[resource(kind)], &[])
+async fn boot(db: &Db, root: &Path, kind: &str) -> Vec<ModelListenerReg> {
+    laterite_admin::source::sync(db, root, &[resource(kind)], &[], &[])
         .await
         .unwrap()
 }
 
-fn app(db: &Db, kind: Kind, listeners: Vec<ModelListenerReg>) -> Router {
+fn app(db: &Db, kind: &str, listeners: Vec<ModelListenerReg>) -> Router {
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
@@ -214,7 +211,7 @@ async fn boot_reads_the_folder_into_the_table_and_the_files_stay_the_truth() {
     );
     write(root, "second.md", "---\ntitle: Second\n---\nAnother.\n");
 
-    boot(&db, root, Kind::Files).await;
+    boot(&db, root, FILES).await;
     let pulled = rows(&db).await;
     assert_eq!(pulled.len(), 2);
     assert_eq!(pulled[0].1, "hello");
@@ -229,7 +226,7 @@ async fn boot_reads_the_folder_into_the_table_and_the_files_stay_the_truth() {
         "hello.md",
         "---\ntitle: Hello again\n---\nFirst post.\n",
     );
-    boot(&db, root, Kind::Files).await;
+    boot(&db, root, FILES).await;
     let pulled = rows(&db).await;
     assert_eq!(pulled.len(), 1);
     assert_eq!(pulled[0].2, "Hello again");
@@ -241,12 +238,12 @@ async fn a_file_with_an_unknown_field_or_a_bad_declaration_names_itself() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     write(root, "odd.md", "---\ntitle: Odd\ncolour: red\n---\n");
-    let err = failure(laterite_admin::source::sync(&db, root, &[resource(Kind::Files)], &[]).await);
+    let err = failure(laterite_admin::source::sync(&db, root, &[resource(FILES)], &[], &[]).await);
     assert!(err.contains("odd.md") && err.contains("colour"), "{err}");
 
-    let mut bad = source(Kind::Files);
+    let mut bad = source(FILES);
     bad.key = "missing".into();
-    let resource = Resource::new(
+    let bad_key = Resource::new(
         "/posts",
         "Posts",
         ListConfig::new("posts", "Posts", vec![ListColumn::new("title", "Title")]),
@@ -260,8 +257,12 @@ async fn a_file_with_an_unknown_field_or_a_bad_declaration_names_itself() {
     ))
     .permission("acme.manage_posts")
     .source(bad);
-    let err = failure(laterite_admin::source::sync(&db, root, &[resource], &[]).await);
+    let err = failure(laterite_admin::source::sync(&db, root, &[bad_key], &[], &[]).await);
     assert!(err.contains("source.key"), "{err}");
+
+    let unknown = resource("acme.sheets");
+    let err = failure(laterite_admin::source::sync(&db, root, &[unknown], &[], &[]).await);
+    assert!(err.contains("acme.sheets"), "{err}");
 }
 
 #[tokio::test]
@@ -269,8 +270,8 @@ async fn a_save_writes_the_file_and_a_delete_removes_it() {
     let (db, _guard) = test_db().await;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let listeners = boot(&db, root, Kind::Files).await;
-    let app = app(&db, Kind::Files, listeners);
+    let listeners = boot(&db, root, FILES).await;
+    let app = app(&db, FILES, listeners);
     let operator = session(&db).await;
 
     // A create with a blank slug derives it from the title, and the file
@@ -358,8 +359,8 @@ async fn with_the_git_kind_every_write_is_a_commit_naming_the_operator() {
     git(root, &["config", "user.name", "CI"]);
     git(root, &["config", "commit.gpgsign", "false"]);
 
-    let listeners = boot(&db, root, Kind::Git).await;
-    let app = app(&db, Kind::Git, listeners);
+    let listeners = boot(&db, root, GIT).await;
+    let app = app(&db, GIT, listeners);
     let operator = session(&db).await;
     assert_eq!(
         post(
