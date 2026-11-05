@@ -226,10 +226,11 @@ impl Bootstrap {
     }
 
     /// Reads the process's own arguments and does what they ask: `serve`
-    /// (the default, as [`Bootstrap::serve`]), `queue work [--once]
-    /// [--stop-when-empty] [--queue a,b]` (a worker alone) or `schedule run
-    /// [--once]` (the ticker alone). The scaffolded `main` calls this, so
-    /// `lat queue work` and `lat schedule run` have something to run.
+    /// (the default, as [`Bootstrap::serve`]), `admin` (serve, and open the
+    /// admin in the browser), `queue work [--once] [--stop-when-empty]
+    /// [--queue a,b]` (a worker alone) or `schedule run [--once]` (the ticker
+    /// alone). The scaffolded `main` calls this, so `lat queue work` and
+    /// `lat schedule run` have something to run.
     ///
     /// A static website (`[theme] folder` in the config) takes `build
     /// [--out DIR] [--base-url URL]` to render itself, and `serve` (the
@@ -245,6 +246,7 @@ impl Bootstrap {
             Some("build") => self.prepare().await?.build_from_args(&args[1..]).await,
             Some("publish") => self.prepare().await?.publish().await,
             None | Some("serve") => self.serve().await,
+            Some("admin") => self.prepare().await?.serve_with(true).await,
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
             }
@@ -252,7 +254,7 @@ impl Bootstrap {
                 self.prepare().await?.tick(&args[2..]).await
             }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `build`, `publish`, `queue work` or `schedule run`"
+                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `build`, `publish`, `queue work` or `schedule run`"
             ),
         }
     }
@@ -890,6 +892,7 @@ impl Bootstrap {
             app,
             listen: config.server.listen.clone(),
             banner: format!("{} on {origin}{admin_path}", config.app.name),
+            admin_url: format!("{origin}{admin_path}"),
             queue,
             schedule,
             schedule_mode,
@@ -922,6 +925,8 @@ struct Prepared {
     app: Router,
     listen: String,
     banner: String,
+    /// The admin's address, for `admin` to open.
+    admin_url: String,
     queue: laterite_core::Queue,
     schedule: laterite_core::Schedule,
     schedule_mode: laterite_core::schedule::Mode,
@@ -1084,8 +1089,23 @@ impl Prepared {
     }
 
     async fn serve(self) -> anyhow::Result<()> {
+        self.serve_with(false).await
+    }
+
+    /// Serves, and with `open` also opens the admin in the browser once the
+    /// address is bound: what `admin` does for an editor on their own machine.
+    async fn serve_with(self, open: bool) -> anyhow::Result<()> {
         let listener = bind(&self.listen).await?;
         println!("{}", self.banner);
+        if open {
+            let (program, args) = opener(&self.admin_url);
+            if let Err(e) = std::process::Command::new(program).args(&args).spawn() {
+                println!(
+                    "Could not open a browser ({e}); open {} yourself.",
+                    self.admin_url
+                );
+            }
+        }
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         let mut workers = if self.queue.mode() == laterite_core::queue::Mode::Worker {
             self.queue.spawn_workers(stop_rx.clone())
@@ -1224,6 +1244,20 @@ async fn purge_expired(auth: &AuthService) {
     }
 }
 
+/// The command that opens a URL in the default browser on this platform.
+fn opener(url: &str) -> (&'static str, Vec<String>) {
+    if cfg!(target_os = "macos") {
+        ("open", vec![url.to_string()])
+    } else if cfg!(target_os = "windows") {
+        (
+            "cmd",
+            vec!["/c".into(), "start".into(), String::new(), url.to_string()],
+        )
+    } else {
+        ("xdg-open", vec![url.to_string()])
+    }
+}
+
 async fn bind(listen: &str) -> anyhow::Result<tokio::net::TcpListener> {
     use listenfd::ListenFd;
     match ListenFd::from_env().take_tcp_listener(0)? {
@@ -1279,6 +1313,16 @@ fn report_plugins(ordered: &[&dyn Module], skipped: &HashMap<String, String>) {
 mod tests {
     use super::*;
     use laterite_core::ModuleId;
+
+    #[test]
+    fn the_opener_passes_the_url_last() {
+        let (program, args) = opener("http://127.0.0.1:8080/admin");
+        assert!(!program.is_empty());
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("http://127.0.0.1:8080/admin")
+        );
+    }
 
     #[test]
     fn env_prefix_is_unset_until_overridden_in_code() {

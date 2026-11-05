@@ -35,6 +35,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   now carries the form's columns, not only the list's.
 - `lat make:resource --source <DIR>` (`--format`, `--git`) scaffolds a resource
   whose records are files.
+- An application's `admin` command serves it and opens the admin in the
+  browser, for an editor running the built binary on their own machine.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

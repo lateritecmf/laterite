@@ -158,6 +158,22 @@ Key | Default | Meaning
 
 A file-backed source is read in before every build, and every save in the admin is written back. The framework's own tables (users, sessions, settings, logs) stay in `[database]`.
 
+## Edit from a laptop
+
+```bash
+cargo build --release
+./target/release/acme admin
+```
+
+`admin` serves the application and opens the admin in the browser. With a `folder` or `git` source and [records in files](../database/records-in-files.md), every save lands in the checked-out repository; push it to publish.
+
+Command | Does
+--- | ---
+`acme` or `acme serve` | Serves the admin and the site on `server.listen`.
+`acme admin` | The same, and opens `/admin` in the browser.
+`acme build` | Renders `dist/`.
+`acme publish` | Pushes, or calls the build hook.
+
 ## Add a plugin
 
 ```bash
