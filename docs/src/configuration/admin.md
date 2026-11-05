@@ -36,6 +36,19 @@ Key | Description
 `upload_extensions` | The file extensions an upload may carry, lowercased. Empty applies the default list (images, documents, audio, video, fonts, archives). See [Media Library](../media/library.md).
 `skin` | The admin skin by code: `standard` (default), `compact`, or one a module registered. See [Skins](../admin/skins.md).
 `storage` | The directory files the admin keeps go under, relative to the working directory unless absolute. Uploaded import files go to `private` beneath it.
+
+## Keep the media library in the project
+
+```toml
+[media]
+folder = "public/media"
+```
+
+Key | Default | Meaning
+--- | --- | ---
+`media.folder` | none | A folder of the project the library stores its files in. Unset, the library uses `<backend.storage>/media`. With `[theme] source = "git"`, every stored or removed file is committed.
+
+A static build writes every file and variant under `dist/storage/media/`, at the paths the pages link to.
 `order` | Arrangement overrides by hierarchy: `"backend.nav"`, `"backend.nav.<section>"`, `"backend.settings"` or a plugin's own, each a list of keys in the wanted order. See [Navigation](../admin/navigation.md).
 `menu` | Entries moved out of their home, keyed by entry: `{ in, slot, order, category }`. See [Navigation](../admin/navigation.md).
 `secret` | The key timed URLs are signed with (a private file's). Set it when several instances share one database.

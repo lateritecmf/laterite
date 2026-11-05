@@ -44,6 +44,11 @@ pub struct StaticRendererReg(pub Arc<dyn StaticRenderer>);
 
 /// Writes a site file at `path` under `out`, confined to it.
 pub fn write_site_file(out: &Path, path: &str, body: &str) -> Result<()> {
+    write_site_bytes(out, path, body.as_bytes())
+}
+
+/// Writes a file of bytes into the output at `path` (`/storage/media/...`).
+pub fn write_site_bytes(out: &Path, path: &str, body: &[u8]) -> Result<()> {
     let relative = path.trim_start_matches('/');
     if relative.is_empty() || relative.split('/').any(|part| part == "..") {
         anyhow::bail!("`{path}` is not a path inside the output");

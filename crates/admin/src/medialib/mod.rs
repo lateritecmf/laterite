@@ -19,7 +19,8 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Router};
 use laterite_auth::AuthenticatedUser;
-use laterite_core::{t, Module, Text};
+use laterite_core::strata::async_trait;
+use laterite_core::{t, Db, Module, Text};
 use laterite_media::library::{Listing, Sort};
 use laterite_media::preset::{self, Preset};
 use laterite_media::sanitize;
@@ -95,6 +96,126 @@ pub(crate) fn screen() -> ScreenReg {
                 .icon("image")
                 .slot(laterite_core::arrange::slot::MEDIA),
         )
+}
+
+/// A file the library stored: after an upload, a direct upload, a crop
+/// saved as a copy, or a replacement. `by` is the operator's username.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaStored {
+    pub id: i64,
+    pub hash: String,
+    pub name: String,
+    pub by: String,
+}
+
+impl laterite_core::Event for MediaStored {
+    const NAME: &'static str = "media.stored";
+}
+
+/// A file the library removed, with its blob when nothing else used it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaRemoved {
+    pub id: i64,
+    pub hash: String,
+    pub name: String,
+    pub by: String,
+}
+
+impl laterite_core::Event for MediaRemoved {
+    const NAME: &'static str = "media.removed";
+}
+
+/// The library's disk: the one registered as [`DISK`], else the local
+/// folder under the storage directory.
+pub fn library_driver(
+    registry: &laterite_core::Registry,
+    storage_dir: &str,
+) -> Arc<dyn StorageDriver> {
+    registry
+        .contributions::<DiskReg>()
+        .into_iter()
+        .find(|d| d.item.name == DISK)
+        .map(|d| Arc::clone(&d.item.driver))
+        .unwrap_or_else(|| Arc::new(LocalDisk::new(format!("{storage_dir}/media"))))
+}
+
+/// Writes every record's file, and every variant made so far, into a static
+/// build at the paths the site serves them from: `/storage/media/<hash>/<name>`
+/// and `/storage/media/<hash>/<preset>/<name>`. Returns how many it wrote.
+pub async fn write_static_media(
+    db: &Db,
+    driver: &dyn StorageDriver,
+    out: &std::path::Path,
+) -> anyhow::Result<usize> {
+    use futures::StreamExt;
+    let mut written = 0;
+    for r in record::all(db).await? {
+        let mut targets = vec![(blob_path(&r.hash), file_url(&r))];
+        for v in variant::list_for(db, r.id).await? {
+            targets.push((v.path.clone(), variant_url(&r, &v.preset)));
+        }
+        for (path, url) in targets {
+            let mut stream = match driver.get(&path).await {
+                Ok(stream) => stream,
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %path, "a media file is missing from its disk");
+                    continue;
+                }
+            };
+            let mut body = Vec::with_capacity(r.size.max(0) as usize);
+            while let Some(chunk) = stream.next().await {
+                body.extend_from_slice(&chunk?);
+            }
+            crate::statics::write_site_bytes(out, &url, &body)?;
+            written += 1;
+        }
+    }
+    Ok(written)
+}
+
+/// Commits the library's folder after every stored or removed file, for a
+/// site whose records are committed too. Registered by the bootstrap when
+/// `[media] folder` is set and the theme's source is `git`.
+pub struct MediaCommit {
+    root: std::path::PathBuf,
+    folder: std::path::PathBuf,
+}
+
+impl MediaCommit {
+    pub fn new(root: impl Into<std::path::PathBuf>, folder: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            folder: folder.into(),
+        }
+    }
+
+    fn commit(&self, message: &str) -> Result<(), laterite_core::EventError> {
+        laterite_core::source::commit_dir(&self.root, &self.folder, message)
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as laterite_core::EventError)
+    }
+}
+
+#[async_trait]
+impl laterite_core::Listener<MediaStored> for MediaCommit {
+    async fn handle(
+        &self,
+        _cx: &laterite_core::EventCx<'_>,
+        event: &MediaStored,
+    ) -> Result<(), laterite_core::EventError> {
+        self.commit(&format!("Added media {} ({})", event.name, event.by))
+    }
+}
+
+#[async_trait]
+impl laterite_core::Listener<MediaRemoved> for MediaCommit {
+    async fn handle(
+        &self,
+        _cx: &laterite_core::EventCx<'_>,
+        event: &MediaRemoved,
+    ) -> Result<(), laterite_core::EventError> {
+        self.commit(&format!("Removed media {} ({})", event.name, event.by))
+    }
 }
 
 /// The serve route.
@@ -1100,7 +1221,7 @@ async fn upload(
                     ctx.db(),
                     NewMedia {
                         disk: DISK.to_string(),
-                        hash: ingested.hash,
+                        hash: ingested.hash.clone(),
                         size: ingested.size as i64,
                         content_type: ingested.content_type,
                         original_name: name.clone(),
@@ -1133,6 +1254,14 @@ async fn upload(
                     None,
                 )
                 .await;
+                ctx.events()
+                    .emit(&MediaStored {
+                        id,
+                        hash: ingested.hash.clone(),
+                        name: name.clone(),
+                        by: user.user.username.clone(),
+                    })
+                    .await;
                 let url = match record::find(ctx.db(), id).await {
                     Ok(Some(r)) => admin_url(&app, &r),
                     _ => String::new(),
@@ -1382,7 +1511,7 @@ async fn direct_complete(
         ctx.db(),
         NewMedia {
             disk: DISK.to_string(),
-            hash: ingested.hash,
+            hash: ingested.hash.clone(),
             size: ingested.size as i64,
             content_type: ingested.content_type,
             original_name: name.clone(),
@@ -1414,6 +1543,14 @@ async fn direct_complete(
         Some("{\"direct\":true}"),
     )
     .await;
+    ctx.events()
+        .emit(&MediaStored {
+            id,
+            hash: ingested.hash.clone(),
+            name: name.clone(),
+            by: user.user.username.clone(),
+        })
+        .await;
     let url = match record::find(ctx.db(), id).await {
         Ok(Some(r)) => admin_url(&app, &r),
         _ => String::new(),
@@ -1891,6 +2028,14 @@ async fn crop_file(
             )),
         )
         .await;
+        ctx.events()
+            .emit(&MediaStored {
+                id,
+                hash: ingested.hash.clone(),
+                name: r.original_name.clone(),
+                by: user.user.username.clone(),
+            })
+            .await;
         session.push_flash(FlashLevel::Success, t!("Image cropped."));
         return Redirect::to(&here).into_response();
     }
@@ -1899,7 +2044,7 @@ async fn crop_file(
         ctx.db(),
         NewMedia {
             disk: r.disk.clone(),
-            hash: ingested.hash,
+            hash: ingested.hash.clone(),
             size: ingested.size as i64,
             content_type: ingested.content_type,
             original_name: name.clone(),
@@ -1933,6 +2078,14 @@ async fn crop_file(
         )),
     )
     .await;
+    ctx.events()
+        .emit(&MediaStored {
+            id: new_id,
+            hash: ingested.hash.clone(),
+            name: name.clone(),
+            by: user.user.username.clone(),
+        })
+        .await;
     session.push_flash(FlashLevel::Success, t!("Cropped copy saved."));
     Redirect::to(&ctx.url(&new_id.to_string())).into_response()
 }
@@ -2109,6 +2262,14 @@ async fn delete_file(
                 Some(&format!("{{\"links\":{}}}", users.len())),
             )
             .await;
+            ctx.events()
+                .emit(&MediaRemoved {
+                    id,
+                    hash: r.hash.clone(),
+                    name: r.original_name.clone(),
+                    by: user.user.username.clone(),
+                })
+                .await;
             session.push_flash(FlashLevel::Success, t!("File deleted."));
             back_to(ctx, folder_id)
         }

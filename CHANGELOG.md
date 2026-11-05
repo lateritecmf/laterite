@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A static build writes the media library's files and variants under
+  `dist/storage/media/`; `[media] folder` keeps the library in a folder of the
+  project, committed on every stored or removed file when the theme's source
+  is `git` (`media.stored` and `media.removed` events).
+
 ## [0.9.29] - 2026-11-06
 
 ### Added

@@ -360,6 +360,25 @@ pub async fn find_all_by_hash(db: &Db, hash: &str) -> Result<Vec<MediaRecord>, R
 }
 
 /// One record by id, or `None` if it is gone.
+/// Every record, oldest first: what a static build copies.
+pub async fn all(db: &Db) -> Result<Vec<MediaRecord>, RecordError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(COLUMNS)
+            .from(Media::Table)
+            .order_by(Media::Id, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.iter()
+        .map(from_row)
+        .collect::<Result<_, _>>()
+        .map_err(Into::into)
+}
+
 pub async fn find(db: &Db, id: i64) -> Result<Option<MediaRecord>, RecordError> {
     let (sql, values) = build(
         db.backend,

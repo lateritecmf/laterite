@@ -64,6 +64,9 @@ pub struct AppConfig {
     /// the site instead of serving an admin.
     #[serde(default)]
     pub theme: laterite_core::config::ThemeConfig,
+    /// The `[media]` section: where the library's files live.
+    #[serde(default)]
+    pub media: laterite_core::config::MediaConfig,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
@@ -509,10 +512,35 @@ impl Bootstrap {
         // The project itself, for a module whose boot or screens read where
         // the theme lives: the theme module pulls a file-backed source here.
         contributions.set_owner(FRAMEWORK_OWNER);
+        let root = project_root(&self.config_dir);
         contributions.add(crate::statics::SiteProject {
-            root: project_root(&self.config_dir),
+            root: root.clone(),
             theme: config.theme.clone(),
         });
+        // The media library on a folder of the project, so a site's files
+        // travel with its repository; on a git site every stored or removed
+        // file is committed, as a saved record is.
+        if let Some(folder) = config
+            .media
+            .folder
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        {
+            let folder = root.join(folder);
+            contributions.add(laterite_media::DiskReg::new(
+                crate::medialib::DISK,
+                std::sync::Arc::new(laterite_media::LocalDisk::new(folder.clone())),
+            ));
+            if config.theme.effective_source() == "git" {
+                contributions.listen::<crate::medialib::MediaStored>(
+                    crate::medialib::MediaCommit::new(root.clone(), folder.clone()),
+                );
+                contributions.listen::<crate::medialib::MediaRemoved>(
+                    crate::medialib::MediaCommit::new(root.clone(), folder),
+                );
+            }
+        }
         // Resolve where each module's screens mount before any route is built,
         // so a namespace, a declared base and a deployment override all land in
         // one place and a clash is caught below.
@@ -883,6 +911,7 @@ impl Bootstrap {
             listen: config.server.listen.clone(),
             banner: format!("{} on {origin}{admin_path}", config.app.name),
             admin_url: format!("{origin}{admin_path}"),
+            storage_dir: config.backend.storage.clone(),
             queue,
             schedule,
             schedule_mode,
@@ -925,6 +954,8 @@ struct Prepared {
     app: Router,
     listen: String,
     banner: String,
+    /// `backend.storage`, where the media library's default disk lives.
+    storage_dir: String,
     /// The admin's address, for `admin` to open.
     admin_url: String,
     queue: laterite_core::Queue,
@@ -1032,6 +1063,15 @@ impl Prepared {
                 crate::statics::write_site_file(out, file.path(), &file.render(&site_cx))?;
                 println!("  {} ({})", file.path(), module.id());
             }
+        }
+        // The library's files, at the paths the pages link to.
+        let driver = crate::medialib::library_driver(&site.plugin_defined, &self.storage_dir);
+        let media = crate::medialib::write_static_media(&self.db, driver.as_ref(), out).await?;
+        if media > 0 {
+            println!(
+                "Wrote {media} media file(s) under {}/storage/media",
+                out.display()
+            );
         }
         for copy in crate::statics::Copy::parse(&site.theme.copy, &site.root, false)? {
             if copy.apply(out)? {

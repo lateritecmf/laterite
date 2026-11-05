@@ -168,6 +168,15 @@ Key | Default | Meaning
 
 A file-backed source is read in before every build, and every save in the admin is written back. The framework's own tables (users, sessions, settings, logs) stay in `[database]`.
 
+## Keep media with the site
+
+```toml
+[media]
+folder = "public/media"
+```
+
+Uploads land in the folder, a `git` site commits each one, and the build writes every file and its variants under `dist/storage/media/`. See [Admin configuration](../configuration/admin.md).
+
 ## Edit from a laptop
 
 ```bash

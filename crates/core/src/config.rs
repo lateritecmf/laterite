@@ -104,6 +104,16 @@ impl Default for ThemeGitConfig {
     }
 }
 
+/// The `[media]` section: where the library's files live.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct MediaConfig {
+    /// A folder of the project the library stores its files in
+    /// (`public/media`), so a site's media travels with its repository. Unset,
+    /// the library uses `<backend.storage>/media`.
+    pub folder: Option<String>,
+}
+
 /// How a build reaches its host.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default)]

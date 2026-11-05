@@ -877,18 +877,25 @@ pub struct Git;
 
 impl Git {
     fn commit(cx: &SourceCx<'_>, message: &str) -> Result<(), SourceError> {
-        let dir = cx.dir().to_string_lossy().to_string();
-        git(cx.root, &["add", "-A", "--", &dir])?;
-        let staged = git(cx.root, &["diff", "--cached", "--quiet", "--", &dir]).is_err();
-        if staged {
-            let message = match cx.actor {
-                Some(actor) => format!("{message} ({})", actor.label()),
-                None => message.to_string(),
-            };
-            git(cx.root, &["commit", "-q", "-m", &message, "--", &dir])?;
-        }
-        Ok(())
+        let message = match cx.actor {
+            Some(actor) => format!("{message} ({})", actor.label()),
+            None => message.to_string(),
+        };
+        commit_dir(cx.root, &cx.dir(), &message).map(|_| ())
     }
+}
+
+/// Stages everything under `dir` and commits it with `message` in the
+/// repository at `root`, as the `git` source does for a record's folder.
+/// `Ok(false)` when nothing under `dir` had changed.
+pub fn commit_dir(root: &Path, dir: &Path, message: &str) -> Result<bool, SourceError> {
+    let dir = dir.to_string_lossy().to_string();
+    git(root, &["add", "-A", "--", &dir])?;
+    let staged = git(root, &["diff", "--cached", "--quiet", "--", &dir]).is_err();
+    if staged {
+        git(root, &["commit", "-q", "-m", message, "--", &dir])?;
+    }
+    Ok(staged)
 }
 
 #[async_trait]

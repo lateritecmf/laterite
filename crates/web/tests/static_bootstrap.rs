@@ -118,3 +118,78 @@ async fn a_plugin_without_static_support_stops_the_build_by_name() {
     assert!(err.to_string().contains("acme.adminonly"), "{err:#}");
     assert!(err.to_string().contains("supports_static"), "{err:#}");
 }
+
+/// A plugin that stores one file in the media library while the build is
+/// seeded, as a module reading its definitions would.
+struct Seeder;
+
+#[async_trait]
+impl Module for Seeder {
+    fn id(&self) -> ModuleId {
+        ModuleId::new("acme.seeder")
+    }
+    fn supports_static(&self) -> bool {
+        true
+    }
+    async fn static_seed(&self, cx: &laterite_core::StaticSeedCx<'_>) -> CoreResult<()> {
+        use laterite_media::{ingest::blob_path, LocalDisk, StorageDriver};
+        let hash = "ab".repeat(32);
+        let disk = LocalDisk::new(cx.root.join("public/media"));
+        disk.put(
+            &blob_path(&hash),
+            laterite_media::stream_of(b"PNGDATA".to_vec()),
+        )
+        .await
+        .map_err(|e| laterite_core::CoreError::Config(e.to_string()))?;
+        laterite_media::record::create(
+            cx.db,
+            laterite_media::NewMedia {
+                disk: "public".to_string(),
+                hash,
+                size: 7,
+                content_type: "image/png".to_string(),
+                original_name: "logo.png".to_string(),
+                in_library: true,
+                created_by: None,
+            },
+        )
+        .await
+        .map_err(|e| laterite_core::CoreError::Config(e.to_string()))?;
+        Ok(())
+    }
+}
+
+/// The media library's files land in the build where the pages link to
+/// them, read from the `[media] folder` the library lives in.
+#[tokio::test]
+async fn a_static_build_writes_the_media_library() {
+    let tmp = tempfile::tempdir().unwrap();
+    project(tmp.path());
+    fs::write(
+        tmp.path().join("config/default.toml"),
+        "[app]\nname = \"Acme\"\nurl = \"https://acme.example\"\n[theme]\nfolder = \"themes/acme\"\n[media]\nfolder = \"public/media\"\n",
+    )
+    .unwrap();
+    let out = tmp.path().join("dist");
+    Bootstrap::new(tmp.path().join("config"))
+        .module(ThemeModule)
+        .modules(vec![Box::new(Seeder)])
+        .build(&out, None)
+        .await
+        .unwrap();
+    let hash = "ab".repeat(32);
+    let served = out.join("storage/media").join(&hash).join("logo.png");
+    assert_eq!(
+        fs::read(&served).unwrap(),
+        b"PNGDATA",
+        "{}",
+        served.display()
+    );
+    assert!(
+        tmp.path()
+            .join("public/media/blobs/ab/ab")
+            .join(&hash)
+            .is_file(),
+        "the blob lives in the project's media folder"
+    );
+}
