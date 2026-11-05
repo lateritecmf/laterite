@@ -7,32 +7,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
-### Deprecated
-
-- The `==` section form of a mail or theme file; it still reads, logged as
-  deprecated, and goes in the next minor.
-
-### Fixed
-
-- A pull keeps a switch the file leaves out at off, so a NOT NULL column
-  survives a re-read; a static site's git source runs in the project root
-  when the binary is started with a relative `config` directory.
-- A file-backed theme is the site's active theme once its folder is read,
-  so `serve` renders a `folder` or `git` site's pages, as `build` did.
-- A scaffolded boolean column defaults to `0`, not `false`: Postgres refused
-  the boolean default on the integer column `bool_col` makes.
-- A settings sidebar group an operator folds stays folded on the next page,
-  kept as their own preference and cleared by the menu's Reset.
-- An upload larger than two megabytes is stored whole: the request body limit
-  on the media and import routes now follows the upload limit, and a body cut
-  short is refused instead of stored truncated.
-- The direct-upload routes read the multipart body the uploader sends, so an
-  upload no longer logs a refused request token before falling back.
-- Uploading a binary file no longer fails with "could not be stored": the
-  SVG sniffer sliced lossily decoded text on a byte index.
-- A resource form shows a field's `help` text; only settings forms did.
-- A section's sidebar lists its entries without a group heading when it has
-  one group, so a plugin section no longer repeats its own name.
+## [0.9.29] - 2026-11-06
 
 ### Added
 
@@ -73,6 +48,33 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   and `settings::from_yaml`, taking the form descriptor's field entries.
 - `transient: true` on a form field (`FormField::transient()`): shown and
   submitted with no column behind it, for a persister to read (a password field).
+
+### Deprecated
+
+- The `==` section form of a mail or theme file; it still reads, logged as
+  deprecated, and goes in the next minor.
+
+### Fixed
+
+- A pull keeps a switch the file leaves out at off, so a NOT NULL column
+  survives a re-read; a static site's git source runs in the project root
+  when the binary is started with a relative `config` directory.
+- A file-backed theme is the site's active theme once its folder is read,
+  so `serve` renders a `folder` or `git` site's pages, as `build` did.
+- A scaffolded boolean column defaults to `0`, not `false`: Postgres refused
+  the boolean default on the integer column `bool_col` makes.
+- A settings sidebar group an operator folds stays folded on the next page,
+  kept as their own preference and cleared by the menu's Reset.
+- An upload larger than two megabytes is stored whole: the request body limit
+  on the media and import routes now follows the upload limit, and a body cut
+  short is refused instead of stored truncated.
+- The direct-upload routes read the multipart body the uploader sends, so an
+  upload no longer logs a refused request token before falling back.
+- Uploading a binary file no longer fails with "could not be stored": the
+  SVG sniffer sliced lossily decoded text on a byte index.
+- A resource form shows a field's `help` text; only settings forms did.
+- A section's sidebar lists its entries without a group heading when it has
+  one group, so a plugin section no longer repeats its own name.
 
 ## [0.9.28] - 2026-11-03
 
