@@ -196,6 +196,15 @@ pub async fn run(args: NewArgs) -> Result<()> {
             .context("could not scaffold the first collection")?;
         println!("Added plugins/site-plugin with a post collection in content/posts/.");
     }
+    // A git site commits every save, so it starts as a repository with the
+    // scaffold as its first commit; a project already inside one is left alone.
+    if site.as_ref().is_some_and(|s| s.content == Content::Git) {
+        match init_repository(&dir, &display_name) {
+            Ok(true) => println!("Initialised a git repository with the scaffold committed."),
+            Ok(false) => {}
+            Err(e) => println!("Note: {e:#}. Run `git init` and commit before the first save."),
+        }
+    }
 
     // Connect, offering to create the database if it does not exist yet.
     let db = connect(&theme, &conn, &dir)
@@ -241,27 +250,42 @@ pub async fn run(args: NewArgs) -> Result<()> {
     match site.as_ref().map(|s| s.content) {
         Some(Content::Folder) => {
             println!("    lat serve            # the admin at {admin_url}, the site beside it");
-            println!(
-                "    lat theme build      # render dist/ from themes/{name}, as the host does"
-            );
-            println!("\nEvery save in the admin writes themes/{name}; commit it to publish.");
+            println!("    lat theme build      # render dist/, as the host does");
+            println!("\nSign in at {admin_url}/login with the administrator you just created.");
+            println!("Posts are files under content/posts/; every save in the admin writes one.");
+            println!("Commit the project to publish; the host builds on push.");
+            println!("\nAdd a collection from plugins/site-plugin:");
+            println!("    lat make:resource article --field title:text --source content/articles --format markdown");
+            println!("\nAn editor runs the admin on their own machine from the built binary:");
+            println!("    cargo build --release && ./target/release/{name} admin");
         }
         Some(Content::Git) => {
             println!("    lat serve            # the admin at {admin_url}, the site beside it");
             println!("    lat theme publish    # push the commits the admin made");
             println!("    lat theme build      # render dist/, as the host does on push");
+            println!("\nSign in at {admin_url}/login with the administrator you just created.");
+            println!("Posts are files under content/posts/; every save in the admin commits one.");
+            println!("Add a remote (`git remote add origin ...`) so `lat theme publish` has somewhere to push.");
+            println!("\nAdd a collection from plugins/site-plugin:");
+            println!("    lat make:resource article --field title:text --source content/articles --format markdown --git");
+            println!("\nAn editor runs the admin on their own machine from the built binary:");
+            println!("    cargo build --release && ./target/release/{name} admin");
         }
         Some(Content::Database) => {
             println!("    lat serve            # the admin at {admin_url}, the site beside it");
             println!("    lat theme build      # render dist/ from the database, as the host does");
             println!("    lat theme publish    # call the build hook");
-            println!(
-                "\nDeploy the admin beside the database, and give the host LAT__DATABASE__URL."
-            );
+            println!("\nSign in at {admin_url}/login with the administrator you just created.");
+            println!("Deploy the admin beside the database, and give the host LAT__DATABASE__URL.");
         }
         _ => {
             println!("    cargo run          # or: lat serve");
-            println!("\nThen open {admin_url} and sign in.");
+            println!(
+                "\nThen open {admin_url} and sign in with the administrator you just created."
+            );
+            println!("\nAdd a plugin and its first screen:");
+            println!("    lat make:plugin acme.blog --admin --path plugins && lat plugin add plugins/blog-plugin");
+            println!("    lat make:resource article --field title:text,body:text --path plugins/blog-plugin");
         }
     }
     Ok(())
@@ -898,6 +922,45 @@ fn write_theme_files(theme_dir: &Path, display_name: &str) -> Result<()> {
         &static_intro(display_name),
     )?;
     write(theme_dir.join("assets/css/site.css"), STATIC_CSS)
+}
+
+/// Makes the scaffold a git repository with one commit, for a site whose
+/// saves are commits. `Ok(false)` when the directory is already inside a
+/// repository; an error when `git` is missing or has no identity.
+fn init_repository(dir: &Path, display_name: &str) -> Result<bool> {
+    let inside = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if inside {
+        return Ok(false);
+    }
+    let run = |args: &[&str]| -> Result<()> {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .context("could not run git")?;
+        if !out.status.success() {
+            bail!(
+                "git {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+        Ok(())
+    };
+    run(&["init", "-q", "-b", "main"])?;
+    run(&["add", "-A"])?;
+    run(&[
+        "commit",
+        "-q",
+        "-m",
+        &format!("Scaffolded {display_name} with lat new"),
+    ])?;
+    Ok(true)
 }
 
 /// A site's first plugin: `<name>.site`, listed in plugins/plugins.toml,

@@ -55,6 +55,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   answers for its pattern (`TableKeys` for a table's keys); `lat make:resource
   --source` scaffolds the collection's component and paths, and `lat new`
   its `/posts` pages. `lat serve` serves the `theme.copy` folders.
+- `lat new --content git` starts the site as a repository with the scaffold
+  committed, and every shape prints its own next steps: sign-in, adding a
+  collection, publishing, and the editor's `admin` command.
 - Maintenance mode tells an exempt operator it is on: a bar at the foot of every
   page with the visitor's view (`?maintenance=visitor`) and a link to the setting.
 - `RouteCtx::settings_path(code)`: where a settings screen is served.

@@ -27,10 +27,14 @@ Prompt | Value
 --- | ---
 **What are you building?** | An application with an admin panel, or a static website (see [Static Website](static-website.md)).
 **Application name** | Any text, such as `Acme Blog`. Its slug, `acme-blog`, names the crate, directory and database.
+**Where does the site's content live?** | Static website only: files you edit, a folder the admin writes, a folder the admin commits (`git`), or a database.
+**Site URL** | Static website only: the origin canonical links use.
 **Display timezone** | An IANA name; type to search.
 **Listen address** | `host:port`. Default `127.0.0.1:8080`.
-**Database** | PostgreSQL, MySQL/MariaDB or SQLite, and its connection details. Offers to create the database.
-**First administrator** | Username, email, password.
+**Database** | PostgreSQL, MySQL/MariaDB or SQLite, and its connection details. Offers to create the database. A `folder` or `git` site uses SQLite without asking.
+**First administrator** | Username, email, password. Not asked for a site of files you edit.
+
+Every prompt has a flag: `--static`, `--content`, `--url`, `--timezone`, `--listen`, `--admin` with `--admin-email`, `--admin-name` and the password in `LAT_NEW_ADMIN_PASSWORD`. A script runs `lat new` without a terminal.
 
 ## Serve
 
