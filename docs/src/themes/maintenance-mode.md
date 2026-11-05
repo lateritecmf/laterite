@@ -21,4 +21,16 @@ Page at | Serves
 
 ## Keep working while it is on
 
-A user with `web.manage_themes` sees the site as usual.
+A user with `web.manage_themes` sees the site as usual, with a bar at the foot of every page.
+
+Link on the bar | Opens
+--- | ---
+View as a visitor | The same path with `?maintenance=visitor`: the maintenance page, status 503.
+Turn it off | `/admin/settings/web/maintenance`.
+Back to the site | The path without the query, from the visitor's view.
+
+```html
+<div role="status" data-laterite-maintenance>...</div>
+```
+
+The bar sits before `</body>`, or at the end of a document without one.

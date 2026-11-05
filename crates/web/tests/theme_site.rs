@@ -332,6 +332,8 @@ async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through()
     let app = app(&db, &cache);
     let base = site_theme(&db).await;
     let (root, plain) = sessions(&db).await;
+    let (_, html, _) = get(&app, "/", Some(&root)).await;
+    assert!(!html.contains("data-laterite-maintenance"), "{html}");
 
     laterite_admin::settings::save(
         &db,
@@ -355,6 +357,20 @@ async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through()
     let (status, html, _) = get(&app, "/", Some(&root)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<h1>"), "{html}");
+    // The exempt operator is told, and can see the visitor's view.
+    assert!(html.contains("Maintenance mode is on"), "{html}");
+    assert!(html.contains("href=\"/?maintenance=visitor\""), "{html}");
+    assert!(html.contains("/admin/settings/web/maintenance"), "{html}");
+    let (status, html, _) = get(&app, "/?maintenance=visitor", Some(&root)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(html.contains("Back &lt;soon&gt;"), "{html}");
+    assert!(html.contains("Back to the site"), "{html}");
+    let (status, html, _) = get(&app, "/?maintenance=visitor", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        !html.contains("Back to the site"),
+        "visitors get no bar: {html}"
+    );
 
     // The theme's own maintenance page, when it has one.
     Themes::new(db.clone(), cache.clone())

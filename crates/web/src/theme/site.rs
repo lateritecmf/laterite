@@ -246,30 +246,38 @@ async fn serve(
         Ok(engine) => engine,
         Err(e) => return error_response(e.to_string()),
     };
-    // Maintenance: visitors get the theme's page or the notice, with 503.
-    if !preview {
-        let settings: MaintenanceSettings = laterite_admin::settings::load(ctx.db())
-            .await
-            .unwrap_or_default();
-        if settings.enabled {
-            let body = match engine.resolve("/maintenance") {
-                Some((name, _)) => {
-                    render_page(&engine, &theme, name, &Params::new(), &path, false, &origin)
-                        .unwrap_or_else(|_| maintenance::notice(&settings.message))
-                }
-                None => maintenance::notice(&settings.message),
-            };
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [
-                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-                    (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
-                    (header::RETRY_AFTER, "600"),
-                ],
-                body,
-            )
-                .into_response();
+    // Maintenance: visitors get the theme's page or the notice, with 503. An
+    // exempt operator sees the site with a bar saying so, or the visitor's
+    // view on request.
+    let settings: MaintenanceSettings = laterite_admin::settings::load(ctx.db())
+        .await
+        .unwrap_or_default();
+    let maintenance = settings.enabled;
+    let visitor_view = preview
+        && uri
+            .query()
+            .is_some_and(|q| q.split('&').any(|p| p == maintenance::VISITOR_QUERY));
+    if maintenance && (!preview || visitor_view) {
+        let mut body = match engine.resolve("/maintenance") {
+            Some((name, _)) => {
+                render_page(&engine, &theme, name, &Params::new(), &path, false, &origin)
+                    .unwrap_or_else(|_| maintenance::notice(&settings.message))
+            }
+            None => maintenance::notice(&settings.message),
+        };
+        if visitor_view {
+            body = maintenance::with_bar(body, &maintenance::visitor_bar(&path));
         }
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
+                (header::RETRY_AFTER, "600"),
+            ],
+            body,
+        )
+            .into_response();
     }
     let resolved = engine
         .resolve(&path)
@@ -332,6 +340,11 @@ async fn serve(
         }),
     };
     match rendered {
+        Ok(body) if maintenance => html(
+            status,
+            maintenance::with_bar(body, &maintenance::operator_bar(&path, admin)),
+            preview,
+        ),
         Ok(body) => html(status, body, preview),
         Err(e) => {
             tracing::error!(error = %e, theme = %theme.code, page = %name, "rendering a page failed");
