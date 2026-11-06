@@ -17,6 +17,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   of an entity; `TableSource::scope` applies one to a picker's search.
 - `ValidationRule` and `Contributions::validation_rules`: a module's own rule,
   named in a descriptor as `vendor.rule`; an unknown name fails boot.
+- Polymorphic relations: `morph` on a has-many relation and `parent_type` on a
+  pivot match rows on a type column holding the parent's entity.
 
 ## [0.9.30] - 2026-11-06
 

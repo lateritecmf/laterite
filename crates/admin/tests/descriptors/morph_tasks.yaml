@@ -1,0 +1,38 @@
+entity: tasks
+path: /tasks
+title: tasks
+permission: acme.manage
+soft_delete: true
+list:
+  deletable: true
+  columns:
+    title: {}
+form:
+  fields:
+    title: { rules: [required] }
+relations:
+  comments:
+    label: Comment
+    entity: comments
+    morph: commentable
+    soft_delete: true
+    list:
+      columns:
+        body: {}
+    form:
+      fields:
+        body: { rules: [required] }
+  tags:
+    label: Tag
+    entity: tags
+    pivot:
+      table: taggables
+      parent_key: taggable_id
+      parent_type: taggable_type
+      related_key: tag_id
+      source: acme.tags
+    list:
+      columns:
+        name: {}
+    form:
+      fields: {}

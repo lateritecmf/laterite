@@ -2112,8 +2112,20 @@ pub fn router(
                 entities.push(relation.entity.clone());
                 if relation.soft_delete {
                     soft.insert(relation.entity.clone());
-                    if let Some(key) = &relation.foreign_key {
-                        children.push((relation.entity.clone(), key.clone()));
+                    let child = match (&relation.foreign_key, &relation.morph) {
+                        (Some(key), _) => Some((key.clone(), Vec::new())),
+                        (None, Some(morph)) => Some((
+                            format!("{morph}_id"),
+                            vec![(format!("{morph}_type"), resource.list.entity.clone())],
+                        )),
+                        (None, None) => None,
+                    };
+                    if let Some((foreign_key, also)) = child {
+                        children.push(laterite_core::listeners::CascadeChild {
+                            table: relation.entity.clone(),
+                            foreign_key,
+                            also,
+                        });
                     }
                 }
             }

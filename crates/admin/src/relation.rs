@@ -50,6 +50,10 @@ pub struct RelationConfig {
     pub entity: String,
     /// Has-many: the column on the related table holding the parent's id.
     pub foreign_key: Option<String>,
+    /// Polymorphic has-many: the name `n` of the pair of columns on the
+    /// related table, `n_id` holding the parent's id and `n_type` its entity,
+    /// so one table serves several parents. Declared instead of `foreign_key`.
+    pub morph: Option<String>,
     /// Many-to-many: the table joining the parent to the related table.
     pub pivot: Option<PivotConfig>,
     /// The section's list over the related table.
@@ -85,6 +89,9 @@ pub struct PivotConfig {
     pub source: String,
     /// The pivot row's id column. Default `id`.
     pub id_field: String,
+    /// Polymorphic many-to-many: the pivot column holding the parent's entity,
+    /// so one pivot table joins several kinds of parent.
+    pub parent_type: Option<String>,
 }
 
 impl PivotConfig {
@@ -101,12 +108,19 @@ impl PivotConfig {
             related_key: related_key.into(),
             source: source.into(),
             id_field: "id".to_string(),
+            parent_type: None,
         }
     }
 
     /// The pivot row's id column.
     pub fn id_field(mut self, id_field: impl Into<String>) -> Self {
         self.id_field = id_field.into();
+        self
+    }
+
+    /// Makes the pivot polymorphic: `column` holds the parent's entity.
+    pub fn parent_type(mut self, column: impl Into<String>) -> Self {
+        self.parent_type = Some(column.into());
         self
     }
 }
@@ -118,6 +132,14 @@ impl Default for PivotConfig {
 }
 
 impl RelationConfig {
+    /// Makes a has-many relation polymorphic: rows match on `{name}_id` and on
+    /// `{name}_type` holding the parent's entity, in place of a foreign key.
+    pub fn morph(mut self, name: impl Into<String>) -> Self {
+        self.foreign_key = None;
+        self.morph = Some(name.into());
+        self
+    }
+
     /// A has-many relation: rows of `entity` whose `foreign_key` names the
     /// parent, listed by `list` and edited through `form`.
     pub fn has_many(
@@ -135,6 +157,7 @@ impl RelationConfig {
             label: label.into(),
             entity: entity.into(),
             foreign_key: Some(foreign_key.into()),
+            morph: None,
             pivot: None,
             list,
             form,
@@ -161,6 +184,7 @@ impl RelationConfig {
             label: label.into(),
             entity: entity.into(),
             foreign_key: None,
+            morph: None,
             pivot: Some(pivot),
             list,
             form: FormConfig::default(),
@@ -196,6 +220,7 @@ impl Default for RelationConfig {
             label: Text::from(""),
             entity: String::new(),
             foreign_key: None,
+            morph: None,
             pivot: None,
             list: ListConfig::default(),
             form: FormConfig::default(),
@@ -241,9 +266,25 @@ pub(crate) struct PreparedRelation {
     pub parent_entity: String,
     pub parent_id_field: String,
     kind: Kind,
+    /// Columns a polymorphic relation's rows must hold besides the parent's
+    /// id: the type column naming the parent's entity.
+    also: Vec<(String, String)>,
     /// Has-many: the child form. Many-to-many: the pivot row's form.
     form: Arc<PreparedForm>,
     bulk: Arc<BulkContext>,
+}
+
+/// Keeps a text column of this name out of sight and in the submission: a
+/// polymorphic relation's type column.
+fn hide_text(form: &mut FormConfig, name: &str) {
+    match form.fields.iter_mut().find(|f| f.name == name) {
+        Some(field) => field.hidden = true,
+        None => {
+            let mut field = form::FormField::of(name, name.to_string(), "text");
+            field.hidden = true;
+            form.fields.push(field);
+        }
+    }
 }
 
 /// Keeps a key field of this name out of sight: a declared one is hidden, an
@@ -293,7 +334,32 @@ impl PreparedRelation {
                 .map(|f| f.with_rules(rules.clone()))
                 .map_err(fail)
         };
-        let (kind, form) = match (config.foreign_key.clone(), config.pivot.clone()) {
+        let mut also: Vec<(String, String)> = Vec::new();
+        let keyed = match (&config.foreign_key, &config.morph) {
+            (Some(_), Some(_)) => {
+                return Err(fail("declare foreign_key or morph, not both".into()));
+            }
+            (Some(key), None) => Some(key.clone()),
+            (None, Some(morph)) => {
+                if !crate::sql::valid_ident(morph) {
+                    return Err(fail("the morph name is not a valid identifier".into()));
+                }
+                also.push((format!("{morph}_type"), parent.list.entity.clone()));
+                Some(format!("{morph}_id"))
+            }
+            (None, None) => None,
+        };
+        if let Some(pivot) = &config.pivot {
+            if let Some(column) = &pivot.parent_type {
+                if !crate::sql::valid_ident(column) {
+                    return Err(fail(
+                        "the pivot's parent_type is not a valid identifier".into(),
+                    ));
+                }
+                also.push((column.clone(), parent.list.entity.clone()));
+            }
+        }
+        let (kind, form) = match (keyed, config.pivot.clone()) {
             (Some(foreign_key), None) => {
                 if !crate::sql::valid_ident(&foreign_key) {
                     return Err(fail("the foreign key is not a valid identifier".into()));
@@ -302,6 +368,9 @@ impl PreparedRelation {
                 config.form.id_field = config.list.id_field.clone();
                 // The foreign key is the framework's to write.
                 hide(&mut config.form, &foreign_key);
+                for (column, _) in &also {
+                    hide_text(&mut config.form, column);
+                }
                 (Kind::HasMany { foreign_key }, prepare(config.form.clone())?)
             }
             (None, Some(pivot)) => {
@@ -322,6 +391,9 @@ impl PreparedRelation {
                 config.form.entity = pivot.table.clone();
                 config.form.id_field = pivot.id_field.clone();
                 hide(&mut config.form, &pivot.parent_key);
+                for (column, _) in &also {
+                    hide_text(&mut config.form, column);
+                }
                 // Attach asks which record, through the picker; afterwards the
                 // membership is fixed and the form hides it.
                 let mut attach = config.form.clone();
@@ -343,7 +415,11 @@ impl PreparedRelation {
                     prepare(config.form.clone())?,
                 )
             }
-            _ => return Err(fail("declare exactly one of foreign_key and pivot".into())),
+            _ => {
+                return Err(fail(
+                    "declare exactly one of foreign_key, morph and pivot".into(),
+                ))
+            }
         };
         let persister = form.persister();
         let entity = form.config.entity.clone();
@@ -365,6 +441,7 @@ impl PreparedRelation {
             parent_base: parent.base_path.clone(),
             parent_entity: parent.list.entity.clone(),
             parent_id_field: parent.list.id_field.clone(),
+            also,
             config,
             kind,
             form: Arc::new(form),
@@ -416,6 +493,7 @@ impl PreparedRelation {
                 list.scope = Some(list::Scope::Column {
                     column: foreign_key.clone(),
                     value: Some(parent_id.to_string()),
+                    also: self.also.clone(),
                 });
             }
             Kind::ManyToMany { pivot, .. } => {
@@ -432,6 +510,7 @@ impl PreparedRelation {
                     related_key: pivot.related_key.clone(),
                     id_field: pivot.id_field.clone(),
                     value: parent_id.to_string(),
+                    also: self.also.clone(),
                 });
             }
         }
@@ -510,23 +589,18 @@ impl PreparedRelation {
     async fn owned(&self, db: &Db, parent_id: &str, child_id: &str) -> Result<bool, sqlx::Error> {
         match &self.kind {
             Kind::HasMany { foreign_key } => {
-                self.exists(
-                    db,
-                    &self.config.entity,
-                    &[
-                        (&self.config.list.id_field, child_id),
-                        (foreign_key, parent_id),
-                    ],
-                )
-                .await
+                let mut pairs: Vec<(&str, &str)> = vec![
+                    (&self.config.list.id_field, child_id),
+                    (foreign_key, parent_id),
+                ];
+                pairs.extend(self.also.iter().map(|(c, v)| (c.as_str(), v.as_str())));
+                self.exists(db, &self.config.entity, &pairs).await
             }
             Kind::ManyToMany { pivot, .. } => {
-                self.exists(
-                    db,
-                    &pivot.table,
-                    &[(&pivot.id_field, child_id), (&pivot.parent_key, parent_id)],
-                )
-                .await
+                let mut pairs: Vec<(&str, &str)> =
+                    vec![(&pivot.id_field, child_id), (&pivot.parent_key, parent_id)];
+                pairs.extend(self.also.iter().map(|(c, v)| (c.as_str(), v.as_str())));
+                self.exists(db, &pivot.table, &pairs).await
             }
         }
     }
@@ -559,6 +633,9 @@ impl PreparedRelation {
                             .cast_as(Alias::new(cast))
                             .eq(parent_id.to_string()),
                     )
+                    .and_where(self.also.iter().fold(Expr::val(1).eq(1), |acc, (c, v)| {
+                        acc.and(Expr::col(Alias::new(c)).eq(v.clone()))
+                    }))
                     .to_owned(),
             )
         };
@@ -704,9 +781,11 @@ pub(crate) async fn create(
     match &rel.kind {
         Kind::HasMany { foreign_key } => {
             data.insert(foreign_key.clone(), parent_id.clone());
+            data.extend(rel.also.iter().cloned());
         }
         Kind::ManyToMany { pivot, .. } => {
             data.insert(pivot.parent_key.clone(), parent_id.clone());
+            data.extend(rel.also.iter().cloned());
             // A blank is the form's to refuse, as a required field.
             let related = data
                 .get(&pivot.related_key)
@@ -725,9 +804,12 @@ pub(crate) async fn create(
                         &state.db,
                         &pivot.table,
                         &[
-                            (&pivot.parent_key, &parent_id),
-                            (&pivot.related_key, &related),
-                        ],
+                            (pivot.parent_key.as_str(), parent_id.as_str()),
+                            (pivot.related_key.as_str(), related.as_str()),
+                        ]
+                        .into_iter()
+                        .chain(rel.also.iter().map(|(c, v)| (c.as_str(), v.as_str())))
+                        .collect::<Vec<_>>(),
                     )
                     .await;
                 let refusal = match (present, attached) {
@@ -798,6 +880,7 @@ pub(crate) async fn update(
                 Err(_) => return render_error(),
             }
             data.insert(foreign_key.clone(), parent_id.clone());
+            data.extend(rel.also.iter().cloned());
         }
         Kind::ManyToMany { pivot, .. } => {
             match rel
@@ -811,6 +894,7 @@ pub(crate) async fn update(
                 Err(_) => return render_error(),
             }
             data.insert(pivot.parent_key.clone(), parent_id.clone());
+            data.extend(rel.also.iter().cloned());
         }
     }
     form::update(

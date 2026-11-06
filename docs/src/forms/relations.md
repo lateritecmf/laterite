@@ -78,6 +78,49 @@ Contributions {
 }
 ```
 
+## Declare a polymorphic relation
+
+```yaml
+# descriptors/notes.yaml, and the same in descriptors/tasks.yaml
+relations:
+  comments:
+    label: Comment
+    entity: comments
+    morph: commentable
+    list:
+      columns:
+        body: {}
+    form:
+      fields:
+        body: { rules: [required] }
+  tags:
+    label: Tag
+    entity: tags
+    pivot:
+      table: taggables
+      parent_key: taggable_id
+      parent_type: taggable_type
+      related_key: tag_id
+      source: acme.tags
+    list:
+      columns:
+        name: {}
+```
+
+```rust
+RelationConfig::has_many("comments", t!("Comment"), "comments", "", list, form).morph("commentable");
+PivotConfig::new("taggables", "taggable_id", "tag_id", "acme.tags").parent_type("taggable_type");
+```
+
+Column | Holds
+--- | ---
+`commentable_id` | The parent's id
+`commentable_type` | The parent's entity, such as `notes`
+`taggable_type` | On the pivot: the parent's entity
+
+The type columns are written from the URL and kept hidden in the form. A
+section lists only rows whose type is its parent's entity.
+
 ## Set the keys
 
 Key | Default | Does
@@ -85,8 +128,10 @@ Key | Default | Does
 `label` | required | One related record, singular: the New or Attach button, the child form's title.
 `title` | the name, humanized | The section heading.
 `entity` | required | The related table.
-`foreign_key` | one of the two | Has-many: the column on the related table holding the parent's id. Written by the framework from the URL; a field of that name in `form` is kept hidden.
-`pivot` | one of the two | Many-to-many: the table joining the two, keys below.
+`foreign_key` | one of three | Has-many: the column on the related table holding the parent's id. Written by the framework from the URL; a field of that name in `form` is kept hidden.
+`morph` | one of three | Polymorphic has-many: `name` for the `name_id` and `name_type` columns.
+`soft_delete` | `false` | Has-many: rows go to the trash with the parent and come back with it. See [Soft Delete](../database/soft-delete.md).
+`pivot` | one of three | Many-to-many: the table joining the two, keys below.
 `list` | required | The section's list: the same keys as a resource's `list`. Its columns are the related table's.
 `form` | required for has-many | Has-many: the related record's form. Many-to-many: the fields kept on the pivot row, asked for on Attach; empty gives the section no Edit.
 `permission` | the parent's | A permission the user must also hold.
@@ -98,6 +143,7 @@ Pivot key | Default | Does
 `related_key` | required | The column holding the related record's id. Chosen in the picker on Attach, fixed afterwards.
 `source` | required | The registered picker source Attach searches.
 `id_field` | `id` | The pivot row's id column.
+`parent_type` | none | Polymorphic: the pivot column holding the parent's entity.
 
 ## Reach the section
 

@@ -1808,6 +1808,9 @@ pub(crate) enum Scope {
     Column {
         column: String,
         value: Option<String>,
+        /// Further columns that must hold constant values: a polymorphic
+        /// relation's type column naming the parent's entity.
+        also: Vec<(String, String)>,
     },
     /// Rows a pivot table joins to the parent: those whose id appears as
     /// `related_key` on a pivot row whose `parent_key` equals `value`. Each row
@@ -1819,24 +1822,30 @@ pub(crate) enum Scope {
         related_key: String,
         id_field: String,
         value: String,
+        /// Further pivot columns that must hold constant values, as `Column`'s.
+        also: Vec<(String, String)>,
     },
 }
 
 impl Scope {
     fn idents_valid(&self) -> bool {
         match self {
-            Scope::Column { column, .. } => valid_ident(column),
+            Scope::Column { column, also, .. } => {
+                valid_ident(column) && also.iter().all(|(c, _)| valid_ident(c))
+            }
             Scope::Pivot {
                 table,
                 parent_key,
                 related_key,
                 id_field,
+                also,
                 ..
             } => {
                 valid_ident(table)
                     && valid_ident(parent_key)
                     && valid_ident(related_key)
                     && valid_ident(id_field)
+                    && also.iter().all(|(c, _)| valid_ident(c))
             }
         }
     }
@@ -1848,30 +1857,39 @@ impl Scope {
             Scope::Column {
                 column,
                 value: Some(value),
-            } => Expr::col(Alias::new(column))
-                .cast_as(cast)
-                .eq(value.clone()),
+                also,
+            } => also.iter().fold(
+                Expr::col(Alias::new(column))
+                    .cast_as(cast)
+                    .eq(value.clone()),
+                |acc, (c, v)| acc.and(Expr::col(Alias::new(c)).eq(v.clone())),
+            ),
             Scope::Column {
                 column,
                 value: None,
+                ..
             } => Expr::col(Alias::new(column)).is_null(),
             Scope::Pivot {
                 table,
                 parent_key,
                 related_key,
                 value,
+                also,
                 ..
-            } => Expr::col(Alias::new(entity_id)).in_subquery(
-                Query::select()
-                    .column(Alias::new(related_key))
+            } => Expr::col(Alias::new(entity_id)).in_subquery({
+                let mut sub = Query::select();
+                sub.column(Alias::new(related_key))
                     .from(Alias::new(table))
                     .and_where(
                         Expr::col(Alias::new(parent_key))
                             .cast_as(cast)
                             .eq(value.clone()),
-                    )
-                    .to_owned(),
-            ),
+                    );
+                for (c, v) in also {
+                    sub.and_where(Expr::col(Alias::new(c)).eq(v.clone()));
+                }
+                sub.to_owned()
+            }),
         }
     }
 
@@ -1886,26 +1904,27 @@ impl Scope {
                 related_key,
                 id_field,
                 value,
+                also,
             } => {
                 let pivot = Alias::new("lat_pivot");
+                let mut sub = Query::select();
+                sub.column((pivot.clone(), Alias::new(id_field)))
+                    .from_as(Alias::new(table), pivot.clone())
+                    .and_where(
+                        Expr::col((pivot.clone(), Alias::new(related_key)))
+                            .equals((Alias::new(entity), Alias::new(entity_id))),
+                    )
+                    .and_where(
+                        Expr::col((pivot.clone(), Alias::new(parent_key)))
+                            .cast_as(Alias::new(text_cast(backend)))
+                            .eq(value.clone()),
+                    );
+                for (c, v) in also {
+                    sub.and_where(Expr::col((pivot.clone(), Alias::new(c))).eq(v.clone()));
+                }
                 Some(SimpleExpr::SubQuery(
                     None,
-                    Box::new(
-                        Query::select()
-                            .column((pivot.clone(), Alias::new(id_field)))
-                            .from_as(Alias::new(table), pivot.clone())
-                            .and_where(
-                                Expr::col((pivot.clone(), Alias::new(related_key)))
-                                    .equals((Alias::new(entity), Alias::new(entity_id))),
-                            )
-                            .and_where(
-                                Expr::col((pivot, Alias::new(parent_key)))
-                                    .cast_as(Alias::new(text_cast(backend)))
-                                    .eq(value.clone()),
-                            )
-                            .to_owned()
-                            .into_sub_query_statement(),
-                    ),
+                    Box::new(sub.to_owned().into_sub_query_statement()),
                 ))
             }
         }
@@ -2231,6 +2250,7 @@ async fn build_page(
             c.scope = Some(Scope::Column {
                 column: tree.parent_key.clone(),
                 value: params.parent.clone(),
+                also: Vec::new(),
             });
             scoped = c;
             &scoped
@@ -2748,6 +2768,7 @@ pub(crate) async fn reorder_handler(
             c.scope = Some(Scope::Column {
                 column: tree.parent_key.clone(),
                 value: parent.clone(),
+                also: Vec::new(),
             });
             scoped = c;
             &scoped

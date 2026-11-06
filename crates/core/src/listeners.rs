@@ -305,13 +305,24 @@ impl ModelListener for Encrypted {
 /// restore clears it only on children carrying that same value, so a child
 /// trashed on its own before the parent stays in the trash.
 pub struct SoftDeleteCascade {
-    children: Vec<(String, String)>,
+    children: Vec<CascadeChild>,
+}
+
+/// One related table a trash reaches.
+#[derive(Debug, Clone)]
+pub struct CascadeChild {
+    /// The related table.
+    pub table: String,
+    /// Its column holding this record's id.
+    pub foreign_key: String,
+    /// Further columns a row must hold to be this record's, such as a
+    /// polymorphic relation's type column and the parent's entity.
+    pub also: Vec<(String, String)>,
 }
 
 impl SoftDeleteCascade {
-    /// A cascade over `children`, each a related table and its foreign key to
-    /// this record.
-    pub fn new(children: Vec<(String, String)>) -> Self {
+    /// A cascade over `children`.
+    pub fn new(children: Vec<CascadeChild>) -> Self {
         Self { children }
     }
 
@@ -379,7 +390,12 @@ impl ModelListener for SoftDeleteCascade {
                 }
             }
         };
-        for (table, foreign_key) in &self.children {
+        for CascadeChild {
+            table,
+            foreign_key,
+            also,
+        } in &self.children
+        {
             let backend = cx.backend();
             let (sql, values) = {
                 let mut update = Query::update();
@@ -393,6 +409,9 @@ impl ModelListener for SoftDeleteCascade {
                         },
                     )
                     .and_where(Expr::col(Alias::new(foreign_key)).eq(id));
+                for (column, value) in also {
+                    update.and_where(Expr::col(Alias::new(column)).eq(value.as_str()));
+                }
                 match &only {
                     Some(stamp) => update.and_where(
                         Expr::col(Alias::new(crate::scope::DELETED_AT)).eq(stamp.as_str()),
