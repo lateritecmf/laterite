@@ -62,6 +62,10 @@ pub struct RelationConfig {
     /// A permission the operator must hold for the section and its pages,
     /// besides the parent's. `None` asks for the parent's alone.
     pub permission: Option<String>,
+    /// A has-many relation's rows go to the trash with their parent and come
+    /// back with it. The related table needs a `deleted_at` column.
+    #[serde(default)]
+    pub soft_delete: bool,
 }
 
 /// The table joining a many-to-many relation's two sides, one row per
@@ -135,6 +139,7 @@ impl RelationConfig {
             list,
             form,
             permission: None,
+            soft_delete: false,
         }
     }
 
@@ -160,6 +165,7 @@ impl RelationConfig {
             list,
             form: FormConfig::default(),
             permission: None,
+            soft_delete: false,
         }
     }
 
@@ -194,6 +200,7 @@ impl Default for RelationConfig {
             list: ListConfig::default(),
             form: FormConfig::default(),
             permission: None,
+            soft_delete: false,
         }
     }
 }
@@ -345,6 +352,10 @@ impl PreparedRelation {
                 .collect(),
             entity,
             persister,
+            // A section's Delete removes the row; a soft-deleting relation's
+            // rows go to the trash only with their parent.
+            soft_delete: false,
+            save_listeners: Vec::new(),
         });
         Ok(Self {
             parent_base: parent.base_path.clone(),

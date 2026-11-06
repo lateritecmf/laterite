@@ -1630,6 +1630,33 @@ pub(crate) struct ListQuery<'a> {
     pub per_page: Option<i64>,
     /// A tree's parent column: each row then carries how many rows name it.
     pub children_of: Option<&'a str>,
+    /// The query hooks for the entity, applied to the rows and the count.
+    pub hooks: &'a [std::sync::Arc<dyn laterite_core::QueryHook>],
+    /// The trash view: trashed rows only, the soft-delete scope lifted.
+    pub trashed: bool,
+}
+
+/// Adds the entity's query hooks to a list select, or in the trash view swaps
+/// the soft-delete scope for its opposite.
+fn scope_select(
+    select: &mut sea_query::SelectStatement,
+    backend: DbBackend,
+    entity: &str,
+    req: &ListQuery<'_>,
+) {
+    let cx = laterite_core::ScopeCx::new(entity, backend);
+    if req.trashed {
+        laterite_core::scope::apply(req.hooks, &cx, select, &[laterite_core::SoftDelete::NAME]);
+        select.and_where(
+            Expr::col((
+                Alias::new(entity),
+                Alias::new(laterite_core::scope::DELETED_AT),
+            ))
+            .is_not_null(),
+        );
+    } else {
+        laterite_core::scope::apply(req.hooks, &cx, select, &[]);
+    }
 }
 
 /// A filter the request actually selected: the declared filter and its accepted
@@ -1977,6 +2004,7 @@ pub(crate) async fn query(
         if let Some(scope) = &config.scope {
             select.and_where(scope.condition(db.backend, &config.id_field));
         }
+        scope_select(&mut select, db.backend, &config.entity, req);
         build(db.backend, select)
     };
     let raw = bind_values(sqlx::query(&sql), values)
@@ -1998,6 +2026,7 @@ pub(crate) async fn query(
         if let Some(scope) = &config.scope {
             count.and_where(scope.condition(db.backend, &config.id_field));
         }
+        scope_select(&mut count, db.backend, &config.entity, req);
         build(db.backend, count)
     };
     let total: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&csql), cvalues)
@@ -2228,6 +2257,12 @@ async fn build_page(
         (Some(t), Some(parent)) => crumbs(&state.db, config, t, parent, path).await,
         _ => Vec::new(),
     };
+    // The trash view: only for an entity whose reads hide trashed rows.
+    let trash_capable = state
+        .scopes_for(&config.entity)
+        .iter()
+        .any(|h| h.name() == laterite_core::SoftDelete::NAME);
+    let trashed = trash_capable && raw.get("trashed").is_some_and(|v| v == "1");
     let req = ListQuery {
         offset,
         order_by: &order_by,
@@ -2236,10 +2271,15 @@ async fn build_page(
         filters: &active,
         per_page: Some(per_page),
         children_of: structure.map(|t| t.parent_key.as_str()),
+        hooks: state.scopes_for(&config.entity),
+        trashed,
     };
     // Everything a sort or pager link must preserve, as raw `&k=v` pairs. Askama
     // escapes it into the href, so the ampersands are correct in the markup.
     let mut carry = String::new();
+    if trashed {
+        carry.push_str("&trashed=1");
+    }
     if !q.trim().is_empty() {
         carry.push_str(&format!("&q={}", urlencode(q.trim())));
     }
@@ -2290,7 +2330,7 @@ async fn build_page(
                                 resource: Some(&config.entity),
                                 field: Some(&col.field),
                             };
-                            let html = match (&config.editor, col.editable) {
+                            let html = match (&config.editor, col.editable && !trashed) {
                                 (Some(editor), true) => cell_markup(
                                     state, &editor.0, path, &row.id, &col.field, raw, &shell, None,
                                 ),
@@ -2391,8 +2431,9 @@ async fn build_page(
                 page,
                 total: result.total,
                 total_pages,
-                edit_base: config.edit_base.clone(),
-                row_link: config.row_click == RowClick::Open,
+                // A trashed record has no edit page until it is restored.
+                edit_base: config.edit_base.clone().filter(|_| !trashed),
+                row_link: config.row_click == RowClick::Open && !trashed,
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
@@ -2419,9 +2460,17 @@ async fn build_page(
                 carry: carry.clone(),
                 region: "lat-list".to_string(),
                 delete_path: None,
-                reorder,
+                reorder: reorder.filter(|_| !trashed),
                 tree,
                 crumbs,
+                trash: trash_capable.then(|| TrashView {
+                    showing: trashed,
+                    href: if trashed {
+                        path.to_string()
+                    } else {
+                        format!("{path}?trashed=1")
+                    },
+                }),
             };
             Some(page_view)
         }
@@ -2437,6 +2486,14 @@ pub(crate) struct RowAction {
     pub confirm: String,
     /// The glyph on the button; the label is its name for assistive tech.
     pub icon: &'static str,
+}
+
+/// The list's trash toggle: whether the trash is showing, and the link to the
+/// other view.
+#[derive(Clone, Debug)]
+pub(crate) struct TrashView {
+    pub showing: bool,
+    pub href: String,
 }
 
 /// What the grip and Move buttons post to, and the page to come back to.
@@ -3030,11 +3087,14 @@ pub(crate) async fn cell_handler(
     }
     let htmx = crate::form::is_htmx(headers);
     let back = path.to_string();
-    let current = match crate::form::load_values(&state.db, form, id).await {
-        Ok(Some(values)) => values,
-        Ok(None) => return crate::not_found(),
-        Err(_) => return render_error(),
-    };
+    let current =
+        match crate::form::load_values(&state.db, form, id, state.scopes_for(&form.config.entity))
+            .await
+        {
+            Ok(Some(values)) => values,
+            Ok(None) => return crate::not_found(),
+            Err(_) => return render_error(),
+        };
     // The row as stored, with the submission over it. The edited field is
     // taken from the submission alone, so a control that posts nothing when
     // cleared (a switch) clears it rather than keeping the stored value.
@@ -3058,12 +3118,17 @@ pub(crate) async fn cell_handler(
     {
         Ok(_) => {
             if htmx {
-                let stored = crate::form::load_values(&state.db, form, id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|values| values.get(&field).cloned())
-                    .unwrap_or(submitted);
+                let stored = crate::form::load_values(
+                    &state.db,
+                    form,
+                    id,
+                    state.scopes_for(&form.config.entity),
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|values| values.get(&field).cloned())
+                .unwrap_or(submitted);
                 let html = cell_markup(state, form, path, id, &field, &stored, &shell, None);
                 return axum::response::Html(html).into_response();
             }
@@ -3349,6 +3414,8 @@ struct ListTemplate {
     tree: Option<TreeView>,
     /// The way down to the parent whose children a page shows.
     crumbs: Vec<Crumb>,
+    /// The trash toggle, for an entity whose deletes move records to the trash.
+    trash: Option<TrashView>,
 }
 
 /// One rendered filter control.
@@ -3836,6 +3903,8 @@ mod tests {
             filters: &[],
             per_page: None,
             children_of: None,
+            hooks: &[],
+            trashed: false,
         }
     }
 
@@ -3848,6 +3917,8 @@ mod tests {
             filters: &[],
             per_page: None,
             children_of: None,
+            hooks: &[],
+            trashed: false,
         }
     }
 
@@ -3959,6 +4030,8 @@ mod tests {
             filters: &active,
             per_page: None,
             children_of: None,
+            hooks: &[],
+            trashed: false,
         };
         query(db, c, &req).await.unwrap().total
     }

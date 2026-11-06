@@ -1287,7 +1287,7 @@ impl FormHandle {
     /// Lay a partial `data` over it before [`update`](Self::update) to change
     /// some fields and keep the rest.
     pub async fn load(&self, id: i64) -> Result<Option<HashMap<String, String>>, SaveError> {
-        load_values(&self.db, &self.form, &id.to_string())
+        load_values(&self.db, &self.form, &id.to_string(), &[])
             .await
             .map_err(|e| SaveError::Failed(e.to_string()))
     }
@@ -1443,11 +1443,12 @@ pub(crate) async fn edit_form(
     if !form.config.idents_valid() {
         return render_error();
     }
-    let values = match load_values(&state.db, form, &id).await {
-        Ok(Some(values)) => values,
-        Ok(None) => return not_found(),
-        Err(_) => return render_error(),
-    };
+    let values =
+        match load_values(&state.db, form, &id, state.scopes_for(&form.config.entity)).await {
+            Ok(Some(values)) => values,
+            Ok(None) => return not_found(),
+            Err(_) => return render_error(),
+        };
 
     let mut page = build(
         state,
@@ -1498,6 +1499,12 @@ pub(crate) async fn reveal(
                     .cast_as(Alias::new(cast))
                     .eq(id.to_string()),
             );
+        laterite_core::scope::apply(
+            state.scopes_for(&form.config.entity),
+            &laterite_core::ScopeCx::new(&form.config.entity, state.db.backend),
+            &mut select,
+            &[],
+        );
         to_sql(state.db.backend, select)
     };
     let sealed = match bind_values(sqlx::query(&sql), values)
@@ -1545,6 +1552,7 @@ pub(crate) async fn load_values(
     db: &Db,
     form: &PreparedForm,
     id: &str,
+    hooks: &[Arc<dyn laterite_core::QueryHook>],
 ) -> Result<Option<HashMap<String, String>>, sqlx::Error> {
     // Scope the sea-query builder so it is dropped before the await below: its
     // identifiers are reference-counted (not `Send`), and a live builder across
@@ -1568,6 +1576,12 @@ pub(crate) async fn load_values(
             Expr::col(Alias::new(&form.config.id_field))
                 .cast_as(Alias::new(cast))
                 .eq(id.to_string()),
+        );
+        laterite_core::scope::apply(
+            hooks,
+            &laterite_core::ScopeCx::new(&form.config.entity, db.backend),
+            &mut select,
+            &[],
         );
         to_sql(db.backend, select)
     };
@@ -2283,7 +2297,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let values = load_values(&db, &form, "1").await.unwrap().unwrap();
+        let values = load_values(&db, &form, "1", &[]).await.unwrap().unwrap();
         assert_eq!(values.get("code").map(String::as_str), Some("c1"));
         assert_eq!(values.get("secret").map(String::as_str), Some(""));
         // A section stores nothing, so the loader asked for no such column.

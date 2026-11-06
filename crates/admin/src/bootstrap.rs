@@ -924,6 +924,7 @@ impl Bootstrap {
                 picker_sources,
                 persisters,
                 listeners,
+                query_hooks: Vec::new(),
                 field_types,
                 column_types,
                 icons,

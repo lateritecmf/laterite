@@ -1,0 +1,26 @@
+entity: notes
+path: /notes
+title: Notes
+permission: acme.manage_notes
+soft_delete: true
+list:
+  deletable: true
+  columns:
+    title: {}
+form:
+  title: Note
+  footprints: true
+  fields:
+    title: { rules: [required] }
+relations:
+  comments:
+    label: Comment
+    entity: comments
+    foreign_key: note_id
+    soft_delete: true
+    list:
+      columns:
+        body: {}
+    form:
+      fields:
+        body: { rules: [required] }

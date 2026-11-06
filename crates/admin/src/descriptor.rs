@@ -73,6 +73,9 @@ struct ResourceFile {
     /// Where the records live as files; see `laterite_core::source::Source`.
     #[serde(default)]
     source: Option<laterite_core::source::Source>,
+    /// Delete moves a record to the trash; see `Resource::soft_delete`.
+    #[serde(default)]
+    soft_delete: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,6 +207,9 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         Some(ImportKey::Flag(false)) | None => {}
     }
     resource = resource.menu(file.menu);
+    if file.soft_delete {
+        resource = resource.soft_delete();
+    }
     if let Some(source) = file.source {
         resource = resource.source(source);
     }

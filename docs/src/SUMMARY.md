@@ -82,6 +82,8 @@
 - [Queries](database/queries.md)
 - [Model Listeners](database/model-listeners.md)
 - [Persisters](database/persisters.md)
+- [Soft Delete](database/soft-delete.md)
+- [Query Hooks](database/query-hooks.md)
 - [Records in Files](database/records-in-files.md)
 - [Portability](database/portability.md)
 

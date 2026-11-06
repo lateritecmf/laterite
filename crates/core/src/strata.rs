@@ -17,6 +17,7 @@ pub use crate::query::{
     bind_values, bind_values_as, build, insert_returning_id, insert_returning_id_on,
     on_conflict_ignore, text_cast, AnyRowExt,
 };
+pub use crate::scope::soft_delete_col;
 pub use crate::{Db, DbBackend};
 
 // Common `sea-query` items for building DDL and queries, re-exported so a

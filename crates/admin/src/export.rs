@@ -102,6 +102,8 @@ pub(crate) async fn handle(
             filters: &filters,
             per_page: Some(PAGE),
             children_of: None,
+            hooks: state.scopes_for(&config.entity),
+            trashed: false,
         };
         let page = match list::query(&state.db, &config, &req).await {
             Ok(page) => page,

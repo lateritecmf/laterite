@@ -102,6 +102,7 @@ pub struct TableSource {
     label_col: String,
     hint_col: Option<String>,
     search: SearchProfile,
+    hooks: Vec<std::sync::Arc<dyn laterite_core::QueryHook>>,
 }
 
 impl TableSource {
@@ -121,7 +122,16 @@ impl TableSource {
             // an accented stored value; `with_search` is for a source whose
             // column is folded to match.
             search: SearchProfile::new(),
+            hooks: Vec::new(),
         }
+    }
+
+    /// Adds a query hook to the search, such as [`laterite_core::SoftDelete`]
+    /// to leave trashed rows out. A stored id still resolves whatever the hook
+    /// says, so a record keeps showing what it points at.
+    pub fn scope(mut self, hook: std::sync::Arc<dyn laterite_core::QueryHook>) -> Self {
+        self.hooks.push(hook);
+        self
     }
 
     /// Sets the column supplying each node's disambiguating hint.
@@ -182,6 +192,12 @@ impl PickerSource for TableSource {
         let (sql, values) = {
             let cast = text_cast(db.backend);
             let mut sel = self.base_select(cast);
+            laterite_core::scope::apply(
+                &self.hooks,
+                &laterite_core::ScopeCx::new(&self.table, db.backend),
+                &mut sel,
+                &[],
+            );
             // Capability-gated matchers are deferred, and `Db` does
             // not carry the boot capability set yet, so the portable default is
             // what applies. This argument is the one line that changes when it does.

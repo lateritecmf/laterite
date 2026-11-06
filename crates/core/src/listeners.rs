@@ -298,6 +298,120 @@ impl ModelListener for Encrypted {
     }
 }
 
+/// Sends a record's has-many rows to the trash with it and brings them back
+/// with it.
+///
+/// A trash stamps each live child with the parent's own `deleted_at` value; a
+/// restore clears it only on children carrying that same value, so a child
+/// trashed on its own before the parent stays in the trash.
+pub struct SoftDeleteCascade {
+    children: Vec<(String, String)>,
+}
+
+impl SoftDeleteCascade {
+    /// A cascade over `children`, each a related table and its foreign key to
+    /// this record.
+    pub fn new(children: Vec<(String, String)>) -> Self {
+        Self { children }
+    }
+
+    /// The parent's stored `deleted_at`, read in the save's transaction before
+    /// the write.
+    async fn stored(
+        cx: &mut SaveCx<'_>,
+        table: &str,
+        id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let backend = cx.backend();
+        let (sql, values) = {
+            let mut select = Query::select();
+            select
+                .expr_as(
+                    Expr::col(Alias::new(crate::scope::DELETED_AT))
+                        .cast_as(Alias::new(text_cast(backend))),
+                    Alias::new("lat_deleted"),
+                )
+                .from(Alias::new(table))
+                .and_where(Expr::col(Alias::new("id")).eq(id));
+            build(backend, select)
+        };
+        let row = bind_values(sqlx::query(&sql), values)
+            .fetch_optional(cx.conn())
+            .await?;
+        Ok(row.and_then(|r| r.get_text_opt("lat_deleted").ok().flatten()))
+    }
+}
+
+#[async_trait]
+impl ModelListener for SoftDeleteCascade {
+    async fn before_save(
+        &self,
+        cx: &mut SaveCx<'_>,
+        rec: &mut Record,
+        op: Op,
+    ) -> Result<(), ErrorBag> {
+        let (Op::Update, Some(id)) = (op, rec.id()) else {
+            return Ok(());
+        };
+        let Some(value) = rec.get(crate::scope::DELETED_AT) else {
+            return Ok(());
+        };
+        let fail = |e: sqlx::Error| {
+            tracing::error!(error = %e, "cascading the trash failed");
+            let mut bag = ErrorBag::default();
+            bag.add(
+                crate::scope::DELETED_AT,
+                Text::new("The related records could not be moved with this one."),
+            );
+            bag
+        };
+        // Trash: the stamp the parent is about to carry. Restore: the stamp it
+        // carries now, so only what went with it comes back.
+        // `set` is the stamp to write (none clears it); `only` limits a restore
+        // to the rows carrying the parent's stamp.
+        let (set, only): (Option<String>, Option<String>) = match value.to_text() {
+            Some(stamp) if !stamp.is_empty() => (Some(stamp), None),
+            _ => {
+                let table = rec.entity().to_string();
+                match Self::stored(cx, &table, id).await.map_err(fail)? {
+                    Some(stamp) => (None, Some(stamp)),
+                    None => return Ok(()),
+                }
+            }
+        };
+        for (table, foreign_key) in &self.children {
+            let backend = cx.backend();
+            let (sql, values) = {
+                let mut update = Query::update();
+                update
+                    .table(Alias::new(table))
+                    .value(
+                        Alias::new(crate::scope::DELETED_AT),
+                        match &set {
+                            Some(stamp) => stamp.as_str().into(),
+                            None => sea_query::SimpleExpr::Keyword(sea_query::Keyword::Null),
+                        },
+                    )
+                    .and_where(Expr::col(Alias::new(foreign_key)).eq(id));
+                match &only {
+                    Some(stamp) => update.and_where(
+                        Expr::col(Alias::new(crate::scope::DELETED_AT)).eq(stamp.as_str()),
+                    ),
+                    None => {
+                        update.and_where(Expr::col(Alias::new(crate::scope::DELETED_AT)).is_null())
+                    }
+                };
+                build(backend, update)
+            };
+            bind_values(sqlx::query(&sql), values)
+                .execute(cx.conn())
+                .await
+                .map_err(fail)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(all(test, feature = "testing"))]
 mod tests {
     use super::*;

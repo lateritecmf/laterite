@@ -29,6 +29,7 @@ pub mod queue;
 pub mod record;
 pub mod registry;
 pub mod schedule;
+pub mod scope;
 pub mod search;
 pub mod site;
 pub mod source;
@@ -49,7 +50,7 @@ pub use i18n::{
     PSEUDO_LOCALE,
 };
 pub use laterite_macros::{t, tn, tp};
-pub use listeners::{Encrypted, Footprints, Sluggable, Timestamps};
+pub use listeners::{Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps};
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};
@@ -60,5 +61,6 @@ pub use record::{
 };
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use schedule::Schedule;
+pub use scope::{QueryHook, QueryHookReg, ScopeCx, SoftDelete};
 pub use site::{SiteContext, SiteFile};
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

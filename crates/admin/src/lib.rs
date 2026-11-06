@@ -340,6 +340,8 @@ pub(crate) struct AdminState {
     route_map: Arc<Vec<routemap::RouteRow>>,
     /// What every module contributed, by registry, for the Developer section.
     registry_summary: Arc<Vec<developer::RegistryView>>,
+    /// The query hooks shaping each entity's reads, by entity.
+    scopes: Arc<HashMap<String, Vec<Arc<dyn laterite_core::QueryHook>>>>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -347,9 +349,15 @@ pub(crate) struct AdminState {
 }
 
 impl AdminState {
+    /// The query hooks for `entity`'s reads, in registration order.
+    pub(crate) fn scopes_for(&self, entity: &str) -> &[Arc<dyn laterite_core::QueryHook>] {
+        self.scopes.get(entity).map(Vec::as_slice).unwrap_or(&[])
+    }
+
     #[cfg(test)]
     pub(crate) fn new(auth: AuthService, db: Db) -> Self {
         Self {
+            scopes: Arc::new(HashMap::new()),
             auth,
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
             cache: laterite_core::Cache::local(),
@@ -1375,6 +1383,8 @@ pub struct Resource {
     pub menu: nav::Placement,
     /// Where the records live as files, when they do. See [`Resource::source`].
     pub source: Option<laterite_core::source::Source>,
+    /// Whether a delete moves a record to the trash. See [`Resource::soft_delete`].
+    pub soft_delete: bool,
 }
 
 /// What a resource declares when records may be imported into it: `import:
@@ -1557,7 +1567,17 @@ impl Resource {
             relations: Vec::new(),
             menu: nav::Placement::default(),
             source: None,
+            soft_delete: false,
         }
+    }
+
+    /// Delete moves a record to the trash: `deleted_at` is set, the record
+    /// leaves every list, form and export, and the list's Trash view restores
+    /// it or deletes it permanently. The table needs a `deleted_at` column
+    /// ([`laterite_core::strata::soft_delete_col`]).
+    pub fn soft_delete(mut self) -> Self {
+        self.soft_delete = true;
+        self
     }
 
     /// Keeps the records as files in a folder of the project, one per
@@ -1761,6 +1781,9 @@ pub struct Contributions {
     pub persisters: Vec<persist::PersisterReg>,
     /// Listeners run around every save and delete.
     pub listeners: Vec<laterite_core::ModelListenerReg>,
+    /// Conditions added to every admin read of an entity; see
+    /// [`laterite_core::scope`].
+    pub query_hooks: Vec<laterite_core::QueryHookReg>,
     /// Field types a module contributes, offered to every form and settings
     /// screen beside the built-ins.
     pub field_types: Vec<field::FieldTypeReg>,
@@ -1814,6 +1837,7 @@ pub fn router(
         picker_sources: app_picker_sources,
         persisters: app_persisters,
         listeners: app_listeners,
+        query_hooks: app_query_hooks,
         field_types: app_field_types,
         column_types: app_column_types,
         widgets: app_widgets,
@@ -2040,6 +2064,53 @@ pub fn router(
             Vec::new(),
         ))
     });
+    // Every entity a screen reads gets its hooks: a soft-deleting resource's
+    // trash scope first, then each contributed hook that targets it.
+    let mut scopes: HashMap<String, Vec<Arc<dyn laterite_core::QueryHook>>> = HashMap::new();
+    {
+        let mut soft: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut entities: Vec<String> = Vec::new();
+        for resource in &resources {
+            entities.push(resource.list.entity.clone());
+            if resource.soft_delete {
+                soft.insert(resource.list.entity.clone());
+            }
+            let mut children = Vec::new();
+            for relation in &resource.relations {
+                entities.push(relation.entity.clone());
+                if relation.soft_delete {
+                    soft.insert(relation.entity.clone());
+                    if let Some(key) = &relation.foreign_key {
+                        children.push((relation.entity.clone(), key.clone()));
+                    }
+                }
+            }
+            if !children.is_empty() {
+                app_listeners.push(laterite_core::ModelListenerReg::for_entity(
+                    resource.list.entity.clone(),
+                    Arc::new(laterite_core::SoftDeleteCascade::new(children)),
+                ));
+            }
+        }
+        for entity in entities {
+            if scopes.contains_key(&entity) {
+                continue;
+            }
+            let mut hooks: Vec<Arc<dyn laterite_core::QueryHook>> = Vec::new();
+            if soft.contains(&entity) {
+                hooks.push(Arc::new(laterite_core::SoftDelete));
+            }
+            hooks.extend(
+                app_query_hooks
+                    .iter()
+                    .filter(|reg| reg.matches(&entity))
+                    .map(|reg| reg.hook.clone()),
+            );
+            if !hooks.is_empty() {
+                scopes.insert(entity, hooks);
+            }
+        }
+    }
     // A form's `encrypt` columns are sealed for every write to that entity, so
     // the listener goes with the entity, last, after anything that sets a value.
     for resource in &resources {
@@ -2241,6 +2312,7 @@ pub fn router(
         route_map
     };
     let state = AdminState {
+        scopes: Arc::new(scopes),
         route_map: Arc::new(route_map),
         registry_summary: Arc::new(registry_summary),
         auth,
@@ -3468,19 +3540,39 @@ fn mount_resource(
                     None => Arc::new(persist::DefaultPersister::from_list(&resource.list)),
                 },
             };
+        let contributed: Vec<Arc<dyn laterite_core::ModelListener>> = listeners
+            .iter()
+            .filter(|reg| reg.matches(&resource.list.entity))
+            .map(|reg| reg.listener.clone())
+            .collect();
+        // A trash or restore is an update: the form's own stamps run first.
+        let mut save_listeners: Vec<Arc<dyn laterite_core::ModelListener>> = Vec::new();
+        if let Some(form) = &resource.form {
+            if form.timestamps {
+                save_listeners.push(Arc::new(laterite_core::Timestamps));
+            }
+            if form.footprints {
+                save_listeners.push(Arc::new(laterite_core::Footprints));
+            }
+        }
+        save_listeners.extend(contributed.iter().cloned());
         let ctx = Arc::new(bulk::BulkContext {
             base_path: resource.base_path.clone(),
             entity: resource.list.entity.clone(),
             persister,
-            listeners: listeners
-                .iter()
-                .filter(|reg| reg.matches(&resource.list.entity))
-                .map(|reg| reg.listener.clone())
-                .collect(),
+            listeners: contributed,
+            soft_delete: resource.soft_delete,
+            save_listeners,
         });
-        router =
-            router.route(
-                &format!("{base}/delete"),
+        let mut actions = vec![("delete", bulk::Action::Delete)];
+        if resource.soft_delete {
+            actions.push(("restore", bulk::Action::Restore));
+            actions.push(("purge", bulk::Action::Purge));
+        }
+        for (segment, action) in actions {
+            let ctx = ctx.clone();
+            router = router.route(
+                &format!("{base}/{segment}"),
                 post(
                     move |state: State<AdminState>,
                           user: Extension<AuthenticatedUser>,
@@ -3489,11 +3581,13 @@ fn mount_resource(
                           form: Form<Vec<(String, String)>>| {
                         let ctx = ctx.clone();
                         async move {
-                            bulk::delete_handler(state, user, session, ctx, headers, form).await
+                            bulk::delete_handler(state, user, session, ctx, action, headers, form)
+                                .await
                         }
                     },
                 ),
             );
+        }
     }
 
     // A tree with a picker source offers "Move to": the one-field form over
@@ -5517,6 +5611,7 @@ fn builtin_resources() -> Vec<Resource> {
             palette: None,
             relations: Vec::new(),
             source: None,
+            soft_delete: false,
             menu: nav::Placement::default(),
         },
         Resource {
@@ -5531,6 +5626,7 @@ fn builtin_resources() -> Vec<Resource> {
             palette: None,
             relations: Vec::new(),
             source: None,
+            soft_delete: false,
             menu: nav::Placement::default(),
         },
         resource!("descriptors/audit-log.yaml"),
@@ -5912,6 +6008,7 @@ mod tests {
             palette: None,
             relations: Vec::new(),
             source: None,
+            soft_delete: false,
             menu: nav::Placement::default(),
         }
     }
@@ -6241,6 +6338,7 @@ mod tests {
     async fn brand_setting_overrides_config_and_blank_falls_back() {
         let (db, _guard) = laterite_core::testing::connect_test(&[settings::migrations()]).await;
         let state = AdminState {
+            scopes: Arc::new(HashMap::new()),
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
