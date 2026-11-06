@@ -1,0 +1,18 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  columns:
+    title: {}
+    slug: {}
+form:
+  title: Post
+  footprints: true
+  slugs:
+    slug: title
+  encrypt: [api_key]
+  fields:
+    title: { rules: [required] }
+    slug: {}
+    api_key: {}

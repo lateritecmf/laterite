@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `footprints`, `slugs` and `encrypt` on a form: who created and changed a row, a
+  unique slug filled server-side, and columns sealed on every save.
+
 ## [0.9.30] - 2026-11-06
 
 ### Added

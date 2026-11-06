@@ -2040,6 +2040,31 @@ pub fn router(
             Vec::new(),
         ))
     });
+    // A form's `encrypt` columns are sealed for every write to that entity, so
+    // the listener goes with the entity, last, after anything that sets a value.
+    for resource in &resources {
+        let forms = resource
+            .form
+            .iter()
+            .map(|form| (resource.list.entity.as_str(), form))
+            .chain(
+                resource
+                    .relations
+                    .iter()
+                    .map(|relation| (relation.entity.as_str(), &relation.form)),
+            );
+        for (entity, form) in forms {
+            if !form.encrypt.is_empty() {
+                app_listeners.push(laterite_core::ModelListenerReg::for_entity(
+                    entity,
+                    Arc::new(laterite_core::Encrypted::new(
+                        crypt.clone(),
+                        form.encrypt.clone(),
+                    )),
+                ));
+            }
+        }
+    }
     let mut field_types = field::builtin_registry();
     field_types.insert(
         "sensitive".to_string(),
@@ -5869,6 +5894,9 @@ mod tests {
             fields: vec![],
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         }
     }

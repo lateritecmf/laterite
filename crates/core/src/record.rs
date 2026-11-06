@@ -350,6 +350,21 @@ impl Record {
         }
     }
 
+    /// The plaintext of a column sealed by the [`Encrypted`](crate::Encrypted)
+    /// listener or a `sensitive` form field, or `None` when the attribute is
+    /// absent or does not open under `crypt`. An empty stored value reads as an
+    /// empty string.
+    pub fn opened(&self, crypt: &crate::crypt::Crypt, key: &str) -> Option<String> {
+        let sealed = self.get(key)?.to_text()?;
+        if sealed.is_empty() {
+            return Some(String::new());
+        }
+        crypt
+            .decrypt(crate::crypt::FIELD_PURPOSE, key.as_bytes(), &sealed)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+    }
+
     /// Reads the attributes into a struct, for code that would rather work with
     /// types than a bag. Attributes the target does not name are ignored.
     pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {

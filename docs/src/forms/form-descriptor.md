@@ -99,6 +99,9 @@ form:
   confirm_leave: false
   focus: off
   timestamps: true
+  footprints: true
+  slugs: { slug: title }
+  encrypt: [api_key]
   fields:
     title: { rules: [{ max_length: 80 }], counter: true }
     body:  { type: textarea, rows: 8, grow: false }
@@ -112,6 +115,9 @@ Key | On | Values | Default
 `confirm_leave` | The form | `true`, `false` | `true`: leaving with changes unsaved asks first
 `focus` | The form | `auto`, `off` | `auto`: a new record opens with the cursor in its first field, a refused save in the first field it refused
 `timestamps` | The form | `true`, `false` | `false`; `true` stamps `created_at` and `updated_at` on write
+`footprints` | The form | `true`, `false` | `false`; `true` stamps `created_user_id` and `updated_user_id`. See [Model listeners](../database/model-listeners.md#record-who-changed-a-row)
+`slugs` | The form | a map of slug column to a source column or a list | None. See [Model listeners](../database/model-listeners.md#generate-a-slug)
+`encrypt` | The form | a list of columns | None. See [Model listeners](../database/model-listeners.md#seal-a-column)
 `persist` | The form | a persister name | The built-in insert and update. See [Persisters](../database/persisters.md)
 `enter` | A field | `submit`, `off`, `next` | The form's
 

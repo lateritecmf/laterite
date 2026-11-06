@@ -405,6 +405,9 @@ impl Default for FormConfig {
             focus: FormFocus::default(),
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         }
     }
@@ -731,6 +734,18 @@ pub struct FormConfig {
     /// the columns have to exist on this entity's table.
     #[serde(default)]
     pub timestamps: bool,
+    /// Record who created and last changed each row in `created_user_id` and
+    /// `updated_user_id`. Opt in per form, like `timestamps`.
+    #[serde(default)]
+    pub footprints: bool,
+    /// Slug columns filled when empty, each from one attribute or a list joined
+    /// in order (`slug: title`, `slug: [first_name, last_name]`).
+    #[serde(default)]
+    pub slugs: std::collections::BTreeMap<String, SlugSources>,
+    /// Columns sealed under the application key on every save through a form
+    /// or an import.
+    #[serde(default)]
+    pub encrypt: Vec<String>,
     /// Where a save and a cancel return to, when it is not the list under
     /// `base_path`: a related record's form returns to its parent. Set by the
     /// router, never by a descriptor.
@@ -761,6 +776,9 @@ impl FormConfig {
             fields,
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         }
     }
@@ -791,10 +809,57 @@ impl FormConfig {
         self
     }
 
+    /// Records who created and last changed each row. Opt in, because the
+    /// `created_user_id` and `updated_user_id` columns have to exist.
+    pub fn footprints(mut self) -> Self {
+        self.footprints = true;
+        self
+    }
+
+    /// Fills `column` from `sources` when it is empty, unique within the table.
+    pub fn slug(mut self, column: impl Into<String>, sources: &[&str]) -> Self {
+        self.slugs.insert(
+            column.into(),
+            SlugSources::Many(sources.iter().map(|s| s.to_string()).collect()),
+        );
+        self
+    }
+
+    /// Seals `columns` under the application key on every write.
+    pub fn encrypt(mut self, columns: &[&str]) -> Self {
+        self.encrypt = columns.iter().map(|c| c.to_string()).collect();
+        self
+    }
+
     fn idents_valid(&self) -> bool {
         valid_ident(&self.entity)
             && valid_ident(&self.id_field)
             && self.fields.iter().all(|f| valid_ident(&f.name))
+            && self
+                .slugs
+                .iter()
+                .all(|(c, s)| valid_ident(c) && s.list().iter().all(|n| valid_ident(n)))
+            && self.encrypt.iter().all(|c| valid_ident(c))
+    }
+}
+
+/// The attributes a slug is built from: one name or a list joined in order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SlugSources {
+    /// A single attribute.
+    One(String),
+    /// Several attributes, joined with spaces before slugging.
+    Many(Vec<String>),
+}
+
+impl SlugSources {
+    /// The attribute names, in order.
+    pub fn list(&self) -> Vec<String> {
+        match self {
+            Self::One(name) => vec![name.clone()],
+            Self::Many(names) => names.clone(),
+        }
     }
 }
 
@@ -898,6 +963,12 @@ impl PreparedForm {
         persisters: &PersisterRegistry,
         listeners: &[ModelListenerReg],
     ) -> Result<Self, String> {
+        if !config.idents_valid() {
+            return Err(format!(
+                "form for `{}` names an invalid column (a field, slug or encrypted column)",
+                config.entity
+            ));
+        }
         let mut fields = Vec::with_capacity(config.fields.len());
         for f in &config.fields {
             let names = || config.fields.iter().map(|other| other.name.as_str());
@@ -952,6 +1023,23 @@ impl PreparedForm {
         let mut resolved: Vec<Arc<dyn ModelListener>> = Vec::new();
         if config.timestamps {
             resolved.push(Arc::new(laterite_core::Timestamps));
+        }
+        if config.footprints {
+            resolved.push(Arc::new(laterite_core::Footprints));
+        }
+        if !config.slugs.is_empty() {
+            let rules = config
+                .slugs
+                .iter()
+                .map(|(column, sources)| laterite_core::listeners::SlugRule {
+                    column: column.clone(),
+                    sources: sources.list(),
+                })
+                .collect();
+            resolved.push(Arc::new(laterite_core::Sluggable::new(
+                config.id_field.clone(),
+                rules,
+            )));
         }
         resolved.extend(
             listeners
@@ -2128,6 +2216,9 @@ mod tests {
             ],
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         };
         PreparedForm::prepare(
@@ -2182,6 +2273,9 @@ mod tests {
                 ],
                 persist: None,
                 timestamps: false,
+                footprints: false,
+                slugs: Default::default(),
+                encrypt: Vec::new(),
                 done_path: None,
             },
             &crate::field::builtin_registry(),
@@ -2464,6 +2558,9 @@ mod tests {
                 ],
                 persist: None,
                 timestamps: false,
+                footprints: false,
+                slugs: Default::default(),
+                encrypt: Vec::new(),
                 done_path: None,
             },
             &st.field_types,
@@ -2512,6 +2609,9 @@ mod tests {
             fields: vec![FormField::of("place", "Place", "no.such.type")],
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -2542,6 +2642,9 @@ mod tests {
             ],
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -2618,6 +2721,9 @@ mod tests {
             ],
             persist: Some(persister.to_string()),
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         }
     }
@@ -2716,6 +2822,9 @@ mod timestamp_tests {
             ],
             persist: None,
             timestamps: on,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         }
     }
@@ -2808,6 +2917,9 @@ mod htmx_tests {
                 ],
                 persist: None,
                 timestamps: false,
+                footprints: false,
+                slugs: Default::default(),
+                encrypt: Vec::new(),
                 done_path: None,
             },
             &st.field_types,

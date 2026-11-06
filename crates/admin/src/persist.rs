@@ -615,6 +615,9 @@ mod pipeline_tests {
             ],
             persist: None,
             timestamps: false,
+            footprints: false,
+            slugs: Default::default(),
+            encrypt: Vec::new(),
             done_path: None,
         };
         let persister = DefaultPersister::from_config(&config);

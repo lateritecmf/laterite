@@ -49,7 +49,7 @@ pub use i18n::{
     PSEUDO_LOCALE,
 };
 pub use laterite_macros::{t, tn, tp};
-pub use listeners::Timestamps;
+pub use listeners::{Encrypted, Footprints, Sluggable, Timestamps};
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};

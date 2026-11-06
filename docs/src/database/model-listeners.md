@@ -106,6 +106,66 @@ Sets `created_at` on create and `updated_at` on every write; a `created_at`
 already on the record is kept. Opt in per form: a column added to every entity
 reaches tables without it.
 
+## Record who changed a row
+
+```yaml
+form:
+  footprints: true
+```
+
+```rust
+FormConfig::new("posts", t!("Post"), "/admin/posts", "id", fields).footprints()
+```
+
+Column | Set on | Value
+--- | --- | ---
+`created_user_id` | Create | The signed-in user's id; null for a system write
+`updated_user_id` | Every write | The signed-in user's id; null for a system write
+
+A value already on the record is kept.
+
+## Generate a slug
+
+```yaml
+form:
+  slugs:
+    slug: title
+    handle: [first_name, last_name]
+```
+
+```rust
+form.slug("slug", &["title"])
+```
+
+Case | Result
+--- | ---
+The slug is empty | Built from the sources: `Hello World` becomes `hello-world`, then `hello-world-2`, `hello-world-3`
+The slug was typed and is free | Stored slugged: `Hello There` becomes `hello-there`
+The slug was typed and another row holds it | Refused on the slug field
+An edit keeps the stored slug | Stored unchanged
+
+A slug is at most 180 characters, suffix included. Trashed rows hold their slug.
+
+## Seal a column
+
+```yaml
+form:
+  encrypt: [api_key]
+```
+
+```rust
+form.encrypt(&["api_key"]);
+let plain = rec.opened(&crypt, "api_key");
+```
+
+Value written | Result
+--- | ---
+Plaintext, through the form or an import | Sealed under the application key
+Null or empty | Kept
+Already sealed, such as from a `sensitive` field | Kept
+
+`Record::opened` returns the plaintext, or `None` when the value does not open.
+
 ## Guard a delete
 
 ```rust
