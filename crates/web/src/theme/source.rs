@@ -52,22 +52,37 @@ impl SourceCx<'_> {
 pub enum Change {
     /// A template was saved (or restored from a revision).
     Template {
+        /// The code of the theme the template belongs to.
         theme: String,
+        /// The template's kind.
         kind: Kind,
+        /// The template's path within its kind.
         path: String,
     },
     /// A template was deleted.
     TemplateRemoved {
+        /// The code of the theme the template belonged to.
         theme: String,
+        /// The template's kind.
         kind: Kind,
+        /// The template's path within its kind.
         path: String,
     },
     /// The theme's config was saved.
-    Config { theme: String },
+    Config {
+        /// The code of the theme that changed.
+        theme: String,
+    },
     /// The theme's settings values were saved.
-    Settings { theme: String },
+    Settings {
+        /// The code of the theme that changed.
+        theme: String,
+    },
     /// The whole theme changed (an import, a creation): everything is written.
-    Theme { theme: String },
+    Theme {
+        /// The code of the theme that changed.
+        theme: String,
+    },
 }
 
 impl Change {
@@ -86,6 +101,7 @@ impl Change {
 /// What a publish did, for the screen or the command to say.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Published {
+    /// A sentence saying what the publish did, or that there was nothing to do.
     pub note: String,
 }
 
@@ -107,11 +123,14 @@ pub trait ThemeSource: Send + Sync {
 
 /// A source a module contributes, chosen by `[theme] source = "<code>"`.
 pub struct ThemeSourceReg {
+    /// The code `[theme] source` names to choose the source.
     pub code: String,
+    /// The source itself.
     pub source: Arc<dyn ThemeSource>,
 }
 
 impl ThemeSourceReg {
+    /// Registers `source` under `code`.
     pub fn new(code: impl Into<String>, source: Arc<dyn ThemeSource>) -> Self {
         Self {
             code: code.into(),

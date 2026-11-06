@@ -27,11 +27,18 @@ pub(crate) enum MailLog {
 /// A message the `log` driver kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoggedMail {
+    /// Id of the row in the `mail_log` table.
     pub id: i64,
+    /// Recipients as one line: the `to` addresses, then `cc: ` and `bcc: `
+    /// prefixed ones, comma-separated.
     pub recipients: String,
+    /// Subject line.
     pub subject: String,
+    /// Plain-text body.
     pub text: String,
+    /// HTML body; `None` for a text-only message.
     pub html: Option<String>,
+    /// UTC timestamp (RFC 3339 text) the message was kept.
     pub sent_at: String,
 }
 
@@ -44,6 +51,7 @@ pub struct LogMailer {
 }
 
 impl LogMailer {
+    /// Returns a driver writing to the `mail_log` table in `db`.
     pub fn new(db: Db) -> Self {
         Self { db }
     }
@@ -149,6 +157,7 @@ pub struct StubMailer {
 }
 
 impl StubMailer {
+    /// Returns a stub with nothing sent and no failure set.
     pub fn new() -> Self {
         Self::default()
     }

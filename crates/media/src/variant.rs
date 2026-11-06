@@ -16,44 +16,70 @@ use crate::preset::Preset;
 use crate::record::{MediaRecord, RecordError};
 use crate::{Kind, StorageDriver, StorageError};
 
+/// The `media_variants` table's columns.
 #[derive(Iden)]
 pub enum MediaVariants {
+    /// The `media_variants` table itself.
     Table,
+    /// Bigint auto-increment primary key.
     Id,
+    /// Id of the media record the variant was made from.
     MediaId,
+    /// Name of the preset the variant was rendered with.
     Preset,
+    /// Storage path of the variant's blob on the record's disk.
     Path,
+    /// Pixel width of the rendered variant.
     Width,
+    /// Pixel height of the rendered variant.
     Height,
+    /// Size of the rendered bytes in bytes.
     Size,
+    /// MIME type of the rendered bytes.
     ContentType,
+    /// UTC timestamp the variant was made, as RFC 3339 text.
     CreatedAt,
 }
 
 /// A variant as stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variant {
+    /// Id of the variant in the `media_variants` table.
     pub id: i64,
+    /// Id of the media record the variant was made from.
     pub media_id: i64,
+    /// Name of the preset the variant was rendered with.
     pub preset: String,
+    /// Storage path of the variant's blob, from [`variant_path`].
     pub path: String,
+    /// Pixel width of the rendered variant.
     pub width: Option<i64>,
+    /// Pixel height of the rendered variant.
     pub height: Option<i64>,
+    /// Size of the rendered bytes in bytes.
     pub size: i64,
+    /// MIME type of the rendered bytes.
     pub content_type: String,
+    /// UTC timestamp the variant was made, as RFC 3339 text.
     pub created_at: String,
 }
 
+/// Error returned when a variant cannot be found or made.
 #[derive(Debug, thiserror::Error)]
 pub enum VariantError {
+    /// Produced when reading or writing the variant's row fails.
     #[error(transparent)]
     Record(#[from] RecordError),
+    /// Produced when the disk cannot read the original or store the variant.
     #[error(transparent)]
     Storage(#[from] StorageError),
+    /// Produced when the image cannot be decoded or rendered.
     #[error(transparent)]
     Image(#[from] ImageError),
+    /// Produced when the record is not a raster image (SVG included), so no variant can be made.
     #[error("the file is not an image")]
     NotImage,
+    /// Produced when the original's byte stream fails mid-read or the render task panics; holds the message.
     #[error("the blob could not be read: {0}")]
     Read(String),
 }
@@ -195,6 +221,7 @@ pub struct Variants {
 }
 
 impl Variants {
+    /// Returns a maker with no locks held.
     pub fn new() -> Self {
         Self::default()
     }

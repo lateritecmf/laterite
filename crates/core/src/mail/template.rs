@@ -30,7 +30,9 @@ use crate::Db;
 /// A template file under a code; see [`super::MailRegistry`].
 #[derive(Debug, Clone, Copy)]
 pub struct MailTemplateReg {
+    /// Code the template is registered under, as messages name it (`acme.blog::welcome`).
     pub code: &'static str,
+    /// Contents of the `.htm` file: front matter and a Markdown body.
     pub file: &'static str,
     /// An explicit plain-text body, a template of its own; `None` derives
     /// the text from the body.
@@ -40,7 +42,9 @@ pub struct MailTemplateReg {
 /// A layout file under a code.
 #[derive(Debug, Clone, Copy)]
 pub struct MailLayoutReg {
+    /// Code the layout is registered under, as templates name it in `layout`.
     pub code: &'static str,
+    /// Contents of the layout's `.htm` file: front matter and an HTML body.
     pub file: &'static str,
     /// The text wrapper (`{{ content }}` and a signature); `None` wraps
     /// the text in nothing.
@@ -50,7 +54,9 @@ pub struct MailLayoutReg {
 /// A partial file under a code.
 #[derive(Debug, Clone, Copy)]
 pub struct MailPartialReg {
+    /// Code the partial is registered under, as `partial("code")` calls it.
     pub code: &'static str,
+    /// Contents of the partial's `.htm` file: front matter and an HTML body.
     pub file: &'static str,
     /// The partial's text form (`{{ body }}: {{ url }}` for a button);
     /// `None` renders the partial as nothing in the text part.
@@ -64,9 +70,13 @@ pub const NAMESPACE: &str = "laterite.mail::templates";
 /// A parsed file: its header and its sections.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Sections {
+    /// Header settings (`subject`, `layout`, `name`, ...) as strings.
     pub settings: BTreeMap<String, String>,
+    /// Plain-text section; empty for the front matter form.
     pub text: String,
+    /// Body section: Markdown for a template, HTML for a layout or partial.
     pub html: String,
+    /// CSS section of a layout; empty for the front matter form.
     pub css: String,
     /// The file used the older `==` form.
     pub separated: bool,
@@ -174,12 +184,17 @@ fn front_matter(front: &str) -> BTreeMap<String, String> {
 /// A template row: what a message is rendered from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Template {
+    /// Code the template is registered under.
     pub code: String,
+    /// Subject line template, rendered with the message variables.
     pub subject: String,
+    /// Short description shown beside the template in the admin.
     pub description: String,
     /// The layout's code; `None` renders the body alone.
     pub layout: Option<String>,
+    /// Plain-text body template; empty derives the text from `content_html`.
     pub content_text: String,
+    /// Body template in Markdown, rendered to HTML and wrapped in the layout.
     pub content_html: String,
     /// Edited in the admin: the file no longer refreshes it.
     pub is_custom: bool,
@@ -188,29 +203,43 @@ pub struct Template {
 /// A layout row: what wraps a template's body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layout {
+    /// Code the layout is registered under.
     pub code: String,
+    /// Display name shown in the admin.
     pub name: String,
+    /// Plain-text wrapper around the text body; empty leaves the text unwrapped.
     pub content_text: String,
+    /// HTML page template the rendered body is placed into as `content`.
     pub content_html: String,
+    /// Layout CSS template, inlined into the HTML after the brand stylesheet.
     pub content_css: String,
+    /// Edited in the admin: the file no longer refreshes it.
     pub is_custom: bool,
 }
 
 /// A partial row: a piece a body or a layout calls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Partial {
+    /// Code the partial is registered under.
     pub code: String,
+    /// Display name shown in the admin.
     pub name: String,
+    /// Text form rendered into the plain-text part; empty renders nothing there.
     pub content_text: String,
+    /// HTML form rendered into the HTML part.
     pub content_html: String,
+    /// Edited in the admin: the file no longer refreshes it.
     pub is_custom: bool,
 }
 
 /// What rendering produced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rendered {
+    /// Rendered subject line, trimmed.
     pub subject: String,
+    /// Rendered plain-text body.
     pub text: String,
+    /// Rendered HTML body (layout applied, CSS inlined); `None` for a text-only message.
     pub html: Option<String>,
 }
 
@@ -272,6 +301,7 @@ pub struct Templates {
 const TTL: Duration = Duration::from_secs(3600);
 
 impl Templates {
+    /// Returns a templates handle over `db`, caching rendered pieces in `cache`.
     pub fn new(db: Db, cache: Cache) -> Self {
         cache.allow(NAMESPACE);
         Self {
@@ -304,6 +334,7 @@ impl Templates {
         let _ = self.inner.cache.bump(NAMESPACE).await;
     }
 
+    /// Returns the brand stylesheet set by [`Templates::set_brand_css`].
     pub fn brand_css(&self) -> String {
         self.inner
             .brand_css
@@ -383,26 +414,32 @@ impl Templates {
         Ok(())
     }
 
+    /// Returns every template row.
     pub async fn templates(&self) -> CoreResult<Vec<Template>> {
         list_templates(&self.inner.db).await
     }
 
+    /// Returns every layout row.
     pub async fn layouts(&self) -> CoreResult<Vec<Layout>> {
         list_layouts(&self.inner.db).await
     }
 
+    /// Returns every partial row.
     pub async fn partials(&self) -> CoreResult<Vec<Partial>> {
         list_partials(&self.inner.db).await
     }
 
+    /// Returns the template row for `code`, or `None` when there is none.
     pub async fn template(&self, code: &str) -> CoreResult<Option<Template>> {
         find_template(&self.inner.db, code).await
     }
 
+    /// Returns the layout row for `code`, or `None` when there is none.
     pub async fn layout(&self, code: &str) -> CoreResult<Option<Layout>> {
         find_layout(&self.inner.db, code).await
     }
 
+    /// Returns the partial row for `code`, or `None` when there is none.
     pub async fn partial(&self, code: &str) -> CoreResult<Option<Partial>> {
         find_partial(&self.inner.db, code).await
     }
@@ -417,6 +454,8 @@ impl Templates {
         Ok(())
     }
 
+    /// Writes a layout as edited; it is custom from now and its file no
+    /// longer refreshes it.
     pub async fn save_layout(&self, layout: &Layout) -> CoreResult<()> {
         let mut row = layout.clone();
         row.is_custom = true;
@@ -425,6 +464,8 @@ impl Templates {
         Ok(())
     }
 
+    /// Writes a partial as edited; it is custom from now and its file no
+    /// longer refreshes it.
     pub async fn save_partial(&self, partial: &Partial) -> CoreResult<()> {
         let mut row = partial.clone();
         row.is_custom = true;
@@ -445,6 +486,7 @@ impl Templates {
         Ok(true)
     }
 
+    /// Puts a layout back to its file; `false` when no file registers the code.
     pub async fn reset_layout(&self, code: &str) -> CoreResult<bool> {
         let file = self.file_of(|f| f.layouts.get(code).copied());
         let Some(file) = file else {
@@ -455,6 +497,7 @@ impl Templates {
         Ok(true)
     }
 
+    /// Puts a partial back to its file; `false` when no file registers the code.
     pub async fn reset_partial(&self, code: &str) -> CoreResult<bool> {
         let file = self.file_of(|f| f.partials.get(code).copied());
         let Some(file) = file else {
@@ -476,6 +519,7 @@ impl Templates {
         Ok(true)
     }
 
+    /// Removes a layout no file registers; one a file registers is reset.
     pub async fn delete_layout(&self, code: &str) -> CoreResult<bool> {
         if self.file_of(|f| f.layouts.get(code).copied()).is_some() {
             return self.reset_layout(code).await;
@@ -485,6 +529,7 @@ impl Templates {
         Ok(true)
     }
 
+    /// Removes a partial no file registers; one a file registers is reset.
     pub async fn delete_partial(&self, code: &str) -> CoreResult<bool> {
         if self.file_of(|f| f.partials.get(code).copied()).is_some() {
             return self.reset_partial(code).await;
@@ -499,10 +544,12 @@ impl Templates {
         self.file_of(|f| f.templates.get(code).copied()).is_some()
     }
 
+    /// Returns whether a file registers `code` as a layout.
     pub fn has_layout_file(&self, code: &str) -> bool {
         self.file_of(|f| f.layouts.get(code).copied()).is_some()
     }
 
+    /// Returns whether a file registers `code` as a partial.
     pub fn has_partial_file(&self, code: &str) -> bool {
         self.file_of(|f| f.partials.get(code).copied()).is_some()
     }

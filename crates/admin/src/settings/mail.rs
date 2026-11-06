@@ -25,19 +25,25 @@ pub const TEST_PATH: &str = "/settings/mail/test";
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MailSetting {
     #[serde(default)]
+    /// The sender name messages carry; blank keeps the config's.
     pub from_name: String,
     #[serde(default)]
+    /// The sender address messages carry; blank keeps the config's.
     pub from_address: String,
     /// `smtp`, `log`, `stub` or a registered driver; blank keeps the config.
     #[serde(default)]
     pub driver: String,
     #[serde(default)]
+    /// The SMTP server's host name; blank keeps the config's.
     pub smtp_host: String,
     #[serde(default)]
+    /// The SMTP server's port, as text; blank keeps the config's.
     pub smtp_port: String,
     #[serde(default)]
+    /// `starttls`, `tls` or `none`; blank keeps the config's.
     pub smtp_encryption: String,
     #[serde(default)]
+    /// The SMTP user name; blank keeps the config's.
     pub smtp_username: String,
     /// Sealed by the `sensitive` field type.
     #[serde(default)]

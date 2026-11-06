@@ -64,6 +64,7 @@ pub struct CacheNamespace {
 }
 
 impl CacheNamespace {
+    /// Returns the namespace `name`, unqualified until registered.
     pub const fn new(name: &'static str) -> Self {
         Self { name }
     }
@@ -96,7 +97,10 @@ impl Module for CacheModule {
 /// built from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
+    /// The serialized value.
     pub bytes: Vec<u8>,
+    /// Each namespace the value was built from, with its generation at the time;
+    /// a later bump of any of them makes the value stale.
     pub deps: Vec<(String, u64)>,
 }
 
@@ -106,12 +110,15 @@ pub struct Entry {
 pub trait ValueStore: Send + Sync {
     /// The driver's name, as `cache.store` names it.
     fn name(&self) -> &'static str;
+    /// Returns the entry under `key`, or `None` on a miss or an expired entry.
     async fn get(&self, key: &str) -> CoreResult<Option<Entry>>;
+    /// Stores `entry` under `key` for `ttl`, replacing any value there.
     async fn put(&self, key: &str, entry: Entry, ttl: Duration) -> CoreResult<()>;
     /// Stores only when the key is absent; `true` when it did.
     async fn add(&self, key: &str, entry: Entry, ttl: Duration) -> CoreResult<bool>;
     /// `true` when a value was there.
     async fn forget(&self, key: &str) -> CoreResult<bool>;
+    /// Removes every value the store holds.
     async fn flush(&self) -> CoreResult<()>;
 }
 
@@ -123,6 +130,7 @@ pub trait ValueStore: Send + Sync {
 /// bumps.
 #[async_trait]
 pub trait Signals: Send + Sync {
+    /// Returns the driver's name (`local`, `database`).
     fn name(&self) -> &'static str;
     /// The generation this process last saw, or `None` before the namespace
     /// was ever read here.
@@ -501,6 +509,7 @@ pub struct Lock {
 }
 
 impl Lock {
+    /// Returns the name the lock was taken under.
     pub fn name(&self) -> &str {
         &self.name
     }

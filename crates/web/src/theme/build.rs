@@ -51,11 +51,14 @@ pub trait Paths: Send + Sync {
 /// build renders the page once per set of parameters. Registered as a
 /// contribution; a pattern nobody answers for is skipped, as before.
 pub struct PathsReg {
+    /// The page URL pattern the registration answers for, such as `/events/:slug`.
     pub pattern: String,
+    /// The answer: every set of parameters the pattern is built for.
     pub paths: Arc<dyn Paths>,
 }
 
 impl PathsReg {
+    /// Registers `paths` as the answer for `pattern`.
     pub fn new(pattern: impl Into<String>, paths: Arc<dyn Paths>) -> Self {
         Self {
             pattern: pattern.into(),

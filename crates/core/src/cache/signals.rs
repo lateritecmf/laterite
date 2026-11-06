@@ -29,6 +29,7 @@ pub struct LocalSignals {
 }
 
 impl LocalSignals {
+    /// Returns an empty set of generations and locks.
     pub fn new() -> Self {
         Self::default()
     }
@@ -119,6 +120,7 @@ pub struct DbSignals {
 }
 
 impl DbSignals {
+    /// Returns signals backed by the generation and lock tables in `db`.
     pub fn new(db: Db) -> Self {
         Self {
             db,

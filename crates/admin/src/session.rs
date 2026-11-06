@@ -38,12 +38,15 @@ pub(crate) struct Flash {
     pub(crate) sticky: bool,
 }
 
-/// The severity of a [`Flash`], mapped to a style class by the template.
+/// The severity of a `Flash`, mapped to a style class by the template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FlashLevel {
+    /// A completed action.
     Success,
+    /// A failed action.
     Error,
+    /// A neutral notice.
     Info,
 }
 

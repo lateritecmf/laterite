@@ -91,6 +91,7 @@ fn default_id_field() -> String {
 pub struct DescriptorError {
     /// The file, as the caller named it.
     pub source: String,
+    /// What was wrong with the file.
     pub message: String,
 }
 
@@ -334,7 +335,7 @@ pub fn settings_from_yaml(
 }
 
 /// Reads a settings file at compile time, relative to the crate's manifest,
-/// the way [`resource!`] reads a resource.
+/// the way [`resource!`](crate::resource!) reads a resource.
 ///
 /// ```rust,ignore
 /// registry.add_settings(laterite_admin::settings!("admin/settings.yaml"));

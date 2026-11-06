@@ -55,6 +55,7 @@ impl PermissionSet {
         }
     }
 
+    /// Returns whether this identity is a superuser, which passes every check.
     pub fn is_superuser(&self) -> bool {
         self.superuser
     }

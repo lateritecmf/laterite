@@ -14,13 +14,17 @@ use laterite_core::{Db, Registry, SiteContext};
 /// output, the origin, and every contribution (markup and components among
 /// them).
 pub struct StaticBuildCx<'a> {
+    /// The database the build reads from.
     pub db: &'a Db,
     /// The project root, the directory holding `config/`.
     pub root: &'a Path,
     /// The `[theme]` section: the folder, the source, the copies.
     pub theme: &'a laterite_core::config::ThemeConfig,
+    /// The directory the site is written into.
     pub out: &'a Path,
+    /// The site's origin, used for absolute URLs.
     pub base_url: &'a str,
+    /// Every contribution the modules registered.
     pub contributions: &'a Registry,
 }
 
@@ -66,8 +70,11 @@ pub fn write_site_bytes(out: &Path, path: &str, body: &[u8]) -> Result<()> {
 /// a handbook only the deploy build puts in place).
 #[derive(Debug, Clone)]
 pub struct Copy {
+    /// The directory copied, resolved against the project root.
     pub src: PathBuf,
+    /// The destination path under the output root.
     pub dest: String,
+    /// Whether a missing source fails the build; otherwise it is noted and skipped.
     pub required: bool,
 }
 
@@ -333,7 +340,9 @@ pub async fn call_hook(hook: &str) -> Result<()> {
 /// module and its screens to read.
 #[derive(Debug, Clone)]
 pub struct SiteProject {
+    /// The project root, the directory holding `config/`.
     pub root: PathBuf,
+    /// The `[theme]` section of the config.
     pub theme: laterite_core::config::ThemeConfig,
 }
 

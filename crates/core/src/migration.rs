@@ -26,8 +26,11 @@ use crate::error::{CoreError, CoreResult};
 /// so migrations and the runner emit SQL the target understands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbBackend {
+    /// PostgreSQL.
     Postgres,
+    /// MySQL.
     Mysql,
+    /// SQLite.
     Sqlite,
 }
 
@@ -106,6 +109,7 @@ pub struct Schema<'c> {
 }
 
 impl Schema<'_> {
+    /// Returns the backend the migration runs on.
     pub fn backend(&self) -> DbBackend {
         self.backend
     }
@@ -158,6 +162,7 @@ pub struct SqlMigration {
 }
 
 impl SqlMigration {
+    /// Returns a migration named `name` that runs the SQL `up` and has no `down`.
     pub fn new(name: impl Into<String>, up: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -166,6 +171,7 @@ impl SqlMigration {
         }
     }
 
+    /// Makes the migration reversible with the SQL `down`.
     pub fn reversible(mut self, down: impl Into<String>) -> Self {
         self.down = Some(down.into());
         self
@@ -195,11 +201,14 @@ impl Migration for SqlMigration {
 
 /// A module's ordered migrations: the version history for `module_id`.
 pub struct MigrationSet {
+    /// Id of the module whose history these migrations are.
     pub module_id: &'static str,
+    /// The migrations, in the order they apply.
     pub migrations: Vec<Box<dyn Migration>>,
 }
 
 impl MigrationSet {
+    /// Returns the set of `migrations` for `module_id`.
     pub fn new(module_id: &'static str, migrations: Vec<Box<dyn Migration>>) -> Self {
         Self {
             module_id,

@@ -24,7 +24,7 @@ pub trait AnyRowExt {
     /// so the same code works on every backend.
     fn get_text(&self, column: &str) -> Result<String, sqlx::Error>;
 
-    /// The nullable counterpart to [`get_text`], for a `text` column that may be
+    /// The nullable counterpart to [`get_text`](Self::get_text), for a `text` column that may be
     /// `NULL`.
     fn get_text_opt(&self, column: &str) -> Result<Option<String>, sqlx::Error>;
 
@@ -35,7 +35,7 @@ pub trait AnyRowExt {
     /// to `bigint` just to be read back.
     fn get_int(&self, column: &str) -> Result<i64, sqlx::Error>;
 
-    /// The nullable counterpart to [`get_int`].
+    /// The nullable counterpart to [`get_int`](Self::get_int).
     fn get_int_opt(&self, column: &str) -> Result<Option<i64>, sqlx::Error>;
 }
 

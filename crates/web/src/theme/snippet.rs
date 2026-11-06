@@ -31,34 +31,46 @@ use std::collections::HashMap;
 /// A partial's snippet declaration, from the `snippet` key of its settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Declaration {
+    /// The snippet's code, stored in `data-snippet`: letters, digits, dots, hyphens and underscores.
     pub code: String,
+    /// The snippet's name in the Insert menu.
     pub name: String,
     #[serde(default)]
+    /// A short description shown beside the name, when given.
     pub description: Option<String>,
     #[serde(default)]
+    /// The properties the insert dialog asks for, in order.
     pub properties: Vec<Property>,
 }
 
 /// A declared property.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Property {
+    /// The key the property is stored under in `data-properties` and read as in the partial.
     pub code: String,
+    /// The label the insert dialog shows for the property.
     pub title: String,
     #[serde(default, rename = "type")]
+    /// The input the dialog offers for the property, a text field by default.
     pub kind: PropertyType,
     #[serde(default)]
+    /// The value the dialog starts from, when given.
     pub default: Option<serde_json::Value>,
-    /// `value:Label | value2:Label2` for a dropdown, as the reference writes it.
+    /// `value:Label | value2:Label2` for a dropdown.
     #[serde(default)]
     pub options: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+/// The input the insert dialog offers for a snippet property.
 pub enum PropertyType {
     #[default]
+    /// A text field.
     String,
+    /// A dropdown over the property's `options`.
     Dropdown,
+    /// A checkbox holding `true` or `false`.
     Checkbox,
 }
 
@@ -135,19 +147,23 @@ pub fn parse_options(text: &str) -> Vec<(String, String)> {
 /// first).
 #[derive(Debug, Default, Clone)]
 pub struct Index {
+    /// Each snippet code mapped to the partial path that renders it and its declaration.
     pub by_code: HashMap<String, (String, Declaration)>,
 }
 
 impl Index {
+    /// Adds the partial at `path` when its settings declare a snippet, replacing any earlier one with the same code.
     pub fn add_partial(&mut self, path: &str, settings: &serde_json::Value) {
         if let Some(decl) = Declaration::from_settings(path, settings) {
             self.by_code
                 .insert(decl.code.clone(), (path.to_string(), decl));
         }
     }
+    /// Returns the partial path and declaration for the snippet `code`, if indexed.
     pub fn get(&self, code: &str) -> Option<&(String, Declaration)> {
         self.by_code.get(code)
     }
+    /// Returns every indexed declaration, in no particular order.
     pub fn declarations(&self) -> impl Iterator<Item = &Declaration> {
         self.by_code.values().map(|(_, d)| d)
     }
@@ -255,6 +271,7 @@ fn attr(attrs: &str, name: &str) -> Option<String> {
 /// are in hand.
 #[derive(Default)]
 pub struct ComponentSource {
+    /// The registered components' snippets, set once when the Themes screen mounts.
     pub components: std::sync::Arc<std::sync::OnceLock<Vec<Snippet>>>,
 }
 

@@ -19,7 +19,9 @@ use crate::strata::async_trait;
 /// module's migrations applied, and the contributions every module has
 /// registered, to read.
 pub struct BootCx<'a> {
+    /// The database, with every module's migrations applied.
     pub db: &'a Db,
+    /// Every module's contributions, to read.
     pub registry: &'a Registry,
 }
 
@@ -30,9 +32,11 @@ pub struct BootCx<'a> {
 pub struct ModuleId(&'static str);
 
 impl ModuleId {
+    /// Returns the id for `code`, a lowercase `vendor.package` string.
     pub const fn new(code: &'static str) -> Self {
         Self(code)
     }
+    /// Returns the id's code.
     pub const fn as_str(&self) -> &'static str {
         self.0
     }
@@ -51,9 +55,11 @@ impl std::fmt::Display for ModuleId {
 pub struct Capability(&'static str);
 
 impl Capability {
+    /// Returns the capability named `name`.
     pub const fn new(name: &'static str) -> Self {
         Self(name)
     }
+    /// Returns the capability's name.
     pub const fn as_str(&self) -> &'static str {
         self.0
     }
@@ -193,6 +199,7 @@ pub struct ModuleRegistry {
 }
 
 impl ModuleRegistry {
+    /// Returns an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
@@ -224,14 +231,17 @@ impl ModuleRegistry {
             .find(|m| m.id() == id)
     }
 
+    /// Returns the registered modules in registration order.
     pub fn iter(&self) -> impl Iterator<Item = &dyn Module> + '_ {
         self.modules.iter().map(|m| m.as_ref())
     }
 
+    /// Returns how many modules are registered.
     pub fn len(&self) -> usize {
         self.modules.len()
     }
 
+    /// Returns whether no module is registered.
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty()
     }

@@ -120,9 +120,10 @@ def main() -> int:
     rs.append("];")
     rs.append("")
     rs.append("/// Every icon name as a constant, so the framework's own uses are")
-    rs.append("/// checked by the compiler rather than by a test.")
+    rs.append("/// checked by the compiler.")
     rs.append("pub mod names {")
-    for name, _, _ in icons:
+    for name, group, _ in icons:
+        rs.append(f"    /// The `{name}` icon, in the {group} group.")
         rs.append(f'    pub const {const_name(name)}: &str = "{name}";')
     rs.append("}")
     OUT_RS.parent.mkdir(parents=True, exist_ok=True)

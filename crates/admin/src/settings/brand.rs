@@ -114,14 +114,21 @@ pub(crate) fn settings_item() -> SettingsItem {
 /// stylesheet variables, its stylesheet cleaned.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Brand {
+    /// The application name shown as the brand: the setting, else the configured name.
     pub name: String,
+    /// URL of the logo image, when one is set.
     pub logo_url: Option<String>,
+    /// URL of the browser icon, when one is set.
     pub favicon_url: Option<String>,
     /// `auto`, `light` or `dark`.
     pub mode: String,
+    /// The line under the sign-in heading, when set; the page's own prompt otherwise.
     pub login_prompt: Option<String>,
+    /// The tagline on the sign-in page's hero panel, when set.
     pub login_tagline: Option<String>,
+    /// URL of the sign-in hero panel's background image, when set.
     pub login_background_url: Option<String>,
+    /// Whether the sign-in page shows its hero panel.
     pub login_hero: bool,
     /// The `<style>` body for every page: the accent's variables plus the
     /// cleaned custom stylesheet. Empty when nothing is set.

@@ -28,14 +28,18 @@ pub(crate) enum ScheduleRuns {
 pub enum RunStatus {
     /// Never run on this deployment.
     Never,
+    /// Started and not yet finished.
     Running,
+    /// Finished without an error.
     Ok,
+    /// Finished with an error, recorded in `last_error`.
     Failed,
     /// Due while the last run was still going.
     Skipped,
 }
 
 impl RunStatus {
+    /// Returns the status as stored and shown (`never`, `running`, `ok`, ...).
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Never => "never",
@@ -60,14 +64,24 @@ impl RunStatus {
 /// One entry as the screen shows it: its declaration and its last run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EntryState {
+    /// The entry's name (`acme.blog::digest`).
     pub name: String,
+    /// The entry's cron expression; empty for a row no registered entry declares.
     pub expression: String,
+    /// Timezone the expression is read in (`Europe/Berlin`).
     pub timezone: String,
+    /// The entry's description line for the screen.
     pub description: String,
+    /// UTC timestamp (RFC 3339 text) of the next run; `None` when the
+    /// expression has no next occurrence.
     pub next_run_at: Option<String>,
+    /// UTC timestamp (RFC 3339 text) the last run started.
     pub last_started_at: Option<String>,
+    /// UTC timestamp (RFC 3339 text) the last run finished.
     pub last_finished_at: Option<String>,
+    /// How the last run ended.
     pub last_status: RunStatus,
+    /// Error message of the last failed run.
     pub last_error: Option<String>,
 }
 

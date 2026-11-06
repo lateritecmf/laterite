@@ -102,9 +102,13 @@ pub(crate) fn screen() -> ScreenReg {
 /// saved as a copy, or a replacement. `by` is the operator's username.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MediaStored {
+    /// Id of the media record.
     pub id: i64,
+    /// Hex content hash naming the file's blob.
     pub hash: String,
+    /// The file name the record carries.
     pub name: String,
+    /// Username of the user who stored the file.
     pub by: String,
 }
 
@@ -115,9 +119,13 @@ impl laterite_core::Event for MediaStored {
 /// A file the library removed, with its blob when nothing else used it.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MediaRemoved {
+    /// Id of the media record that was removed.
     pub id: i64,
+    /// Hex content hash naming the file's blob.
     pub hash: String,
+    /// The file name the record carried.
     pub name: String,
+    /// Username of the user who removed the file.
     pub by: String,
 }
 
@@ -182,6 +190,7 @@ pub struct MediaCommit {
 }
 
 impl MediaCommit {
+    /// Returns a listener committing `folder` in the git repository at `root`.
     pub fn new(root: impl Into<std::path::PathBuf>, folder: impl Into<std::path::PathBuf>) -> Self {
         Self {
             root: root.into(),

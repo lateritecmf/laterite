@@ -33,18 +33,22 @@ impl Default for WorkOptions {
 }
 
 impl WorkOptions {
+    /// Sets the queues to take from, in priority order.
     pub fn queues(mut self, queues: Vec<String>) -> Self {
         self.queues = queues;
         self
     }
+    /// Sets whether the worker processes one job (or finds none) and returns.
     pub fn once(mut self, once: bool) -> Self {
         self.once = once;
         self
     }
+    /// Sets whether the worker returns once no job is waiting.
     pub fn stop_when_empty(mut self, stop: bool) -> Self {
         self.stop_when_empty = stop;
         self
     }
+    /// Sets the worker's name, recorded on the jobs it claims.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -73,6 +77,7 @@ pub enum Outcome {
 }
 
 impl Worker {
+    /// Returns a worker over `queue` that runs as `options` say.
     pub fn new(queue: Queue, options: WorkOptions) -> Self {
         Self { queue, options }
     }

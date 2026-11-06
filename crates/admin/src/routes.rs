@@ -190,6 +190,7 @@ impl RouteCtx {
         &self.crypt
     }
 
+    /// Returns the application's database handle.
     pub fn db(&self) -> &Db {
         &self.db
     }
@@ -256,6 +257,12 @@ impl RouteCtx {
         &self.base_url
     }
 
+    /// Every contribution the framework did not consume, for a module that
+    /// resolves another's by code.
+    pub fn plugin_defined(&self) -> &Registry {
+        &self.plugin_defined
+    }
+
     /// The contributions of type `T` that the framework itself does not consume.
     ///
     /// This is how one module reads another's contributions. A module declaring
@@ -263,12 +270,6 @@ impl RouteCtx {
     /// it from their `register`, and the route reads them here: the framework
     /// never learns the type, and registration order does not matter because
     /// everything is collected before any route runs.
-    /// Every contribution the framework did not consume, for a module that
-    /// resolves another's by code.
-    pub fn plugin_defined(&self) -> &Registry {
-        &self.plugin_defined
-    }
-
     pub fn contributions<T: Send + Sync + 'static>(&self) -> Vec<&T> {
         self.plugin_defined.items::<T>()
     }
@@ -407,6 +408,7 @@ impl RouteCtxBuilder {
         self
     }
 
+    /// Builds the context, filling every part not set with its default.
     pub fn build(self) -> RouteCtx {
         let events = self.events.unwrap_or_else(|| Events::new(self.db.clone()));
         let auth = self.auth.unwrap_or_else(|| {
@@ -510,10 +512,12 @@ pub struct ScreenReg {
     /// The permission every route under this screen requires. Required, because
     /// an unguarded screen exposes whatever it serves to any signed-in operator.
     pub permission: String,
+    /// The screen's routes.
     pub screen: Arc<dyn Screen>,
 }
 
 impl ScreenReg {
+    /// Returns a registration mounting `screen` at `base_path` behind `permission`, with no menu entry.
     pub fn new(
         base_path: impl Into<String>,
         permission: impl Into<String>,
@@ -560,11 +564,14 @@ pub trait PublicRoute: Send + Sync + 'static {
 /// [`ScreenReg`].
 #[non_exhaustive]
 pub struct PublicRouteReg {
+    /// The literal path the route mounts at, starting with a slash.
     pub path: String,
+    /// The route's handlers.
     pub route: Arc<dyn PublicRoute>,
 }
 
 impl PublicRouteReg {
+    /// Returns a registration mounting `route` at the literal `path`.
     pub fn new(path: impl Into<String>, route: Arc<dyn PublicRoute>) -> Self {
         Self {
             path: path.into(),
@@ -601,11 +608,14 @@ pub trait ResourceFeature: Send + Sync + 'static {
 /// key names none, the resource's.
 #[non_exhaustive]
 pub struct ResourceFeatureReg {
+    /// The descriptor key the feature serves (`import`).
     pub key: String,
+    /// The feature's routes.
     pub feature: Arc<dyn ResourceFeature>,
 }
 
 impl ResourceFeatureReg {
+    /// Returns a registration serving `feature` under every resource declaring `key`.
     pub fn new(key: impl Into<String>, feature: Arc<dyn ResourceFeature>) -> Self {
         Self {
             key: key.into(),

@@ -14,7 +14,9 @@ use sea_query::UpdateStatement;
 /// The media table's columns.
 #[derive(Iden)]
 pub enum Media {
+    /// The `media` table itself.
     Table,
+    /// Bigint auto-increment primary key.
     Id,
     /// The named disk the blob lives on. Stored per record, so a file's physical
     /// location is knowable without consulting configuration that may have moved
@@ -22,24 +24,31 @@ pub enum Media {
     Disk,
     /// BLAKE3 hex of the bytes. Indexed, and the blob path derives from it.
     Hash,
+    /// Size of the bytes in bytes.
     Size,
     /// Sniffed at ingest, never taken from the sender.
     ContentType,
     /// Display metadata. Never a path: the storage path is always the hash, so a
     /// hostile filename cannot reach the filesystem.
     OriginalName,
+    /// Optional display title shown in place of the original name.
     Title,
+    /// Optional alternative text for an image.
     Alt,
     /// Whether this file appears in the media library. A file stored for a
     /// purpose of its own (an import payload, say) is stored but not browsed.
     InLibrary,
+    /// Id of the user who uploaded the file; null when no user did.
     CreatedBy,
+    /// UTC timestamp of creation, as RFC 3339 text.
     CreatedAt,
+    /// UTC timestamp of the last change, as RFC 3339 text.
     UpdatedAt,
     /// The library folder the record sits in; null is the root.
     FolderId,
     /// An image's pixel size, read on ingest; null for anything else.
     Width,
+    /// An image's pixel height, read on ingest; null for anything else.
     Height,
     /// A JSON bag: orientation, dominant colour, duration, whatever a reader found.
     Meta,
@@ -48,22 +57,35 @@ pub enum Media {
 /// A stored file, as the database holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaRecord {
+    /// Id of the record in the `media` table.
     pub id: i64,
+    /// Name of the disk the blob lives on.
     pub disk: String,
+    /// BLAKE3 hex hash of the bytes; the blob's storage path derives from it.
     pub hash: String,
+    /// Size of the bytes in bytes.
     pub size: i64,
+    /// MIME type sniffed from the bytes at ingest.
     pub content_type: String,
+    /// The sender's filename, kept for display only.
     pub original_name: String,
+    /// Display title, when one was set.
     pub title: Option<String>,
+    /// Alternative text for an image, when one was set.
     pub alt: Option<String>,
+    /// Whether the file appears in the media library.
     pub in_library: bool,
+    /// Id of the user who uploaded the file, if any.
     pub created_by: Option<i64>,
     /// The library folder; `None` is the root.
     pub folder_id: Option<i64>,
+    /// Pixel width of an image; `None` for anything else or when unread.
     pub width: Option<i64>,
+    /// Pixel height of an image; `None` for anything else or when unread.
     pub height: Option<i64>,
     /// The meta bag as stored, `{}` when nothing was read.
     pub meta: serde_json::Value,
+    /// UTC timestamp of creation, as RFC 3339 text.
     pub created_at: String,
 }
 
@@ -86,13 +108,19 @@ impl MediaRecord {
 /// What a caller supplies to record an ingested blob.
 #[derive(Debug, Clone)]
 pub struct NewMedia {
+    /// Name of the disk the blob was written to.
     pub disk: String,
+    /// BLAKE3 hex hash of the bytes.
     pub hash: String,
+    /// Size of the bytes in bytes.
     pub size: i64,
+    /// MIME type sniffed from the bytes.
     pub content_type: String,
     /// The sender's filename, kept for display only.
     pub original_name: String,
+    /// Whether the file appears in the media library.
     pub in_library: bool,
+    /// Id of the user who uploaded the file, if any.
     pub created_by: Option<i64>,
 }
 
@@ -100,9 +128,13 @@ pub struct NewMedia {
 /// image's size.
 #[derive(Debug, Clone, Default)]
 pub struct NewMediaExtra {
+    /// Library folder to place the record in; `None` is the root.
     pub folder_id: Option<i64>,
+    /// Pixel width of an image, when known.
     pub width: Option<i64>,
+    /// Pixel height of an image, when known.
     pub height: Option<i64>,
+    /// JSON metadata bag to store; `None` stores `{}`.
     pub meta: Option<serde_json::Value>,
 }
 
@@ -150,10 +182,13 @@ pub(crate) fn from_row(r: &sqlx::any::AnyRow) -> Result<MediaRecord, sqlx::Error
     })
 }
 
+/// Error returned by the media record queries.
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
+    /// Produced when a query fails in the database driver.
     #[error("database error")]
     Database(#[from] sqlx::Error),
+    /// Produced when a framework data-layer helper fails.
     #[error(transparent)]
     Core(#[from] CoreError),
 }
@@ -359,7 +394,6 @@ pub async fn find_all_by_hash(db: &Db, hash: &str) -> Result<Vec<MediaRecord>, R
     Ok(rows.iter().map(from_row).collect::<Result<_, _>>()?)
 }
 
-/// One record by id, or `None` if it is gone.
 /// Every record, oldest first: what a static build copies.
 pub async fn all(db: &Db) -> Result<Vec<MediaRecord>, RecordError> {
     let (sql, values) = build(
@@ -379,6 +413,7 @@ pub async fn all(db: &Db) -> Result<Vec<MediaRecord>, RecordError> {
         .map_err(Into::into)
 }
 
+/// Returns one record by id, or `None` if it is gone.
 pub async fn find(db: &Db, id: i64) -> Result<Option<MediaRecord>, RecordError> {
     let (sql, values) = build(
         db.backend,

@@ -17,6 +17,7 @@ pub struct LocalDisk {
 }
 
 impl LocalDisk {
+    /// Returns a private disk storing blobs under `root`.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),

@@ -674,10 +674,15 @@ impl laterite_core::SiteFile for FrameworkFile {
 /// The optional attributes `request()` takes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RequestOptions {
+    /// The CSS selector of the element the response swaps into (`hx-target`).
     pub target: Option<String>,
+    /// How the response is swapped in (`hx-swap`), such as `outerHTML`.
     pub swap: Option<String>,
+    /// The theme partial the response renders, sent as the `Lat-Partial` header.
     pub partial: Option<String>,
+    /// A question the visitor confirms before the post is sent (`hx-confirm`).
     pub confirm: Option<String>,
+    /// The CSS selector of the element shown while the request runs (`hx-indicator`).
     pub indicator: Option<String>,
 }
 

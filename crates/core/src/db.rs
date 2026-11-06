@@ -18,7 +18,9 @@ use crate::migration::DbBackend;
 /// speaks. Cheap to clone (the pool is reference-counted).
 #[derive(Clone)]
 pub struct Db {
+    /// The connection pool.
     pub pool: AnyPool,
+    /// The database backend the pool speaks, which selects the SQL dialect.
     pub backend: DbBackend,
 }
 

@@ -45,21 +45,27 @@ impl Surface {
 /// with a boot log line.
 #[derive(Debug, Clone)]
 pub enum Insert {
+    /// HTML inserted at the caret of the rich surface.
     Html(String),
+    /// Text inserted at the caret of the markdown surface.
     Text(String),
 }
 
 /// An Insert-menu entry a module contributes to one surface.
 #[derive(Debug, Clone)]
 pub struct EditorCommand {
+    /// The surface whose Insert menu offers the command.
     pub surface: Surface,
     /// Stable within the surface; a later contribution with the same key wins.
     pub key: String,
+    /// The menu entry's label, localized at render.
     pub label: Text,
+    /// What the command puts at the caret.
     pub insert: Insert,
 }
 
 impl EditorCommand {
+    /// Returns a command for `surface` under `key`, labelled `label`, that inserts `insert`.
     pub fn new(
         surface: Surface,
         key: impl Into<String>,
@@ -90,10 +96,14 @@ pub enum SnippetPropertyKind {
 /// A property a snippet's dialog asks for, passed to the snippet by `code`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SnippetProperty {
+    /// The key the property's value is passed to the snippet under.
     pub code: String,
+    /// The label the dialog shows for the property.
     pub title: String,
+    /// What the property holds, which picks the dialog control.
     pub kind: SnippetPropertyKind,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The value the dialog starts with, when there is one.
     pub default: Option<serde_json::Value>,
     /// `(value, label)` pairs for a dropdown.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -103,10 +113,14 @@ pub struct SnippetProperty {
 /// A configurable block an author inserts, expanded by the site at render.
 #[derive(Debug, Clone, Serialize)]
 pub struct Snippet {
+    /// The key that identifies the snippet when the site expands it.
     pub code: String,
+    /// The snippet's name in the Insert menu.
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// A line describing the snippet, when there is one.
     pub description: Option<String>,
+    /// The properties the snippet's dialog asks for.
     pub properties: Vec<SnippetProperty>,
 }
 
@@ -114,6 +128,7 @@ pub struct Snippet {
 /// partials; a module whose snippets are fixed returns a constant list.
 #[laterite_core::strata::async_trait]
 pub trait SnippetSource: Send + Sync {
+    /// Returns the snippets available now.
     async fn list(&self, db: &Db) -> Vec<Snippet>;
 }
 
@@ -125,17 +140,24 @@ pub struct SnippetSourceReg(pub Arc<dyn SnippetSource>);
 /// markdown, the snippets.
 #[derive(Debug, Default, Serialize)]
 pub struct Menu {
+    /// The surface's commands, localized.
     pub commands: Vec<MenuCommand>,
+    /// The snippets the surface offers.
     pub snippets: Vec<Snippet>,
 }
 
 #[derive(Debug, Serialize)]
+/// One command as the menu endpoint sends it to the surface.
 pub struct MenuCommand {
+    /// The command's key, stable within the surface.
     pub key: String,
+    /// The command's label, localized.
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The HTML the command inserts, for the rich surface.
     pub html: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The text the command inserts, for the markdown surface.
     pub text: Option<String>,
 }
 

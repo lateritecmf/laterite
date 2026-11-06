@@ -2,7 +2,7 @@
 //!
 //! [`Markup`] wraps a `String` of escaped HTML: what a field type renders, into a
 //! template's `|safe` slot. Produced only via [`Markup::from_template`] (Askama
-//! auto-escapes), [`Markup::from_override`] (engine-autoescaped), or the audited
+//! auto-escapes), `Markup::from_override` (engine-autoescaped), or the audited
 //! [`Markup::raw_unchecked`] trapdoor. An escaping element builder joins this
 //! when a field type first hand-builds a fragment.
 

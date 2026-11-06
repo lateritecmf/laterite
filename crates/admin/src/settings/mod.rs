@@ -56,6 +56,7 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Returns a store over `db` that writes through `cache`, allowing the settings namespace on it.
     pub fn new(db: laterite_core::Db, cache: laterite_core::Cache) -> Self {
         cache.allow(NAMESPACE);
         Self { db, cache }
@@ -105,7 +106,7 @@ use crate::{render, render_error, AdminState};
 
 /// One editable field of a settings model.
 ///
-/// A settings screen renders [`FormField`](crate::form::FormField)s, the same
+/// A settings screen renders [`FormField`]s, the same
 /// descriptors a list or form screen uses: the module declares which fields its
 /// settings model has, and the framework renders and stores them through the
 /// field-type registry. There is no settings-specific field vocabulary.
@@ -121,11 +122,12 @@ pub struct SettingsItem {
     /// This is a storage key and never a URL. It is dotted, like the module
     /// identity it derives from, and a dotted identifier in a path is how these
     /// screens spent months at `/settings/rainmill.discovery.robots`. Where the
-    /// screen mounts is [`SettingsItem::route`], resolved at boot through the
+    /// screen mounts is `SettingsItem::route`, resolved at boot through the
     /// module's namespace like every other contributed screen.
     pub code: String,
     /// The item's label, description, and category heading, localized at render.
     pub label: Text,
+    /// A short line describing the item in the index and the context sidebar, localized at render.
     pub description: Text,
     /// Group heading in the index.
     pub category: Text,
@@ -150,6 +152,7 @@ pub struct SettingsItem {
     /// its settings form. Used to place list/form screens (like Administrators)
     /// in the settings menu rather than the main menu.
     pub link: Option<String>,
+    /// The fields the settings form shows, in order.
     pub fields: Vec<FormField>,
     /// Where this screen mounts, relative to the admin root, resolved at boot
     /// from the contributing module's namespace. `None` until then.
@@ -165,6 +168,7 @@ pub struct SettingsItem {
 /// A secondary action on a settings screen.
 #[derive(Debug, Clone, Serialize)]
 pub struct SettingsAction {
+    /// The button's label, localized at render.
     pub label: Text,
     /// The path the button posts to, under the admin root (`/settings/mail/test`).
     pub path: String,
@@ -172,8 +176,8 @@ pub struct SettingsAction {
 
 /// The longest a settings description may be: two lines of the context sidebar,
 /// which renders at 211 pixels and 12px type, so roughly 38 characters a line.
-/// The reference system's own descriptions run 27 to 90 characters with a median
-/// of 53, so this sits inside the range a mature panel actually uses.
+/// Mature admin panels run their descriptions from 27 to 90 characters with a
+/// median near 53, so this sits inside the range in use.
 pub(crate) const MAX_DESCRIPTION: usize = 72;
 
 impl SettingsItem {

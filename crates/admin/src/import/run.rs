@@ -124,6 +124,7 @@ pub struct Match {
 }
 
 impl Match {
+    /// Returns a match feeding the file's `column` (from 0) into the form field `field`.
     pub fn new(column: usize, field: impl Into<String>) -> Self {
         Self {
             column,
@@ -138,6 +139,7 @@ impl Match {
 pub struct Duplicates {
     /// The matched field whose value identifies a record.
     pub key: String,
+    /// What happens to a row whose key matches.
     pub on_match: OnMatch,
 }
 
@@ -162,8 +164,11 @@ impl Duplicates {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// What a row does when its key matches a record already there.
 pub enum OnMatch {
+    /// The row is passed over and noted as skipped.
     Skip,
+    /// The row's columns are written over the matching record.
     Update,
 }
 
@@ -209,6 +214,7 @@ impl Status {
 pub struct Note {
     /// The row's line in the file, from 1, the title row counted.
     pub row: u64,
+    /// Whether the row was refused or skipped.
     pub kind: NoteKind,
     /// The field the message is about, when it is about one.
     pub field: Option<String>,
@@ -229,6 +235,7 @@ impl Note {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// What kind of thing a report note records about its row.
 pub enum NoteKind {
     /// The row was not written.
     Error,
@@ -240,36 +247,51 @@ pub enum NoteKind {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Run {
+    /// Id of the run in the import runs table.
     pub id: i64,
+    /// The resource's path as its descriptor declares it (`/products`).
     pub resource: String,
+    /// The stored payload's media record, when the run recorded one.
     pub media_id: Option<i64>,
     /// What it ran: the matches, the policy, and whether anything was written.
     pub spec: RunSpec,
+    /// The display label of the user who started the run.
     pub actor_label: String,
+    /// Where the run is.
     pub status: Status,
     /// Rows read, blank rows left out.
     pub processed: i64,
+    /// Rows written as new records.
     pub created: i64,
+    /// Rows written over an existing record.
     pub updated: i64,
+    /// Rows passed over by the duplicates policy.
     pub skipped: i64,
     /// Rows refused.
     pub errors: i64,
+    /// One note for each row refused or skipped.
     pub notes: Vec<Note>,
+    /// Why the run stopped, when its status is `failed`.
     pub failure: Option<String>,
+    /// UTC timestamp, as text, of when the run was queued and then when it started running.
     pub started_at: String,
+    /// UTC timestamp, as text, of when the run finished, when it has.
     pub finished_at: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+/// The ways starting or reading an import run fails.
 pub enum RunError {
     #[error("database error: {0}")]
+    /// Produced when a query against the run table fails.
     Database(#[from] sqlx::Error),
     /// The spec does not fit the form: a match naming a field it lacks, no
     /// matches at all, a duplicates key no column feeds.
     #[error("the run cannot start: {0}")]
     Spec(String),
     #[error("the file could not be read: {0}")]
+    /// Produced when the uploaded file cannot be read.
     Read(#[from] std::io::Error),
 }
 
@@ -288,13 +310,16 @@ const PROGRESS_EVERY: i64 = 25;
 
 /// The job an import runs as: the run's id and everything the worker needs
 /// to pick the file up and write the rows. Pushed by [`start`]; the handler
-/// [`job_reg`] builds reads the file from the private disk.
+/// `job_reg` builds reads the file from the private disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportJob {
+    /// Id of the run this job carries out.
     pub run_id: i64,
     /// The resource's path as its descriptor declares it (`/products`).
     pub resource: String,
+    /// How the run reads its file and writes its rows.
     pub spec: RunSpec,
+    /// The user the rows are written as.
     pub actor: Actor,
     /// The stored file's hash on the private disk.
     pub hash: String,

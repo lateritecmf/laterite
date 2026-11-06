@@ -3,6 +3,7 @@
 use laterite_core::CoreError;
 use thiserror::Error;
 
+/// Errors raised by authentication, session, and backend-user operations.
 #[derive(Debug, Error)]
 pub enum AuthError {
     /// Username unknown, or password did not match. Deliberately does not
@@ -36,6 +37,7 @@ pub enum AuthError {
     #[error("password hashing failure")]
     PasswordHash(String),
 
+    /// A database query failed.
     #[error("database error")]
     Store(#[from] sqlx::Error),
 

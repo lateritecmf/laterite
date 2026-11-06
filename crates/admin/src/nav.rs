@@ -21,6 +21,7 @@ pub struct NavItem {
     /// Unique among every item (`acme.posts`): what another item names in
     /// `under`.
     pub key: String,
+    /// The entry's label, localized at render.
     pub label: Text,
     /// The path under the admin mount (`/posts`). A section may have none: its
     /// tab then leads to its first visible entry.
@@ -90,16 +91,19 @@ impl NavItem {
         }
     }
 
+    /// Sets the entry's icon, by name from the icon set.
     pub fn icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self
     }
 
+    /// Sets the permission a user must hold to see the entry.
     pub fn permission(mut self, permission: impl Into<String>) -> Self {
         self.permission = Some(permission.into());
         self
     }
 
+    /// Sets the entry's order among its siblings in the band, lowest first.
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
         self
@@ -144,10 +148,12 @@ impl Default for NavItem {
 pub struct Placement {
     /// The key of the section to sit under; `None` is the top bar.
     pub under: Option<String>,
+    /// An icon name from the icon set for the menu entry.
     pub icon: Option<String>,
     /// The band (`slot: media`); the application band when unset.
     #[serde(deserialize_with = "laterite_core::arrange::deserialize_slot")]
     pub slot: i32,
+    /// Sorts among siblings of the band, lowest first; equal orders sort by label.
     pub order: i32,
     /// Sits right after the sibling with this key (a resource's key is
     /// `resource:` and its path, a screen's `screen:` and its path).
@@ -173,6 +179,7 @@ impl Default for Placement {
 }
 
 impl Placement {
+    /// Returns a placement on the top bar in the application band, with no icon.
     pub fn new() -> Self {
         Self::default()
     }
@@ -185,16 +192,19 @@ impl Placement {
         }
     }
 
+    /// Places the entry under the section with this key.
     pub fn under(mut self, section: impl Into<String>) -> Self {
         self.under = Some(section.into());
         self
     }
 
+    /// Sets the entry's icon, by name from the icon set.
     pub fn icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self
     }
 
+    /// Sets the entry's order among its siblings in the band, lowest first.
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
         self

@@ -15,6 +15,7 @@ pub const PERMISSION: &str = "web.manage_site";
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MaintenanceSettings {
+    /// Whether maintenance mode is on: visitors get the maintenance page with status 503.
     pub enabled: bool,
     /// Shown by the plain notice when the theme has no `/maintenance` page.
     pub message: String,

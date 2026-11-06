@@ -37,10 +37,12 @@ pub trait Markup: Send + Sync + 'static {
 pub struct MarkupReg {
     /// A `vendor.name` key, for the boot log and a clash message.
     pub key: String,
+    /// The extension installed into every theme engine.
     pub markup: Arc<dyn Markup>,
 }
 
 impl MarkupReg {
+    /// Registers `markup` under the `vendor.name` `key`.
     pub fn new(key: impl Into<String>, markup: Arc<dyn Markup>) -> Self {
         Self {
             key: key.into(),

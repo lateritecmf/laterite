@@ -9,34 +9,52 @@ use laterite_core::Db;
 
 use crate::record::RecordError;
 
+/// The `media_links` table's columns.
 #[derive(Iden)]
 pub enum MediaLinks {
+    /// The `media_links` table itself.
     Table,
+    /// Bigint auto-increment primary key.
     Id,
+    /// Id of the linked media record.
     MediaId,
+    /// Entity name of the owning record, such as its table.
     OwnerType,
+    /// Id of the owning record, as text.
     OwnerId,
+    /// Name of the owner's field that holds the media.
     Field,
+    /// Zero-based position of the media within the field.
     SortOrder,
+    /// UTC timestamp the link was made, as RFC 3339 text.
     CreatedAt,
 }
 
 /// One link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
+    /// Id of the link in the `media_links` table.
     pub id: i64,
+    /// Id of the linked media record.
     pub media_id: i64,
+    /// Entity name of the owning record, such as `acme_posts`.
     pub owner_type: String,
+    /// Id of the owning record, as text.
     pub owner_id: String,
+    /// Name of the owner's field that holds the media.
     pub field: String,
+    /// Zero-based position of the media within the field.
     pub sort_order: i64,
 }
 
 /// A record, a field and the media it holds, in order.
 #[derive(Debug, Clone, Copy)]
 pub struct Owner<'a> {
+    /// Entity name of the owning record, such as `acme_posts`.
     pub owner_type: &'a str,
+    /// Id of the owning record, as text.
     pub owner_id: &'a str,
+    /// Name of the owner's field that holds the media.
     pub field: &'a str,
 }
 

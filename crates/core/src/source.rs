@@ -132,21 +132,28 @@ impl Format {
 /// switch, `3` is a number, and a repeater's JSON is structured data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Shape {
+    /// Written as a string.
     #[default]
     Text,
+    /// Written as a boolean: a stored `1` is `true`.
     Bool,
+    /// Written as a number.
     Number,
+    /// Written as structured data parsed from the stored JSON.
     Json,
 }
 
 /// A stored column and its shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
+    /// Name of the column in the entity's table.
     pub name: String,
+    /// How the column's text is spelled in a file.
     pub shape: Shape,
 }
 
 impl Column {
+    /// Returns a column named `name` of the given shape.
     pub fn new(name: impl Into<String>, shape: Shape) -> Self {
         Self {
             name: name.into(),
@@ -159,7 +166,9 @@ impl Column {
 /// form stores, in the form's order (which is the file's order).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Columns {
+    /// Name of the primary key column.
     pub id: String,
+    /// Columns the form stores, in the file's order.
     pub stored: Vec<Column>,
     /// The table has `created_at` and `updated_at`: a pull stamps them, and
     /// the file never carries them.
@@ -167,6 +176,7 @@ pub struct Columns {
 }
 
 impl Columns {
+    /// Returns the columns of a table keyed by `id`, without timestamps.
     pub fn new(id: impl Into<String>, stored: Vec<Column>) -> Self {
         Self {
             id: id.into(),
@@ -194,7 +204,13 @@ pub enum SourceError {
     Config(String),
     /// A file could not be read, parsed or written.
     #[error("{path}: {message}")]
-    File { path: PathBuf, message: String },
+    File {
+        /// Path of the file.
+        path: PathBuf,
+        /// What went wrong with it.
+        message: String,
+    },
+    /// Produced when the database reports an error.
     #[error(transparent)]
     Db(#[from] sqlx::Error),
     /// `git` refused, or is not installed.
@@ -205,16 +221,22 @@ pub enum SourceError {
 /// What a pull did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PullReport {
+    /// How many rows were inserted for new records.
     pub created: usize,
+    /// How many existing rows were updated from their records.
     pub updated: usize,
+    /// How many rows were deleted because their record is gone.
     pub removed: usize,
 }
 
 /// One file, read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
+    /// The record's key, from the file name without its extension.
     pub key: String,
+    /// The columns the file spells, by name.
     pub attrs: Map<String, Value>,
+    /// The body under the front matter, for the `markdown` format.
     pub body: Option<String>,
 }
 
@@ -312,8 +334,11 @@ impl SourceCx<'_> {
 /// A row as a source writes it out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
+    /// The record's key, which names its file.
     pub key: String,
+    /// The columns other than the key and body, spelled by shape.
     pub attrs: Map<String, Value>,
+    /// The body column's text, when the source declares one and it is set.
     pub body: Option<String>,
 }
 
@@ -343,11 +368,14 @@ pub trait RecordSource: Send + Sync {
 
 /// A source a module contributes, chosen by a resource's `kind`.
 pub struct RecordSourceReg {
+    /// The code a resource's `kind` selects this source by.
     pub code: String,
+    /// The source itself.
     pub source: Arc<dyn RecordSource>,
 }
 
 impl RecordSourceReg {
+    /// Returns a registration offering `source` under `code`.
     pub fn new(code: impl Into<String>, source: Arc<dyn RecordSource>) -> Self {
         Self {
             code: code.into(),
@@ -961,6 +989,8 @@ pub struct SourceListener {
 }
 
 impl SourceListener {
+    /// Returns a listener keeping `source` (driven by `driver`) in step with
+    /// the `entity` table under the project `root`.
     pub fn new(
         root: impl Into<PathBuf>,
         entity: impl Into<String>,

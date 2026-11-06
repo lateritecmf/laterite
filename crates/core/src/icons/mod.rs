@@ -50,6 +50,7 @@ pub struct IconReg {
 }
 
 impl IconReg {
+    /// Returns an icon `name` drawn by the `svg` element.
     pub fn new(name: impl Into<String>, svg: impl Into<String>) -> Self {
         Self {
             name: name.into(),

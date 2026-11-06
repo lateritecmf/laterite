@@ -47,6 +47,8 @@ pub struct DatabaseQueue {
 }
 
 impl DatabaseQueue {
+    /// Returns a queue driver storing jobs in the `jobs` and `failed_jobs` tables
+    /// of `db`.
     pub fn new(db: Db) -> Self {
         Self { db }
     }

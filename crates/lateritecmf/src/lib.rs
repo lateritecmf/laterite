@@ -23,6 +23,8 @@
 //! `laterite-admin`), which keeps its dependency light; the umbrella is for the
 //! application that assembles them.
 
+#![warn(missing_docs)]
+
 /// The platform library: config, the database, migrations, the record layer,
 /// events, validation, localization, modules and the registry.
 pub use laterite_core as core;

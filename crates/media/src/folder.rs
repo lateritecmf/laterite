@@ -8,22 +8,33 @@ use laterite_core::Db;
 
 use crate::record::{Media, RecordError};
 
+/// The `media_folders` table's columns.
 #[derive(Iden)]
 pub enum MediaFolders {
+    /// The `media_folders` table itself.
     Table,
+    /// Bigint auto-increment primary key.
     Id,
+    /// Id of the parent folder; null for a folder at the root.
     ParentId,
+    /// The folder's name, unique among its siblings ignoring ASCII case.
     Name,
+    /// Materialized path such as `/photos/2026`.
     Path,
+    /// UTC timestamp of creation, as RFC 3339 text.
     CreatedAt,
+    /// UTC timestamp of the last change, as RFC 3339 text.
     UpdatedAt,
 }
 
 /// A folder row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Folder {
+    /// Id of the folder in the `media_folders` table.
     pub id: i64,
+    /// Id of the parent folder; `None` for a folder at the root.
     pub parent_id: Option<i64>,
+    /// The folder's name, trimmed.
     pub name: String,
     /// `/a/b` for the folder `b` under `a`; the root is `/`.
     pub path: String,
@@ -32,20 +43,32 @@ pub struct Folder {
 /// Why a folder operation was refused.
 #[derive(Debug, thiserror::Error)]
 pub enum FolderError {
+    /// Produced when a query fails in the database driver.
     #[error("database error")]
     Database(#[from] sqlx::Error),
+    /// Produced when a media record query fails.
     #[error(transparent)]
     Record(#[from] RecordError),
+    /// Produced when the name fails [`valid_name`]; holds the trimmed name.
     #[error("{0:?} is not a folder name")]
     Name(String),
+    /// Produced when a sibling already has the name (ignoring ASCII case); holds the name.
     #[error("a folder named {0:?} is already there")]
     Taken(String),
+    /// Produced when no folder has the given id; holds the id.
     #[error("no folder {0}")]
     NotFound(i64),
+    /// Produced when a move would place a folder inside itself or one of its descendants.
     #[error("a folder cannot move into itself or below")]
     Cycle,
+    /// Produced when deleting a folder that still holds files or folders.
     #[error("the folder still holds {files} file(s) and {folders} folder(s)")]
-    NotEmpty { files: i64, folders: i64 },
+    NotEmpty {
+        /// Number of files directly in the folder.
+        files: i64,
+        /// Number of folders directly under the folder.
+        folders: i64,
+    },
 }
 
 fn now() -> String {

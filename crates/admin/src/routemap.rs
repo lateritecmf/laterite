@@ -259,6 +259,7 @@ pub struct RouteRow {
 }
 
 impl RouteRow {
+    /// Returns a row for `path`, answered with `methods`, of `kind`, owned by `owner` and gated by `permission`.
     pub fn new(
         methods: &[&str],
         path: impl Into<String>,
@@ -280,15 +281,18 @@ impl RouteRow {
 /// exist only in data (a theme's pages).
 #[laterite_core::strata::async_trait]
 pub trait RouteSource: Send + Sync {
+    /// Returns the rows the module adds to the route map now.
     async fn routes(&self, db: &laterite_core::Db) -> Vec<RouteRow>;
 }
 
 /// A registered [`RouteSource`].
 pub struct RouteSourceReg {
+    /// The source being registered.
     pub source: std::sync::Arc<dyn RouteSource>,
 }
 
 impl RouteSourceReg {
+    /// Returns a registration of `source`.
     pub fn new(source: std::sync::Arc<dyn RouteSource>) -> Self {
         Self { source }
     }

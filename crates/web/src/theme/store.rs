@@ -467,6 +467,7 @@ pub async fn chain(db: &Db, code: &str) -> Result<Vec<Theme>, ThemeError> {
     Ok(out)
 }
 
+/// Returns the theme with `id`; errors with [`ThemeError::NotFound`] when there is none.
 pub async fn theme_by_id(db: &Db, id: i64) -> Result<Theme, ThemeError> {
     let (sql, values) = build(
         db.backend,

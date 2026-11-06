@@ -6,6 +6,8 @@
 //! positional `{}` or format specs are rejected. For a non-literal source, use
 //! `Text::dynamic`.
 
+#![warn(missing_docs)]
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;

@@ -58,6 +58,7 @@ pub struct Themes {
 }
 
 impl Themes {
+    /// Returns a store over `db` that bumps [`NAMESPACE`] in `cache` on every write and pushes to no source.
     pub fn new(db: Db, cache: laterite_core::Cache) -> Self {
         cache.allow(NAMESPACE);
         Self {
@@ -93,6 +94,7 @@ impl Themes {
         }
     }
 
+    /// Returns the database the store writes to.
     pub fn db(&self) -> &Db {
         &self.db
     }
@@ -442,15 +444,22 @@ pub const RESERVED_KEYS: [&str; 6] = [
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
+    /// The theme's display name.
     pub name: String,
+    /// The name of the theme's author.
     pub author: String,
+    /// The URL of the theme's homepage.
     pub homepage: String,
+    /// A short description of the theme, shown on the theme list.
     pub description: String,
     /// A URL for the theme's preview image, shown on the theme list; unset,
     /// the list shows the theme's initials.
     pub preview: Option<String>,
+    /// The code of the parent theme whose templates fill in for the ones this theme lacks.
     pub parent: Option<String>,
+    /// The codes of the modules the theme's templates need.
     pub require: Vec<String>,
+    /// The theme's own settings fields, edited from the theme's settings screen.
     pub form: Option<FormConfig>,
 }
 
@@ -539,12 +548,15 @@ impl FromStr for Kind {
 /// A theme row, with its config parsed.
 #[derive(Debug, Clone)]
 pub struct Theme {
+    /// Id of the theme's row.
     pub id: i64,
+    /// The theme's unique code: lowercase letters, digits and hyphens.
     pub code: String,
     /// The parent's code, mirrored from the config so a lookup never parses.
     pub parent: Option<String>,
     /// A locked theme refuses template saves and deletions.
     pub locked: bool,
+    /// The theme's config, parsed from `config_source`.
     pub config: ThemeConfig,
     /// The YAML as the operator wrote it.
     pub config_source: String,
@@ -552,31 +564,45 @@ pub struct Theme {
     /// the `form` in force (its own, else the nearest ancestor's). Empty
     /// until saved.
     pub settings: serde_json::Value,
+    /// UTC timestamp, as text, of when the theme was created.
     pub created_at: String,
+    /// UTC timestamp, as text, of the theme's last change.
     pub updated_at: String,
 }
 
 /// A template row.
 #[derive(Debug, Clone)]
 pub struct Template {
+    /// Id of the template's row.
     pub id: i64,
+    /// Id of the theme the template belongs to.
     pub theme_id: i64,
+    /// What the template is to the site.
     pub kind: Kind,
+    /// The template's path within its kind, such as `default.htm`.
     pub path: String,
     /// The settings bag (a page's URL and layout, a layout's description).
     pub settings: serde_json::Value,
+    /// The template's markup.
     pub markup: String,
+    /// UTC timestamp, as text, of when the template was created.
     pub created_at: String,
+    /// UTC timestamp, as text, of the template's last save.
     pub updated_at: String,
 }
 
 /// What a template held before a save replaced it.
 #[derive(Debug, Clone)]
 pub struct Revision {
+    /// Id of the revision's row.
     pub id: i64,
+    /// Id of the template the revision belongs to.
     pub template_id: i64,
+    /// The settings bag the template held.
     pub settings: serde_json::Value,
+    /// The markup the template held.
     pub markup: String,
+    /// UTC timestamp, as text, of the save that replaced this content.
     pub saved_at: String,
     /// The operator whose save made this the previous content, when known.
     pub saved_by: Option<i64>,
@@ -586,38 +612,55 @@ pub struct Revision {
 #[derive(Debug, thiserror::Error)]
 pub enum ThemeError {
     #[error("theme storage error")]
+    /// Produced when the database query fails.
     Db(#[from] sqlx::Error),
     #[error("the theme config does not parse: {0}")]
+    /// Produced when the theme's YAML config does not parse or declares a reserved form field.
     Config(String),
     #[error("{0:?} is not a theme code: lowercase letters, digits and hyphens, starting with a letter or digit")]
+    /// Produced when a theme code is not lowercase letters, digits and hyphens.
     Code(String),
     #[error("{0:?} is not a template path: segments of lowercase letters, digits, dots, hyphens and underscores")]
+    /// Produced when a template path has a segment outside the allowed characters.
     Path(String),
     #[error("{0:?} is not a template kind")]
+    /// Produced when a string names no template kind.
     Kind(String),
     #[error("the theme {0:?} is locked")]
+    /// Produced when a save or deletion targets a locked theme.
     Locked(String),
     #[error("no theme {0:?}")]
+    /// Produced when no theme has the given code.
     NotFound(String),
     #[error("no template {0:?}")]
+    /// Produced when no template matches the given path or id.
     TemplateNotFound(String),
     #[error("the theme {0:?} already exists")]
+    /// Produced when a theme with the given code already exists.
     Exists(String),
     #[error("{0}")]
+    /// Produced when the parent chain names a missing theme, loops back, or runs too long.
     Parent(String),
     #[error("the theme {0:?} is active")]
+    /// Produced when an action that needs an inactive theme targets the active one.
     Active(String),
     #[error("the template does not compile")]
+    /// Produced when a template's markup does not compile.
     Template(#[source] engine::RenderError),
     #[error("{0}")]
+    /// Produced when a page's or component's settings do not fit (a missing URL, an unknown component, a bad property).
     Page(String),
     #[error("archive error")]
+    /// Produced when reading or writing a theme archive fails.
     Zip(#[from] zip::result::ZipError),
     #[error("archive error")]
+    /// Produced when a file read or write for an archive fails.
     Io(#[from] std::io::Error),
     #[error("settings error")]
+    /// Produced when the site settings cannot be loaded or saved.
     Settings(#[from] laterite_admin::settings::SettingsError),
     #[error("preferences error")]
+    /// Produced when the admin user's preferences cannot be loaded or saved.
     Preferences(#[from] laterite_admin::settings::PreferencesError),
 }
 
@@ -625,6 +668,7 @@ pub enum ThemeError {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThemeSettings {
+    /// The code of the active theme; `None` when no theme is active.
     pub active: Option<String>,
 }
 
@@ -636,6 +680,7 @@ impl SettingsModel for ThemeSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EditTheme {
+    /// The code of the theme the admin user edits and previews; `None` follows the active theme.
     pub code: Option<String>,
 }
 

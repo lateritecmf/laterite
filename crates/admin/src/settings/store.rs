@@ -21,10 +21,13 @@ pub(crate) enum Settings {
 }
 
 #[derive(Debug, Error)]
+/// What reading or writing a deployment's settings can fail on.
 pub enum SettingsError {
     #[error("database error")]
+    /// Produced when a query against the settings table fails.
     Database(#[from] sqlx::Error),
     #[error("settings serialization error")]
+    /// Produced when a stored value does not match the model, or the model does not serialize.
     Serde(#[from] serde_json::Error),
 }
 
@@ -173,6 +176,7 @@ pub(crate) fn preference_key(code: &str) -> String {
 /// stored once per operator among their preferences rather than once per
 /// deployment. `CODE` is the storage key, namespaced to the module.
 pub trait PreferencesModel: Serialize + DeserializeOwned + Default {
+    /// The stable storage key, namespaced to the module. Never change it once shipped.
     const CODE: &'static str;
 }
 
@@ -180,8 +184,10 @@ pub trait PreferencesModel: Serialize + DeserializeOwned + Default {
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
     #[error("preference storage error")]
+    /// Produced when the user's preferences cannot be read or written.
     Storage(#[from] laterite_auth::AuthError),
     #[error("preference serialization error")]
+    /// Produced when a stored value does not match the model, or the model does not serialize.
     Serde(#[from] serde_json::Error),
 }
 

@@ -46,7 +46,9 @@ pub enum Offer {
     /// Offered when the list is long enough to need it.
     #[default]
     Auto,
+    /// Always offered (`true` in a file).
     Always,
+    /// Never offered (`false` in a file).
     Never,
 }
 
@@ -116,11 +118,13 @@ pub struct Choice {
     pub name: String,
     /// The value it submits.
     pub value: String,
+    /// The text beside the box.
     pub label: String,
     /// A second line under the label.
     pub note: Option<String>,
     /// An identifier shown beside the label, in the code face.
     pub code: Option<String>,
+    /// Whether the box starts ticked.
     pub checked: bool,
     /// Shown, and not changeable: the box is disabled, so the browser leaves it
     /// out of the submission whatever its state.
@@ -128,6 +132,7 @@ pub struct Choice {
 }
 
 impl Choice {
+    /// Returns an unticked, unlocked box that submits `value` under `name`, labelled `label`.
     pub fn new(
         name: impl Into<String>,
         value: impl Into<String>,
@@ -144,21 +149,25 @@ impl Choice {
         }
     }
 
+    /// Sets the second line shown under the label.
     pub fn note(mut self, note: impl Into<String>) -> Self {
         self.note = Some(note.into());
         self
     }
 
+    /// Sets the identifier shown beside the label in the code face.
     pub fn code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self
     }
 
+    /// Sets whether the box starts ticked.
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
         self
     }
 
+    /// Sets whether the box is shown disabled, so its state cannot change and it is left out of the submission.
     pub fn locked(mut self, locked: bool) -> Self {
         self.locked = locked;
         self
@@ -170,11 +179,14 @@ impl Choice {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Group {
+    /// The group's heading.
     pub label: String,
+    /// The choices and groups under the heading.
     pub entries: Vec<Entry>,
 }
 
 impl Group {
+    /// Returns a group headed `label` over `entries`.
     pub fn new(label: impl Into<String>, entries: Vec<Entry>) -> Self {
         Self {
             label: label.into(),
@@ -187,7 +199,9 @@ impl Group {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Entry {
+    /// A single checkbox.
     Choice(Choice),
+    /// A heading over entries of its own.
     Group(Group),
 }
 

@@ -114,9 +114,13 @@ pub async fn disabled_ids(db: &Db) -> anyhow::Result<Vec<String>> {
 
 /// A plugin's registry row, for the admin screen.
 pub struct PluginRow {
+    /// The plugin's module id (`vendor.package`).
     pub id: String,
+    /// Whether the plugin is enabled: the admin user's choice, on by default.
     pub enabled: bool,
+    /// The installed version, when the install flow recorded one.
     pub version: Option<String>,
+    /// Why the plugin was quarantined after failing to load, when it was.
     pub quarantined_reason: Option<String>,
 }
 

@@ -116,8 +116,11 @@ pub async fn registered_columns(db: &Db) -> CoreResult<Vec<(String, String, Stri
 /// under it, and rows that would not open (left as they were).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Rotated {
+    /// How many values were opened under a previous key and sealed again.
     pub resealed: u64,
+    /// How many values were already sealed under the current key.
     pub current: u64,
+    /// How many values would not open and were left as they were.
     pub unreadable: u64,
 }
 
@@ -255,6 +258,7 @@ impl MasterKey {
         format!("{}:{}", self.id, B64.encode(self.secret.expose_secret()))
     }
 
+    /// Returns the key's id, the byte every value sealed under it carries.
     pub fn id(&self) -> u8 {
         self.id
     }

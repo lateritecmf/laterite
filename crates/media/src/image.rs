@@ -20,14 +20,24 @@ pub const MAX_PIXELS: u64 = 50_000_000;
 /// The most memory one decode may take.
 pub const MAX_ALLOC: u64 = 512 * 1024 * 1024;
 
+/// Error returned when an image cannot be measured, decoded or encoded.
 #[derive(Debug, thiserror::Error)]
 pub enum ImageError {
+    /// Produced when the bytes are not in an image format this build can decode.
     #[error("the file is not an image this build can decode")]
     Unsupported,
+    /// Produced when the header claims a size past [`MAX_SIDE`] or [`MAX_PIXELS`], before any decode.
     #[error("the image is {width} by {height}, past the decode limits")]
-    TooLarge { width: u32, height: u32 },
+    TooLarge {
+        /// Pixel width the header claims.
+        width: u32,
+        /// Pixel height the header claims.
+        height: u32,
+    },
+    /// Produced when the pixels cannot be decoded; holds the decoder's message.
     #[error("decoding failed: {0}")]
     Decode(String),
+    /// Produced when the result cannot be encoded; holds the encoder's message.
     #[error("encoding failed: {0}")]
     Encode(String),
 }
@@ -36,9 +46,13 @@ pub enum ImageError {
 /// read. `orientation` is the EXIF value, 1 to 8, with 1 meaning none.
 #[derive(Debug, Clone)]
 pub struct Prepared {
+    /// The bytes to store, with the EXIF segment removed when the format allows.
     pub bytes: Bytes,
+    /// Pixel width as displayed (orientation applied); `None` when not an image.
     pub width: Option<u32>,
+    /// Pixel height as displayed (orientation applied); `None` when not an image.
     pub height: Option<u32>,
+    /// EXIF orientation value, 1 to 8, with 1 meaning none.
     pub orientation: u8,
 }
 
@@ -104,10 +118,15 @@ fn read_orientation(bytes: &[u8]) -> u8 {
 /// A rendered variant.
 #[derive(Debug, Clone)]
 pub struct Rendered {
+    /// The encoded image bytes.
     pub bytes: Vec<u8>,
+    /// Pixel width of the output.
     pub width: u32,
+    /// Pixel height of the output.
     pub height: u32,
+    /// MIME type of the output, such as `image/jpeg`.
     pub content_type: &'static str,
+    /// File extension of the output, without the dot, such as `jpg`.
     pub extension: &'static str,
 }
 
@@ -144,9 +163,13 @@ pub fn render(bytes: &[u8], preset: &Preset, orientation: u8) -> Result<Rendered
 /// A rectangle of the source, in its oriented pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
+    /// Left edge, in pixels from the image's left.
     pub x: u32,
+    /// Top edge, in pixels from the image's top.
     pub y: u32,
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
 }
 

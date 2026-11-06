@@ -11,14 +11,19 @@ use crate::Kind;
 /// How a listing is ordered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Sort {
+    /// Most recently uploaded first.
     #[default]
     Newest,
+    /// Oldest upload first.
     Oldest,
+    /// By original file name, A to Z.
     Name,
+    /// Largest file first.
     Size,
 }
 
 impl Sort {
+    /// Returns the sort named by `name` (`newest`, `oldest`, `name` or `size`), or `None` for any other string.
     pub fn parse(name: &str) -> Option<Sort> {
         match name {
             "newest" => Some(Sort::Newest),
@@ -29,6 +34,7 @@ impl Sort {
         }
     }
 
+    /// Returns the sort's name as [`Sort::parse`] reads it.
     pub fn as_str(self) -> &'static str {
         match self {
             Sort::Newest => "newest",
@@ -47,16 +53,22 @@ pub struct Listing {
     pub folder: Option<i64>,
     /// A case-insensitive match on the name, title or alt text.
     pub search: Option<String>,
+    /// Only records of this kind; `None` lists every kind.
     pub kind: Option<Kind>,
+    /// The order of the records.
     pub sort: Sort,
+    /// One-based page number; 0 is read as 1.
     pub page: u64,
+    /// Records per page, clamped to 1 to 500.
     pub per_page: u64,
 }
 
 /// A page of records and the whole count.
 #[derive(Debug, Clone)]
 pub struct Page {
+    /// The records on this page.
     pub items: Vec<MediaRecord>,
+    /// Number of records matching the listing across every page.
     pub total: i64,
 }
 

@@ -36,6 +36,7 @@ pub const PART_SIZE: usize = 16 * 1024 * 1024;
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct S3Config {
+    /// Name of the bucket blobs are stored in.
     pub bucket: String,
     /// The region name; `auto` for a store that ignores it.
     pub region: String,
@@ -44,6 +45,7 @@ pub struct S3Config {
     /// Static credentials; unset, the SDK's default chain (environment,
     /// profile, instance role) is used.
     pub access_key: Option<String>,
+    /// Secret key paired with `access_key`; both must be set for static credentials.
     pub secret_key: Option<String>,
     /// A key prefix every blob goes under, with no slashes at the ends.
     pub prefix: String,
@@ -120,10 +122,12 @@ impl S3Disk {
         }
     }
 
+    /// Returns the name of the bucket blobs are stored in.
     pub fn bucket(&self) -> &str {
         &self.bucket
     }
 
+    /// Returns the S3 client the disk sends requests through.
     pub fn client(&self) -> &Client {
         &self.client
     }

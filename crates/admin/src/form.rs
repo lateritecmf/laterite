@@ -44,6 +44,7 @@ use crate::{not_found, render, render_error, AdminState};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct FormField {
+    /// The column the field reads and writes, and the name it submits under.
     pub name: String,
     /// The field's label, localized at render. Serde stays a plain string.
     pub label: Text,
@@ -114,11 +115,14 @@ impl PresetShape {
 /// map: `preset: { field: title, type: url }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Preset {
+    /// The field followed as it is typed.
     pub field: String,
+    /// How the followed value is shaped into this field.
     pub shape: PresetShape,
 }
 
 impl Preset {
+    /// Returns a preset that follows `field`, shaped as `shape`.
     pub fn new(field: impl Into<String>, shape: PresetShape) -> Self {
         Self {
             field: field.into(),
@@ -170,6 +174,7 @@ pub struct Trigger {
 }
 
 impl Trigger {
+    /// Returns a trigger that applies `action` when `field` meets `condition`.
     pub fn new(
         action: impl Into<String>,
         field: impl Into<String>,
@@ -535,10 +540,12 @@ impl FormField {
         self
     }
 
+    /// Returns a single-line text field over the column `name`.
     pub fn text(name: &str, label: impl Into<Text>) -> Self {
         Self::of(name, label, "text")
     }
 
+    /// Returns a multi-line text field over the column `name`.
     pub fn textarea(name: &str, label: impl Into<Text>) -> Self {
         Self::of(name, label, "textarea")
     }
@@ -696,15 +703,19 @@ impl FormField {
 #[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct FormConfig {
+    /// The table the form reads and writes.
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.
     pub title: Text,
+    /// The path the form lives under (`{base_path}/new`, `{base_path}/{id}/edit`).
     pub base_path: String,
+    /// The primary-key column records are identified by (`id`).
     pub id_field: String,
     #[serde(
         deserialize_with = "crate::keyed::deserialize",
         serialize_with = "crate::keyed::serialize"
     )]
+    /// The fields the form shows, in order.
     pub fields: Vec<FormField>,
     /// What Enter does in the form's single-line fields. Default `submit`.
     #[serde(default)]
@@ -1852,9 +1863,11 @@ struct FormTemplate {
 /// A field as a value form renders it: the label, the control its type drew,
 /// the help, and the wrapper's layout classes and behaviour attributes.
 pub struct ValueFieldView {
+    /// The field's label, localized.
     pub label: String,
     /// The control's DOM id, which the label points at.
     pub id: String,
+    /// The field's help text, localized, when it has any.
     pub help: Option<String>,
     /// A `section` field: a heading, no control.
     pub section: bool,

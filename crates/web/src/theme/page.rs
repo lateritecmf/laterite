@@ -13,12 +13,19 @@ pub struct PageSettings {
     /// The layout the page renders inside, by name (`default` for
     /// `layouts/default.htm`); empty renders the page alone.
     pub layout: String,
+    /// The page's title, used for the `<title>` and description tags when `meta_title` is empty.
     pub title: String,
+    /// The page's description, used for the description tags when `meta_description` is empty.
     pub description: String,
+    /// The title for the head's meta tags; empty falls back to `title`.
     pub meta_title: String,
+    /// The description for the head's meta tags; empty falls back to `description`.
     pub meta_description: String,
+    /// The URL of the image the head's meta tags share; empty adds none.
     pub meta_image: String,
+    /// The page's meta type head field, edited on the page form.
     pub meta_type: String,
+    /// The content of the page's `robots` meta tag; empty adds none.
     pub meta_robots: String,
     /// A hidden page is served only to an operator previewing the theme.
     pub hidden: bool,

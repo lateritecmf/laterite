@@ -27,7 +27,7 @@ pub struct DomainArgs {
 
 #[derive(Subcommand)]
 enum DomainCommand {
-    /// Route *.<tld> to 127.0.0.1 via dnsmasq and a macOS resolver entry.
+    /// Route *.tld to 127.0.0.1 via dnsmasq and a macOS resolver entry.
     Setup(ActionArgs),
     /// Report the current local-domain DNS state.
     Status(TldArgs),

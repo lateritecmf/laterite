@@ -32,13 +32,18 @@ use crate::{Db, Text};
 pub enum AttrValue {
     /// No value. Stored as SQL `NULL`, distinct from an empty string.
     Null,
+    /// A text value.
     Text(String),
+    /// A 64-bit integer value.
     Int(i64),
+    /// A 64-bit floating-point value.
     Float(f64),
+    /// A boolean value.
     Bool(bool),
     /// An instant, always UTC. Rendered as RFC 3339 with microsecond precision,
     /// the one timestamp format the framework stores.
     DateTime(DateTime<Utc>),
+    /// A JSON value, stored as its text.
     Json(Value),
 }
 
@@ -193,7 +198,9 @@ impl<T: Into<AttrValue>> From<Option<T>> for AttrValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Op {
+    /// A new row is being inserted.
     Create,
+    /// An existing row is being updated.
     Update,
 }
 
@@ -384,14 +391,23 @@ impl Record {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum Actor {
-    /// A signed-in operator.
-    User { id: i64, username: String },
+    /// A signed-in user.
+    User {
+        /// Id of the user's row.
+        id: i64,
+        /// Username, snapshotted for the trail.
+        username: String,
+    },
     /// The process itself, named for the trail: `seed`, `job:purge-sessions`,
     /// `lat admin create`. Not a stand-in user row.
-    System { process: String },
+    System {
+        /// Name of the process (`seed`, `job:purge-sessions`).
+        process: String,
+    },
 }
 
 impl Actor {
+    /// Returns the actor for the signed-in user `id` named `username`.
     pub fn user(id: i64, username: impl Into<String>) -> Self {
         Actor::User {
             id,
@@ -399,6 +415,7 @@ impl Actor {
         }
     }
 
+    /// Returns the actor for a process with no user behind it, named `process`.
     pub fn system(process: impl Into<String>) -> Self {
         Actor::System {
             process: process.into(),
@@ -438,6 +455,8 @@ pub struct SaveCx<'c> {
 }
 
 impl<'c> SaveCx<'c> {
+    /// Returns the context for a save running on `conn`, a transaction on
+    /// `backend`, written by `actor`.
     pub fn new(backend: DbBackend, conn: &'c mut sqlx::AnyConnection, actor: Actor) -> Self {
         Self {
             backend,
@@ -472,6 +491,7 @@ pub struct SavedCx<'a> {
 }
 
 impl<'a> SavedCx<'a> {
+    /// Returns the context for a write `actor` committed on `db`.
     pub fn new(db: &'a Db, actor: &'a Actor) -> Self {
         Self { db, actor }
     }
@@ -481,6 +501,7 @@ impl<'a> SavedCx<'a> {
         self.db
     }
 
+    /// Returns which database this is, for the portable query helpers.
     pub fn backend(&self) -> DbBackend {
         self.db.backend
     }
@@ -567,7 +588,9 @@ pub trait ModelListener: Send + Sync + 'static {
 
 /// A registered listener and the entities it runs for.
 pub struct ModelListenerReg {
+    /// Which entities the listener runs for.
     pub target: ListenerTarget,
+    /// The listener itself.
     pub listener: Arc<dyn ModelListener>,
 }
 

@@ -5,14 +5,20 @@ use std::fmt;
 /// The broad class of a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
+    /// A content type under `image/`.
     Image,
+    /// A content type under `video/`.
     Video,
+    /// A content type under `audio/`.
     Audio,
+    /// A PDF, text, word-processing, spreadsheet, presentation, RTF or EPUB file.
     Document,
+    /// Any content type the other kinds do not cover.
     Other,
 }
 
 impl Kind {
+    /// Every kind, in display order.
     pub const ALL: [Kind; 5] = [
         Kind::Image,
         Kind::Video,

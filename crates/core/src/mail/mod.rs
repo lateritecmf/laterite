@@ -116,7 +116,9 @@ pub const TEST_TEMPLATE: &str = "laterite::test";
 /// `ada@acme.example`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Address {
+    /// Display name shown before the address; `None` for a bare address.
     pub name: Option<String>,
+    /// The email address itself (`ada@acme.example`).
     pub email: String,
 }
 
@@ -155,8 +157,11 @@ impl std::fmt::Display for Address {
 /// A file carried by a message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
+    /// File name the recipient sees.
     pub filename: String,
+    /// MIME type of the file (`application/pdf`).
     pub content_type: String,
+    /// File contents, stored as base64 when the message is queued.
     #[serde(with = "base64_bytes")]
     pub bytes: Vec<u8>,
 }
@@ -179,13 +184,20 @@ mod base64_bytes {
 /// What a message says: a template and its variables, or a body of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Content {
+    /// Rendered from a registered template.
     Template {
+        /// Code of the template to render (`acme.blog::welcome`).
         code: String,
+        /// Variables the template is rendered with, as a JSON object.
         vars: serde_json::Value,
     },
+    /// Carries its own subject and body, rendered as given.
     Raw {
+        /// Subject line.
         subject: String,
+        /// Plain-text body.
         text: String,
+        /// HTML body; `None` sends a text-only message.
         html: Option<String>,
     },
 }
@@ -194,13 +206,19 @@ pub enum Content {
 /// and the recipient methods; stored as JSON when queued.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
+    /// What the message says: a template or a body of its own.
     pub content: Content,
+    /// Primary recipients.
     pub to: Vec<Address>,
+    /// Carbon-copy recipients.
     pub cc: Vec<Address>,
+    /// Blind carbon-copy recipients.
     pub bcc: Vec<Address>,
+    /// Address replies go to; `None` replies to the sender.
     pub reply_to: Option<Address>,
     /// A sender other than the configured one.
     pub from: Option<Address>,
+    /// Files attached to the message.
     pub attachments: Vec<Attachment>,
 }
 
@@ -240,26 +258,32 @@ impl Message {
         self
     }
 
+    /// Adds a carbon-copy recipient; text that is not an address is dropped.
     pub fn cc(mut self, address: &str) -> Self {
         self.cc.extend(Address::parse(address));
         self
     }
 
+    /// Adds a blind carbon-copy recipient; text that is not an address is dropped.
     pub fn bcc(mut self, address: &str) -> Self {
         self.bcc.extend(Address::parse(address));
         self
     }
 
+    /// Sets the reply-to address; text that is not an address clears it.
     pub fn reply_to(mut self, address: &str) -> Self {
         self.reply_to = Address::parse(address);
         self
     }
 
+    /// Sets a sender other than the configured one; text that is not an address
+    /// clears it.
     pub fn from(mut self, address: &str) -> Self {
         self.from = Address::parse(address);
         self
     }
 
+    /// Attaches a file named `filename` of MIME type `content_type`.
     pub fn attach(
         mut self,
         filename: impl Into<String>,
@@ -278,14 +302,23 @@ impl Message {
 /// A message rendered and addressed: what a driver delivers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Envelope {
+    /// Sender: the message's own `from`, else the configured one.
     pub from: Address,
+    /// Primary recipients, or the development override alone while it is set.
     pub to: Vec<Address>,
+    /// Carbon-copy recipients; empty while the development override is set.
     pub cc: Vec<Address>,
+    /// Blind carbon-copy recipients; empty while the development override is set.
     pub bcc: Vec<Address>,
+    /// Address replies go to; `None` replies to the sender.
     pub reply_to: Option<Address>,
+    /// Rendered subject line.
     pub subject: String,
+    /// Rendered plain-text body.
     pub text: String,
+    /// Rendered HTML body; `None` for a text-only message.
     pub html: Option<String>,
+    /// Files attached to the message.
     pub attachments: Vec<Attachment>,
 }
 
@@ -295,6 +328,7 @@ pub struct Envelope {
 pub trait Mailer: Send + Sync {
     /// The driver's name, as `mail.driver` names it.
     fn name(&self) -> &'static str;
+    /// Delivers one envelope; an error leaves the send to be retried.
     async fn deliver(&self, envelope: &Envelope) -> CoreResult<()>;
 }
 
@@ -309,6 +343,7 @@ pub struct MailDriverReg {
 }
 
 impl MailDriverReg {
+    /// Returns a registration offering a driver under `name`, built by `build`.
     pub fn new<F>(name: &'static str, build: F) -> Self
     where
         F: Fn(&MailConfig, &Db) -> CoreResult<Arc<dyn Mailer>> + Send + Sync + 'static,
@@ -319,10 +354,13 @@ impl MailDriverReg {
         }
     }
 
+    /// Returns the name `mail.driver` selects this driver by.
     pub fn name(&self) -> &'static str {
         self.name
     }
 
+    /// Builds the driver from `config`; errors when the configuration does not
+    /// suit it.
     pub fn build(&self, config: &MailConfig, db: &Db) -> CoreResult<Arc<dyn Mailer>> {
         (self.build)(config, db)
     }
@@ -366,6 +404,7 @@ pub trait MailRegistry {
         file: &'static str,
         text: &'static str,
     );
+    /// Offers a mail driver under its name, for `mail.driver` to select.
     fn add_mail_driver(&mut self, driver: MailDriverReg);
 }
 
@@ -470,6 +509,7 @@ pub fn build_driver(
 /// driver.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sender {
+    /// Address every message is sent from unless it names its own.
     pub from: Address,
     /// Every message goes here instead of its recipients while set.
     pub to: Option<Address>,
@@ -527,6 +567,7 @@ impl std::fmt::Debug for Mail {
 /// The job that renders and delivers a queued message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendMail {
+    /// The message to render and deliver.
     pub message: Message,
 }
 
@@ -534,7 +575,7 @@ pub struct SendMail {
 impl Job for SendMail {
     const NAME: &'static str = "laterite.mail::send";
 
-    /// Never called: the handler [`Mail::job_reg`] builds runs it, since it
+    /// Never called: the handler `Mail::job_reg` builds runs it, since it
     /// needs the mail service.
     async fn run(&self, _cx: &JobCx) -> Result<(), JobError> {
         Err(JobError::fail("the mail job runs through the mail service"))
@@ -610,6 +651,7 @@ impl Mail {
             .mailer = mailer;
     }
 
+    /// Returns the name of the driver in use.
     pub fn driver_name(&self) -> &'static str {
         self.inner
             .transport
@@ -626,6 +668,7 @@ impl Mail {
         names
     }
 
+    /// Returns the current sender and development override.
     pub fn sender(&self) -> Sender {
         self.inner
             .transport

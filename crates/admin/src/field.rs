@@ -25,8 +25,11 @@ use crate::picker::PickerRegistry;
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum FieldValue {
+    /// No value: a new record's empty field or a null column.
     Null,
+    /// A scalar value as text.
     Text(String),
+    /// A structured value, for a type that holds more than one scalar.
     Json(serde_json::Value),
 }
 
@@ -65,7 +68,9 @@ impl ResolvedOptions {
 /// marker, error list) or the type renders bare (a hidden field, a heading).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Chrome {
+    /// The framework renders the label, required marker and error list around the control.
     Wrapped,
+    /// The type renders its own markup with no chrome.
     Bare,
 }
 
@@ -76,12 +81,15 @@ pub struct FieldCx<'a> {
     pub name: &'a str,
     /// A DOM-safe id for the control and its label's `for`.
     pub id: &'a str,
+    /// The field's label, already localized.
     pub label: &'a str,
+    /// The value the control shows.
     pub value: &'a FieldValue,
     /// Derived from the merged (intrinsic + descriptor) rules.
     pub required: bool,
     /// The longest value the rules accept, from a `max_length` rule.
     pub max_length: Option<usize>,
+    /// The type's options, resolved at boot.
     pub opts: &'a ResolvedOptions,
     /// The admin mount path (e.g. `/admin`), so a type that calls an endpoint
     /// (the reference picker) builds its URL without knowing routing conventions.
@@ -110,16 +118,22 @@ impl FieldCx<'_> {
 /// so an override never re-derives data. `data` is per-type data, never HTML.
 #[derive(Debug, Clone, Serialize)]
 pub struct FieldVm {
+    /// The field type's key, which the override resolver looks up.
     pub view_key: String,
+    /// The submitted field name.
     pub name: String,
+    /// The DOM id of the control.
     pub id: String,
+    /// The field's label, localized.
     pub label: String,
+    /// Whether the rules make the field required.
     pub required: bool,
+    /// The value the control shows.
     pub value: FieldValue,
+    /// Per-type data the template renders from, never HTML (null when the type has none).
     pub data: serde_json::Value,
 }
 
-/// A field type: behaviour registered once per string key.
 /// What a field sees of the submission when it produces its stored value.
 ///
 /// A scalar field wants [`value`](Self::value), the single entry under its own
@@ -132,6 +146,7 @@ pub struct SubmittedField<'a> {
 }
 
 impl<'a> SubmittedField<'a> {
+    /// Returns the view of `data`, the whole submission, for the field named `name`.
     pub fn new(name: &'a str, data: &'a HashMap<String, String>) -> Self {
         Self { name, data }
     }
@@ -168,6 +183,11 @@ impl<'a> SubmittedField<'a> {
     }
 }
 
+/// A field type: behaviour registered once per string key.
+///
+/// A module implements it and registers it with [`FieldTypeReg`]; the form handlers
+/// call it to resolve options, render the control and turn a submission into
+/// the stored value.
 pub trait FieldType: Send + Sync + 'static {
     /// The stable key for override resolution and default-template selection
     /// (bare like `text` for core; dotted `vendor.name` for plugins).
@@ -297,16 +317,22 @@ pub struct OptionsError(pub String);
 /// The surface being rendered, for override resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
+    /// A form field's control.
     Field,
+    /// A list column's cell.
     Column,
 }
 
 /// Where a render is happening, for override resolution (most-specific first:
 /// `resource.field` then `view_key` then the compiled default).
 pub struct OverrideScope<'a> {
+    /// Whether a field or a list cell is rendering.
     pub surface: Surface,
+    /// The field or column type's key.
     pub view_key: &'a str,
+    /// The resource the render belongs to, when there is one.
     pub resource: Option<&'a str>,
+    /// The field or column name, when there is one.
     pub field: Option<&'a str>,
 }
 
@@ -352,10 +378,12 @@ pub type FieldRegistry = HashMap<String, Arc<dyn FieldType>>;
 /// disagree with the type it registers. Use a dotted `vendor.name` to stay clear
 /// of the built-ins and of other modules.
 pub struct FieldTypeReg {
+    /// The field type being registered.
     pub field_type: Arc<dyn FieldType>,
 }
 
 impl FieldTypeReg {
+    /// Returns a registration for `field_type`, keyed by its `view_key`.
     pub fn new(field_type: Arc<dyn FieldType>) -> Self {
         Self { field_type }
     }
@@ -915,13 +943,21 @@ struct RepeaterTmpl {
 #[serde(rename_all = "lowercase")]
 pub enum CodeLanguage {
     #[default]
+    /// Plain text, no highlighting.
     Text,
+    /// HTML markup.
     Html,
+    /// CSS stylesheets.
     Css,
+    /// JavaScript.
     Javascript,
+    /// JSON.
     Json,
+    /// YAML.
     Yaml,
+    /// Markdown.
     Markdown,
+    /// Jinja templates.
     Jinja,
 }
 
@@ -1526,7 +1562,9 @@ pub(crate) fn builtin_registry() -> FieldRegistry {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
+    /// Before the input.
     Leading,
+    /// After the input.
     Trailing,
 }
 
@@ -1535,6 +1573,7 @@ pub enum Placement {
 /// renders it into the input group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Adornment {
+    /// Which side of the input the adornment sits on.
     pub placement: Placement,
     /// `true` renders a `<button>` (an action); `false` an inert affix `<span>`.
     pub button: bool,

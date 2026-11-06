@@ -22,12 +22,19 @@ use crate::driver::{ByteStream, StorageDriver, StorageError};
 /// What went wrong taking a file in.
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
+    /// Produced when the stream passes the size limit mid-read.
     #[error("the file is larger than the {limit} byte limit")]
-    TooLarge { limit: u64 },
+    TooLarge {
+        /// The limit that was passed, in bytes.
+        limit: u64,
+    },
+    /// Produced when the stream yields no bytes.
     #[error("the file is empty")]
     Empty,
+    /// Produced when the disk cannot check for or write the blob.
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    /// Produced when the incoming byte stream fails.
     #[error("read error: {0}")]
     Read(#[from] std::io::Error),
 }
@@ -38,6 +45,7 @@ pub struct Ingested {
     /// BLAKE3 of the bytes, hex. The blob's path is derived from it, so identical
     /// bytes on one disk are stored once.
     pub hash: String,
+    /// Size of the bytes in bytes.
     pub size: u64,
     /// Sniffed from the leading bytes, never taken from the sender. A client's
     /// declared content type is a claim about a file it chose; believing it is

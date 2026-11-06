@@ -5,6 +5,8 @@
 //! loading, the framework error taxonomy, database connectivity and
 //! migrations, module registration, and pagination primitives.
 
+#![warn(missing_docs)]
+
 pub mod arrange;
 pub mod cache;
 pub mod capabilities;

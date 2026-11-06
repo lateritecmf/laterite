@@ -34,7 +34,9 @@ pub const MAX_CANDIDATES: usize = 8;
 /// `key` names the fold in a chain's [`fingerprint`](NormalizerChain::fingerprint),
 /// so it must stay stable once a deployment has folded data with it.
 pub trait Normalizer: Send + Sync + 'static {
+    /// Returns the fold's stable name (`case`, `diacritics`).
     fn key(&self) -> &'static str;
+    /// Returns `text` folded.
     fn fold(&self, text: &str) -> String;
 }
 
@@ -132,10 +134,12 @@ pub struct NormalizerChain {
 }
 
 impl NormalizerChain {
+    /// Returns an empty chain, which leaves text unchanged.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Appends `fold` to the chain; folds run in the order added.
     pub fn with(mut self, fold: impl Normalizer) -> Self {
         self.folds.push(Arc::new(fold));
         self
@@ -151,6 +155,7 @@ impl NormalizerChain {
             .with(Whitespace)
     }
 
+    /// Returns `text` run through every fold in order.
     pub fn fold(&self, text: &str) -> String {
         self.folds
             .iter()
@@ -167,6 +172,7 @@ impl NormalizerChain {
             .join("+")
     }
 
+    /// Returns whether the chain holds no folds.
     pub fn is_empty(&self) -> bool {
         self.folds.is_empty()
     }
@@ -187,6 +193,7 @@ pub struct Aliases {
 }
 
 impl Aliases {
+    /// Returns an empty alias table.
     pub fn new() -> Self {
         Self::default()
     }
@@ -270,7 +277,9 @@ fn swap_token(text: &str, from: &str, to: &str) -> String {
 /// What a matcher is given: the column to match and the candidate terms, already
 /// folded, expanded and escaped.
 pub struct MatchCx<'a> {
+    /// Name of the column to match against.
     pub column: &'a str,
+    /// Candidate terms, folded, expanded and escaped for `LIKE`.
     pub candidates: &'a [String],
 }
 
@@ -279,6 +288,7 @@ pub struct MatchCx<'a> {
 /// Synchronous by design: `sea_query`'s expression tree is not `Send`, so a
 /// matcher runs inside the scoped build block rather than across an await.
 pub trait Matcher: Send + Sync + 'static {
+    /// Returns the matcher's stable name (`like`).
     fn key(&self) -> &'static str;
     /// Whether this matcher can run here. A matcher needing a database extension
     /// checks the capability set and stands down when it is absent, so one
@@ -287,6 +297,7 @@ pub trait Matcher: Send + Sync + 'static {
         let _ = caps;
         true
     }
+    /// Returns the condition matching `cx.column` against any of the candidates.
     fn condition(&self, cx: &MatchCx<'_>) -> Condition;
 }
 
@@ -356,11 +367,13 @@ impl SearchProfile {
         Self::new().with_chain(NormalizerChain::standard())
     }
 
+    /// Replaces the fold chain.
     pub fn with_chain(mut self, chain: NormalizerChain) -> Self {
         self.chain = chain;
         self
     }
 
+    /// Adds a query expander, run after the folds.
     pub fn with_expander(mut self, expander: impl QueryExpander) -> Self {
         self.expanders.push(Arc::new(expander));
         self
@@ -373,10 +386,12 @@ impl SearchProfile {
         self
     }
 
+    /// Returns the profile's fold chain.
     pub fn chain(&self) -> &NormalizerChain {
         &self.chain
     }
 
+    /// Returns `text` folded by the profile's chain.
     pub fn fold(&self, text: &str) -> String {
         self.chain.fold(text)
     }

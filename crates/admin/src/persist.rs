@@ -1,7 +1,7 @@
 //! The persister seam: a form's write is a handler, resolved at boot from a
 //! string key on the descriptor.
 //!
-//! Every form gets a [`DefaultPersister`] (the descriptor-driven single-statement
+//! Every form gets a `DefaultPersister` (the descriptor-driven single-statement
 //! insert/update) unless it names a registered [`Persister`], letting an entity
 //! that needs a custom, atomic, multi-statement write (a tree's ancestor closure,
 //! say) plug in without a hand-written CRUD handler. A persister is a registered
@@ -113,7 +113,9 @@ pub trait Persister: Send + Sync + 'static {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct MoveTo<'a> {
+    /// The table the record lives in.
     pub entity: &'a str,
+    /// The primary-key column records are identified by.
     pub id_field: &'a str,
     /// The record moving.
     pub id: &'a str,
@@ -368,11 +370,14 @@ async fn save_in(
 
 /// A registered persister: its dotted `vendor.name` key and the handler.
 pub struct PersisterReg {
+    /// The persister's dotted `vendor.name` key, which a form selects it by.
     pub name: String,
+    /// The write handler being registered.
     pub persister: Arc<dyn Persister>,
 }
 
 impl PersisterReg {
+    /// Returns a registration of `persister` under `name`.
     pub fn new(name: impl Into<String>, persister: Arc<dyn Persister>) -> Self {
         Self {
             name: name.into(),

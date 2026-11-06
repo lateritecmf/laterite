@@ -17,8 +17,10 @@ use laterite_core::strata::async_trait;
 /// arrives to the moment it lands, so its size never has to fit in memory.
 pub type ByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;
 
+/// Error returned by a [`StorageDriver`] operation.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
+    /// Produced when the underlying filesystem or object store request fails.
     #[error("storage io error: {0}")]
     Io(#[from] io::Error),
     /// A path that escapes the disk root, or is otherwise not one this driver
@@ -31,6 +33,7 @@ pub enum StorageError {
 /// What a driver knows about a stored blob without reading it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobMeta {
+    /// Size of the blob in bytes.
     pub size: u64,
 }
 
@@ -43,6 +46,7 @@ pub trait StorageDriver: Send + Sync + 'static {
     /// identical bytes and overwriting is always safe.
     async fn put(&self, path: &str, data: ByteStream) -> Result<(), StorageError>;
 
+    /// Opens the blob at `path` as a byte stream; errors when it is missing or unreadable.
     async fn get(&self, path: &str) -> Result<ByteStream, StorageError>;
 
     /// Removes a blob. Missing is success: deletion is driven by garbage
@@ -93,7 +97,9 @@ pub trait StorageDriver: Send + Sync + 'static {
 /// How a served file is offered: shown in the page, or saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Disposition {
+    /// Shown in the page.
     Inline,
+    /// Saved as a download.
     Attachment,
 }
 

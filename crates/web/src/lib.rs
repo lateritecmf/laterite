@@ -35,6 +35,8 @@
 //! # Ok(()) }
 //! ```
 
+#![warn(missing_docs)]
+
 pub mod theme;
 
 use std::fs;

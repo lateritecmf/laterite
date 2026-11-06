@@ -1421,206 +1421,406 @@ pub static ICONS: [Icon; 200] = [
 ];
 
 /// Every icon name as a constant, so the framework's own uses are
-/// checked by the compiler rather than by a test.
+/// checked by the compiler.
 pub mod names {
+    /// The `activity` icon, in the objects group.
     pub const ACTIVITY: &str = "activity";
+    /// The `alarm-clock` icon, in the time-place group.
     pub const ALARM_CLOCK: &str = "alarm-clock";
+    /// The `arrow-up-down` icon, in the chrome group.
     pub const ARROW_UP_DOWN: &str = "arrow-up-down";
+    /// The `at-sign` icon, in the communication group.
     pub const AT_SIGN: &str = "at-sign";
+    /// The `award` icon, in the objects group.
     pub const AWARD: &str = "award";
+    /// The `badge-percent` icon, in the commerce group.
     pub const BADGE_PERCENT: &str = "badge-percent";
+    /// The `banknote` icon, in the commerce group.
     pub const BANKNOTE: &str = "banknote";
+    /// The `bell` icon, in the communication group.
     pub const BELL: &str = "bell";
+    /// The `bell-off` icon, in the communication group.
     pub const BELL_OFF: &str = "bell-off";
+    /// The `bell-ring` icon, in the communication group.
     pub const BELL_RING: &str = "bell-ring";
+    /// The `blocks` icon, in the objects group.
     pub const BLOCKS: &str = "blocks";
+    /// The `bluetooth` icon, in the technical group.
     pub const BLUETOOTH: &str = "bluetooth";
+    /// The `bold` icon, in the content group.
     pub const BOLD: &str = "bold";
+    /// The `book-open` icon, in the content group.
     pub const BOOK_OPEN: &str = "book-open";
+    /// The `bookmark` icon, in the content group.
     pub const BOOKMARK: &str = "bookmark";
+    /// The `bot` icon, in the technical group.
     pub const BOT: &str = "bot";
+    /// The `box` icon, in the objects group.
     pub const BOX: &str = "box";
+    /// The `boxes` icon, in the objects group.
     pub const BOXES: &str = "boxes";
+    /// The `braces` icon, in the content group.
     pub const BRACES: &str = "braces";
+    /// The `briefcase` icon, in the commerce group.
     pub const BRIEFCASE: &str = "briefcase";
+    /// The `brush` icon, in the objects group.
     pub const BRUSH: &str = "brush";
+    /// The `bug` icon, in the technical group.
     pub const BUG: &str = "bug";
+    /// The `building` icon, in the commerce group.
     pub const BUILDING: &str = "building";
+    /// The `building-2` icon, in the commerce group.
     pub const BUILDING_2: &str = "building-2";
+    /// The `calculator` icon, in the commerce group.
     pub const CALCULATOR: &str = "calculator";
+    /// The `calendar` icon, in the time-place group.
     pub const CALENDAR: &str = "calendar";
+    /// The `calendar-days` icon, in the time-place group.
     pub const CALENDAR_DAYS: &str = "calendar-days";
+    /// The `camera` icon, in the technical group.
     pub const CAMERA: &str = "camera";
+    /// The `chart-bar` icon, in the commerce group.
     pub const CHART_BAR: &str = "chart-bar";
+    /// The `chart-line` icon, in the commerce group.
     pub const CHART_LINE: &str = "chart-line";
+    /// The `chart-pie` icon, in the commerce group.
     pub const CHART_PIE: &str = "chart-pie";
+    /// The `check` icon, in the chrome group.
     pub const CHECK: &str = "check";
+    /// The `check-check` icon, in the objects group.
     pub const CHECK_CHECK: &str = "check-check";
+    /// The `chevron-down` icon, in the chrome group.
     pub const CHEVRON_DOWN: &str = "chevron-down";
+    /// The `chevron-left` icon, in the chrome group.
     pub const CHEVRON_LEFT: &str = "chevron-left";
+    /// The `chevron-right` icon, in the chrome group.
     pub const CHEVRON_RIGHT: &str = "chevron-right";
+    /// The `chevron-up` icon, in the chrome group.
     pub const CHEVRON_UP: &str = "chevron-up";
+    /// The `chevrons-left` icon, in the chrome group.
     pub const CHEVRONS_LEFT: &str = "chevrons-left";
+    /// The `chevrons-right` icon, in the chrome group.
     pub const CHEVRONS_RIGHT: &str = "chevrons-right";
+    /// The `circle` icon, in the objects group.
     pub const CIRCLE: &str = "circle";
+    /// The `circle-alert` icon, in the chrome group.
     pub const CIRCLE_ALERT: &str = "circle-alert";
+    /// The `circle-check` icon, in the chrome group.
     pub const CIRCLE_CHECK: &str = "circle-check";
+    /// The `circle-help` icon, in the chrome group.
     pub const CIRCLE_HELP: &str = "circle-help";
+    /// The `circle-x` icon, in the chrome group.
     pub const CIRCLE_X: &str = "circle-x";
+    /// The `clock` icon, in the time-place group.
     pub const CLOCK: &str = "clock";
+    /// The `cloud` icon, in the technical group.
     pub const CLOUD: &str = "cloud";
+    /// The `cloud-download` icon, in the technical group.
     pub const CLOUD_DOWNLOAD: &str = "cloud-download";
+    /// The `cloud-upload` icon, in the technical group.
     pub const CLOUD_UPLOAD: &str = "cloud-upload";
+    /// The `code` icon, in the content group.
     pub const CODE: &str = "code";
+    /// The `coins` icon, in the commerce group.
     pub const COINS: &str = "coins";
+    /// The `columns-3` icon, in the chrome group.
     pub const COLUMNS_3: &str = "columns-3";
+    /// The `compass` icon, in the time-place group.
     pub const COMPASS: &str = "compass";
+    /// The `component` icon, in the objects group.
     pub const COMPONENT: &str = "component";
+    /// The `contact` icon, in the people group.
     pub const CONTACT: &str = "contact";
+    /// The `copy` icon, in the chrome group.
     pub const COPY: &str = "copy";
+    /// The `cpu` icon, in the technical group.
     pub const CPU: &str = "cpu";
+    /// The `credit-card` icon, in the commerce group.
     pub const CREDIT_CARD: &str = "credit-card";
+    /// The `crown` icon, in the objects group.
     pub const CROWN: &str = "crown";
+    /// The `database` icon, in the technical group.
     pub const DATABASE: &str = "database";
+    /// The `download` icon, in the chrome group.
     pub const DOWNLOAD: &str = "download";
+    /// The `droplet` icon, in the objects group.
     pub const DROPLET: &str = "droplet";
+    /// The `ellipsis` icon, in the chrome group.
     pub const ELLIPSIS: &str = "ellipsis";
+    /// The `ellipsis-vertical` icon, in the chrome group.
     pub const ELLIPSIS_VERTICAL: &str = "ellipsis-vertical";
+    /// The `external-link` icon, in the chrome group.
     pub const EXTERNAL_LINK: &str = "external-link";
+    /// The `eye` icon, in the chrome group.
     pub const EYE: &str = "eye";
+    /// The `eye-off` icon, in the chrome group.
     pub const EYE_OFF: &str = "eye-off";
+    /// The `file` icon, in the content group.
     pub const FILE: &str = "file";
+    /// The `file-text` icon, in the content group.
     pub const FILE_TEXT: &str = "file-text";
+    /// The `files` icon, in the content group.
     pub const FILES: &str = "files";
+    /// The `film` icon, in the content group.
     pub const FILM: &str = "film";
+    /// The `fingerprint` icon, in the people group.
     pub const FINGERPRINT: &str = "fingerprint";
+    /// The `flag` icon, in the content group.
     pub const FLAG: &str = "flag";
+    /// The `flame` icon, in the objects group.
     pub const FLAME: &str = "flame";
+    /// The `folder` icon, in the content group.
     pub const FOLDER: &str = "folder";
+    /// The `folder-open` icon, in the content group.
     pub const FOLDER_OPEN: &str = "folder-open";
+    /// The `folder-plus` icon, in the content group.
     pub const FOLDER_PLUS: &str = "folder-plus";
+    /// The `funnel` icon, in the chrome group.
     pub const FUNNEL: &str = "funnel";
+    /// The `gauge` icon, in the objects group.
     pub const GAUGE: &str = "gauge";
+    /// The `gift` icon, in the commerce group.
     pub const GIFT: &str = "gift";
+    /// The `git-branch` icon, in the technical group.
     pub const GIT_BRANCH: &str = "git-branch";
+    /// The `globe` icon, in the time-place group.
     pub const GLOBE: &str = "globe";
+    /// The `grip-vertical` icon, in the chrome group.
     pub const GRIP_VERTICAL: &str = "grip-vertical";
+    /// The `hammer` icon, in the objects group.
     pub const HAMMER: &str = "hammer";
+    /// The `hard-drive` icon, in the technical group.
     pub const HARD_DRIVE: &str = "hard-drive";
+    /// The `heading` icon, in the content group.
     pub const HEADING: &str = "heading";
+    /// The `heart` icon, in the content group.
     pub const HEART: &str = "heart";
+    /// The `history` icon, in the chrome group.
     pub const HISTORY: &str = "history";
+    /// The `home` icon, in the time-place group.
     pub const HOME: &str = "home";
+    /// The `id-card` icon, in the people group.
     pub const ID_CARD: &str = "id-card";
+    /// The `image` icon, in the content group.
     pub const IMAGE: &str = "image";
+    /// The `images` icon, in the content group.
     pub const IMAGES: &str = "images";
+    /// The `info` icon, in the chrome group.
     pub const INFO: &str = "info";
+    /// The `italic` icon, in the content group.
     pub const ITALIC: &str = "italic";
+    /// The `key` icon, in the people group.
     pub const KEY: &str = "key";
+    /// The `landmark` icon, in the commerce group.
     pub const LANDMARK: &str = "landmark";
+    /// The `laptop` icon, in the technical group.
     pub const LAPTOP: &str = "laptop";
+    /// The `layers` icon, in the objects group.
     pub const LAYERS: &str = "layers";
+    /// The `layout-dashboard` icon, in the chrome group.
     pub const LAYOUT_DASHBOARD: &str = "layout-dashboard";
+    /// The `layout-grid` icon, in the chrome group.
     pub const LAYOUT_GRID: &str = "layout-grid";
+    /// The `layout-template` icon, in the objects group.
     pub const LAYOUT_TEMPLATE: &str = "layout-template";
+    /// The `leaf` icon, in the objects group.
     pub const LEAF: &str = "leaf";
+    /// The `lightbulb` icon, in the objects group.
     pub const LIGHTBULB: &str = "lightbulb";
+    /// The `link` icon, in the content group.
     pub const LINK: &str = "link";
+    /// The `list` icon, in the chrome group.
     pub const LIST: &str = "list";
+    /// The `list-ordered` icon, in the content group.
     pub const LIST_ORDERED: &str = "list-ordered";
+    /// The `loader-circle` icon, in the chrome group.
     pub const LOADER_CIRCLE: &str = "loader-circle";
+    /// The `lock` icon, in the people group.
     pub const LOCK: &str = "lock";
+    /// The `lock-open` icon, in the people group.
     pub const LOCK_OPEN: &str = "lock-open";
+    /// The `log-in` icon, in the chrome group.
     pub const LOG_IN: &str = "log-in";
+    /// The `log-out` icon, in the chrome group.
     pub const LOG_OUT: &str = "log-out";
+    /// The `mail` icon, in the communication group.
     pub const MAIL: &str = "mail";
+    /// The `map` icon, in the time-place group.
     pub const MAP: &str = "map";
+    /// The `map-pin` icon, in the time-place group.
     pub const MAP_PIN: &str = "map-pin";
+    /// The `map-pinned` icon, in the time-place group.
     pub const MAP_PINNED: &str = "map-pinned";
+    /// The `megaphone` icon, in the communication group.
     pub const MEGAPHONE: &str = "megaphone";
+    /// The `menu` icon, in the chrome group.
     pub const MENU: &str = "menu";
+    /// The `message-circle` icon, in the communication group.
     pub const MESSAGE_CIRCLE: &str = "message-circle";
+    /// The `message-square` icon, in the communication group.
     pub const MESSAGE_SQUARE: &str = "message-square";
+    /// The `mic` icon, in the technical group.
     pub const MIC: &str = "mic";
+    /// The `minus` icon, in the content group.
     pub const MINUS: &str = "minus";
+    /// The `monitor` icon, in the chrome group.
     pub const MONITOR: &str = "monitor";
+    /// The `moon` icon, in the chrome group.
     pub const MOON: &str = "moon";
+    /// The `music` icon, in the content group.
     pub const MUSIC: &str = "music";
+    /// The `navigation` icon, in the time-place group.
     pub const NAVIGATION: &str = "navigation";
+    /// The `newspaper` icon, in the content group.
     pub const NEWSPAPER: &str = "newspaper";
+    /// The `notebook-pen` icon, in the content group.
     pub const NOTEBOOK_PEN: &str = "notebook-pen";
+    /// The `notepad-text` icon, in the content group.
     pub const NOTEPAD_TEXT: &str = "notepad-text";
+    /// The `package` icon, in the commerce group.
     pub const PACKAGE: &str = "package";
+    /// The `paintbrush` icon, in the objects group.
     pub const PAINTBRUSH: &str = "paintbrush";
+    /// The `palette` icon, in the objects group.
     pub const PALETTE: &str = "palette";
+    /// The `panel-left` icon, in the chrome group.
     pub const PANEL_LEFT: &str = "panel-left";
+    /// The `paperclip` icon, in the content group.
     pub const PAPERCLIP: &str = "paperclip";
+    /// The `pencil` icon, in the chrome group.
     pub const PENCIL: &str = "pencil";
+    /// The `percent` icon, in the commerce group.
     pub const PERCENT: &str = "percent";
+    /// The `phone` icon, in the communication group.
     pub const PHONE: &str = "phone";
+    /// The `pin` icon, in the content group.
     pub const PIN: &str = "pin";
+    /// The `plug` icon, in the technical group.
     pub const PLUG: &str = "plug";
+    /// The `plus` icon, in the chrome group.
     pub const PLUS: &str = "plus";
+    /// The `printer` icon, in the technical group.
     pub const PRINTER: &str = "printer";
+    /// The `puzzle` icon, in the objects group.
     pub const PUZZLE: &str = "puzzle";
+    /// The `qr-code` icon, in the technical group.
     pub const QR_CODE: &str = "qr-code";
+    /// The `quote` icon, in the content group.
     pub const QUOTE: &str = "quote";
+    /// The `receipt` icon, in the commerce group.
     pub const RECEIPT: &str = "receipt";
+    /// The `redo-2` icon, in the chrome group.
     pub const REDO_2: &str = "redo-2";
+    /// The `refresh-cw` icon, in the chrome group.
     pub const REFRESH_CW: &str = "refresh-cw";
+    /// The `rocket` icon, in the objects group.
     pub const ROCKET: &str = "rocket";
+    /// The `rss` icon, in the communication group.
     pub const RSS: &str = "rss";
+    /// The `save` icon, in the chrome group.
     pub const SAVE: &str = "save";
+    /// The `scale` icon, in the commerce group.
     pub const SCALE: &str = "scale";
+    /// The `search` icon, in the chrome group.
     pub const SEARCH: &str = "search";
+    /// The `send` icon, in the communication group.
     pub const SEND: &str = "send";
+    /// The `server` icon, in the technical group.
     pub const SERVER: &str = "server";
+    /// The `settings` icon, in the chrome group.
     pub const SETTINGS: &str = "settings";
+    /// The `shield` icon, in the people group.
     pub const SHIELD: &str = "shield";
+    /// The `shield-check` icon, in the people group.
     pub const SHIELD_CHECK: &str = "shield-check";
+    /// The `shopping-bag` icon, in the commerce group.
     pub const SHOPPING_BAG: &str = "shopping-bag";
+    /// The `shopping-cart` icon, in the commerce group.
     pub const SHOPPING_CART: &str = "shopping-cart";
+    /// The `sliders-horizontal` icon, in the chrome group.
     pub const SLIDERS_HORIZONTAL: &str = "sliders-horizontal";
+    /// The `smartphone` icon, in the technical group.
     pub const SMARTPHONE: &str = "smartphone";
+    /// The `sparkles` icon, in the technical group.
     pub const SPARKLES: &str = "sparkles";
+    /// The `square` icon, in the objects group.
     pub const SQUARE: &str = "square";
+    /// The `square-check` icon, in the objects group.
     pub const SQUARE_CHECK: &str = "square-check";
+    /// The `square-pen` icon, in the content group.
     pub const SQUARE_PEN: &str = "square-pen";
+    /// The `star` icon, in the content group.
     pub const STAR: &str = "star";
+    /// The `store` icon, in the commerce group.
     pub const STORE: &str = "store";
+    /// The `strikethrough` icon, in the content group.
     pub const STRIKETHROUGH: &str = "strikethrough";
+    /// The `sun` icon, in the chrome group.
     pub const SUN: &str = "sun";
+    /// The `table` icon, in the content group.
     pub const TABLE: &str = "table";
+    /// The `tablet` icon, in the technical group.
     pub const TABLET: &str = "tablet";
+    /// The `tag` icon, in the content group.
     pub const TAG: &str = "tag";
+    /// The `tags` icon, in the content group.
     pub const TAGS: &str = "tags";
+    /// The `target` icon, in the objects group.
     pub const TARGET: &str = "target";
+    /// The `terminal` icon, in the technical group.
     pub const TERMINAL: &str = "terminal";
+    /// The `ticket` icon, in the commerce group.
     pub const TICKET: &str = "ticket";
+    /// The `timer` icon, in the time-place group.
     pub const TIMER: &str = "timer";
+    /// The `trash-2` icon, in the chrome group.
     pub const TRASH_2: &str = "trash-2";
+    /// The `trending-down` icon, in the commerce group.
     pub const TRENDING_DOWN: &str = "trending-down";
+    /// The `trending-up` icon, in the commerce group.
     pub const TRENDING_UP: &str = "trending-up";
+    /// The `triangle` icon, in the objects group.
     pub const TRIANGLE: &str = "triangle";
+    /// The `triangle-alert` icon, in the chrome group.
     pub const TRIANGLE_ALERT: &str = "triangle-alert";
+    /// The `trophy` icon, in the objects group.
     pub const TROPHY: &str = "trophy";
+    /// The `truck` icon, in the commerce group.
     pub const TRUCK: &str = "truck";
+    /// The `type` icon, in the content group.
     pub const TYPE: &str = "type";
+    /// The `underline` icon, in the content group.
     pub const UNDERLINE: &str = "underline";
+    /// The `undo-2` icon, in the chrome group.
     pub const UNDO_2: &str = "undo-2";
+    /// The `unlink` icon, in the content group.
     pub const UNLINK: &str = "unlink";
+    /// The `upload` icon, in the chrome group.
     pub const UPLOAD: &str = "upload";
+    /// The `user` icon, in the people group.
     pub const USER: &str = "user";
+    /// The `user-plus` icon, in the people group.
     pub const USER_PLUS: &str = "user-plus";
+    /// The `user-round` icon, in the people group.
     pub const USER_ROUND: &str = "user-round";
+    /// The `users` icon, in the people group.
     pub const USERS: &str = "users";
+    /// The `video` icon, in the technical group.
     pub const VIDEO: &str = "video";
+    /// The `wallet` icon, in the commerce group.
     pub const WALLET: &str = "wallet";
+    /// The `wand-sparkles` icon, in the technical group.
     pub const WAND_SPARKLES: &str = "wand-sparkles";
+    /// The `webhook` icon, in the technical group.
     pub const WEBHOOK: &str = "webhook";
+    /// The `wifi` icon, in the technical group.
     pub const WIFI: &str = "wifi";
+    /// The `workflow` icon, in the technical group.
     pub const WORKFLOW: &str = "workflow";
+    /// The `wrench` icon, in the objects group.
     pub const WRENCH: &str = "wrench";
+    /// The `x` icon, in the chrome group.
     pub const X: &str = "x";
+    /// The `zap` icon, in the technical group.
     pub const ZAP: &str = "zap";
 }

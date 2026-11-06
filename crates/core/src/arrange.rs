@@ -89,25 +89,30 @@ impl Default for Position {
 }
 
 impl Position {
+    /// Returns the default position: the application band, order `0`, no anchor.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the band, usually one of the [`slot`] constants.
     pub fn slot(mut self, slot: i32) -> Self {
         self.slot = slot;
         self
     }
 
+    /// Sets the order inside the band, lowest first.
     pub fn order(mut self, order: i32) -> Self {
         self.order = order;
         self
     }
 
+    /// Anchors the entry right after the sibling with `key`.
     pub fn after(mut self, key: impl Into<String>) -> Self {
         self.after = Some(key.into());
         self
     }
 
+    /// Anchors the entry right before the sibling with `key`.
     pub fn before(mut self, key: impl Into<String>) -> Self {
         self.before = Some(key.into());
         self
@@ -176,8 +181,10 @@ pub struct Move {
     /// `backend.nav`, `backend.nav.<section>` or `backend.settings`.
     #[serde(rename = "in")]
     pub hierarchy: String,
+    /// Band in the target hierarchy; `None` keeps the entry's own.
     #[serde(deserialize_with = "deserialize_slot_opt")]
     pub slot: Option<i32>,
+    /// Order inside the band; `None` keeps the entry's own.
     pub order: Option<i32>,
     /// The settings category heading; the band's name when left out.
     pub category: Option<String>,
@@ -202,6 +209,7 @@ pub enum Policy {
 pub struct Hierarchy {
     /// `backend.nav`, `backend.settings`, or a plugin's own `vendor.name`.
     pub key: String,
+    /// Whether overrides may rearrange the hierarchy.
     pub policy: Policy,
     /// Whether an operator's own preference may rearrange it, beyond the
     /// deployment's configuration.
@@ -213,6 +221,8 @@ pub struct Hierarchy {
 }
 
 impl Hierarchy {
+    /// Returns an adjustable hierarchy under `key`, with no pins and no
+    /// per-user rearranging.
     pub fn new(key: impl Into<String>) -> Self {
         Self {
             key: key.into(),
@@ -223,6 +233,7 @@ impl Hierarchy {
         }
     }
 
+    /// Sets whether overrides may rearrange the hierarchy.
     pub fn policy(mut self, policy: Policy) -> Self {
         self.policy = policy;
         self
@@ -234,11 +245,13 @@ impl Hierarchy {
         self
     }
 
+    /// Pins `key` at the start, after any key pinned before it.
     pub fn pin_first(mut self, key: impl Into<String>) -> Self {
         self.pinned_first.push(key.into());
         self
     }
 
+    /// Pins `key` at the end, after any key pinned before it.
     pub fn pin_last(mut self, key: impl Into<String>) -> Self {
         self.pinned_last.push(key.into());
         self
@@ -253,6 +266,7 @@ impl Hierarchy {
 pub trait Arranged {
     /// Unique among its siblings: what an anchor or an override names.
     fn key(&self) -> &str;
+    /// Returns where the entry sits: its band, order and anchor.
     fn position(&self) -> &Position;
     /// The tie-break after slot and order.
     fn label(&self) -> &str;
@@ -264,16 +278,23 @@ pub trait Arranged {
 /// entry is skipped.
 #[derive(Clone, Debug, Default)]
 pub struct Overrides<'a> {
+    /// The deployment's sequence of keys, from configuration.
     pub deployment: Option<&'a [String]>,
+    /// The admin user's own sequence of keys, applied over the deployment's.
     pub operator: Option<&'a [String]>,
 }
 
+/// What can go wrong arranging a hierarchy.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ArrangeError {
+    /// Produced when an entry anchors to a key no sibling has.
     #[error("`{key}` sits {relation} `{anchor}`, which is no sibling")]
     UnknownAnchor {
+        /// Key of the anchored entry.
         key: String,
+        /// `after` or `before`, as the entry's position anchors it.
         relation: &'static str,
+        /// Key the entry anchors to.
         anchor: String,
     },
 }
@@ -344,7 +365,7 @@ fn anchor<T: Arranged>(items: &mut Vec<T>) -> Result<(), ArrangeError> {
 }
 
 /// Puts the keys in `sequence` first, as listed, then the rest as they were.
-/// Pinned keys are left for [`pin`]; a key that is no entry is skipped.
+/// Pinned keys are left for `pin`; a key that is no entry is skipped.
 pub fn reorder<T: Arranged>(hierarchy: &Hierarchy, items: &mut Vec<T>, sequence: &[String]) {
     let mut rest: Vec<T> = std::mem::take(items);
     let mut ordered: Vec<T> = Vec::with_capacity(rest.len());

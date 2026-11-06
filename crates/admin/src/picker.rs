@@ -36,9 +36,12 @@ use crate::AdminState;
 /// past 2^53 in the browser, so a picker id is never serialised as a number.
 #[derive(Debug, Clone, Serialize)]
 pub struct PickerNode {
+    /// The node's id, as text.
     pub id: String,
+    /// The text the picker shows for the node.
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// A second line that tells apart nodes with the same label, when there is one.
     pub hint: Option<String>,
 }
 
@@ -62,8 +65,11 @@ pub trait PickerSource: Send + Sync + 'static {
 /// A registered source: its dotted `vendor.name` key, the source, and an optional
 /// permission gating its endpoints (a source over sensitive data sets one).
 pub struct PickerSourceReg {
+    /// The source's dotted `vendor.name` key.
     pub name: String,
+    /// The source being registered.
     pub source: Arc<dyn PickerSource>,
+    /// The permission gating the source's endpoints; `None` lets any signed-in user read it.
     pub permission: Option<String>,
 }
 
@@ -89,7 +95,7 @@ pub type PickerRegistry = HashMap<String, PickerSourceReg>;
 /// A built-in [`PickerSource`] over a single table: candidates are rows whose
 /// `label_col` matches (case-insensitive substring), and a stored id resolves by
 /// `id_col`. `hint_col`, when set, supplies each node's disambiguating hint. A
-/// hierarchy or a computed label implements [`PickerSource`] directly instead.
+/// hierarchy or a computed label implements [`PickerSource`] directly.
 pub struct TableSource {
     table: String,
     id_col: String,
@@ -99,6 +105,7 @@ pub struct TableSource {
 }
 
 impl TableSource {
+    /// Returns a source over `table` that searches `label_col` and resolves stored ids by `id_col`.
     pub fn new(
         table: impl Into<String>,
         id_col: impl Into<String>,

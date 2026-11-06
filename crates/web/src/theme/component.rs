@@ -33,8 +33,11 @@ use std::sync::Arc;
 /// What a component property holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKind {
+    /// A string value.
     Text,
+    /// A JSON number.
     Number,
+    /// `true` or `false`.
     Bool,
 }
 
@@ -42,15 +45,20 @@ pub enum PropertyKind {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PropertyDef {
+    /// The key the attachment sets the property under.
     pub name: String,
+    /// The label the editor shows for the property.
     pub label: String,
+    /// The kind of value the property takes; a save refuses another kind.
     pub kind: PropertyKind,
+    /// Whether a save refuses an attachment that leaves the property out (and it has no default).
     pub required: bool,
     /// The value used when the attachment leaves the property out.
     pub default: Option<serde_json::Value>,
 }
 
 impl PropertyDef {
+    /// Returns an optional property with no default.
     pub fn new(name: impl Into<String>, label: impl Into<String>, kind: PropertyKind) -> Self {
         Self {
             name: name.into(),
@@ -61,11 +69,13 @@ impl PropertyDef {
         }
     }
 
+    /// Marks the property as one an attachment must set.
     pub fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
+    /// Sets the value used when the attachment leaves the property out.
     pub fn default(mut self, value: impl Into<serde_json::Value>) -> Self {
         self.default = Some(value.into());
         self
@@ -74,6 +84,7 @@ impl PropertyDef {
 
 /// What a component runs with.
 pub struct ComponentContext<'a> {
+    /// The database the component reads from.
     pub db: &'a Db,
     /// The properties as attached, with `{{ :name }}` resolved and defaults filled.
     pub properties: &'a serde_json::Map<String, serde_json::Value>,
@@ -149,6 +160,7 @@ pub trait Component: Send + Sync + 'static {
 /// What a handler receives: the request's component context, the submitted
 /// fields, and the request headers.
 pub struct HandlerContext<'a> {
+    /// The database the handler reads from and writes to.
     pub db: &'a Db,
     /// The properties as attached, with `{{ :name }}` resolved and defaults filled.
     pub properties: &'a serde_json::Map<String, serde_json::Value>,
@@ -228,6 +240,7 @@ impl Input {
 pub struct Flash {
     /// `success`, `info`, `warning` or `error`.
     pub level: String,
+    /// The message shown to the visitor.
     pub text: String,
 }
 
@@ -236,15 +249,21 @@ pub struct Flash {
 pub enum Handled {
     /// New data for the alias, and variables for the page scope.
     Data {
+        /// The data the template reads under the alias.
         data: serde_json::Value,
+        /// Variables placed in the page scope under their own names.
         inject: serde_json::Map<String, serde_json::Value>,
+        /// A message for the visitor, when set.
         flash: Option<Flash>,
     },
     /// The input was refused: messages by field, rendered with status 422
     /// and `errors` in scope, with the alias's data when given.
     Invalid {
+        /// Messages keyed by field name.
         errors: serde_json::Map<String, serde_json::Value>,
+        /// The alias's data to render the refusal with, when given.
         data: Option<serde_json::Value>,
+        /// A message for the visitor, when set.
         flash: Option<Flash>,
     },
     /// Send the browser elsewhere: `HX-Redirect` for HTMX, a 303 otherwise.
@@ -362,8 +381,11 @@ pub async fn run_handler(
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct ComponentReg {
+    /// The component's `vendor.name` code an attachment names.
     pub code: String,
+    /// The label the editor shows for the component.
     pub label: String,
+    /// The component itself.
     pub component: Arc<dyn Component>,
     /// Set when authors may insert the component as a snippet.
     pub snippet: Option<SnippetInfo>,
@@ -372,11 +394,14 @@ pub struct ComponentReg {
 /// How a component shows in the editors' Insert menu.
 #[derive(Debug, Clone)]
 pub struct SnippetInfo {
+    /// The snippet's name in the Insert menu.
     pub name: String,
+    /// A short description shown beside the name, when given.
     pub description: Option<String>,
 }
 
 impl ComponentReg {
+    /// Registers `component` under `code` with an editor `label`, not offered as a snippet.
     pub fn new(
         code: impl Into<String>,
         label: impl Into<String>,
@@ -482,8 +507,11 @@ pub const ALIASES_KEY: &str = "__components";
 /// One attachment: an alias, a component code and its raw properties.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
+    /// The key the template reads the component's data under.
     pub alias: String,
+    /// The `vendor.name` code of the attached component.
     pub code: String,
+    /// The properties as written, before `{{ :name }}` is resolved and defaults are filled.
     pub properties: serde_json::Map<String, serde_json::Value>,
 }
 
@@ -613,6 +641,7 @@ pub fn resolve(
 /// What running the attachments of a page gave: a value per alias, then the
 /// injected variables, as pairs for the render context.
 pub struct Ran {
+    /// The context pairs: one per alias, then the injected variables.
     pub pairs: Vec<(String, serde_json::Value)>,
 }
 

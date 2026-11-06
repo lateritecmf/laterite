@@ -158,6 +158,7 @@ pub async fn find_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, Au
     row.map(|r| user_from_row(&r)).transpose()
 }
 
+/// Returns the user with `id` when the account exists and is active, `None` otherwise.
 pub async fn find_active_user_by_id(db: &Db, id: i64) -> Result<Option<BackendUser>, AuthError> {
     let (sql, values) = build(
         db.backend,
@@ -294,7 +295,9 @@ pub(crate) async fn insert_session(
 
 /// A resolved non-expired session: its owning user and opaque data blob.
 pub struct ValidSession {
+    /// Id of the backend user the session belongs to.
     pub user_id: i64,
+    /// The opaque data blob stored on the session, if any.
     pub data: Option<String>,
     /// When the session was issued. Fixes the absolute ceiling.
     pub created_at: DateTime<Utc>,
@@ -659,6 +662,7 @@ pub enum RevokeReason {
 }
 
 impl RevokeReason {
+    /// Returns the stored string form of the reason.
     pub fn as_str(self) -> &'static str {
         match self {
             RevokeReason::PasswordChanged => "password_changed",
@@ -667,6 +671,7 @@ impl RevokeReason {
         }
     }
 
+    /// Parses a stored reason string, returning `None` for an unknown code.
     pub fn parse(code: &str) -> Option<Self> {
         match code {
             "password_changed" => Some(RevokeReason::PasswordChanged),
@@ -970,6 +975,8 @@ pub(crate) async fn delete_session(db: &Db, token_hash: &str) -> Result<(), Auth
     Ok(())
 }
 
+/// Appends one row to the access log, storing the attempted username trimmed
+/// and lowercased.
 pub async fn insert_access_log(
     db: &Db,
     user_id: Option<i64>,
@@ -1012,9 +1019,13 @@ pub async fn insert_access_log(
 pub struct AccessRecord {
     /// The stored form of an [`AccessEvent`].
     pub event: String,
+    /// The username the attempt named, trimmed and lowercased.
     pub username_attempted: String,
+    /// The client address the request came from, when known.
     pub ip_address: Option<String>,
+    /// The request's `User-Agent` header, when sent.
     pub user_agent: Option<String>,
+    /// When the event was recorded (UTC).
     pub created_at: DateTime<Utc>,
 }
 
@@ -1060,14 +1071,21 @@ pub async fn recent_access_log(
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct AuditRecord {
+    /// The acting user's id, or `None` for a system action.
     pub actor_user_id: Option<i64>,
+    /// The acting user's username as it was when the entry was written.
     pub actor_username: String,
+    /// The dot-keyed action, e.g. `backend.user.create`.
     pub action: String,
+    /// The kind of thing acted on (e.g. `backend_user`), when there was one.
     pub target_type: Option<String>,
+    /// The id of the target, as text.
     pub target_id: Option<String>,
     /// The target's name as operators know it, when the writer had one.
     pub target_label: Option<String>,
+    /// Optional JSON describing the change.
     pub detail: Option<String>,
+    /// When the entry was written (UTC).
     pub created_at: DateTime<Utc>,
 }
 
@@ -1380,6 +1398,8 @@ pub async fn set_user_locale(db: &Db, user_id: i64, locale: Option<&str>) -> Res
     Ok(())
 }
 
+/// Inserts a role with `code`, `name` and its granted permission strings, and
+/// returns the new role's id.
 pub async fn create_role(
     db: &Db,
     code: &str,
@@ -1403,9 +1423,13 @@ pub async fn create_role(
 /// A role the framework owns: its permissions come from the registry, not from
 /// the database, so they cannot drift as modules add permissions.
 pub struct SystemRole<'a> {
+    /// Unique role code, e.g. [`crate::ROLE_ADMIN`].
     pub code: &'a str,
+    /// Display name of the role.
     pub name: &'a str,
+    /// One-line description shown with the role.
     pub description: &'a str,
+    /// Dotted permission strings the role grants.
     pub permissions: Vec<String>,
 }
 
@@ -1651,9 +1675,13 @@ fn apply_rename(code: &str, renames: &[(String, String)]) -> String {
 
 /// A role as the assignment screen lists it.
 pub struct RoleSummary {
+    /// Id of the role's row in the roles table.
     pub id: i64,
+    /// Unique role code.
     pub code: String,
+    /// Display name of the role.
     pub name: String,
+    /// Whether the framework owns the role and rewrites it at boot.
     pub is_system: bool,
     /// What holding it grants, so a screen can refuse to offer a role that
     /// would grant more than the operator assigning it holds.
@@ -1750,6 +1778,7 @@ pub async fn set_user_roles(db: &Db, user_id: i64, role_ids: &[i64]) -> Result<(
     Ok(())
 }
 
+/// Gives `user_id` the role `role_id`; assigning a role already held does nothing.
 pub async fn assign_role(db: &Db, user_id: i64, role_id: i64) -> Result<(), AuthError> {
     let (sql, values) = build(
         db.backend,

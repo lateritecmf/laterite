@@ -10,28 +10,40 @@ use crate::form::FormField;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MailBrandSetting {
     #[serde(default)]
+    /// Page background behind the message, `#rrggbb` or blank.
     pub body_bg: String,
     #[serde(default)]
+    /// Background of the message's content area, `#rrggbb` or blank.
     pub content_bg: String,
     #[serde(default)]
+    /// Colour of the header text, `#rrggbb` or blank.
     pub header_color: String,
     #[serde(default)]
+    /// Colour of headings, `#rrggbb` or blank.
     pub heading_color: String,
     #[serde(default)]
+    /// Colour of body text, `#rrggbb` or blank.
     pub text_color: String,
     #[serde(default)]
+    /// Colour of secondary text, `#rrggbb` or blank.
     pub muted_color: String,
     #[serde(default)]
+    /// Colour of links, `#rrggbb` or blank.
     pub link_color: String,
     #[serde(default)]
+    /// Background of buttons, `#rrggbb` or blank.
     pub button_bg: String,
     #[serde(default)]
+    /// Colour of button text, `#rrggbb` or blank.
     pub button_text_color: String,
     #[serde(default)]
+    /// Background of panels, `#rrggbb` or blank.
     pub panel_bg: String,
     #[serde(default)]
+    /// Colour of borders and rules, `#rrggbb` or blank.
     pub border_color: String,
     #[serde(default)]
+    /// Colour of the footer text, `#rrggbb` or blank.
     pub footer_color: String,
 }
 

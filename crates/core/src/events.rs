@@ -64,6 +64,7 @@ pub trait Event: Serialize + DeserializeOwned + Send + Sync + 'static {
 /// listeners after it still run.
 #[async_trait]
 pub trait Listener<E: Event>: Send + Sync + 'static {
+    /// Acts on `event`; an error is logged and the remaining listeners still run.
     async fn handle(&self, cx: &EventCx<'_>, event: &E) -> Result<(), EventError>;
 }
 
@@ -81,6 +82,7 @@ impl EventCx<'_> {
         self.db
     }
 
+    /// Returns which database this is, for the portable query helpers.
     pub fn backend(&self) -> DbBackend {
         self.db.backend
     }

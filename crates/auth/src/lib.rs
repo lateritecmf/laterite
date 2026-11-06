@@ -11,6 +11,8 @@
 //! [`AuthenticatedUser`] identity; the admin crate wraps these in Axum
 //! extractors, cookie handling, and the rendered login screen.
 
+#![warn(missing_docs)]
+
 pub mod audit_listener;
 pub mod error;
 pub mod events;
@@ -44,12 +46,14 @@ pub use service::{
 pub use store::{AccessRecord, AuditRecord};
 pub use store::{RevokeReason, SessionEnd};
 
-/// The `laterite.auth` module: the framework's backend-user auth tables.
 /// The template an invitation sends: `name`, `username`, `link`, `expires`.
 pub const INVITE_TEMPLATE: &str = "laterite.auth::invite";
 /// The template a password reset sends: `name`, `username`, `link`, `expires`.
 pub const RESET_TEMPLATE: &str = "laterite.auth::reset";
 
+/// The `laterite.auth` module: the framework's backend-user auth tables, the
+/// expired-credential sweep at boot, the audit listener, and the invite and
+/// reset mail templates.
 pub struct AuthModule;
 
 #[laterite_core::strata::async_trait]

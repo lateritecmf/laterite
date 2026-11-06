@@ -30,19 +30,23 @@ const ID_ALIAS: &str = "_lat_id";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// The direction a list is sorted in, written `asc` or `desc`.
 pub enum SortDir {
+    /// Ascending: smallest or earliest first.
     Asc,
+    /// Descending: largest or latest first.
     Desc,
 }
 
-/// One column of a list view: the source field, its display label, and its
-/// column-type key (resolved through the column-type registry).
 /// How a column's cells and header align.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Align {
+    /// Aligned to the start of the cell.
     Left,
+    /// Centred in the cell.
     Center,
+    /// Aligned to the end of the cell.
     Right,
 }
 
@@ -60,12 +64,14 @@ impl Align {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValueLabel {
+    /// The value as stored in the column.
     pub value: String,
     /// Localized at render.
     pub label: Text,
 }
 
 impl ValueLabel {
+    /// Returns a label for the stored `value`.
     pub fn new(value: impl Into<String>, label: impl Into<Text>) -> Self {
         Self {
             value: value.into(),
@@ -76,6 +82,8 @@ impl ValueLabel {
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+/// One column of a list view: the source field, its display label, and its
+/// column-type key (resolved through the column-type registry).
 pub struct ListColumn {
     /// Comes from the key this was written under, never from the body.
     pub field: String,
@@ -92,6 +100,7 @@ pub struct ListColumn {
     pub invisible: bool,
     /// A CSS width, `10%` or `120px`. `None` shares the remaining space.
     pub width: Option<String>,
+    /// How the column's cells and header align. `None` adds no alignment class.
     pub align: Option<Align>,
     /// A permission the operator must hold to see the column at all: it is
     /// then not queried, sorted, searched, picked or exported for them.
@@ -109,6 +118,7 @@ pub struct ListColumn {
 }
 
 impl ListColumn {
+    /// Returns a sortable, visible `text` column over `field`, headed `label`.
     pub fn new(field: &str, label: impl Into<Text>) -> Self {
         Self {
             field: field.to_string(),
@@ -170,6 +180,7 @@ impl ListColumn {
         self
     }
 
+    /// Sets whether clicking the header sorts by this column.
     pub fn sortable(mut self, sortable: bool) -> Self {
         self.sortable = sortable;
         self
@@ -181,11 +192,13 @@ impl ListColumn {
         self
     }
 
+    /// Sets the column's CSS width, such as `10%` or `120px`.
     pub fn width(mut self, width: impl Into<String>) -> Self {
         self.width = Some(width.into());
         self
     }
 
+    /// Sets how the column's cells and header align.
     pub fn align(mut self, align: Align) -> Self {
         self.align = Some(align);
         self
@@ -210,8 +223,11 @@ impl ListColumn {
 /// The per-cell state a column type renders from: the raw (text-cast) value, the
 /// display timezone, and the locale for date month/day names.
 pub struct CellCx<'a> {
+    /// The cell's stored value, cast to text.
     pub value: &'a str,
+    /// The timezone dates and times are displayed in.
     pub tz: Tz,
+    /// The locale month and day names are formatted in.
     pub locale: chrono::Locale,
 }
 
@@ -228,17 +244,24 @@ pub(crate) fn date_locale(tag: &str) -> chrono::Locale {
 /// richer data (a status pill's slug), so an override presents the same data.
 #[derive(Serialize)]
 pub struct CellVm {
+    /// The column type's key, which the override resolver looks up.
     pub view_key: String,
+    /// The stored value, cast to text.
     pub value: String,
+    /// The text the cell displays.
     pub display: String,
+    /// Extra data the type passes to its markup (a status pill's slug), or null.
     pub data: serde_json::Value,
 }
 
 /// A column type: how a list cell renders. The list counterpart of a field type,
 /// sharing [`Markup`] and the override resolver ([`Surface::Column`]).
 pub trait ColumnType: Send + Sync + 'static {
+    /// Returns the key this type registers under and overrides look it up by.
     fn view_key(&self) -> &'static str;
+    /// Builds the cell's view-model from the stored value and display context.
     fn view_model(&self, cx: &CellCx<'_>) -> CellVm;
+    /// Renders the cell's built-in markup from its view-model.
     fn render_default(&self, vm: &CellVm) -> Markup;
     /// The keys this type reads from a column's entry, beyond the ones every
     /// column has. A key outside the list is refused when the file is read.
@@ -260,10 +283,12 @@ pub trait ColumnType: Send + Sync + 'static {
 /// disagree with the type it registers. Use a dotted `vendor.name` to stay clear
 /// of the built-ins and of other modules.
 pub struct ColumnTypeReg {
+    /// The column type being registered.
     pub column_type: Arc<dyn ColumnType>,
 }
 
 impl ColumnTypeReg {
+    /// Returns a registration for `column_type`, keyed by its `view_key`.
     pub fn new(column_type: Arc<dyn ColumnType>) -> Self {
         Self { column_type }
     }
@@ -645,12 +670,14 @@ impl crate::keyed::Keyed for ListFilter {
 /// One value a `select` filter offers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterOption {
+    /// The value the filter puts in the query.
     pub value: String,
     /// The option's label, localized at render.
     pub label: Text,
 }
 
 impl FilterOption {
+    /// Returns an option offering `value`, shown as `label`.
     pub fn new(value: &str, label: impl Into<Text>) -> Self {
         Self {
             value: value.to_string(),
@@ -777,6 +804,7 @@ pub struct ToolbarButton {
 }
 
 impl ToolbarButton {
+    /// Returns a secondary button labelled `label` that links to `href`, with no icon and no permission.
     pub fn new(label: impl Into<Text>, href: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -787,6 +815,7 @@ impl ToolbarButton {
         }
     }
 
+    /// Sets the icon, by name from the shared icon set.
     pub fn icon(mut self, icon: &str) -> Self {
         self.icon = Some(icon.to_string());
         self
@@ -798,6 +827,7 @@ impl ToolbarButton {
         self
     }
 
+    /// Renders the button as the prominent action.
     pub fn primary(mut self) -> Self {
         self.primary = true;
         self
@@ -806,10 +836,13 @@ impl ToolbarButton {
 
 /// One rendered toolbar button.
 pub struct ToolbarView {
+    /// The button's text, localized.
     pub label: String,
+    /// Where the button links to, resolved under the admin root.
     pub href: String,
     /// Inline SVG for the icon, empty when the button has none.
     pub icon: String,
+    /// Whether the button renders as the prominent action.
     pub primary: bool,
 }
 
@@ -1097,11 +1130,13 @@ impl SearchConfig {
         }
     }
 
+    /// Sets the search box's placeholder.
     pub fn prompt(mut self, text: impl Into<Text>) -> Self {
         self.prompt = Some(text.into());
         self
     }
 
+    /// Searches when the user presses Enter, and not as they type.
     pub fn on_enter(mut self) -> Self {
         self.on_enter = true;
         self
@@ -1229,6 +1264,7 @@ impl std::fmt::Debug for Editor {
 #[serde(deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct ListConfig {
+    /// The table the list reads its rows from.
     pub entity: String,
     /// The screen title, localized at render. Serde stays a plain string.
     pub title: Text,
@@ -1236,10 +1272,15 @@ pub struct ListConfig {
         deserialize_with = "crate::keyed::deserialize",
         serialize_with = "crate::keyed::serialize"
     )]
+    /// The columns shown, in order.
     pub columns: Vec<ListColumn>,
+    /// The column the list sorts by by default (`id`).
     pub order_by: String,
+    /// The direction of the default sort (`desc`).
     pub order_dir: SortDir,
+    /// How many rows a page shows (25).
     pub per_page: i64,
+    /// The primary-key column rows are identified by (`id`).
     pub id_field: String,
     /// When set, rows link to `{edit_base}/{id}/edit`.
     pub edit_base: Option<String>,
@@ -1287,6 +1328,7 @@ pub struct ListConfig {
     pub(crate) editor: Option<Editor>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
+    /// The search box's settings.
     pub search: SearchConfig,
     /// Page sizes the operator may choose from in the list setup, remembered
     /// with their column choice. Empty offers no choice.
@@ -1337,6 +1379,7 @@ impl ListConfig {
         self
     }
 
+    /// Sets how many rows a page shows.
     pub fn per_page(mut self, rows: i64) -> Self {
         self.per_page = rows;
         self
@@ -1370,6 +1413,7 @@ impl ListConfig {
         self
     }
 
+    /// Sets the filters offered above the table.
     pub fn filters(mut self, filters: Vec<ListFilter>) -> Self {
         self.filters = filters;
         self
@@ -1404,21 +1448,25 @@ impl ListConfig {
         self
     }
 
+    /// Sets the extra toolbar buttons beside New and the export menu.
     pub fn toolbar(mut self, buttons: Vec<ToolbarButton>) -> Self {
         self.toolbar = buttons;
         self
     }
 
+    /// Sets the search box's settings.
     pub fn search(mut self, search: SearchConfig) -> Self {
         self.search = search;
         self
     }
 
+    /// Sets the page sizes the user may choose from in the list setup.
     pub fn per_page_options(mut self, sizes: Vec<i64>) -> Self {
         self.per_page_options = sizes;
         self
     }
 
+    /// Sets the message shown when the list has no records at all.
     pub fn no_records_message(mut self, text: impl Into<Text>) -> Self {
         self.no_records_message = Some(text.into());
         self
@@ -1524,7 +1572,9 @@ fn natural_order(config: &ListConfig) -> (&str, SortDir) {
 
 /// One rendered row: its id (for edit links) and its display cells.
 pub struct RowView {
+    /// The row's primary key, as text.
     pub id: String,
+    /// The row's stored values, cast to text, one per column.
     pub cells: Vec<String>,
     /// How many rows name this one as parent, when the query asked.
     pub children: i64,
@@ -1534,18 +1584,24 @@ pub struct RowView {
 
 /// One rendered cell and the class its column's alignment gives it.
 pub struct CellView {
+    /// The cell's rendered HTML.
     pub html: String,
+    /// The CSS class from the column's alignment, empty for none.
     pub class: String,
 }
 
 /// A row as the template receives it: each cell already rendered.
 pub struct RenderedRow {
+    /// The row's primary key, as text.
     pub id: String,
+    /// The row's cells, rendered, one per column.
     pub cells: Vec<CellView>,
     /// The tree position: how deep the row sits, and where its children load
     /// from when it has any.
     pub depth: i64,
+    /// The CSS left padding for the row's depth in a tree, such as `34px`.
     pub indent: String,
+    /// The URL that loads the row's children, when it is in a tree and has any.
     pub toggle: Option<String>,
     /// Whether the row is kept from deletion: no checkbox, no row Delete.
     pub protected: bool,
@@ -1553,7 +1609,9 @@ pub struct RenderedRow {
 
 /// Display-ready rows plus the total row count for the pager.
 pub struct ListPage {
+    /// The rows on this page.
     pub rows: Vec<RowView>,
+    /// How many rows match the query across all pages.
     pub total: i64,
 }
 
@@ -3198,20 +3256,30 @@ pub(crate) async fn set_columns(
 
 /// One row of the column picker.
 pub struct ColumnChoice {
+    /// The column's field.
     pub field: String,
+    /// The column's header label, localized.
     pub label: String,
+    /// Whether the column is currently shown.
     pub shown: bool,
 }
 
 /// One column header: its label, the field a click sorts by, the direction that
 /// click asks for, and the direction it is sorted in now (empty when it is not).
 pub struct ColumnHead {
+    /// The header label, localized.
     pub label: String,
+    /// The field a click on the header sorts by.
     pub field: String,
+    /// The direction a click asks for: `asc` or `desc`.
     pub next_dir: String,
+    /// The direction the column is sorted in now, empty when it is not the sort column.
     pub active: String,
+    /// Whether the header sorts on click.
     pub sortable: bool,
+    /// The column's CSS width, when it sets one.
     pub width: Option<String>,
+    /// The CSS class from the column's alignment, empty for none.
     pub align_class: String,
 }
 
@@ -3283,17 +3351,23 @@ struct ListTemplate {
 
 /// One rendered filter control.
 pub struct FilterView {
+    /// The query-string parameter the filter's value travels in (`f_` and the field).
     pub param: String,
+    /// The filter's label, localized.
     pub label: String,
     /// The input kind when there are no options: `text`, `number` or `date`.
     pub input_type: String,
+    /// The choices of a `select` filter, empty for any other type.
     pub options: Vec<FilterOptionView>,
     /// The selected value, empty when the filter is off.
     pub value: String,
 }
 
+/// One choice in a rendered `select` filter.
 pub struct FilterOptionView {
+    /// The value the choice puts in the query.
     pub value: String,
+    /// The choice's label, localized.
     pub label: String,
 }
 

@@ -44,7 +44,9 @@ pub struct Skin {
 /// and the stylesheet URL, when it has one.
 #[derive(Debug, Clone)]
 pub struct Active {
+    /// The skin's code, carried by the document element as `data-lat-skin`.
     pub code: Arc<str>,
+    /// The URL of the skin's stylesheet, when it has one.
     pub stylesheet: Option<String>,
 }
 

@@ -67,10 +67,12 @@ pub trait SiteFile: Send + Sync {
 pub struct Problem {
     /// The part of the document at fault.
     pub field: String,
+    /// What is wrong with that part.
     pub message: String,
 }
 
 impl Problem {
+    /// Returns a problem with `field` described by `message`.
     pub fn new(field: &str, message: impl Into<String>) -> Self {
         Self {
             field: field.to_string(),
@@ -83,8 +85,11 @@ impl Problem {
 /// publish a signed `security.txt`, since the signature covers the exact bytes.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Verbatim {
+    /// Where the file is served, absolute from the site root (`/.well-known/security.txt`).
     pub path: String,
+    /// Media type sent as the `Content-Type` header.
     pub content_type: String,
+    /// The file's exact contents.
     pub body: String,
 }
 

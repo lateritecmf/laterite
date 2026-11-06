@@ -35,6 +35,7 @@ pub enum ContributeMode {
 pub struct ContributeOpts {
     /// Higher sorts first among same-type contributions; default 0.
     pub priority: i32,
+    /// Whether the contribution adds to earlier ones or replaces them.
     pub mode: ContributeMode,
 }
 
@@ -47,9 +48,13 @@ struct Entry {
 
 /// A borrowed contribution: the item plus the envelope the registry stamped.
 pub struct Contribution<'a, T> {
+    /// The module that registered the contribution.
     pub owner: ModuleId,
+    /// Priority it was registered with; higher sorts first.
     pub priority: i32,
+    /// Whether it was added or replaced earlier contributions.
     pub mode: ContributeMode,
+    /// The contributed item.
     pub item: &'a T,
 }
 
@@ -61,6 +66,7 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Returns an empty registry with no module registering.
     pub fn new() -> Self {
         Self::default()
     }
@@ -131,9 +137,6 @@ impl Registry {
             .collect()
     }
 
-    /// Removes and returns the items of type `T` as owned values, resolved the
-    /// same way as [`items`](Registry::items). For a one-time collection at boot;
-    /// the type's contributions are consumed, so no `Clone` bound is needed.
     /// Like [`Registry::take`], but keeps each item's owning module, for a
     /// consumer that resolves per-module behaviour (an admin path namespace).
     pub fn take_owned<T: 'static>(&mut self) -> Vec<(ModuleId, T)> {
@@ -141,6 +144,9 @@ impl Registry {
         owners.into_iter().zip(self.take::<T>()).collect()
     }
 
+    /// Removes and returns the items of type `T` as owned values, resolved the
+    /// same way as [`items`](Registry::items). For a one-time collection at boot;
+    /// the type's contributions are consumed, so no `Clone` bound is needed.
     pub fn take<T: 'static>(&mut self) -> Vec<T> {
         let Some(entries) = self.by_type.remove(&TypeId::of::<T>()) else {
             return Vec::new();

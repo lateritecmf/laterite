@@ -20,10 +20,6 @@ pub fn hash_password(plain: &str) -> Result<String, AuthError> {
         .map_err(|e| AuthError::PasswordHash(e.to_string()))
 }
 
-/// Verifies a plaintext password against a stored PHC hash.
-///
-/// A malformed stored hash is an internal error, not a failed match, so a
-/// corrupted record is never silently treated as a wrong password.
 /// A strong random password of twenty characters from an unambiguous alphabet
 /// (no `0`/`O`, `1`/`l`/`I`), safe to read aloud or paste once.
 pub fn generate() -> String {
@@ -35,6 +31,11 @@ pub fn generate() -> String {
         .collect()
 }
 
+/// Verifies a plaintext password against a stored PHC hash.
+///
+/// Returns `Ok(false)` on a mismatch. A malformed stored hash is an
+/// [`AuthError::PasswordHash`] error, not a failed match, so a corrupted
+/// record is never silently treated as a wrong password.
 pub fn verify_password(plain: &str, stored_hash: &str) -> Result<bool, AuthError> {
     let parsed =
         PasswordHash::new(stored_hash).map_err(|e| AuthError::PasswordHash(e.to_string()))?;

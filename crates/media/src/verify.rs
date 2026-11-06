@@ -14,10 +14,15 @@ use crate::StorageDriver;
 /// One record whose blob did not check out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fault {
+    /// Id of the media record.
     pub id: i64,
+    /// Name of the disk the blob should be on.
     pub disk: String,
+    /// BLAKE3 hex hash the row records.
     pub hash: String,
+    /// The record's original file name, for display.
     pub original_name: String,
+    /// What went wrong: the blob is missing or unreadable, or its hash or size differs from the row.
     pub reason: String,
 }
 
@@ -28,6 +33,7 @@ pub struct VerifyReport {
     pub ok: usize,
     /// Records on a disk not given, left unchecked.
     pub skipped: usize,
+    /// Records whose blob is missing, unreadable, or differs from the row.
     pub faults: Vec<Fault>,
 }
 

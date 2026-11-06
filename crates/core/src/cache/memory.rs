@@ -69,6 +69,7 @@ impl MemoryStore {
         self.inner.entry_count()
     }
 
+    /// Returns whether the store holds no values.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

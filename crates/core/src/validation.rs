@@ -29,7 +29,9 @@ use crate::{CoreResult, Db};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
+    /// The submission inserts a new record.
     Create,
+    /// The submission updates an existing record.
     Update,
 }
 
@@ -68,12 +70,16 @@ pub enum Rule {
 /// The rules for one field, with the label used in its messages.
 #[derive(Debug, Clone)]
 pub struct FieldRules {
+    /// Name of the submitted field the rules apply to.
     pub field: String,
+    /// Human-readable field name the error messages use.
     pub label: String,
+    /// Rules checked against the field's value, in order.
     pub rules: Vec<Rule>,
 }
 
 impl FieldRules {
+    /// Returns the rules `rules` for `field`, labelled `label` in messages.
     pub fn new(field: impl Into<String>, label: impl Into<String>, rules: Vec<Rule>) -> Self {
         Self {
             field: field.into(),

@@ -116,7 +116,9 @@ variable, `lat new` uses the published crates, as it does for everyone else.
 ## Documentation
 
 The guide is an mdBook under `docs/`; the API reference is rustdoc on each crate
-(`cargo doc --open`).
+(`cargo doc --open`). Every public item carries a doc comment:
+`scripts/check-rustdoc.sh` builds the reference with warnings denied and fails on
+an undocumented item or a broken link, locally and in CI.
 
 ## License
 

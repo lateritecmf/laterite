@@ -17,14 +17,18 @@ use crate::service::RequestContext;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SignedIn {
+    /// Id of the backend user who signed in.
     pub user_id: i64,
+    /// Username of the account that signed in.
     pub username: String,
     /// The address the request came from, when known.
     pub ip_address: Option<String>,
+    /// The `User-Agent` header of the request, when sent.
     pub user_agent: Option<String>,
 }
 
 impl SignedIn {
+    /// Builds the event for `user_id`, taking the address and agent from `ctx`.
     pub fn new(user_id: i64, username: impl Into<String>, ctx: &RequestContext) -> Self {
         Self {
             user_id,
@@ -48,11 +52,14 @@ pub struct SignInFailed {
     /// The username as it was typed. Empty for a refused stay-signed-in
     /// credential, which names no username.
     pub username: String,
+    /// The address the request came from, when known.
     pub ip_address: Option<String>,
+    /// The `User-Agent` header of the request, when sent.
     pub user_agent: Option<String>,
 }
 
 impl SignInFailed {
+    /// Builds the event for the attempt, taking the address and agent from `ctx`.
     pub fn new(user_id: Option<i64>, username: impl Into<String>, ctx: &RequestContext) -> Self {
         Self {
             user_id,
@@ -72,13 +79,18 @@ impl Event for SignInFailed {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct LockedOut {
+    /// The account the attempt named, `None` when no such account exists.
     pub user_id: Option<i64>,
+    /// The username as it was typed. Empty for a stay-signed-in credential.
     pub username: String,
+    /// The address the request came from, when known.
     pub ip_address: Option<String>,
+    /// The `User-Agent` header of the request, when sent.
     pub user_agent: Option<String>,
 }
 
 impl LockedOut {
+    /// Builds the event for the attempt, taking the address and agent from `ctx`.
     pub fn new(user_id: Option<i64>, username: impl Into<String>, ctx: &RequestContext) -> Self {
         Self {
             user_id,
@@ -97,10 +109,12 @@ impl Event for LockedOut {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct SignedOut {
+    /// Id of the backend user who signed out.
     pub user_id: i64,
 }
 
 impl SignedOut {
+    /// Builds the event for `user_id`.
     pub fn new(user_id: i64) -> Self {
         Self { user_id }
     }
@@ -115,6 +129,7 @@ impl Event for SignedOut {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PasswordChanged {
+    /// Id of the backend user whose password changed.
     pub user_id: i64,
     /// The operator who changed it: the account itself, or an administrator.
     /// `None` when a process did, such as the command line.
@@ -122,6 +137,7 @@ pub struct PasswordChanged {
 }
 
 impl PasswordChanged {
+    /// Builds the event for `user_id`, changed by `changed_by`.
     pub fn new(user_id: i64, changed_by: Option<i64>) -> Self {
         Self {
             user_id,

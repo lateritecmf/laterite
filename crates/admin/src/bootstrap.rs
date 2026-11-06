@@ -54,8 +54,10 @@ mod env_prefix_tests {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
+    /// The `[app]` section: the application's name, public URL and locale.
     pub app: AppMeta,
     #[serde(default)]
+    /// The `[server]` section: the address the server binds.
     pub server: ServerConfig,
     /// Unset for a static website, which builds on an in-memory database.
     #[serde(default)]
@@ -68,18 +70,25 @@ pub struct AppConfig {
     #[serde(default)]
     pub media: laterite_core::config::MediaConfig,
     #[serde(default)]
+    /// The `[auth]` section: session timeouts and the remember-me duration.
     pub auth: AuthConfig,
     #[serde(default)]
+    /// The `[backend]` section: the admin's cookie, signing key, timezone and paths.
     pub backend: BackendConfig,
     #[serde(default)]
+    /// The `[plugins]` section: which plugins load.
     pub plugins: PluginsConfig,
     #[serde(default)]
+    /// The `[cache]` section: which cache store is used.
     pub cache: laterite_core::config::CacheConfig,
     #[serde(default)]
+    /// The `[queue]` section: where jobs wait and who runs them.
     pub queue: laterite_core::config::QueueConfig,
     #[serde(default)]
+    /// The `[schedule]` section: which process evaluates the scheduled entries.
     pub schedule: laterite_core::config::ScheduleConfig,
     #[serde(default)]
+    /// The `[mail]` section: how mail is sent.
     pub mail: laterite_core::config::MailConfig,
 }
 

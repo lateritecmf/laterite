@@ -12,10 +12,14 @@ use laterite_core::Text;
 /// destructive one, or a quiet one in a row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Style {
+    /// The one main action on a page.
     Primary,
     #[default]
+    /// A secondary action (the default).
     Secondary,
+    /// A destructive action, such as a delete.
     Danger,
+    /// A quiet action, such as one in a table row.
     Ghost,
 }
 
@@ -74,19 +78,23 @@ impl Button {
         }
     }
 
+    /// Sets how the button reads.
     pub fn style(mut self, style: Style) -> Self {
         self.style = style;
         self
     }
 
+    /// Styles the button as the page's main action.
     pub fn primary(self) -> Self {
         self.style(Style::Primary)
     }
 
+    /// Styles the button as a destructive action.
     pub fn danger(self) -> Self {
         self.style(Style::Danger)
     }
 
+    /// Styles the button as a quiet action.
     pub fn ghost(self) -> Self {
         self.style(Style::Ghost)
     }
@@ -109,6 +117,7 @@ impl Button {
         self
     }
 
+    /// Renders the button: a styled link, or a form that posts with the request token.
     pub fn render(&self, shell: &Shell) -> Markup {
         let mut class = format!("lat-btn {}", self.style.class());
         if self.small {
@@ -169,11 +178,13 @@ impl Toolbar {
         }
     }
 
+    /// Appends `button` to the toolbar's actions.
     pub fn button(mut self, button: Button) -> Self {
         self.buttons.push(button);
         self
     }
 
+    /// Renders the toolbar: its heading and its buttons.
     pub fn render(&self, shell: &Shell) -> Markup {
         let class = if self.section {
             "lat-toolbar lat-toolbar--section"
@@ -206,12 +217,14 @@ pub struct Badge {
 }
 
 impl Badge {
+    /// Returns a badge reading `label`.
     pub fn new(label: impl Into<Text>) -> Self {
         Self {
             label: label.into(),
         }
     }
 
+    /// Renders the badge, its label localized.
     pub fn render(&self, shell: &Shell) -> Markup {
         Markup::from_override(format!(
             r#"<span class="lat-badge">{}</span>"#,
@@ -227,10 +240,12 @@ pub struct Card {
 }
 
 impl Card {
+    /// Returns a card framing `body`.
     pub fn new(body: Markup) -> Self {
         Self { body }
     }
 
+    /// Renders the card around its body.
     pub fn render(&self) -> Markup {
         Markup::from_override(format!(
             r#"<div class="lat-card">{}</div>"#,

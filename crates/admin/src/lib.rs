@@ -14,6 +14,8 @@
 //! An application usually boots through [`Bootstrap`], which loads config,
 //! connects, migrates, and serves this router in one call.
 
+#![warn(missing_docs)]
+
 mod audit;
 pub mod bootstrap;
 mod bulk;
@@ -197,11 +199,13 @@ impl AdminRegistry for laterite_core::Registry {
 /// nobody declared aborts boot. Hooks run in module order.
 #[derive(Clone)]
 pub struct ResourceHook {
+    /// The path of the resource the hook changes, as it mounts (`/posts`).
     pub target: String,
     apply: Arc<dyn Fn(Resource) -> Resource + Send + Sync>,
 }
 
 impl ResourceHook {
+    /// Returns a hook that changes the resource mounted at `target` through `apply`.
     pub fn new(
         target: impl Into<String>,
         apply: impl Fn(Resource) -> Resource + Send + Sync + 'static,
@@ -460,7 +464,7 @@ pub struct AdminConfig {
     /// `backend.path`). A leading slash is added if missing and a trailing slash
     /// is stripped; empty falls back to `/admin`.
     pub path: String,
-    /// The public origin (scheme://host[:port], no trailing slash) the panel is
+    /// The public origin (`scheme://host[:port]`, no trailing slash) the panel is
     /// served from, for the CSRF origin check. Typically the configured
     /// `app.url`; empty falls back to the request `Host` (dev only), so set it in
     /// production.
@@ -704,6 +708,7 @@ pub struct PageHead {
 }
 
 impl PageHead {
+    /// Returns a page head titled `title`, with no back link, actions, aside or assets.
     pub fn new(title: impl Into<Text>) -> Self {
         Self {
             title: title.into(),
@@ -932,7 +937,6 @@ impl Shell {
     pub fn brand_css(&self) -> &str {
         &self.brand_look.css
     }
-    /// The colour mode an operator starts in: `auto`, `light` or `dark`.
     /// The skin's code, carried by the document element as `data-lat-skin`.
     pub fn skin_code(&self) -> &str {
         &self.skin.code
@@ -943,6 +947,7 @@ impl Shell {
         self.skin.stylesheet.as_deref()
     }
 
+    /// Returns the colour mode a user starts in: `auto`, `light` or `dark`.
     pub fn mode_default(&self) -> &str {
         &self.brand_look.mode
     }
@@ -1339,14 +1344,16 @@ pub struct Resource {
     pub base_path: String,
     /// The menu label, localized at render. Serde stays a plain string.
     pub nav_label: Text,
+    /// The resource's list screen.
     pub list: list::ListConfig,
+    /// The resource's create and edit form, or `None` for a read-only resource.
     pub form: Option<form::FormConfig>,
     /// The permission an operator must hold to reach any of the resource's
     /// routes. A dotted string gates every route the resource mounts, and an
     /// operator who lacks it receives `403 Forbidden`; superusers pass regardless.
     /// `None` leaves the resource open to any signed-in operator and is allowed
     /// only for a read-only resource: a resource with a create/edit `form` must
-    /// declare a permission, or boot aborts (see [`mount_resource`]).
+    /// declare a permission, or boot aborts (see `mount_resource`).
     pub permission: Option<String>,
     /// Whether records may be imported into this resource, and by whom. The
     /// pages mount under the resource's path; see [`import`].
@@ -1376,6 +1383,7 @@ pub struct ImportConfig {
 }
 
 impl ImportConfig {
+    /// Returns an import declaration that asks for the resource's own permission.
     pub fn new() -> Self {
         Self::default()
     }
@@ -1395,9 +1403,11 @@ impl ImportConfig {
 #[derive(Clone, Serialize)]
 #[non_exhaustive]
 pub struct Permission {
+    /// The dotted permission string roles are granted.
     pub code: String,
     /// The permission's display label and group heading, localized at render.
     pub label: Text,
+    /// The heading the permission sorts under in the role editor, localized at render.
     pub group: Text,
     /// The built-in roles that hold this permission. Empty means
     /// [`ROLE_ADMIN`] alone.
@@ -1709,10 +1719,6 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
     ]
 }
 
-/// Builds the admin router. `app_resources` are the application's own list/form
-/// screens; `app_settings` are its settings models; `app_permissions` are the
-/// permissions it defines, offered in the role editor alongside the framework's.
-/// All are mounted alongside the framework's built-in equivalents.
 /// Everything the modules and the application contribute to the admin, in one
 /// value.
 ///
@@ -1749,10 +1755,10 @@ pub struct Contributions {
     pub persisters: Vec<persist::PersisterReg>,
     /// Listeners run around every save and delete.
     pub listeners: Vec<laterite_core::ModelListenerReg>,
-    /// Column types a list cell can render through.
     /// Field types a module contributes, offered to every form and settings
     /// screen beside the built-ins.
     pub field_types: Vec<field::FieldTypeReg>,
+    /// Column types a list cell can render through.
     pub column_types: Vec<list::ColumnTypeReg>,
     /// Icons a module contributes, for glyphs the framework's curated set does
     /// not carry. Each is namespaced to the contributing module.
@@ -1780,6 +1786,13 @@ pub struct Contributions {
     pub plugin_defined: Arc<laterite_core::Registry>,
 }
 
+/// Builds the admin router: the built-in screens plus everything in
+/// `contributions`, mounted under the configured admin path.
+///
+/// # Panics
+///
+/// Panics at boot on an invalid contribution, such as a duplicate or invalid
+/// registry name or a resource that fails its checks.
 pub fn router(
     auth: AuthService,
     db: Db,
@@ -2911,6 +2924,7 @@ fn prefix_resource(admin_path: &str, resource: &mut Resource) {
 /// [`AdminRegistry::add_asset`].
 #[derive(Debug, Clone)]
 pub struct AdminAsset {
+    /// The media type the asset is served with.
     pub mime: &'static str,
     /// Borrowed for assets compiled in, owned for the icon sprite, which is
     /// assembled at boot from the framework's set plus whatever modules
@@ -2938,14 +2952,16 @@ impl AdminAsset {
     }
 }
 
-/// An asset a module contributes, at the key it is served under.
 /// The HTMX build the admin ships, for a public site to serve as its own
 /// request framework (`laterite_web`'s `framework()`).
 pub const HTMX_JS: &str = include_str!("../assets/vendor/htmx.min.js");
 
 #[derive(Debug, Clone)]
+/// An asset a module contributes, at the key it is served under.
 pub struct AssetReg {
+    /// The key the asset is served under, below `{admin}/assets/`.
     pub key: &'static str,
+    /// The asset's media type and bytes.
     pub asset: AdminAsset,
 }
 

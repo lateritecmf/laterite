@@ -58,8 +58,11 @@ impl Module for ParametersModule {
 /// module's id; the item may itself contain dots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Key<'a> {
+    /// The owning module's id, before the `::`.
     pub namespace: &'a str,
+    /// The group, between the `::` and the first dot.
     pub group: &'a str,
+    /// The item, after the group's dot; it may itself contain dots.
     pub item: &'a str,
 }
 

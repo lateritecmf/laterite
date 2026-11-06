@@ -32,7 +32,9 @@ pub const PSEUDO_LOCALE: &str = "xx";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PluralCategory {
+    /// The singular form (CLDR `one`).
     One,
+    /// Every other count (CLDR `other`).
     Other,
 }
 
@@ -59,8 +61,11 @@ pub fn plural_category(locale: &str, n: i64) -> PluralCategory {
 /// A substitution argument for a `{name}` placeholder in a [`Text`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Arg {
+    /// A plain string, substituted as given.
     Str(String),
+    /// An integer.
     Int(i64),
+    /// A decimal number.
     Num(f64),
     /// A translatable argument, localized recursively at the sink.
     Text(Box<Text>),
@@ -384,6 +389,7 @@ impl CatalogBuilder {
             .insert(key, entry);
     }
 
+    /// Returns the finished catalog store.
     pub fn build(self) -> CatalogStore {
         self.store
     }

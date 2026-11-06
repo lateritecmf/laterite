@@ -56,12 +56,16 @@ impl Size {
 /// database, and the size the operator chose for it.
 pub struct WidgetCx<'a> {
     pub(crate) state: &'a crate::AdminState,
+    /// The request's page shell: translator, icons and admin path.
     pub shell: &'a crate::Shell,
+    /// The signed-in user the dashboard is rendered for.
     pub user: &'a AuthenticatedUser,
+    /// The width the user chose for the widget.
     pub size: Size,
 }
 
 impl WidgetCx<'_> {
+    /// Returns the application's database handle.
     pub fn db(&self) -> &Db {
         &self.state.db
     }
@@ -108,12 +112,15 @@ pub trait Widget: Send + Sync {
 /// A registered widget with its place among the others.
 #[derive(Clone)]
 pub struct WidgetReg {
+    /// The widget being registered.
     pub widget: Arc<dyn Widget>,
+    /// Where the widget sits on the dashboard by default.
     pub position: Position,
     label: String,
 }
 
 impl WidgetReg {
+    /// Returns a registration for `widget` in the application band.
     pub fn new(widget: Arc<dyn Widget>) -> Self {
         let label = widget.label().source().to_string();
         Self {
@@ -127,6 +134,7 @@ impl WidgetReg {
         self.position = position;
         self
     }
+    /// Returns the widget's `vendor.name` code.
     pub fn code(&self) -> &str {
         self.widget.code()
     }

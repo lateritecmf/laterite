@@ -70,18 +70,23 @@ pub struct ScheduleCx {
 }
 
 impl ScheduleCx {
+    /// Returns the database pool.
     pub fn db(&self) -> &Db {
         &self.db
     }
+    /// Returns the application's event bus.
     pub fn events(&self) -> &Events {
         &self.events
     }
+    /// Returns the application cache.
     pub fn cache(&self) -> &Cache {
         &self.cache
     }
+    /// Returns the stored parameters.
     pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
+    /// Returns the job queue, for an entry that pushes work.
     pub fn queue(&self) -> &Queue {
         &self.queue
     }
@@ -202,6 +207,8 @@ impl ScheduleEntry {
         self
     }
 
+    /// Sets what happens when the entry is due while its last run is still going;
+    /// [`Overlap::Skip`] unless set.
     pub fn overlap(mut self, overlap: Overlap) -> Self {
         self.overlap = overlap;
         self
@@ -214,10 +221,12 @@ impl ScheduleEntry {
         self
     }
 
+    /// Returns the entry's name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the entry's cron expression as declared.
     pub fn expression(&self) -> &str {
         &self.expression
     }
@@ -225,6 +234,7 @@ impl ScheduleEntry {
 
 /// `registry.add_schedule(entry)`: the typed way to contribute an entry.
 pub trait ScheduleRegistry {
+    /// Registers a scheduled entry.
     fn add_schedule(&mut self, entry: ScheduleEntry);
 }
 
@@ -302,10 +312,16 @@ impl std::fmt::Debug for Schedule {
 /// The services an entry runs against.
 #[derive(Clone)]
 pub struct Services {
+    /// Database pool, also where runs are recorded.
     pub db: Db,
+    /// Event bus an entry sees through [`ScheduleCx::events`].
     pub events: Events,
+    /// Cache an entry sees through [`ScheduleCx::cache`]; it also holds the
+    /// entry locks.
     pub cache: Cache,
+    /// Stored parameters an entry sees through [`ScheduleCx::parameters`].
     pub parameters: Parameters,
+    /// Queue an entry pushes its job onto.
     pub queue: Queue,
 }
 
@@ -317,7 +333,10 @@ const OVERLAP_LOCK: Duration = Duration::from_secs(24 * 3600);
 /// How one tick went: what ran, what was skipped.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tick {
+    /// Names of the entries started this tick.
     pub ran: Vec<String>,
+    /// Names of the entries skipped this tick: held by another process, or
+    /// still running.
     pub skipped: Vec<String>,
 }
 
@@ -365,10 +384,12 @@ impl Schedule {
             .collect()
     }
 
+    /// Returns how many entries the schedule holds.
     pub fn len(&self) -> usize {
         self.inner.entries.len()
     }
 
+    /// Returns whether the schedule holds no entries.
     pub fn is_empty(&self) -> bool {
         self.inner.entries.is_empty()
     }
@@ -560,12 +581,17 @@ pub async fn recorded(db: &Db) -> CoreResult<Vec<EntryState>> {
 /// `ticker`, `external` or `off`, as `[schedule] mode` names them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// The application process runs the ticker every minute.
     Ticker,
+    /// Another process runs `schedule run` each minute; this one ticks nothing.
     External,
+    /// Nothing runs scheduled entries.
     Off,
 }
 
 impl Mode {
+    /// Parses `schedule.mode` (`ticker`, `external`, `off`); any other value is
+    /// a [`CoreError::Config`].
     pub fn parse(s: &str) -> CoreResult<Self> {
         match s {
             "ticker" => Ok(Self::Ticker),

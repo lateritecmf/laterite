@@ -97,6 +97,7 @@ impl JobError {
         Self::Fail(message.to_string())
     }
 
+    /// Returns the failure message, whichever variant carries it.
     pub fn message(&self) -> &str {
         match self {
             Self::Retry(m) | Self::Fail(m) => m,
@@ -137,15 +138,19 @@ pub struct JobCx {
 }
 
 impl JobCx {
+    /// Returns the database pool.
     pub fn db(&self) -> &Db {
         &self.db
     }
+    /// Returns the application's event bus.
     pub fn events(&self) -> &Events {
         &self.events
     }
+    /// Returns the application cache.
     pub fn cache(&self) -> &Cache {
         &self.cache
     }
+    /// Returns the stored parameters.
     pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
@@ -157,6 +162,7 @@ impl JobCx {
     pub fn attempt(&self) -> u32 {
         self.attempt
     }
+    /// Returns the name of the queue the job was taken from.
     pub fn queue(&self) -> &str {
         &self.queue
     }
@@ -169,6 +175,7 @@ pub trait Job: Serialize + DeserializeOwned + Send + Sync + 'static {
     /// The job's name, unique across the application: `acme.blog::send_digest`.
     const NAME: &'static str;
 
+    /// Does the job's work; an error retries or fails it as [`JobError`] says.
     async fn run(&self, cx: &JobCx) -> Result<(), JobError>;
 
     /// The queue the job lands on. [`DEFAULT_QUEUE`] unless overridden.
@@ -210,8 +217,11 @@ pub trait Job: Serialize + DeserializeOwned + Send + Sync + 'static {
 /// What the worker reads from a payload before running it.
 #[derive(Debug, Clone)]
 pub struct JobMeta {
+    /// How many attempts before the job fails; `0` leaves it to the retry window.
     pub tries: u32,
+    /// How long one attempt may run; `None` means no limit.
     pub timeout: Option<Duration>,
+    /// Moment until which the job keeps retrying, whatever `tries` says.
     pub retry_until: Option<DateTime<Utc>>,
 }
 
@@ -289,6 +299,7 @@ impl JobReg {
         reg
     }
 
+    /// Returns the job's name, as [`Job::NAME`] gives it.
     pub fn name(&self) -> &'static str {
         self.name
     }
@@ -296,6 +307,7 @@ impl JobReg {
 
 /// `registry.add_job::<T>()`: the typed way to contribute a job.
 pub trait QueueRegistry {
+    /// Registers job type `T` under its [`Job::NAME`].
     fn add_job<T: Job>(&mut self);
 }
 
@@ -308,32 +320,47 @@ impl QueueRegistry for Registry {
 /// A job as it waits or runs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Queued {
+    /// Id of the job in its store.
     pub id: i64,
+    /// Name of the queue the job waits on.
     pub queue: String,
+    /// Name of the job type, as [`Job::NAME`] gives it.
     pub name: String,
+    /// The job struct serialized as JSON.
     pub payload: serde_json::Value,
     /// How many times a worker has claimed it, this claim included.
     pub attempts: u32,
+    /// UTC timestamp (RFC 3339 text) from which the job may be claimed.
     pub available_at: String,
+    /// UTC timestamp (RFC 3339 text) of the current claim; `None` while waiting.
     pub reserved_at: Option<String>,
+    /// Name of the worker holding the current claim; `None` while waiting.
     pub reserved_by: Option<String>,
+    /// UTC timestamp (RFC 3339 text) of the push.
     pub created_at: String,
 }
 
 /// A job on the failed list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FailedJob {
+    /// Id of the row on the failed list.
     pub id: i64,
+    /// Name of the queue the job was on.
     pub queue: String,
+    /// Name of the job type, as [`Job::NAME`] gives it.
     pub name: String,
+    /// The job struct serialized as JSON, as it was pushed.
     pub payload: serde_json::Value,
+    /// Message of the error that failed the job.
     pub error: String,
+    /// UTC timestamp (RFC 3339 text) of the failure.
     pub failed_at: String,
 }
 
 /// How many jobs a queue holds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueueCount {
+    /// Name of the queue counted.
     pub queue: String,
     /// Waiting, including those released for a later attempt.
     pub pending: u64,
@@ -356,6 +383,7 @@ pub enum Pushed {
 /// rules live in [`Worker`].
 #[async_trait]
 pub trait QueueDriver: Send + Sync {
+    /// Returns the driver's name (`database`, `redis`).
     fn name(&self) -> &'static str;
     /// Stores a job; `None` when `unique_key` names one already waiting.
     async fn push(
@@ -380,7 +408,9 @@ pub trait QueueDriver: Send + Sync {
     async fn delete(&self, id: i64) -> CoreResult<()>;
     /// Moves a job to the failed list; returns the failed row's id.
     async fn fail(&self, job: &Queued, error: &str) -> CoreResult<i64>;
+    /// Returns how many jobs each queue holds.
     async fn counts(&self) -> CoreResult<Vec<QueueCount>>;
+    /// Returns every job on the failed list.
     async fn failed(&self) -> CoreResult<Vec<FailedJob>>;
     /// Puts a failed job (or every one, with `None`) back on its queue;
     /// returns how many moved.
@@ -407,6 +437,8 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// Parses `queue.mode` (`worker`, `external`, `inline`); any other value is a
+    /// [`CoreError::Config`].
     pub fn parse(s: &str) -> CoreResult<Self> {
         match s {
             "worker" => Ok(Self::Worker),
@@ -422,9 +454,13 @@ impl Mode {
 /// The services a job runs against.
 #[derive(Clone)]
 pub struct Services {
+    /// Database pool a job sees through [`JobCx::db`].
     pub db: Db,
+    /// Event bus a job sees through [`JobCx::events`].
     pub events: Events,
+    /// Cache a job sees through [`JobCx::cache`].
     pub cache: Cache,
+    /// Stored parameters a job sees through [`JobCx::parameters`].
     pub parameters: Parameters,
 }
 
@@ -460,6 +496,7 @@ impl std::fmt::Debug for Queue {
 /// What [`Queue::new`] takes beside the driver and the jobs.
 #[derive(Debug, Clone)]
 pub struct Options {
+    /// How jobs run: by workers here, by another process, or inline.
     pub mode: Mode,
     /// The queues a worker takes from, in priority order.
     pub queues: Vec<String>,
@@ -538,10 +575,12 @@ impl Queue {
         )
     }
 
+    /// Returns how the queue runs.
     pub fn mode(&self) -> Mode {
         self.inner.mode
     }
 
+    /// Returns the driver's name (`database`, `redis`).
     pub fn driver_name(&self) -> &'static str {
         self.inner.driver.name()
     }
@@ -816,10 +855,15 @@ impl QueueDriver for NoQueue {
 /// Announced when a job reaches the failed list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobFailed {
+    /// Id of the row on the failed list.
     pub id: i64,
+    /// Name of the job type, as [`Job::NAME`] gives it.
     pub name: String,
+    /// Name of the queue the job was on.
     pub queue: String,
+    /// How many attempts were made, the last included.
     pub attempts: u32,
+    /// Message of the error that failed the job.
     pub error: String,
     /// The job as it was pushed, for a listener that acts on what it named.
     pub payload: serde_json::Value,
@@ -863,6 +907,8 @@ pub async fn from_config(
     }
 }
 
+/// Formats `at` as RFC 3339 text in UTC with microseconds, the form the
+/// queue stores timestamps in.
 pub fn time_text(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Micros, true)
 }

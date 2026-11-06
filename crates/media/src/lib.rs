@@ -14,6 +14,8 @@
 //! primitive, and the record table. The library browser, virtual folders,
 //! variants and the finder widget arrive with the CMS work.
 
+#![warn(missing_docs)]
+
 pub mod driver;
 pub mod folder;
 pub mod gc;
@@ -58,7 +60,9 @@ use laterite_core::{MigrationSet, Module, ModuleId, Text};
 /// location is knowable from the record alone.
 #[non_exhaustive]
 pub struct DiskReg {
+    /// The name records store to say which disk holds their blob, such as `private`.
     pub name: String,
+    /// The driver that reads and writes the disk's blobs.
     pub driver: Arc<dyn StorageDriver>,
     /// What the disk is for, shown where an operator chooses one. Defaults to
     /// the name.
@@ -69,6 +73,7 @@ pub struct DiskReg {
 }
 
 impl DiskReg {
+    /// Returns a public disk named `name` over `driver`, labelled with its name.
     pub fn new(name: impl Into<String>, driver: Arc<dyn StorageDriver>) -> Self {
         let name = name.into();
         Self {

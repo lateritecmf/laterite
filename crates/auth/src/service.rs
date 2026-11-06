@@ -216,7 +216,9 @@ mod auth_config_tests {
 /// Per-request context recorded in the access log.
 #[derive(Debug, Clone, Default)]
 pub struct RequestContext {
+    /// The client address the request came from, when known.
     pub ip_address: Option<String>,
+    /// The request's `User-Agent` header, when sent.
     pub user_agent: Option<String>,
 }
 
@@ -224,7 +226,9 @@ pub struct RequestContext {
 /// cookie; only its hash is persisted.
 #[derive(Debug, Clone)]
 pub struct IssuedSession {
+    /// Raw bearer token for the session cookie; only its hash is stored.
     pub token: String,
+    /// When the session expires (UTC), absent further activity.
     pub expires_at: DateTime<Utc>,
     /// Whose session it is, so the caller can issue a remember credential
     /// without looking the user up again.
@@ -235,7 +239,9 @@ pub struct IssuedSession {
 /// `selector:verifier` value for the client; only the verifier's hash is kept.
 #[derive(Debug, Clone)]
 pub struct RememberCredential {
+    /// Raw `selector:verifier` value for the remember cookie.
     pub cookie: String,
+    /// When the credential expires (UTC).
     pub expires_at: DateTime<Utc>,
 }
 
@@ -243,7 +249,9 @@ pub struct RememberCredential {
 /// replacement credential that must overwrite the cookie just used.
 #[derive(Debug, Clone)]
 pub struct RecalledSession {
+    /// The new session minted from the remember cookie.
     pub session: IssuedSession,
+    /// The rotated credential that replaces the cookie just presented.
     pub remember: RememberCredential,
 }
 
@@ -252,9 +260,13 @@ pub struct RecalledSession {
 /// names a row without being usable to authenticate as it.
 #[derive(Debug, Clone)]
 pub struct ActiveSession {
+    /// Public id derived from the stored token hash, safe to render in a page.
     pub id: String,
+    /// When the session was created at sign-in (UTC).
     pub created_at: DateTime<Utc>,
+    /// When the session last served a request (UTC).
     pub last_seen_at: DateTime<Utc>,
+    /// When the session expires as stored (UTC).
     pub expires_at: DateTime<Utc>,
     /// Where it signed in from, when the deployment could determine one.
     pub ip_address: Option<String>,
@@ -267,7 +279,9 @@ pub struct ActiveSession {
 /// An authenticated backend user together with the permissions in force.
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
+    /// The signed-in backend user's record.
     pub user: BackendUser,
+    /// The effective permissions: role grants plus the user's overrides.
     pub permissions: PermissionSet,
 }
 
@@ -284,7 +298,9 @@ impl From<&AuthenticatedUser> for laterite_core::Actor {
 /// does not interpret the blob.
 #[derive(Debug, Clone)]
 pub struct ResolvedSession {
+    /// The authenticated user the session belongs to.
     pub identity: AuthenticatedUser,
+    /// The opaque data blob the surface stored on the session, if any.
     pub data: Option<String>,
     /// When the session expires as stored, whichever clock runs out first: the
     /// idle window from its last renewal, or the ceiling from login.
@@ -311,10 +327,15 @@ impl AuthenticatedUser {
 /// first-run setup screen so account creation has one code path.
 #[derive(Debug, Clone)]
 pub struct NewOperator<'a> {
+    /// Unique login name for the new account.
     pub username: &'a str,
+    /// Email address for the new account.
     pub email: &'a str,
+    /// Given name.
     pub first_name: &'a str,
+    /// Family name, when given.
     pub last_name: Option<&'a str>,
+    /// Plaintext password, checked against the policy and stored hashed.
     pub password: &'a str,
     /// The operator's display timezone (an IANA name), or `None` to inherit the
     /// deployment default.
@@ -334,6 +355,7 @@ pub struct AuditEntry<'a> {
     pub action: &'a str,
     /// What was acted on (e.g. `backend_role`) and its id; both optional.
     pub target_type: Option<&'a str>,
+    /// The id of the target, as text.
     pub target_id: Option<&'a str>,
     /// The target's name as operators know it (a username, a role name),
     /// snapshotted like the actor's username.
@@ -375,7 +397,9 @@ impl<'a> AuditEntry<'a> {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Purged {
+    /// Expired sessions deleted.
     pub sessions: u64,
+    /// Expired stay-signed-in credentials deleted.
     pub remember_tokens: u64,
     /// Access log rows older than `access_log_retention_days`.
     pub access_log: u64,

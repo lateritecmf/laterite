@@ -54,6 +54,7 @@ pub struct RenderError {
     pub line: Option<usize>,
     /// The engine's error class, as text (`syntax error`, `undefined value`).
     pub kind: String,
+    /// The error class followed by its detail, when the engine gives one; no location.
     pub message: String,
 }
 
@@ -742,6 +743,7 @@ pub struct EngineCache {
 }
 
 impl EngineCache {
+    /// Returns an empty cache with no `Cache` attached, so every call reads the theme chain.
     pub fn new() -> Self {
         Self::default()
     }

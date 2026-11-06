@@ -13,10 +13,14 @@ use crate::error::{CoreError, CoreResult};
 /// static website, which has none, builds on [`DatabaseConfig::memory`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
+    /// Connection URL (`postgres://...`, `mysql://...`, `sqlite://...`); empty is
+    /// unset.
     #[serde(default)]
     pub url: String,
+    /// Most connections the pool holds open. Default `10`.
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
+    /// Seconds to wait for a free connection before failing. Default `5`.
     #[serde(default = "default_acquire_timeout_secs")]
     pub acquire_timeout_secs: u64,
 }
@@ -91,7 +95,9 @@ impl ThemeConfig {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ThemeGitConfig {
+    /// Name of the git remote a publish pushes to. Default `origin`.
     pub remote: String,
+    /// Branch a publish pushes. Default `main`.
     pub branch: String,
 }
 
@@ -125,6 +131,7 @@ pub struct ThemePublishConfig {
 /// HTTP listener settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
+    /// Address and port the server binds (`127.0.0.1:8080`).
     #[serde(default = "default_listen")]
     pub listen: String,
 }
@@ -302,6 +309,7 @@ pub struct MailConfig {
     /// Every message goes to this address instead of its recipients while
     /// set: for development.
     pub to: Option<String>,
+    /// SMTP server settings, used by the `smtp` driver.
     pub smtp: SmtpConfig,
 }
 
@@ -320,11 +328,15 @@ impl Default for MailConfig {
 #[derive(Debug, Clone, Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct SmtpConfig {
+    /// Host name of the SMTP server.
     pub host: String,
+    /// Port of the SMTP server.
     pub port: u16,
     /// `starttls`, `tls` or `none`.
     pub encryption: String,
+    /// Username to authenticate with; empty sends no credentials.
     pub username: String,
+    /// Password to authenticate with.
     pub password: String,
     /// Seconds to wait for the server.
     pub timeout_seconds: u64,
