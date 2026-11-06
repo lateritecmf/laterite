@@ -26,6 +26,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `lat routes` and the application's `routes` command: every URL with its
   method, kind, owner and permission, filtered by `--path`, `--method`,
   `--kind`, `--owner`, `--permission` or `--public`, or as `--json`.
+- A Developer section in the admin while `app.debug` is on, for a superuser:
+  Routes, Field types with a live sample of each, Mail previews, Registries.
 
 ### Fixed
 

@@ -903,6 +903,7 @@ impl Bootstrap {
             auth,
             db.clone(),
             crate::Contributions {
+                route_map: route_map.clone(),
                 nav,
                 resource_hooks,
                 widgets,

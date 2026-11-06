@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Routes") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Routes") }}</h1>
+</div>
+<p class="lat-help" style="margin:0 0 16px">{{ shell.t("Every URL the application answers, with its owner. The same list as lat routes.") }}</p>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr>
+      <th>{{ shell.t("Method") }}</th>
+      <th>{{ shell.t("Path") }}</th>
+      <th>{{ shell.t("Kind") }}</th>
+      <th>{{ shell.t("Owner") }}</th>
+      <th>{{ shell.t("Permission") }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><code>{{ r.methods.join(",") }}</code></td>
+        <td><code>{{ r.path }}</code></td>
+        <td>{{ r.kind }}</td>
+        <td>{{ r.owner }}</td>
+        <td>{% if let Some(p) = r.permission %}<code>{{ p }}</code>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

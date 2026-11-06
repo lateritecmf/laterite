@@ -20,6 +20,7 @@ mod bulk;
 pub mod checklist;
 mod clientip;
 pub mod descriptor;
+mod developer;
 pub mod editor;
 mod error;
 mod export;
@@ -331,6 +332,10 @@ pub(crate) struct AdminState {
     /// The resources whose records the command palette finds, each through
     /// the picker source it named. See [`palette`].
     palette: Arc<Vec<palette::RecordSource>>,
+    /// Every admin URL with its owner, for the Developer section.
+    route_map: Arc<Vec<routemap::RouteRow>>,
+    /// What every module contributed, by registry, for the Developer section.
+    registry_summary: Arc<Vec<developer::RegistryView>>,
     /// The admin view-override resolver, default [`field::NoOverrides`] (the
     /// compiled path). A theme layer injects a runtime-template-backed resolver
     /// so users can override a field's presentation from outside the plugin.
@@ -385,6 +390,8 @@ impl AdminState {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             palette: Arc::new(Vec::new()),
+            route_map: Arc::new(Vec::new()),
+            registry_summary: Arc::new(Vec::new()),
             overrides: Arc::new(field::NoOverrides),
         }
     }
@@ -1729,6 +1736,9 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
 pub struct Contributions {
     /// List and form screens, mounted beside the framework's own.
     pub resources: Vec<Resource>,
+    /// Every admin URL with its owner, as the bootstrap computed it from
+    /// these contributions; shown by the Developer section and `routes`.
+    pub route_map: Vec<routemap::RouteRow>,
     /// Settings models, offered in the settings area.
     pub settings: Vec<settings::SettingsItem>,
     /// Permissions defined by the application, offered in the role editor.
@@ -1779,6 +1789,7 @@ pub fn router(
 ) -> Router {
     let Contributions {
         resources: app_resources,
+        route_map,
         settings: app_settings,
         permissions: app_permissions,
         picker_sources: app_picker_sources,
@@ -1887,6 +1898,21 @@ pub fn router(
             .slot(laterite_core::arrange::slot::SYSTEM),
     ];
     nav_items.extend(app_nav);
+    // The Developer section: only while `app.debug` is on, for a superuser.
+    if laterite_core::config::debug() {
+        nav_items.push(
+            nav::NavItem::section("developer", "Developer")
+                .icon("terminal")
+                .slot(laterite_core::arrange::slot::SYSTEM),
+        );
+        for (order, (key, label, path)) in developer::ENTRIES.iter().enumerate() {
+            nav_items.push(
+                nav::NavItem::new(*key, *label, *path)
+                    .under("developer")
+                    .order((order as i32 + 1) * 10),
+            );
+        }
+    }
     for resource in &app_resources {
         if resource.menu.hidden {
             continue;
@@ -2149,7 +2175,30 @@ pub fn router(
         .mail
         .clone()
         .unwrap_or_else(|| stub_mail(&db, cache.clone(), queue.clone()));
+    let registry_summary = developer::summarise(
+        &resources,
+        &app_screens,
+        &settings,
+        &permissions,
+        &field_types,
+        &column_types,
+        widget_regs.len(),
+        &app_public,
+    );
+    let route_map = if route_map.is_empty() {
+        routemap::basic_map(
+            &admin_path,
+            &resources,
+            &app_screens,
+            &settings,
+            &app_public,
+        )
+    } else {
+        route_map
+    };
     let state = AdminState {
+        route_map: Arc::new(route_map),
+        registry_summary: Arc::new(registry_summary),
         auth,
         parameters: laterite_core::parameters::Parameters::with_cache(db.clone(), cache.clone()),
         cache,
@@ -2194,6 +2243,16 @@ pub fn router(
     };
 
     let mut protected = Router::new().route(&admin_path, get(dashboard));
+    if laterite_core::config::debug() {
+        let dev = format!("{admin_path}{}", developer::BASE);
+        protected = protected.merge(guard_superuser(
+            Router::new()
+                .route(&format!("{dev}/routes"), get(developer::routes))
+                .route(&format!("{dev}/field-types"), get(developer::field_types))
+                .route(&format!("{dev}/mail"), get(developer::mail))
+                .route(&format!("{dev}/registries"), get(developer::registries)),
+        ));
+    }
     // The resources' forms, collected as they mount so a screen can write
     // through one (`RouteCtx::form`). Keyed by the path as authored, relative to
     // the admin root, which is how a screen names a resource.
@@ -3719,6 +3778,19 @@ fn mount_resource(
 /// runs first and injects the identity, so this reads it from the request
 /// extensions and answers `403 Forbidden` for an operator who lacks `permission`.
 /// Shared by resource mounting and the roles permission editor.
+/// Routes a superuser alone may reach: the Developer section.
+fn guard_superuser(router: Router<AdminState>) -> Router<AdminState> {
+    router.route_layer(middleware::from_fn(
+        |Extension(user): Extension<AuthenticatedUser>, req: Request, next: Next| async move {
+            if user.user.is_superuser {
+                next.run(req).await
+            } else {
+                AdminError::Forbidden.into_response()
+            }
+        },
+    ))
+}
+
 fn guard_with_permission(router: Router<AdminState>, permission: &str) -> Router<AdminState> {
     let needed: Arc<str> = Arc::from(permission);
     router.route_layer(middleware::from_fn(
@@ -6163,6 +6235,8 @@ mod tests {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             palette: Arc::new(Vec::new()),
+            route_map: Arc::new(Vec::new()),
+            registry_summary: Arc::new(Vec::new()),
             overrides: Arc::new(field::NoOverrides),
         };
 

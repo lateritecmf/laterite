@@ -500,6 +500,57 @@ pub fn resource_routes(resource: &crate::Resource, admin_path: &str, owner: &str
     rows
 }
 
+/// The map a router builds for itself when the bootstrap gave it none (a
+/// router assembled by hand, as the tests do): the framework's routes and
+/// the contributed resources, screens, settings and public routes, owned
+/// by `the application` since the owners are not known here.
+pub fn basic_map(
+    admin_path: &str,
+    resources: &[crate::Resource],
+    screens: &[crate::routes::ScreenReg],
+    settings: &[crate::settings::SettingsItem],
+    public: &[crate::routes::PublicRouteReg],
+) -> Vec<RouteRow> {
+    const APP: &str = "the application";
+    let mut rows = framework_routes(admin_path);
+    for resource in crate::builtin_resources() {
+        rows.extend(resource_routes(&resource, admin_path, FRAMEWORK));
+    }
+    for resource in resources {
+        rows.extend(resource_routes(resource, admin_path, APP));
+    }
+    for screen in screens {
+        rows.push(RouteRow::new(
+            &["GET", "POST"],
+            format!("{admin_path}{}", screen.base_path),
+            "screen",
+            APP,
+            Some(&screen.permission),
+        ));
+    }
+    for item in settings.iter().filter(|i| i.link.is_none()) {
+        rows.push(RouteRow::new(
+            &["GET", "POST"],
+            format!("{admin_path}{}", item.route()),
+            "settings",
+            APP,
+            item.permission.as_deref(),
+        ));
+    }
+    for route in public {
+        rows.push(RouteRow::new(
+            &["GET", "POST"],
+            route.path.clone(),
+            "public",
+            APP,
+            None,
+        ));
+    }
+    rows.sort_by(|a, b| a.path.cmp(&b.path).then(a.methods.cmp(&b.methods)));
+    rows.dedup();
+    rows
+}
+
 /// The map as a table: methods, path, kind, owner, permission.
 pub fn render_table(rows: &[RouteRow]) -> String {
     let cells: Vec<[String; 5]> = rows

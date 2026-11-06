@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Mail previews") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Mail previews") }}</h1>
+</div>
+<div class="lat-tablewrap" style="margin-bottom:24px">
+  <table class="lat-table">
+    <thead><tr><th>{{ shell.t("Template") }}</th><th>{{ shell.t("Subject") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for (code, subject) in templates %}
+      <tr>
+        <td><code>{{ code }}</code></td>
+        <td>{{ subject }}</td>
+        <td><a href="{{ base }}/templates/{{ code }}/preview" target="_blank" rel="noopener">{{ shell.t("Preview") }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="lat-tablewrap">
+  <table class="lat-table">
+    <thead><tr><th>{{ shell.t("Layout") }}</th><th>{{ shell.t("Name") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for (code, name) in layouts %}
+      <tr>
+        <td><code>{{ code }}</code></td>
+        <td>{{ name }}</td>
+        <td><a href="{{ base }}/layouts/{{ code }}/preview" target="_blank" rel="noopener">{{ shell.t("Preview") }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

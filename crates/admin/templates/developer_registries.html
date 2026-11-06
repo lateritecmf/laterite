@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ shell.t("Registries") }} - {{ shell.brand }}{% endblock %}
+{% block content %}
+<div class="lat-toolbar">
+  <h1>{{ shell.t("Registries") }}</h1>
+</div>
+<p class="lat-help" style="margin:0 0 16px">{{ shell.t("What every module contributed, by registry.") }}</p>
+{% for r in registries %}
+<section class="lat-card" style="margin-bottom:16px">
+  <h2 class="lat-card__title">{{ r.name }} <span class="lat-help">({{ r.entries.len() }})</span></h2>
+  {% if r.entries.is_empty() %}
+  <p class="lat-help">{{ shell.t("Nothing registered.") }}</p>
+  {% else %}
+  <ul>
+    {% for e in r.entries %}<li><code>{{ e }}</code></li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

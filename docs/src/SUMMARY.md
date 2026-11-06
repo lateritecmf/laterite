@@ -32,6 +32,7 @@
 - [Settings Models](admin/settings.md)
 - [Parameters](admin/parameters.md)
 - [Logs](admin/logs.md)
+- [Developer Section](admin/developer.md)
 
 # Forms
 
