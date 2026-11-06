@@ -65,6 +65,239 @@ pub enum Rule {
     /// The value must not already exist in this field's column of the target
     /// table. On update, the edited row is ignored.
     Unique,
+    /// A rule a module registered, by its dotted name, with the arguments the
+    /// descriptor gave: `acme.vat_number`, or `acme.between: [1, 10]`.
+    #[serde(untagged)]
+    Custom(CustomRule),
+}
+
+/// A registered rule as a descriptor names it: a dotted `vendor.rule` name and
+/// its arguments as text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomRule {
+    /// The registered name, such as `acme.vat_number`.
+    pub name: String,
+    /// The arguments, each as the descriptor wrote it.
+    pub args: Vec<String>,
+}
+
+impl CustomRule {
+    /// The rule registered as `name`, with `args`.
+    pub fn new(name: impl Into<String>, args: Vec<String>) -> Self {
+        Self {
+            name: name.into(),
+            args,
+        }
+    }
+}
+
+impl Serialize for CustomRule {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        if self.args.is_empty() {
+            return ser.serialize_str(&self.name);
+        }
+        let mut map = ser.serialize_map(Some(1))?;
+        map.serialize_entry(&self.name, &self.args)?;
+        map.end()
+    }
+}
+
+/// One argument as a descriptor may write it.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ArgValue {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Text(String),
+}
+
+impl ArgValue {
+    fn into_text(self) -> String {
+        match self {
+            Self::Bool(b) => b.to_string(),
+            Self::Int(n) => n.to_string(),
+            Self::Float(n) => n.to_string(),
+            Self::Text(t) => t,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Args {
+    Many(Vec<ArgValue>),
+    One(ArgValue),
+}
+
+impl<'de> Deserialize<'de> for CustomRule {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = CustomRule;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a built-in rule or a registered `vendor.rule` name")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<CustomRule, E> {
+                checked_name(name).map(|n| CustomRule::new(n, Vec::new()))
+            }
+
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<CustomRule, M::Error> {
+                let Some((name, args)) = map.next_entry::<String, Args>()? else {
+                    return Err(serde::de::Error::custom("an empty rule"));
+                };
+                if map.next_key::<String>()?.is_some() {
+                    return Err(serde::de::Error::custom("a rule names one rule"));
+                }
+                let args = match args {
+                    Args::Many(many) => many.into_iter().map(ArgValue::into_text).collect(),
+                    Args::One(one) => vec![one.into_text()],
+                };
+                checked_name(&name).map(|n| CustomRule::new(n, args))
+            }
+        }
+        de.deserialize_any(Visitor)
+    }
+}
+
+/// `name` when it is a dotted `vendor.rule`, the only shape a registered rule
+/// may take.
+fn checked_name<E: serde::de::Error>(name: &str) -> Result<String, E> {
+    match name.split_once('.') {
+        Some((vendor, rule)) if !vendor.is_empty() && !rule.is_empty() => Ok(name.to_string()),
+        _ => Err(E::custom(format!(
+            "unknown rule `{name}`: a registered rule is named `vendor.rule`"
+        ))),
+    }
+}
+
+/// What a registered rule is checking: the field, its arguments, and every
+/// other submitted value.
+#[non_exhaustive]
+pub struct RuleCx<'a> {
+    /// The submitted field's name.
+    pub field: &'a str,
+    /// The field's label, for the message.
+    pub label: &'a str,
+    /// The arguments the descriptor gave the rule.
+    pub args: &'a [String],
+    /// Every submitted value, by field name.
+    pub data: &'a HashMap<String, String>,
+    /// Whether the submission creates or updates a record.
+    pub mode: Mode,
+    /// The database, for a rule that looks something up.
+    pub db: &'a Db,
+    /// The table the form writes.
+    pub table: &'a str,
+    /// The record being updated; `None` on a create.
+    pub edited_id: Option<&'a str>,
+}
+
+/// A validation rule a module registers under a dotted name.
+#[async_trait::async_trait]
+pub trait ValidationRule: Send + Sync + 'static {
+    /// Checks `value` (trimmed), returning the message to show on refusal.
+    async fn check(&self, cx: &RuleCx<'_>, value: &str) -> Result<(), Text>;
+
+    /// Whether the rule also runs on an empty value. Default `false`: an empty
+    /// value is `required`'s to refuse.
+    fn implicit(&self) -> bool {
+        false
+    }
+}
+
+/// A rule and the dotted name descriptors use for it.
+#[derive(Clone)]
+pub struct ValidationRuleReg {
+    /// The name, such as `acme.vat_number`.
+    pub name: String,
+    /// The rule itself.
+    pub rule: std::sync::Arc<dyn ValidationRule>,
+}
+
+impl ValidationRuleReg {
+    /// Registers `rule` as `name`.
+    pub fn new(name: impl Into<String>, rule: std::sync::Arc<dyn ValidationRule>) -> Self {
+        Self {
+            name: name.into(),
+            rule,
+        }
+    }
+}
+
+/// Registered rules by name.
+pub type RuleRegistry = HashMap<String, std::sync::Arc<dyn ValidationRule>>;
+
+/// Every `(field, rule name)` in `fields` that `rules` does not hold.
+pub fn unknown_rules(fields: &[FieldRules], rules: &RuleRegistry) -> Vec<(String, String)> {
+    fields
+        .iter()
+        .flat_map(|f| {
+            f.rules.iter().filter_map(move |r| match r {
+                Rule::Custom(c) if !rules.contains_key(&c.name) => {
+                    Some((f.field.clone(), c.name.clone()))
+                }
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// Runs each field's registered rules, for fields with no message yet, adding
+/// any refusal to `bag`. A rule `rules` does not hold refuses the field.
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_custom(
+    db: &Db,
+    table: &str,
+    fields: &[FieldRules],
+    data: &HashMap<String, String>,
+    mode: Mode,
+    edited_id: Option<&str>,
+    rules: &RuleRegistry,
+    bag: &mut ErrorBag,
+) {
+    for f in fields {
+        if !bag.messages(&f.field).is_empty() {
+            continue;
+        }
+        let value = data.get(&f.field).map(|s| s.trim()).unwrap_or("");
+        for rule in &f.rules {
+            let Rule::Custom(custom) = rule else {
+                continue;
+            };
+            let Some(registered) = rules.get(&custom.name) else {
+                tracing::error!(rule = %custom.name, field = %f.field, "validation rule not registered");
+                bag.add(
+                    &f.field,
+                    field_msg("{label} could not be checked.", &f.label),
+                );
+                break;
+            };
+            if value.is_empty() && !registered.implicit() {
+                continue;
+            }
+            let cx = RuleCx {
+                field: &f.field,
+                label: &f.label,
+                args: &custom.args,
+                data,
+                mode,
+                db,
+                table,
+                edited_id,
+            };
+            if let Err(message) = registered.check(&cx, value).await {
+                bag.add(&f.field, message);
+                break;
+            }
+        }
+    }
 }
 
 /// The rules for one field, with the label used in its messages.
@@ -409,5 +642,44 @@ mod tests {
         assert!(!is_email("no-at"));
         assert!(!is_email("@b.com"));
         assert!(!is_email("a@@b.com"));
+    }
+
+    #[test]
+    fn a_dotted_name_or_map_reads_as_a_registered_rule() {
+        let rules: Vec<Rule> = serde_saphyr::from_str(
+            "[required, acme.vat_number, {acme.between: [1, 10]}, {acme.prefix: GB}, {max_length: 5}]",
+        )
+        .unwrap();
+        assert!(matches!(rules[0], Rule::Required));
+        assert!(
+            matches!(&rules[1], Rule::Custom(c) if c.name == "acme.vat_number" && c.args.is_empty())
+        );
+        assert!(
+            matches!(&rules[2], Rule::Custom(c) if c.name == "acme.between" && c.args == ["1", "10"])
+        );
+        assert!(matches!(&rules[3], Rule::Custom(c) if c.args == ["GB"]));
+        assert!(matches!(rules[4], Rule::MaxLength(5)));
+    }
+
+    #[test]
+    fn an_unknown_undotted_rule_is_refused() {
+        assert!(serde_saphyr::from_str::<Vec<Rule>>("[requird]").is_err());
+    }
+
+    #[test]
+    fn a_registered_rule_writes_back_as_it_was_read() {
+        let rule = Rule::Custom(CustomRule::new(
+            "acme.between",
+            vec!["1".into(), "10".into()],
+        ));
+        assert_eq!(
+            serde_json::to_string(&rule).unwrap(),
+            r#"{"acme.between":["1","10"]}"#
+        );
+        let bare = Rule::Custom(CustomRule::new("acme.vat_number", Vec::new()));
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#""acme.vat_number""#
+        );
     }
 }

@@ -1,0 +1,12 @@
+entity: items
+path: /items
+title: Items
+permission: acme.manage_items
+list:
+  columns:
+    name: {}
+form:
+  title: Item
+  fields:
+    name: { rules: [required] }
+    code: { rules: [required, acme.uppercase, { acme.differs_from: name }] }

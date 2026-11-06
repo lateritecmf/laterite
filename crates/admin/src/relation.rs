@@ -267,6 +267,7 @@ fn hide(form: &mut FormConfig, name: &str) {
 }
 
 impl PreparedRelation {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare(
         parent: &crate::Resource,
         mut config: RelationConfig,
@@ -275,6 +276,7 @@ impl PreparedRelation {
         permission_codes: &std::collections::HashSet<String>,
         persisters: &crate::persist::PersisterRegistry,
         listeners: &[laterite_core::ModelListenerReg],
+        rules: &Arc<laterite_core::validation::RuleRegistry>,
     ) -> Result<Self, String> {
         let name = config.name.clone();
         let fail = |message: String| format!("relation `{name}`: {message}");
@@ -287,7 +289,9 @@ impl PreparedRelation {
             config.form.title = config.label.clone();
         }
         let prepare = |form: FormConfig| {
-            PreparedForm::prepare(form, field_types, persisters, listeners).map_err(fail)
+            PreparedForm::prepare(form, field_types, persisters, listeners)
+                .map(|f| f.with_rules(rules.clone()))
+                .map_err(fail)
         };
         let (kind, form) = match (config.foreign_key.clone(), config.pivot.clone()) {
             (Some(foreign_key), None) => {

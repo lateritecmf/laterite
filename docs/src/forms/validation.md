@@ -45,6 +45,48 @@ if bag.is_empty() {
 `validate_fields` runs the rules without the database; `validate` adds the
 `unique` probe. The result is an `ErrorBag`; empty means valid.
 
+## Register a rule
+
+```rust
+use laterite_core::validation::{RuleCx, ValidationRule, ValidationRuleReg};
+use laterite_core::Text;
+
+struct DiffersFrom;
+
+#[laterite_core::strata::async_trait]
+impl ValidationRule for DiffersFrom {
+    async fn check(&self, cx: &RuleCx<'_>, value: &str) -> Result<(), Text> {
+        let other = cx.args.first().and_then(|name| cx.data.get(name));
+        if other.is_some_and(|o| o.trim() == value) {
+            return Err(Text::new("{label} must differ.").arg("label", Text::dynamic(cx.label)));
+        }
+        Ok(())
+    }
+}
+
+Contributions {
+    validation_rules: vec![ValidationRuleReg::new("acme.differs_from", Arc::new(DiffersFrom))],
+    ..Default::default()
+}
+```
+
+```yaml
+fields:
+  code: { rules: [required, acme.uppercase, { acme.differs_from: name }] }
+```
+
+`RuleCx` field | Holds
+--- | ---
+`field`, `label` | The field being checked and its label
+`args` | The descriptor's arguments as text: `{ acme.between: [1, 10] }` gives `["1", "10"]`
+`data` | Every submitted value, by field name
+`mode` | `Mode::Create` or `Mode::Update`
+`db`, `table`, `edited_id` | The database, the form's table, the record being updated
+
+A rule runs after the built-in rules pass for that field, and skips an empty
+value unless `implicit()` returns `true`. A registered name is dotted
+(`vendor.rule`). A field naming a rule no module registered fails boot.
+
 ## Read what a submission answers
 
 Outcome | Response

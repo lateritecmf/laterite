@@ -879,6 +879,8 @@ pub(crate) struct PreparedForm {
     /// Offer "Save and continue editing" beside Save: a resource with relation
     /// sections wants to land on the edit page, where the sections are.
     pub(crate) stay: bool,
+    /// The registered validation rules a field may name.
+    rules: Arc<laterite_core::validation::RuleRegistry>,
 }
 
 /// One field's boot-resolved state: its typed options and its merged rules (the
@@ -957,6 +959,15 @@ impl PreparedForm {
     /// Resolves every field against the registry. Returns the offending field
     /// and reason (for a boot abort) when a type is unregistered or rejects its
     /// options.
+    /// The form with the registered validation rules its fields may name.
+    pub(crate) fn with_rules(
+        mut self,
+        rules: Arc<laterite_core::validation::RuleRegistry>,
+    ) -> Self {
+        self.rules = rules;
+        self
+    }
+
     pub(crate) fn prepare(
         config: FormConfig,
         field_types: &crate::field::FieldRegistry,
@@ -1054,6 +1065,7 @@ impl PreparedForm {
             persister,
             listeners,
             stay: false,
+            rules: Arc::new(Default::default()),
         })
     }
 }
@@ -1204,17 +1216,29 @@ async fn prepare(
         None => (Mode::Create, Op::Create),
         Some(_) => (Mode::Update, Op::Update),
     };
-    let bag = validate(
+    let fields = merged_field_rules(form);
+    let mut bag = validate(
         db,
         &form.config.entity,
         &form.config.id_field,
-        &merged_field_rules(form),
+        &fields,
         data,
         mode,
         id,
     )
     .await
     .map_err(|e| SaveError::Failed(e.to_string()))?;
+    laterite_core::validation::validate_custom(
+        db,
+        &form.config.entity,
+        &fields,
+        data,
+        mode,
+        id,
+        &form.rules,
+        &mut bag,
+    )
+    .await;
     if !bag.is_empty() {
         return Err(SaveError::Invalid(bag));
     }

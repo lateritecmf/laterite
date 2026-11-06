@@ -1784,6 +1784,9 @@ pub struct Contributions {
     /// Conditions added to every admin read of an entity; see
     /// [`laterite_core::scope`].
     pub query_hooks: Vec<laterite_core::QueryHookReg>,
+    /// Validation rules a form field names by their dotted name
+    /// (`rules: [acme.vat_number]`).
+    pub validation_rules: Vec<laterite_core::validation::ValidationRuleReg>,
     /// Field types a module contributes, offered to every form and settings
     /// screen beside the built-ins.
     pub field_types: Vec<field::FieldTypeReg>,
@@ -1838,6 +1841,7 @@ pub fn router(
         persisters: app_persisters,
         listeners: app_listeners,
         query_hooks: app_query_hooks,
+        validation_rules: app_validation_rules,
         field_types: app_field_types,
         column_types: app_column_types,
         widgets: app_widgets,
@@ -2064,6 +2068,34 @@ pub fn router(
             Vec::new(),
         ))
     });
+    // Registered validation rules, and every name a form uses checked against
+    // them now, so a typo fails boot naming the field.
+    let validation_rules: Arc<laterite_core::validation::RuleRegistry> = Arc::new(
+        app_validation_rules
+            .iter()
+            .map(|reg| (reg.name.clone(), reg.rule.clone()))
+            .collect(),
+    );
+    for resource in &resources {
+        let forms = resource
+            .form
+            .iter()
+            .chain(resource.relations.iter().map(|r| &r.form));
+        for form in forms {
+            for field in &form.fields {
+                for rule in &field.rules {
+                    if let laterite_core::validation::Rule::Custom(custom) = rule {
+                        if !validation_rules.contains_key(&custom.name) {
+                            panic!(
+                                "admin resource `{}`: field `{}` names the rule `{}`, which no module registered",
+                                resource.base_path, field.name, custom.name
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Every entity a screen reads gets its hooks: a soft-deleting resource's
     // trash scope first, then each contributed hook that targets it.
     let mut scopes: HashMap<String, Vec<Arc<dyn laterite_core::QueryHook>>> = HashMap::new();
@@ -2375,6 +2407,7 @@ pub fn router(
     let mut forms: HashMap<String, Arc<form::PreparedForm>> = HashMap::new();
     for resource in &resources {
         let (mounted, prepared) = mount_resource(
+            &validation_rules,
             resource,
             &state.field_types,
             &state.column_types,
@@ -3379,6 +3412,7 @@ async fn serve_asset(
 /// route it mounts is wrapped in a guard that answers `403 Forbidden` for an
 /// operator who lacks it; the caller merges the result into the protected router.
 fn mount_resource(
+    rules: &Arc<laterite_core::validation::RuleRegistry>,
     resource: &Resource,
     field_types: &field::FieldRegistry,
     column_types: &list::ColumnRegistry,
@@ -3423,7 +3457,8 @@ fn mount_resource(
             }
         }
         let prepared = form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
-            .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
+            .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path))
+            .with_rules(rules.clone());
         list_cfg.editor = Some(list::Editor(Arc::new(prepared)));
     }
     let cell_cfg = list_cfg.clone();
@@ -3690,6 +3725,7 @@ fn mount_resource(
             permission_codes,
             persisters,
             listeners,
+            rules,
         )
         .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
         relations.push(Arc::new(prepared));
@@ -3702,7 +3738,8 @@ fn mount_resource(
         // option or unregistered type aborts boot naming the resource.
         let mut prepared =
             form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
-                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path));
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path))
+                .with_rules(rules.clone());
         // Sections live on the edit page, so a form with them offers to stay there.
         prepared.stay = !relations.is_empty();
         let prepared = Arc::new(prepared);
@@ -6020,6 +6057,7 @@ mod tests {
         // signed-in operator; mounting it aborts boot.
         let resource = resource_with(Some(write_form()), None);
         let _ = mount_resource(
+            &Arc::new(Default::default()),
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),
@@ -6102,6 +6140,7 @@ mod tests {
         score.column_type = "nope".into();
         resource.list.columns.push(score);
         let _ = mount_resource(
+            &Arc::new(Default::default()),
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),
@@ -6116,6 +6155,7 @@ mod tests {
         // No write path, so no permission is required: this mounts without panicking.
         let resource = resource_with(None, None);
         let _ = mount_resource(
+            &Arc::new(Default::default()),
             &resource,
             &field::builtin_registry(),
             &list::builtin_column_registry(),

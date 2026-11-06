@@ -15,6 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   Delete permanently; a has-many relation with `soft_delete` follows its parent.
 - `QueryHook` and `Contributions::query_hooks`: conditions on every admin read
   of an entity; `TableSource::scope` applies one to a picker's search.
+- `ValidationRule` and `Contributions::validation_rules`: a module's own rule,
+  named in a descriptor as `vendor.rule`; an unknown name fails boot.
 
 ## [0.9.30] - 2026-11-06
 

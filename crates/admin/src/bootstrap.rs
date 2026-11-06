@@ -925,6 +925,7 @@ impl Bootstrap {
                 persisters,
                 listeners,
                 query_hooks: Vec::new(),
+                validation_rules: Vec::new(),
                 field_types,
                 column_types,
                 icons,
