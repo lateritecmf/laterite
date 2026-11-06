@@ -2567,6 +2567,7 @@ dependencies = [
  "anyhow",
  "askama",
  "chrono",
+ "form_urlencoded",
  "laterite-admin",
  "laterite-auth",
  "laterite-core",

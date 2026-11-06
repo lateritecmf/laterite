@@ -12,6 +12,7 @@ repository.workspace = true
 theme-git = []
 
 [dependencies]
+form_urlencoded = "1.2"
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }

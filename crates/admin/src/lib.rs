@@ -73,7 +73,7 @@ pub use bootstrap::{
     crypt_from_config, legacy_key_material, AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX,
 };
 pub use error::AdminError;
-pub use session::{FlashLevel, SessionHandle};
+pub use session::{origin_ok, FlashLevel, SessionHandle};
 pub use upload::VerifiedUpload;
 
 use std::collections::HashMap;

@@ -636,7 +636,9 @@ fn component(state: &State, alias: String) -> Result<Value, minijinja::Error> {
             })?,
     };
     let data = state.lookup(&alias).unwrap_or_default();
-    let mut pairs: Vec<(String, Value)> = ["this", "head"]
+    // The page's own values, the handler's `errors` and the visitor's token
+    // reach the markup, so a component shows its field errors and posts.
+    let mut pairs: Vec<(String, Value)> = ["this", "head", "errors", super::site::TOKEN_KEY]
         .into_iter()
         .filter_map(|key| state.lookup(key).map(|v| (key.to_string(), v)))
         .collect();

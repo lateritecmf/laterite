@@ -13,6 +13,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `dist/storage/media/`; `[media] folder` keeps the library in a folder of the
   project, committed on every stored or removed file when the theme's source
   is `git` (`media.stored` and `media.removed` events).
+- A page posts to a component's handler: `Component::handlers` and `handle`,
+  `Handled` outcomes (data, invalid, redirect, JSON), the origin gate and the
+  visitor's `laterite_token`; an HTMX post re-renders the alias or a named
+  partial, a plain form the page.
 
 ### Fixed
 

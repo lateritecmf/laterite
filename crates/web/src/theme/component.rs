@@ -129,6 +129,203 @@ pub trait Component: Send + Sync + 'static {
 
     /// Produces the data for one request.
     async fn run(&self, cx: &ComponentContext<'_>) -> Result<ComponentOutput, ThemeError>;
+
+    /// The handlers a page may post to, by name (`add`, `subscribe`). A name
+    /// not listed here is a 404 before any code runs. Default: none.
+    fn handlers(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Answers a post to the page naming one of [`handlers`](Self::handlers)
+    /// as `alias::name`: the component has run for the request, and the
+    /// outcome replaces its data, redirects, or refuses the input. Default:
+    /// [`Handled::Unknown`].
+    async fn handle(&self, name: &str, cx: &HandlerContext<'_>) -> Result<Handled, ThemeError> {
+        let _ = (name, cx);
+        Ok(Handled::Unknown)
+    }
+}
+
+/// What a handler receives: the request's component context, the submitted
+/// fields, and the request headers.
+pub struct HandlerContext<'a> {
+    pub db: &'a Db,
+    /// The properties as attached, with `{{ :name }}` resolved and defaults filled.
+    pub properties: &'a serde_json::Map<String, serde_json::Value>,
+    /// The URL's parameters.
+    pub params: &'a Params,
+    /// The page's path.
+    pub path: &'a str,
+    /// The theme being rendered.
+    pub theme: &'a str,
+    /// Whether an operator is previewing.
+    pub preview: bool,
+    /// The submitted fields.
+    pub input: &'a Input,
+    /// The request headers.
+    pub headers: &'a laterite_admin::axum::http::HeaderMap,
+}
+
+impl HandlerContext<'_> {
+    /// A number property, or `default` when unset or not a number.
+    pub fn property_u64(&self, name: &str, default: u64) -> u64 {
+        self.properties
+            .get(name)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(default)
+    }
+}
+
+/// The fields a form posted, in order; a name may repeat (`items[]`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Input {
+    fields: Vec<(String, String)>,
+}
+
+impl Input {
+    /// Parses an `application/x-www-form-urlencoded` body.
+    pub fn parse(body: &[u8]) -> Self {
+        Self {
+            fields: form_urlencoded::parse(body)
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect(),
+        }
+    }
+
+    /// The first value under `name`, trimmed; empty when absent.
+    pub fn text(&self, name: &str) -> &str {
+        self.fields
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.trim())
+            .unwrap_or_default()
+    }
+
+    /// Every value under `name` or `name[]`, in order.
+    pub fn list(&self, name: &str) -> Vec<String> {
+        let bracketed = format!("{name}[]");
+        self.fields
+            .iter()
+            .filter(|(k, _)| k == name || *k == bracketed)
+            .map(|(_, v)| v.clone())
+            .collect()
+    }
+
+    /// Whether `name` was posted at all.
+    pub fn has(&self, name: &str) -> bool {
+        self.fields.iter().any(|(k, _)| k == name)
+    }
+
+    /// Every field, in order.
+    pub fn fields(&self) -> &[(String, String)] {
+        &self.fields
+    }
+}
+
+/// What a handler did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Handled {
+    /// New data for the alias, and variables for the page scope.
+    Data {
+        data: serde_json::Value,
+        inject: serde_json::Map<String, serde_json::Value>,
+    },
+    /// The input was refused: messages by field, rendered with status 422
+    /// and `errors` in scope, with the alias's data when given.
+    Invalid {
+        errors: serde_json::Map<String, serde_json::Value>,
+        data: Option<serde_json::Value>,
+    },
+    /// Send the browser elsewhere: `HX-Redirect` for HTMX, a 303 otherwise.
+    Redirect(String),
+    /// A JSON body, for a script.
+    Json(serde_json::Value),
+    /// The component has no such handler: a 404.
+    Unknown,
+}
+
+impl Handled {
+    /// New data for the alias.
+    pub fn data(data: impl Into<serde_json::Value>) -> Self {
+        Handled::Data {
+            data: data.into(),
+            inject: serde_json::Map::new(),
+        }
+    }
+
+    /// A variable placed in the page scope beside the data.
+    pub fn inject(mut self, name: impl Into<String>, value: impl Into<serde_json::Value>) -> Self {
+        if let Handled::Data { inject, .. } = &mut self {
+            inject.insert(name.into(), value.into());
+        }
+        self
+    }
+
+    /// One field's message, refusing the input.
+    pub fn invalid(field: impl Into<String>, message: impl Into<String>) -> Self {
+        let mut errors = serde_json::Map::new();
+        errors.insert(field.into(), serde_json::Value::String(message.into()));
+        Handled::Invalid { errors, data: None }
+    }
+
+    /// The alias's data to render the refusal with.
+    pub fn with_data(mut self, value: impl Into<serde_json::Value>) -> Self {
+        if let Handled::Invalid { data, .. } = &mut self {
+            *data = Some(value.into());
+        }
+        self
+    }
+}
+
+/// Runs the handler `name` of the attachment `alias` among `bags`, with the
+/// alias's properties resolved. `None` when no such alias is attached or the
+/// component declares no such handler.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_handler(
+    bags: &[&serde_json::Value],
+    regs: &[&ComponentReg],
+    db: &Db,
+    params: &Params,
+    path: &str,
+    theme: &str,
+    preview: bool,
+    alias: &str,
+    name: &str,
+    input: &Input,
+    headers: &laterite_admin::axum::http::HeaderMap,
+) -> Result<Option<Handled>, ThemeError> {
+    let mut found: Option<Attachment> = None;
+    for bag in bags {
+        for a in attached(bag)? {
+            if a.alias == alias {
+                found = Some(a);
+            }
+        }
+    }
+    let Some(a) = found else {
+        return Ok(None);
+    };
+    let Some(reg) = regs.iter().find(|r| r.code == a.code) else {
+        return Err(ThemeError::Page(format!(
+            "no component {:?} for {:?}",
+            a.code, a.alias
+        )));
+    };
+    if !reg.component.handlers().contains(&name) {
+        return Ok(None);
+    }
+    let properties = resolve(&a, &reg.component.properties(), params);
+    let cx = HandlerContext {
+        db,
+        properties: &properties,
+        params,
+        path,
+        theme,
+        preview,
+        input,
+        headers,
+    };
+    reg.component.handle(name, &cx).await.map(Some)
 }
 
 /// A registered component: its `vendor.name` code, a label for the editor,

@@ -254,7 +254,7 @@ pub(crate) fn token_matches(expected: &str, submitted: Option<&str>) -> bool {
 /// rejected (a same-origin browser always sends at least one on a mutation).
 /// An empty `expected_origin` falls back to the request `Host` (dev convenience;
 /// production should set `app.url`).
-pub(crate) fn origin_ok(headers: &HeaderMap, expected_origin: &str) -> bool {
+pub fn origin_ok(headers: &HeaderMap, expected_origin: &str) -> bool {
     if let Some(site) = headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
         return matches!(site, "same-origin" | "none");
     }

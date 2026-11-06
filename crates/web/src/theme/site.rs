@@ -133,8 +133,8 @@ impl PublicRoute for Site {
             components,
         });
         Router::new()
-            .route("/", get(serve))
-            .route("/{*path}", get(serve))
+            .route("/", get(serve).post(handle))
+            .route("/{*path}", get(serve).post(handle))
             .with_state(state)
     }
 }
@@ -241,11 +241,67 @@ fn asset_type(path: &str) -> &'static str {
     }
 }
 
+/// The cookie a visitor's handler posts are checked against: a signed token
+/// minted on their first page, echoed by `request()` as the `_token` field.
+pub const TOKEN_COOKIE: &str = "laterite_token";
+/// The form field carrying the token.
+pub const TOKEN_FIELD: &str = "_token";
+/// The header naming the handler, `alias::name` (HTMX requests).
+pub const HANDLER_HEADER: &str = "lat-handler";
+/// The form field naming the handler, for a plain form post.
+pub const HANDLER_FIELD: &str = "_handler";
+/// The header naming the theme partial to render instead of the alias's markup.
+pub const PARTIAL_HEADER: &str = "lat-partial";
+/// How long a visitor's token lives.
+const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// The signing purpose of the token.
+const TOKEN_PURPOSE: &str = "site.token";
+
+/// The token cookie's value, when the request carries one.
+fn token_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|line| line.split(';'))
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            (name == TOKEN_COOKIE).then(|| value.to_string())
+        })
+        .next()
+}
+
+/// The visitor's token: the cookie's, or a fresh one the response sets.
+fn visitor_token(ctx: &RouteCtx, headers: &HeaderMap) -> (String, bool) {
+    match token_cookie(headers).filter(|t| ctx.crypt().check_token(TOKEN_PURPOSE, t).is_ok()) {
+        Some(token) => (token, false),
+        None => (ctx.crypt().token(TOKEN_PURPOSE, b"", TOKEN_TTL), true),
+    }
+}
+
 async fn serve(
     State(site): State<Arc<SiteState>>,
     method: Method,
     headers: HeaderMap,
     uri: Uri,
+) -> Response {
+    let (token, fresh) = visitor_token(&site.ctx, &headers);
+    let mut response = serve_page(&site, method, &headers, &uri, &token).await;
+    if fresh {
+        if let Ok(value) = format!("{TOKEN_COOKIE}={token}; Path=/; SameSite=Lax; HttpOnly").parse()
+        {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+    }
+    response
+}
+
+async fn serve_page(
+    site: &Arc<SiteState>,
+    method: Method,
+    headers: &HeaderMap,
+    uri: &Uri,
+    token: &str,
 ) -> Response {
     let ctx = &site.ctx;
     let path = uri.path().to_string();
@@ -259,7 +315,7 @@ async fn serve(
         return response;
     }
     // An operator with the themes permission sees their edit theme and hidden pages.
-    let operator = ctx.operator(&headers).await;
+    let operator = ctx.operator(headers).await;
     let previewer = operator
         .as_ref()
         .filter(|u| u.permissions.allows(PERMISSION))
@@ -277,7 +333,7 @@ async fn serve(
                 Ok(engine) if engine.has(Kind::Asset, asset) => {
                     match engine.render(Kind::Asset, asset, ()) {
                         Ok(body) => http_cache::conditional(
-                            &headers,
+                            headers,
                             asset_type(asset),
                             http_cache::REVALIDATE,
                             body.into_bytes(),
@@ -375,33 +431,44 @@ async fn serve(
     )
     .await
     {
-        Ok(extras) => match render_page_with(
-            &engine,
-            &theme,
-            &name,
-            &params,
-            &path,
-            preview,
-            ctx.base_url(),
-            extras,
-        ) {
-            Ok(body) => {
-                finish_page(
-                    &engine,
-                    &regs,
-                    ctx.db(),
-                    &theme,
-                    &name,
-                    &params,
-                    &path,
-                    preview,
-                    ctx.base_url(),
-                    body,
-                )
-                .await
+        Ok(mut extras) => {
+            extras.push((
+                TOKEN_KEY.to_string(),
+                serde_json::Value::String(token.to_string()),
+            ));
+            extras.push((
+                "errors".to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            ));
+            let page = render_page_with(
+                &engine,
+                &theme,
+                &name,
+                &params,
+                &path,
+                preview,
+                ctx.base_url(),
+                extras,
+            );
+            match page {
+                Ok(body) => {
+                    finish_page(
+                        &engine,
+                        &regs,
+                        ctx.db(),
+                        &theme,
+                        &name,
+                        &params,
+                        &path,
+                        preview,
+                        ctx.base_url(),
+                        body,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
             }
-            Err(e) => Err(e),
-        },
+        }
         Err(e) => Err(RenderError {
             template: None,
             line: None,
@@ -482,6 +549,296 @@ pub async fn run_components(
     let bags: Vec<&serde_json::Value> = vec![&layout_bag, &page_bag];
     let ran = component::run_all(&bags, regs, db, params, path, &theme.code, preview).await?;
     Ok(ran.pairs)
+}
+
+/// The page-scope name the visitor's token is read as, for `request()`.
+pub const TOKEN_KEY: &str = "laterite_token";
+
+/// What a handler post renders.
+enum Fragment {
+    /// The alias's own markup, `component('alias')`.
+    Alias(String),
+    /// A theme partial by name.
+    Partial(String),
+}
+
+/// A post to a page: the page resolves as for GET, every attached component
+/// runs, then the handler named `alias::name` (the `Lat-Handler` header or
+/// the `_handler` field) with the submitted fields. Its outcome re-renders
+/// the alias's markup (or the `Lat-Partial` named) for an HTMX request, the
+/// whole page for a plain form, or redirects.
+async fn handle(
+    State(site): State<Arc<SiteState>>,
+    headers: HeaderMap,
+    uri: Uri,
+    body: laterite_admin::axum::body::Bytes,
+) -> Response {
+    let ctx = &site.ctx;
+    let path = uri.path().to_string();
+    let admin = ctx.admin_path();
+    if path == admin || path.starts_with(&format!("{admin}/")) {
+        return AdminError::NotFound.into_response();
+    }
+    if !laterite_admin::origin_ok(&headers, ctx.base_url()) {
+        return (StatusCode::FORBIDDEN, "The request came from another site.").into_response();
+    }
+    let input = component::Input::parse(&body);
+    let field = input.text(TOKEN_FIELD);
+    let cookie = token_cookie(&headers);
+    if field.is_empty()
+        || cookie.as_deref() != Some(field)
+        || ctx.crypt().check_token(TOKEN_PURPOSE, field).is_err()
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            "The form's token is missing or stale; reload the page.",
+        )
+            .into_response();
+    }
+    let handler = headers
+        .get(HANDLER_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| input.text(HANDLER_FIELD).to_string());
+    let Some((alias, name)) = handler.split_once("::") else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "No handler named: send Lat-Handler or _handler as alias::name.",
+        )
+            .into_response();
+    };
+    let htmx = headers.contains_key("hx-request");
+
+    let operator = ctx.operator(&headers).await;
+    let previewer = operator
+        .as_ref()
+        .filter(|u| u.permissions.allows(PERMISSION))
+        .map(|u| u.user.id);
+    let theme: Option<Theme> = match previewer {
+        Some(id) => super::edit_theme(ctx.db(), id).await.ok().flatten(),
+        None => super::active_theme(ctx.db()).await.ok().flatten(),
+    };
+    let preview = previewer.is_some();
+    let Some(theme) = theme else {
+        return AdminError::NotFound.into_response();
+    };
+    let origin = ctx.base_url().trim_end_matches('/').to_string();
+    let regs: Vec<&ComponentReg> = site.components.iter().map(Arc::as_ref).collect();
+    let engine = match site
+        .engines
+        .get_for(
+            ctx.db(),
+            &theme.code,
+            component::snippet_codes(&regs),
+            |env| {
+                markup::install_all(&site.markup, env);
+                component::install_markup(&regs, env);
+                add_url(env, origin.clone());
+            },
+        )
+        .await
+    {
+        Ok(engine) => engine,
+        Err(e) => return error_response(e.to_string()),
+    };
+    let Some((page, params)) = engine
+        .resolve(&path)
+        .map(|(n, p)| (n.to_string(), p))
+        .filter(|(n, _)| preview || !engine.page(n).is_some_and(|p| p.hidden))
+    else {
+        return AdminError::NotFound.into_response();
+    };
+
+    let settings = engine.page(&page).cloned().unwrap_or_default();
+    let page_bag = engine
+        .page_bag(&page)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let layout_bag = settings
+        .layout_path()
+        .and_then(|l| engine.layout_settings(&l).cloned())
+        .unwrap_or(serde_json::Value::Null);
+    let bags: Vec<&serde_json::Value> = vec![&layout_bag, &page_bag];
+    let ran = match component::run_all(&bags, &regs, ctx.db(), &params, &path, &theme.code, preview)
+        .await
+    {
+        Ok(ran) => ran,
+        Err(e) => return error_response(e.to_string()),
+    };
+    let outcome = match component::run_handler(
+        &bags,
+        &regs,
+        ctx.db(),
+        &params,
+        &path,
+        &theme.code,
+        preview,
+        alias,
+        name,
+        &input,
+        &headers,
+    )
+    .await
+    {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => return AdminError::NotFound.into_response(),
+        Err(e) => return error_response(e.to_string()),
+    };
+
+    let mut extras = ran.pairs;
+    extras.push((
+        TOKEN_KEY.to_string(),
+        serde_json::Value::String(field.to_string()),
+    ));
+    let mut status = StatusCode::OK;
+    match outcome {
+        component::Handled::Unknown => return AdminError::NotFound.into_response(),
+        component::Handled::Redirect(url) => {
+            return if htmx {
+                ([("hx-redirect", url.as_str())], StatusCode::OK).into_response()
+            } else {
+                axum_redirect(&url)
+            };
+        }
+        component::Handled::Json(value) => {
+            return (
+                [(header::CONTENT_TYPE, "application/json")],
+                value.to_string(),
+            )
+                .into_response();
+        }
+        component::Handled::Data { data, inject } => {
+            replace_alias(&mut extras, alias, data);
+            for (name, value) in inject {
+                if !extras.iter().any(|(n, _)| *n == name) {
+                    extras.push((name, value));
+                }
+            }
+        }
+        component::Handled::Invalid { errors, data } => {
+            status = StatusCode::UNPROCESSABLE_ENTITY;
+            if let Some(data) = data {
+                replace_alias(&mut extras, alias, data);
+            }
+            extras.push(("errors".to_string(), serde_json::Value::Object(errors)));
+        }
+    }
+    if !extras.iter().any(|(n, _)| n == "errors") {
+        extras.push((
+            "errors".to_string(),
+            serde_json::Value::Object(serde_json::Map::new()),
+        ));
+    }
+
+    let rendered = if htmx {
+        let fragment = match headers
+            .get(PARTIAL_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .filter(|p| !p.is_empty())
+        {
+            Some(partial) => Fragment::Partial(partial.to_string()),
+            None => Fragment::Alias(alias.to_string()),
+        };
+        render_fragment(
+            &engine, &theme, &page, &params, &path, preview, &origin, extras, fragment,
+        )
+    } else {
+        match render_page_with(
+            &engine, &theme, &page, &params, &path, preview, &origin, extras,
+        ) {
+            Ok(body) => {
+                finish_page(
+                    &engine,
+                    &regs,
+                    ctx.db(),
+                    &theme,
+                    &page,
+                    &params,
+                    &path,
+                    preview,
+                    &origin,
+                    body,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        }
+    };
+    match rendered {
+        Ok(body) => (
+            status,
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
+            ],
+            body,
+        )
+            .into_response(),
+        Err(e) => error_response(e.to_string()),
+    }
+}
+
+fn axum_redirect(url: &str) -> Response {
+    match url.parse::<laterite_admin::axum::http::HeaderValue>() {
+        Ok(location) => {
+            let mut response = StatusCode::SEE_OTHER.into_response();
+            response.headers_mut().insert(header::LOCATION, location);
+            response
+        }
+        Err(_) => (
+            StatusCode::BAD_GATEWAY,
+            "The handler redirected to an invalid URL.",
+        )
+            .into_response(),
+    }
+}
+
+/// Puts `data` under `alias` in the context pairs, replacing the run's.
+fn replace_alias(
+    extras: &mut Vec<(String, serde_json::Value)>,
+    alias: &str,
+    data: serde_json::Value,
+) {
+    match extras.iter_mut().find(|(n, _)| n == alias) {
+        Some(pair) => pair.1 = data,
+        None => extras.push((alias.to_string(), data)),
+    }
+}
+
+/// Renders one fragment of the page `name` with the page's context: the
+/// alias's markup through `component()`, or a theme partial.
+#[allow(clippy::too_many_arguments)]
+fn render_fragment(
+    engine: &Engine,
+    theme: &Theme,
+    name: &str,
+    params: &Params,
+    path: &str,
+    preview: bool,
+    origin: &str,
+    extras: Vec<(String, serde_json::Value)>,
+    fragment: Fragment,
+) -> Result<String, RenderError> {
+    let (this, head) = page_values(engine, theme, name, params, path, preview, origin);
+    let mut pairs: Vec<(String, Value)> = extras
+        .into_iter()
+        .map(|(k, v)| (k, Value::from(Serde(v))))
+        .collect();
+    pairs.push(("this".to_string(), this));
+    pairs.push(("head".to_string(), head));
+    let ctx = Value::from_pairs(pairs);
+    match fragment {
+        Fragment::Alias(alias) => engine
+            .env()
+            .render_str(&format!("{{{{ component({alias:?}) }}}}"), ctx)
+            .map_err(|e| engine.author_line(e.into())),
+        Fragment::Partial(partial) => engine
+            .env()
+            .get_template(&template_name(Kind::Partial, &partial))?
+            .render(ctx)
+            .map_err(|e| engine.author_line(e.into())),
+    }
 }
 
 /// Renders the page `name` as the site serves it at `path`: with `this`,
