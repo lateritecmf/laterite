@@ -29,6 +29,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A Developer section in the admin while `app.debug` is on, for a superuser:
   Routes, Field types with a live sample of each, Mail previews, Registries.
 
+### Changed
+
+- The admin shell reads a user's menu preferences in one query and a list its
+  column and page-size choices in one: four fewer statements on every screen.
+
 ### Fixed
 
 - A static build that writes no pages fails and says so; before, a theme

@@ -38,21 +38,21 @@ const SCREENS: &[Screen] = &[
         path: "/admin/products",
         html: (23_308, 30_000),
         weight: (272_994, 300_000),
-        queries: (14, 16),
+        queries: (10, 12),
     },
     Screen {
         name: "form (new)",
         path: "/admin/products/new",
         html: (7_865, 12_000),
         weight: (257_551, 285_000),
-        queries: (10, 12),
+        queries: (7, 9),
     },
     Screen {
         name: "form (edit)",
         path: "/admin/products/1/edit",
         html: (7_870, 12_000),
         weight: (257_556, 285_000),
-        queries: (11, 13),
+        queries: (8, 10),
     },
 ];
 

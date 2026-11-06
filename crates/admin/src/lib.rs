@@ -1100,20 +1100,26 @@ struct OwnMenu {
 }
 
 impl OwnMenu {
+    /// One query for the four preferences, on every request.
     async fn load(state: &AdminState, user_id: i64) -> Self {
-        let read = |key: String| async move {
-            laterite_auth::store::user_preference(&state.db, user_id, &key)
-                .await
-                .unwrap_or_default()
-        };
-        let nav_order = read(nav::order_preference(nav::TOP_HIERARCHY)).await;
-        let settings_order = read(nav::order_preference(settings::HIERARCHY)).await;
-        let settings_collapsed = read(nav::collapsed_preference(settings::HIERARCHY))
+        let keys = [
+            nav::order_preference(nav::TOP_HIERARCHY),
+            nav::order_preference(settings::HIERARCHY),
+            nav::collapsed_preference(settings::HIERARCHY),
+            nav::MOVES_PREFERENCE.to_string(),
+        ];
+        let wanted: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let mut stored = laterite_auth::store::user_preferences(&state.db, user_id, &wanted)
             .await
+            .unwrap_or_default();
+        let nav_order = stored.remove(&keys[0]);
+        let settings_order = stored.remove(&keys[1]);
+        let settings_collapsed = stored
+            .remove(&keys[2])
             .map(|text| laterite_core::arrange::parse_sequence(&text))
             .unwrap_or_default();
-        let moves = read(nav::MOVES_PREFERENCE.to_string())
-            .await
+        let moves = stored
+            .remove(&keys[3])
             .map(|json| nav::operator_moves(&json))
             .unwrap_or_default();
         Self {

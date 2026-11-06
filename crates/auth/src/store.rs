@@ -1942,6 +1942,43 @@ pub async fn user_preference(
     Ok(row.and_then(|r| r.get_text_opt("value").ok().flatten()))
 }
 
+/// Reads several of one user's preferences in one query: the stored value of
+/// each key in `keys` that has one, by key. A key with nothing stored is absent
+/// from the map.
+pub async fn user_preferences(
+    db: &Db,
+    user_id: i64,
+    keys: &[&str],
+) -> Result<HashMap<String, String>, AuthError> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendUserPreferences::PreferenceKey,
+                BackendUserPreferences::Value,
+            ])
+            .from(BackendUserPreferences::Table)
+            .and_where(Expr::col(BackendUserPreferences::UserId).eq(user_id))
+            .and_where(Expr::col(BackendUserPreferences::PreferenceKey).is_in(keys.iter().copied()))
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    let mut out = HashMap::with_capacity(rows.len());
+    for row in rows {
+        if let (Ok(key), Ok(Some(value))) =
+            (row.get_text("preference_key"), row.get_text_opt("value"))
+        {
+            out.insert(key, value);
+        }
+    }
+    Ok(out)
+}
+
 /// Stores one operator's choice for `key`, replacing any previous one.
 ///
 /// Written as delete-then-insert rather than an upsert: the three backends spell

@@ -924,29 +924,31 @@ pub(crate) fn per_page_preference_key(base_path: &str) -> String {
     format!("list.per_page:{base_path}")
 }
 
-/// This operator's page size for the list: their stored choice when the
-/// descriptor still offers it, the descriptor's own otherwise. A failed read
-/// is a warning, the way the column preference is.
-pub(crate) async fn stored_per_page(
+/// This operator's two choices for the list in one read: the columns they
+/// picked and the page size, as stored. A failed read is a warning, so the
+/// screen shows the descriptor's own.
+pub(crate) async fn stored_list_preferences(
     state: &AdminState,
-    config: &ListConfig,
     path: &str,
     user: &laterite_auth::AuthenticatedUser,
-) -> i64 {
-    let stored = match laterite_auth::store::user_preference(
-        &state.db,
-        user.user.id,
-        &per_page_preference_key(path),
-    )
-    .await
+) -> (Option<String>, Option<String>) {
+    let columns = columns_preference_key(path);
+    let per_page = per_page_preference_key(path);
+    match laterite_auth::store::user_preferences(&state.db, user.user.id, &[&columns, &per_page])
+        .await
     {
-        Ok(stored) => stored,
+        Ok(mut stored) => (stored.remove(&columns), stored.remove(&per_page)),
         Err(e) => {
-            tracing::warn!(error = %e, "reading the page-size preference failed");
-            None
+            tracing::warn!(error = %e, "reading the list preferences failed");
+            (None, None)
         }
-    };
-    offered_per_page(config, stored.as_deref().and_then(|s| s.parse().ok()))
+    }
+}
+
+/// This operator's page size for the list: their stored choice when the
+/// descriptor still offers it, the descriptor's own otherwise.
+pub(crate) fn stored_per_page(config: &ListConfig, stored: Option<&str>) -> i64 {
+    offered_per_page(config, stored.and_then(|s| s.parse().ok()))
 }
 
 /// A size the descriptor offers, else its own.
@@ -2166,13 +2168,13 @@ async fn build_page(
     // The operator's chosen columns narrow the descriptor once, here, so
     // everything downstream (the query, the headers, sorting, searching) works
     // from one list: what is shown is what is queried.
-    let stored = stored_columns(state, path, user).await;
+    let (stored, stored_size) = stored_list_preferences(state, path, user).await;
     let declared = config;
     let narrowed = narrowed(config, stored.as_deref(), user);
     let config = &narrowed;
 
     let page = params.page.unwrap_or(1).max(1);
-    let per_page = stored_per_page(state, config, path, user).await;
+    let per_page = stored_per_page(config, stored_size.as_deref());
     let (order_by, order_dir) = resolve_sort(config, params.sort.as_deref(), params.dir.as_deref());
     let q = params.q.unwrap_or_default();
     let active = resolve_filters(config, raw);
