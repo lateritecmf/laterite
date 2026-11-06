@@ -20,6 +20,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `framework()`, `request()` and `token()` in templates: the site serves HTMX
   at `/laterite/htmx.js` (written by a static build too), with the attributes
   and fields that post a form to a handler.
+- `.flash(level, text)` on a handler's outcome, `colour_mode()` in templates
+  with the boot script at `/laterite/theme-boot.js`, and a static build that
+  warns about a page whose component has handlers.
 
 ### Fixed
 

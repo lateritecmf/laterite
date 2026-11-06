@@ -157,6 +157,9 @@ impl laterite_admin::statics::StaticRenderer for Renderer {
         )
         .await
         .with_context(|| format!("could not build the theme {code:?}"))?;
+        for warning in &report.warnings {
+            println!("Warning: {warning}");
+        }
         if !report.skipped.is_empty() {
             println!(
                 "Skipped {} page(s) with parameters or hidden: {}",

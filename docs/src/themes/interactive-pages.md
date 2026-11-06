@@ -63,6 +63,7 @@ Outcome | Renders
 --- | ---
 `Handled::data(value)` | The alias with `value` as its data; `.inject(name, value)` adds a page variable.
 `Handled::invalid(field, message)` | Status 422 with `errors.<field>` in scope; `.with_data(value)` sets the alias's data.
+`.flash(level, text)` on `data` or `invalid` | A message for the visitor: `flash.level` and `flash.text` in the page scope, and an out-of-band swap into `<div id="flash">` for HTMX.
 `Handled::Redirect(url)` | `HX-Redirect` for HTMX, a 303 otherwise.
 `Handled::Json(value)` | The value as `application/json`.
 `Handled::Unknown` | A 404.
@@ -87,3 +88,13 @@ Name | Holds
 `this.url` | The page's URL, where the post goes.
 
 A post from another site, or without the visitor's token, is a 403. The token is a cookie set on the first page and lives a day.
+
+## Show a flash
+
+```jinja
+<div id="flash">{% if flash %}<p class="flash flash--{{ flash.level }}">{{ flash.text }}</p>{% endif %}</div>
+```
+
+## Build it statically
+
+A static build renders a page that attaches a component with handlers and warns, naming the page: a static host answers no post. Serve the site from the application, or keep such pages off a static host.

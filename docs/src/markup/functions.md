@@ -24,6 +24,7 @@ Name | Gives
 `framework()` | The request framework's script and its island (see [Interactive Pages](../themes/interactive-pages.md)).
 `request(<handler>, target=, swap=, partial=, confirm=, indicator=)` | The attributes that post a form or element to a component's handler, with the visitor's token.
 `token(<handler>)` | The hidden fields a form posts to a handler without a script.
+`colour_mode()`, `colour_mode(file=true)` | The colour mode script, inline or as a file (see [Colour Mode](../themes/colour-mode.md)).
 
 ## Add a function from a module
 

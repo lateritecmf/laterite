@@ -54,7 +54,9 @@ impl Component for Todo {
                     return Ok(Handled::invalid("new_item", "The list is full."));
                 }
                 items.push(new);
-                Ok(Handled::data(serde_json::json!({ "items": items })).inject("saved", true))
+                Ok(Handled::data(serde_json::json!({ "items": items }))
+                    .inject("saved", true)
+                    .flash("success", "Added."))
             }
             "leave" => Ok(Handled::Redirect("/thanks".to_string())),
             "count" => Ok(Handled::Json(
@@ -113,7 +115,7 @@ async fn seed(db: &Db) {
             "layout": "default",
             "components": {"todo": {"component": "acme.todo", "max": 2}}
         })),
-        "{{ framework() }}<form {{ request('todo::add', target='#todo', partial='count.htm', confirm='Sure?') }}>{{ token('todo::add') }}<div id=\"todo\">{{ component('todo') }}</div>{% if saved %}<b>saved</b>{% endif %}<i>{{ laterite_token|length > 0 }}</i></form>",
+        "{{ colour_mode() }}{{ colour_mode(file=true) }}{{ framework() }}{% if flash %}<em>{{ flash.level }}: {{ flash.text }}</em>{% endif %}<form {{ request('todo::add', target='#todo', partial='count.htm', confirm='Sure?') }}>{{ token('todo::add') }}<div id=\"todo\">{{ component('todo') }}</div>{% if saved %}<b>saved</b>{% endif %}<i>{{ laterite_token|length > 0 }}</i></form>",
         None,
     )
     .await
@@ -255,6 +257,24 @@ async fn a_visitor_gets_a_token_and_the_page_reads_it() {
         "{}",
         page.body
     );
+    // The colour mode: inline, and as a file.
+    assert!(page.body.contains("lat-mode"), "{}", page.body);
+    assert!(
+        page.body
+            .contains(r#"<script src="/laterite/theme-boot.js"></script>"#),
+        "{}",
+        page.body
+    );
+    let boot = send(
+        &app,
+        Request::builder()
+            .uri("/laterite/theme-boot.js")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(boot.status, StatusCode::OK);
+    assert!(boot.body.contains("lat-mode"));
     // The framework is served.
     let script = send(
         &app,
@@ -298,7 +318,10 @@ async fn an_htmx_post_renders_the_alias_with_the_handlers_data() {
     )
     .await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.body);
-    assert_eq!(page.body, "<ul><li>milk</li><li>eggs</li></ul>");
+    assert_eq!(
+        page.body,
+        "<ul><li>milk</li><li>eggs</li></ul><div id=\"flash\" hx-swap-oob=\"true\" class=\"flash flash--success\" role=\"status\">Added.</div>"
+    );
 }
 
 #[tokio::test]
@@ -320,7 +343,10 @@ async fn a_named_partial_renders_instead_of_the_alias() {
     )
     .await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.body);
-    assert_eq!(page.body, "<span>2 items</span>");
+    assert_eq!(
+        page.body,
+        "<span>2 items</span><div id=\"flash\" hx-swap-oob=\"true\" class=\"flash flash--success\" role=\"status\">Added.</div>"
+    );
 }
 
 #[tokio::test]
@@ -380,6 +406,15 @@ async fn a_plain_form_post_renders_the_whole_page_and_injects() {
         page.body.contains("<li>eggs</li>") && page.body.contains("<b>saved</b>"),
         "{}",
         page.body
+    );
+    assert!(
+        page.body.contains("<em>success: Added.</em>"),
+        "{}",
+        page.body
+    );
+    assert!(
+        !page.body.contains("hx-swap-oob"),
+        "a full page carries the flash in scope, not out of band"
     );
 }
 

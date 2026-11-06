@@ -172,3 +172,69 @@ async fn a_page_with_parameters_is_built_for_every_set_a_module_answers() {
     assert!(first.contains("blog&#x2f;first&#x2f;"), "{first}");
     assert!(out.path().join("blog/second/index.html").is_file());
 }
+
+/// A page attaching a component with handlers builds, with a warning: a
+/// static host answers no post.
+#[tokio::test]
+async fn a_page_with_a_handler_component_builds_with_a_warning() {
+    use laterite_web::theme::component::{
+        Component, ComponentContext, ComponentOutput, ComponentReg, Handled, HandlerContext,
+    };
+    use laterite_web::theme::ThemeError;
+
+    struct Form;
+    #[laterite_core::strata::async_trait]
+    impl Component for Form {
+        fn markup(&self) -> Option<&'static str> {
+            Some("<form></form>")
+        }
+        async fn run(&self, _cx: &ComponentContext<'_>) -> Result<ComponentOutput, ThemeError> {
+            Ok(ComponentOutput::data(serde_json::json!({})))
+        }
+        fn handlers(&self) -> &'static [&'static str] {
+            &["send"]
+        }
+        async fn handle(&self, _n: &str, _cx: &HandlerContext<'_>) -> Result<Handled, ThemeError> {
+            Ok(Handled::Unknown)
+        }
+    }
+
+    let (db, _g) = test_db().await;
+    let base = store::create_theme(&db, "base", "name: Base\n")
+        .await
+        .unwrap();
+    store::save_template(
+        &db,
+        base.id,
+        Kind::Page,
+        "contact.htm",
+        Some(serde_json::json!({
+            "url": "/contact",
+            "components": {"contact": {"component": "acme.form"}}
+        })),
+        "{{ component('contact') }}",
+        None,
+    )
+    .await
+    .unwrap();
+    let reg = ComponentReg::new("acme.form", "Form", std::sync::Arc::new(Form));
+    let out = tempfile::tempdir().unwrap();
+    let report = build::build_with(
+        &db,
+        "base",
+        out.path(),
+        "https://acme.test",
+        &[],
+        &[&reg],
+        &[],
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.pages, vec!["/contact"]);
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    assert!(
+        report.warnings[0].contains("contact") && report.warnings[0].contains("acme.form"),
+        "{:?}",
+        report.warnings
+    );
+}

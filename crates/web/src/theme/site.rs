@@ -572,7 +572,37 @@ pub struct FrameworkAssets;
 
 impl PublicRoute for FrameworkAssets {
     fn mount(&self, _ctx: &RouteCtx) -> Router {
-        Router::new().route("/htmx.js", get(framework_script))
+        Router::new()
+            .route("/htmx.js", get(framework_script))
+            .route("/theme-boot.js", get(boot_script))
+    }
+}
+
+/// Where the site serves the colour mode script as a file, for a Content
+/// Security Policy that forbids inline scripts.
+pub const BOOT_PATH: &str = "/laterite/theme-boot.js";
+
+async fn boot_script(headers: HeaderMap) -> Response {
+    http_cache::conditional(
+        &headers,
+        "text/javascript; charset=utf-8",
+        http_cache::REVALIDATE,
+        laterite_core::theme::BOOT_JS.as_bytes().to_vec(),
+    )
+}
+
+/// The colour mode script as a static build writes it, at [`BOOT_PATH`].
+pub struct BootFile;
+
+impl laterite_core::SiteFile for BootFile {
+    fn path(&self) -> &str {
+        BOOT_PATH
+    }
+    fn content_type(&self) -> std::borrow::Cow<'static, str> {
+        "text/javascript; charset=utf-8".into()
+    }
+    fn render(&self, _cx: &laterite_core::SiteContext) -> String {
+        laterite_core::theme::BOOT_JS.to_string()
     }
 }
 
@@ -827,7 +857,7 @@ async fn handle(
         serde_json::Value::String(field.to_string()),
     ));
     let mut status = StatusCode::OK;
-    match outcome {
+    let flash = match outcome {
         component::Handled::Unknown => return AdminError::NotFound.into_response(),
         component::Handled::Redirect(url) => {
             return if htmx {
@@ -843,21 +873,37 @@ async fn handle(
             )
                 .into_response();
         }
-        component::Handled::Data { data, inject } => {
+        component::Handled::Data {
+            data,
+            inject,
+            flash: message,
+        } => {
             replace_alias(&mut extras, alias, data);
             for (name, value) in inject {
                 if !extras.iter().any(|(n, _)| *n == name) {
                     extras.push((name, value));
                 }
             }
+            message
         }
-        component::Handled::Invalid { errors, data } => {
+        component::Handled::Invalid {
+            errors,
+            data,
+            flash: message,
+        } => {
             status = StatusCode::UNPROCESSABLE_ENTITY;
             if let Some(data) = data {
                 replace_alias(&mut extras, alias, data);
             }
             extras.push(("errors".to_string(), serde_json::Value::Object(errors)));
+            message
         }
+    };
+    if let Some(message) = &flash {
+        extras.push((
+            "flash".to_string(),
+            serde_json::to_value(message).unwrap_or(serde_json::Value::Null),
+        ));
     }
     if !extras.iter().any(|(n, _)| n == "errors") {
         extras.push((
@@ -901,17 +947,32 @@ async fn handle(
         }
     };
     match rendered {
-        Ok(body) => (
-            status,
-            [
-                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-                (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
-            ],
-            body,
-        )
-            .into_response(),
+        Ok(mut body) => {
+            // The message rides out of band into the page's `#flash`.
+            if let (true, Some(message)) = (htmx, &flash) {
+                body.push_str(&flash_markup(message));
+            }
+            (
+                status,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, http_cache::PRIVATE_NO_STORE),
+                ],
+                body,
+            )
+                .into_response()
+        }
         Err(e) => error_response(e.to_string()),
     }
+}
+
+/// The out-of-band `#flash` swap carrying a handler's message.
+pub fn flash_markup(message: &component::Flash) -> String {
+    format!(
+        "<div id=\"flash\" hx-swap-oob=\"true\" class=\"flash flash--{}\" role=\"status\">{}</div>",
+        attr(&message.level),
+        attr(&message.text)
+    )
 }
 
 fn axum_redirect(url: &str) -> Response {

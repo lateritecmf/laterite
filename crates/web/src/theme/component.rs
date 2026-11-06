@@ -222,6 +222,15 @@ impl Input {
     }
 }
 
+/// A message for the visitor beside an outcome: `flash` in the page scope,
+/// and an out-of-band swap into `#flash` for HTMX.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Flash {
+    /// `success`, `info`, `warning` or `error`.
+    pub level: String,
+    pub text: String,
+}
+
 /// What a handler did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Handled {
@@ -229,12 +238,14 @@ pub enum Handled {
     Data {
         data: serde_json::Value,
         inject: serde_json::Map<String, serde_json::Value>,
+        flash: Option<Flash>,
     },
     /// The input was refused: messages by field, rendered with status 422
     /// and `errors` in scope, with the alias's data when given.
     Invalid {
         errors: serde_json::Map<String, serde_json::Value>,
         data: Option<serde_json::Value>,
+        flash: Option<Flash>,
     },
     /// Send the browser elsewhere: `HX-Redirect` for HTMX, a 303 otherwise.
     Redirect(String),
@@ -250,7 +261,21 @@ impl Handled {
         Handled::Data {
             data: data.into(),
             inject: serde_json::Map::new(),
+            flash: None,
         }
+    }
+
+    /// A message for the visitor beside the outcome.
+    pub fn flash(mut self, level: impl Into<String>, text: impl Into<String>) -> Self {
+        let message = Flash {
+            level: level.into(),
+            text: text.into(),
+        };
+        match &mut self {
+            Handled::Data { flash, .. } | Handled::Invalid { flash, .. } => *flash = Some(message),
+            _ => {}
+        }
+        self
     }
 
     /// A variable placed in the page scope beside the data.
@@ -265,7 +290,11 @@ impl Handled {
     pub fn invalid(field: impl Into<String>, message: impl Into<String>) -> Self {
         let mut errors = serde_json::Map::new();
         errors.insert(field.into(), serde_json::Value::String(message.into()));
-        Handled::Invalid { errors, data: None }
+        Handled::Invalid {
+            errors,
+            data: None,
+            flash: None,
+        }
     }
 
     /// The alias's data to render the refusal with.

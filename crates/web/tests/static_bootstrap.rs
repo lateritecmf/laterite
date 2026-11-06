@@ -106,6 +106,12 @@ async fn a_static_build_writes_pages_plugin_files_and_copies() {
         "the request framework"
     );
     assert!(
+        fs::read_to_string(out.join("laterite/theme-boot.js"))
+            .unwrap()
+            .contains("lat-mode"),
+        "the colour mode script"
+    );
+    assert!(
         !out.join("docs").exists(),
         "a missing config copy is skipped"
     );

@@ -119,6 +119,7 @@
 - [Static Build](themes/static-build.md)
 - [Maintenance Mode](themes/maintenance-mode.md)
 - [Interactive Pages](themes/interactive-pages.md)
+- [Colour Mode](themes/colour-mode.md)
 - [Static Site Generation](themes/static-sites.md)
 
 # Markup

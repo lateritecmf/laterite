@@ -336,6 +336,18 @@ impl Engine {
         });
         env.add_function("request", request);
         env.add_function("token", token);
+        env.add_function(
+            "colour_mode",
+            |kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+                let file: Option<bool> = kwargs.get("file")?;
+                kwargs.assert_all_used()?;
+                Ok(Value::from_safe_string(if file.unwrap_or(false) {
+                    format!("<script src=\"{}\"></script>", super::site::BOOT_PATH)
+                } else {
+                    laterite_core::theme::boot_markup()
+                }))
+            },
+        );
         env.add_filter("markdown", |text: String| -> Value {
             Value::from_safe_string(laterite_core::markdown::render(&text))
         });

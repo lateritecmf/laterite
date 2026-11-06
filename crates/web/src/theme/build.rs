@@ -17,6 +17,9 @@ use sea_query::{Alias, Expr, Order, Query};
 /// What a build wrote.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuildReport {
+    /// Pages that attach a component with handlers: a static host answers no
+    /// post, so the page needs a server behind it.
+    pub warnings: Vec<String>,
     /// The pages written, by URL.
     pub pages: Vec<String>,
     /// The assets written, by path under the output directory.
@@ -167,6 +170,29 @@ pub async fn build_with(
             report.skipped.push(name.to_string());
             continue;
         }
+        for bag in [
+            settings
+                .layout_path()
+                .and_then(|l| engine.layout_settings(&l).cloned())
+                .unwrap_or(serde_json::Value::Null),
+            engine
+                .page_bag(name)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        ] {
+            for a in super::component::attached(&bag).unwrap_or_default() {
+                let has_handlers = components
+                    .iter()
+                    .find(|r| r.code == a.code)
+                    .is_some_and(|r| !r.component.handlers().is_empty());
+                if has_handlers {
+                    report.warnings.push(format!(
+                        "{name} attaches {} as {:?}, whose handlers need a server: a static host answers no post",
+                        a.code, a.alias
+                    ));
+                }
+            }
+        }
         // A page with parameters is built once per set a module answers
         // for its pattern; one nobody answers for is skipped.
         let sets: Vec<Params> = if pattern.is_static() {
@@ -222,6 +248,8 @@ pub async fn build_with(
     }
     report.pages.sort();
     report.skipped.sort();
+    report.warnings.sort();
+    report.warnings.dedup();
     for template in engine.names() {
         let Some(path) = template.strip_prefix("assets/") else {
             continue;

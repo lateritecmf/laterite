@@ -376,7 +376,10 @@ impl Module for ThemeModule {
         &self,
         _cx: &laterite_core::SiteFilesCx<'_>,
     ) -> laterite_core::CoreResult<Vec<Box<dyn laterite_core::SiteFile>>> {
-        Ok(vec![Box::new(site::FrameworkFile)])
+        Ok(vec![
+            Box::new(site::FrameworkFile),
+            Box::new(site::BootFile),
+        ])
     }
     /// The Themes screen mounts at the panel's top level (`/admin/themes`),
     /// reached from the settings index.
