@@ -2403,7 +2403,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-admin"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -2442,7 +2442,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-auth"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "argon2",
  "async-trait",
@@ -2461,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-cli"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "anyhow",
  "axum",
@@ -2490,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-core"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2526,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-macros"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-media"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "ammonia",
  "async-trait",
@@ -2563,7 +2563,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-web"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "anyhow",
  "askama",
@@ -2590,7 +2590,7 @@ dependencies = [
 
 [[package]]
 name = "lateritecmf"
-version = "0.9.29"
+version = "0.9.30"
 dependencies = [
  "laterite-admin",
  "laterite-auth",
