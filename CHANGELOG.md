@@ -14,6 +14,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   project, committed on every stored or removed file when the theme's source
   is `git` (`media.stored` and `media.removed` events).
 
+### Fixed
+
+- A static build that writes no pages fails and says so; before, a theme
+  the binary's framework could not read deployed as an empty site.
+
 ## [0.9.29] - 2026-11-06
 
 ### Added

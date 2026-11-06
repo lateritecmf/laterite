@@ -193,3 +193,22 @@ async fn a_static_build_writes_the_media_library() {
         "the blob lives in the project's media folder"
     );
 }
+
+/// A theme whose pages carry no URL builds nothing, and the build says so
+/// instead of succeeding with an empty output.
+#[tokio::test]
+async fn a_build_that_writes_no_pages_fails_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    project(tmp.path());
+    let pages = tmp.path().join("themes/acme/pages");
+    for entry in fs::read_dir(&pages).unwrap() {
+        fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    fs::write(pages.join("home.htm"), "<h1>No front matter, no URL</h1>").unwrap();
+    let err = Bootstrap::new(tmp.path().join("config"))
+        .module(ThemeModule)
+        .build(&tmp.path().join("dist"), None)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("wrote no pages"), "{err:#}");
+}

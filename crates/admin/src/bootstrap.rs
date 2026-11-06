@@ -1037,6 +1037,14 @@ impl Prepared {
             })?;
         }
         let pages = renderer.build(&cx, &code).await?;
+        // A build that writes nothing is a broken site, not a success: the
+        // pages carried no URL the build could render.
+        if pages.is_empty() {
+            anyhow::bail!(
+                "the theme {code:?} wrote no pages: no page declares a URL the build can render; \
+                 check the theme folder's pages and their front matter"
+            );
+        }
         println!(
             "Wrote {} page(s) to {} for {base_url}",
             pages.len(),
