@@ -118,6 +118,7 @@
 - [Export and Import](themes/export-and-import.md)
 - [Static Build](themes/static-build.md)
 - [Maintenance Mode](themes/maintenance-mode.md)
+- [Interactive Pages](themes/interactive-pages.md)
 - [Static Site Generation](themes/static-sites.md)
 
 # Markup

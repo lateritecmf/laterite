@@ -21,6 +21,9 @@ Name | Gives
 `url(<path>)` | The absolute URL of a path on the site, from the deployment's origin.
 `media(<file>)`, `media(<file>, preset="card")` | The URL of a media value (a URL, or an object with `url` as `theme::media_value` builds), under a preset when one is named.
 `component(<alias>)` | The theme's `partials/<alias>/default.htm`, else the component's own markup, with the data as `component` and under the alias, beside `this` and `head` (see [Components](../themes/components.md)).
+`framework()` | The request framework's script and its island (see [Interactive Pages](../themes/interactive-pages.md)).
+`request(<handler>, target=, swap=, partial=, confirm=, indicator=)` | The attributes that post a form or element to a component's handler, with the visitor's token.
+`token(<handler>)` | The hidden fields a form posts to a handler without a script.
 
 ## Add a function from a module
 

@@ -2880,6 +2880,10 @@ impl AdminAsset {
 }
 
 /// An asset a module contributes, at the key it is served under.
+/// The HTMX build the admin ships, for a public site to serve as its own
+/// request framework (`laterite_web`'s `framework()`).
+pub const HTMX_JS: &str = include_str!("../assets/vendor/htmx.min.js");
+
 #[derive(Debug, Clone)]
 pub struct AssetReg {
     pub key: &'static str,
@@ -3038,7 +3042,7 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             "vendor/htmx.min.js",
             AdminAsset {
                 mime: "text/javascript; charset=utf-8",
-                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/vendor/htmx.min.js")),
+                bytes: std::borrow::Cow::Borrowed(HTMX_JS.as_bytes()),
             },
         ),
         (

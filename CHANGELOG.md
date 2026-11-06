@@ -17,6 +17,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `Handled` outcomes (data, invalid, redirect, JSON), the origin gate and the
   visitor's `laterite_token`; an HTMX post re-renders the alias or a named
   partial, a plain form the page.
+- `framework()`, `request()` and `token()` in templates: the site serves HTMX
+  at `/laterite/htmx.js` (written by a static build too), with the attributes
+  and fields that post a form to a handler.
 
 ### Fixed
 

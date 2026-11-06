@@ -371,6 +371,13 @@ impl Module for ThemeModule {
             .await
             .map_err(|e| laterite_core::CoreError::Config(e.to_string()))
     }
+    /// The request framework, written where `framework()` loads it from.
+    async fn site_files(
+        &self,
+        _cx: &laterite_core::SiteFilesCx<'_>,
+    ) -> laterite_core::CoreResult<Vec<Box<dyn laterite_core::SiteFile>>> {
+        Ok(vec![Box::new(site::FrameworkFile)])
+    }
     /// The Themes screen mounts at the panel's top level (`/admin/themes`),
     /// reached from the settings index.
     fn admin_base(&self) -> Option<&'static str> {
@@ -390,6 +397,7 @@ impl Module for ThemeModule {
         let components = std::sync::Arc::new(std::sync::OnceLock::new());
         registry.add_screen(admin::screen_with(std::sync::Arc::clone(&components)));
         registry.add_public_route(site::route());
+        registry.add_public_route(site::framework_route());
         registry.add_static_renderer(std::sync::Arc::new(folder::Renderer));
         registry.add(source::ThemeSourceReg::new(
             "database",

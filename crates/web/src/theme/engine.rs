@@ -331,6 +331,11 @@ impl Engine {
             ))
         });
         env.add_function("media", media);
+        env.add_function("framework", || -> Value {
+            Value::from_safe_string(super::site::framework_tags())
+        });
+        env.add_function("request", request);
+        env.add_function("token", token);
         env.add_filter("markdown", |text: String| -> Value {
             Value::from_safe_string(laterite_core::markdown::render(&text))
         });
@@ -647,6 +652,49 @@ fn component(state: &State, alias: String) -> Result<Value, minijinja::Error> {
     Ok(Value::from_safe_string(
         template.render(Value::from_pairs(pairs))?,
     ))
+}
+
+/// The page's own URL and the visitor's token, from the render scope.
+fn page_url_and_token(state: &State) -> (String, String) {
+    let url = state
+        .lookup("this")
+        .and_then(|t| t.get_attr("url").ok())
+        .filter(|u| !u.is_undefined())
+        .map(|u| u.to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let token = state
+        .lookup(super::site::TOKEN_KEY)
+        .filter(|t| !t.is_undefined())
+        .map(|t| t.to_string())
+        .unwrap_or_default();
+    (url, token)
+}
+
+/// `request('todo::add', target='#todo', swap=, partial=, confirm=,
+/// indicator=)`: the attributes that post the form or element to the
+/// handler, with the visitor's token.
+fn request(state: &State, handler: String, kwargs: Kwargs) -> Result<Value, minijinja::Error> {
+    let options = super::site::RequestOptions {
+        target: kwargs.get("target")?,
+        swap: kwargs.get("swap")?,
+        partial: kwargs.get("partial")?,
+        confirm: kwargs.get("confirm")?,
+        indicator: kwargs.get("indicator")?,
+    };
+    kwargs.assert_all_used()?;
+    let (url, token) = page_url_and_token(state);
+    Ok(Value::from_safe_string(super::site::request_attributes(
+        &url, &token, &handler, &options,
+    )))
+}
+
+/// `token('todo::add')`: the hidden fields a form needs to post without
+/// a script.
+fn token(state: &State, handler: String) -> Result<Value, minijinja::Error> {
+    let (_, token) = page_url_and_token(state);
+    Ok(Value::from_safe_string(super::site::token_fields(
+        &token, &handler,
+    )))
 }
 
 /// A content block as HTML: Markdown rendered (`.md`), HTML as it is (`.htm`,

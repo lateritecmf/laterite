@@ -554,6 +554,141 @@ pub async fn run_components(
 /// The page-scope name the visitor's token is read as, for `request()`.
 pub const TOKEN_KEY: &str = "laterite_token";
 
+/// Where the site serves its request framework (HTMX), for `framework()`.
+pub const FRAMEWORK_PATH: &str = "/laterite/htmx.js";
+
+/// The island `framework()` emits beside the script: a 422 answer (a
+/// refused input) is swapped into the target like a 200, so the field
+/// errors show where the form stood.
+pub const ISLAND_JS: &str = "document.addEventListener('htmx:beforeSwap',function(e){if(e.detail.xhr&&e.detail.xhr.status===422){e.detail.shouldSwap=true;e.detail.isError=false;}});";
+
+/// The request framework's route: `/laterite/htmx.js`.
+pub fn framework_route() -> PublicRouteReg {
+    PublicRouteReg::new("/laterite", Arc::new(FrameworkAssets))
+}
+
+/// Serves the request framework the pages load.
+pub struct FrameworkAssets;
+
+impl PublicRoute for FrameworkAssets {
+    fn mount(&self, _ctx: &RouteCtx) -> Router {
+        Router::new().route("/htmx.js", get(framework_script))
+    }
+}
+
+async fn framework_script(headers: HeaderMap) -> Response {
+    http_cache::conditional(
+        &headers,
+        "text/javascript; charset=utf-8",
+        http_cache::REVALIDATE,
+        laterite_admin::HTMX_JS.as_bytes().to_vec(),
+    )
+}
+
+/// The request framework as a static build writes it, at [`FRAMEWORK_PATH`].
+pub struct FrameworkFile;
+
+impl laterite_core::SiteFile for FrameworkFile {
+    fn path(&self) -> &str {
+        FRAMEWORK_PATH
+    }
+    fn content_type(&self) -> std::borrow::Cow<'static, str> {
+        "text/javascript; charset=utf-8".into()
+    }
+    fn render(&self, _cx: &laterite_core::SiteContext) -> String {
+        laterite_admin::HTMX_JS.to_string()
+    }
+}
+
+/// The optional attributes `request()` takes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RequestOptions {
+    pub target: Option<String>,
+    pub swap: Option<String>,
+    pub partial: Option<String>,
+    pub confirm: Option<String>,
+    pub indicator: Option<String>,
+}
+
+/// What `request()` emits for a form or element that posts to a handler:
+/// the attributes HTMX reads, with the handler, the partial and the
+/// visitor's token in the request, and the plain-form fallback fields.
+pub fn request_attributes(
+    page_url: &str,
+    token: &str,
+    handler: &str,
+    options: &RequestOptions,
+) -> String {
+    let mut headers = serde_json::Map::new();
+    headers.insert(
+        "Lat-Handler".into(),
+        serde_json::Value::String(handler.to_string()),
+    );
+    if let Some(partial) = options.partial.as_deref().filter(|p| !p.is_empty()) {
+        headers.insert(
+            "Lat-Partial".into(),
+            serde_json::Value::String(partial.to_string()),
+        );
+    }
+    let mut vals = serde_json::Map::new();
+    vals.insert(
+        TOKEN_FIELD.into(),
+        serde_json::Value::String(token.to_string()),
+    );
+    vals.insert(
+        HANDLER_FIELD.into(),
+        serde_json::Value::String(handler.to_string()),
+    );
+    let mut out = format!(
+        "hx-post=\"{}\" hx-headers='{}' hx-vals='{}'",
+        attr(page_url),
+        attr_json(&serde_json::Value::Object(headers)),
+        attr_json(&serde_json::Value::Object(vals)),
+    );
+    for (name, value) in [
+        ("hx-target", options.target.as_deref()),
+        ("hx-swap", options.swap.as_deref()),
+        ("hx-confirm", options.confirm.as_deref()),
+        ("hx-indicator", options.indicator.as_deref()),
+    ] {
+        if let Some(value) = value.filter(|v| !v.is_empty()) {
+            out.push_str(&format!(" {name}=\"{}\"", attr(value)));
+        }
+    }
+    out
+}
+
+/// What `token()` emits inside a form that must also post without a script:
+/// the hidden token and handler fields.
+pub fn token_fields(token: &str, handler: &str) -> String {
+    format!(
+        "<input type=\"hidden\" name=\"{TOKEN_FIELD}\" value=\"{}\"><input type=\"hidden\" name=\"{HANDLER_FIELD}\" value=\"{}\">",
+        attr(token),
+        attr(handler)
+    )
+}
+
+/// What `framework()` emits: the script and the island.
+pub fn framework_tags() -> String {
+    format!("<script src=\"{FRAMEWORK_PATH}\" defer></script><script>{ISLAND_JS}</script>")
+}
+
+/// Escaped for a double-quoted attribute.
+fn attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+}
+
+/// JSON escaped for a single-quoted attribute.
+fn attr_json(value: &serde_json::Value) -> String {
+    value
+        .to_string()
+        .replace('&', "&amp;")
+        .replace('\'', "&#39;")
+}
+
 /// What a handler post renders.
 enum Fragment {
     /// The alias's own markup, `component('alias')`.

@@ -74,6 +74,7 @@ fn app(db: &Db) -> Router {
     contributions.permissions.push(theme::admin::permission());
     contributions.screens.push(theme::admin::screen());
     contributions.public_routes.push(site::route());
+    contributions.public_routes.push(site::framework_route());
     let mut registry = laterite_core::Registry::new();
     registry.set_owner(laterite_core::ModuleId::new("acme.todo"));
     registry.add(ComponentReg::new("acme.todo", "Todo", Arc::new(Todo)));
@@ -112,7 +113,7 @@ async fn seed(db: &Db) {
             "layout": "default",
             "components": {"todo": {"component": "acme.todo", "max": 2}}
         })),
-        "<form><div id=\"todo\">{{ component('todo') }}</div>{% if saved %}<b>saved</b>{% endif %}<i>{{ laterite_token|length > 0 }}</i></form>",
+        "{{ framework() }}<form {{ request('todo::add', target='#todo', partial='count.htm', confirm='Sure?') }}>{{ token('todo::add') }}<div id=\"todo\">{{ component('todo') }}</div>{% if saved %}<b>saved</b>{% endif %}<i>{{ laterite_token|length > 0 }}</i></form>",
         None,
     )
     .await
@@ -212,6 +213,70 @@ async fn a_visitor_gets_a_token_and_the_page_reads_it() {
     assert!(cookie.starts_with("laterite_token="), "{cookie}");
     assert!(page.body.contains("<i>True</i>"), "{}", page.body);
     assert!(page.body.contains("<li>milk</li>"), "{}", page.body);
+    // The framework, the request attributes and the fallback fields.
+    assert!(
+        page.body
+            .contains(r#"<script src="/laterite/htmx.js" defer></script>"#),
+        "{}",
+        page.body
+    );
+    assert!(page.body.contains("htmx:beforeSwap"), "{}", page.body);
+    assert!(page.body.contains(r#"hx-post="/list""#), "{}", page.body);
+    assert!(
+        page.body
+            .contains(r#"hx-headers='{"Lat-Handler":"todo::add","Lat-Partial":"count.htm"}'"#),
+        "{}",
+        page.body
+    );
+    assert!(
+        page.body.contains(r##"hx-target="#todo""##),
+        "{}",
+        page.body
+    );
+    assert!(page.body.contains(r#"hx-confirm="Sure?""#), "{}", page.body);
+    let token = cookie.split_once('=').map(|(_, v)| v).unwrap_or_default();
+    assert!(
+        page.body.contains(&format!(
+            r#"hx-vals='{{"_token":"{token}","_handler":"todo::add"}}'"#
+        )),
+        "{}",
+        page.body
+    );
+    assert!(
+        page.body.contains(&format!(
+            r#"<input type="hidden" name="_token" value="{token}">"#
+        )),
+        "{}",
+        page.body
+    );
+    assert!(
+        page.body
+            .contains(r#"<input type="hidden" name="_handler" value="todo::add">"#),
+        "{}",
+        page.body
+    );
+    // The framework is served.
+    let script = send(
+        &app,
+        Request::builder()
+            .uri("/laterite/htmx.js")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(script.status, StatusCode::OK);
+    assert_eq!(
+        script
+            .headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert!(
+        script.body.contains("htmx"),
+        "{}",
+        &script.body[..80.min(script.body.len())]
+    );
 }
 
 #[tokio::test]

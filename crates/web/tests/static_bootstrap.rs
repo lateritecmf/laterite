@@ -100,6 +100,12 @@ async fn a_static_build_writes_pages_plugin_files_and_copies() {
     assert_eq!(humans, "https://acme.example\n/,/about");
     assert!(out.join("static/site.css").is_file(), "the config's copy");
     assert!(
+        fs::read_to_string(out.join("laterite/htmx.js"))
+            .unwrap()
+            .contains("htmx"),
+        "the request framework"
+    );
+    assert!(
         !out.join("docs").exists(),
         "a missing config copy is skipped"
     );
