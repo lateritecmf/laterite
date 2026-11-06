@@ -118,8 +118,20 @@ pub async fn users_of(db: &Db, media_id: i64) -> Result<Vec<Link>, RecordError> 
 /// Replaces what an owner's field holds with `media_ids`, in that order: links
 /// no longer named are removed, new ones added, the rest reordered.
 pub async fn set(db: &Db, owner: Owner<'_>, media_ids: &[i64]) -> Result<(), RecordError> {
+    let mut conn = db.pool.acquire().await?;
+    set_on(&mut conn, db.backend, owner, media_ids).await
+}
+
+/// [`set`] on a connection the caller holds, such as a record's save
+/// transaction, so the links commit or roll back with the record.
+pub async fn set_on(
+    conn: &mut sqlx::AnyConnection,
+    backend: laterite_core::DbBackend,
+    owner: Owner<'_>,
+    media_ids: &[i64],
+) -> Result<(), RecordError> {
     let (sql, values) = build(
-        db.backend,
+        backend,
         Query::delete()
             .from_table(MediaLinks::Table)
             .and_where(Expr::col(MediaLinks::OwnerType).eq(owner.owner_type))
@@ -128,7 +140,7 @@ pub async fn set(db: &Db, owner: Owner<'_>, media_ids: &[i64]) -> Result<(), Rec
             .to_owned(),
     );
     bind_values(sqlx::query(&sql), values)
-        .execute(&db.pool)
+        .execute(&mut *conn)
         .await?;
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true);
     for (order, media_id) in media_ids.iter().enumerate() {
@@ -151,7 +163,8 @@ pub async fn set(db: &Db, owner: Owner<'_>, media_ids: &[i64]) -> Result<(), Rec
                 now.clone().into(),
             ])
             .to_owned();
-        insert_returning_id(db, stmt, MediaLinks::Id).await?;
+        laterite_core::query::insert_returning_id_on(backend, &mut *conn, stmt, MediaLinks::Id)
+            .await?;
     }
     Ok(())
 }

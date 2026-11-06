@@ -1,0 +1,16 @@
+entity: authors
+path: /authors
+title: Authors
+permission: acme.manage_authors
+list:
+  columns:
+    name: {}
+form:
+  title: Author
+  related:
+    profile: { entity: profiles, foreign_key: author_id }
+    address: { entity: addresses, belongs_to: address_id }
+  fields:
+    name: { rules: [required] }
+    bio: { related: profile }
+    city: { related: address }

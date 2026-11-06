@@ -78,6 +78,9 @@ pub struct FormField {
     /// select it and the built-in writer leaves it out, so a persister reads
     /// it from the record (a password set through a form, say).
     pub transient: bool,
+    /// The one-to-one record this field is stored on, by its name under the
+    /// form's `related`; `None` stores it on the form's own record.
+    pub related: Option<String>,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
 }
@@ -408,6 +411,7 @@ impl Default for FormConfig {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         }
     }
@@ -450,6 +454,7 @@ impl<'de> Deserialize<'de> for FormField {
                         "trigger" => field.trigger = map.next_value()?,
                         "hidden" => field.hidden = map.next_value()?,
                         "transient" => field.transient = map.next_value()?,
+                        "related" => field.related = Some(map.next_value()?),
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -492,6 +497,9 @@ impl Serialize for FormField {
         if self.transient {
             map.serialize_entry("transient", &true)?;
         }
+        if let Some(related) = &self.related {
+            map.serialize_entry("related", related)?;
+        }
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
@@ -527,6 +535,7 @@ impl FormField {
             trigger: None,
             hidden: false,
             transient: false,
+            related: None,
         }
     }
 
@@ -746,6 +755,11 @@ pub struct FormConfig {
     /// or an import.
     #[serde(default)]
     pub encrypt: Vec<String>,
+    /// One-to-one records whose fields this form edits, by name: a field with
+    /// `related: profile` is stored on that record, saved in the same
+    /// transaction as this one.
+    #[serde(default)]
+    pub related: std::collections::BTreeMap<String, RelatedRecord>,
     /// Where a save and a cancel return to, when it is not the list under
     /// `base_path`: a related record's form returns to its parent. Set by the
     /// router, never by a descriptor.
@@ -779,6 +793,7 @@ impl FormConfig {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         }
     }
@@ -840,6 +855,62 @@ impl FormConfig {
                 .iter()
                 .all(|(c, s)| valid_ident(c) && s.list().iter().all(|n| valid_ident(n)))
             && self.encrypt.iter().all(|c| valid_ident(c))
+            && self
+                .related
+                .iter()
+                .all(|(n, r)| valid_ident(n) && r.idents_valid())
+            && self.fields.iter().all(|f| {
+                f.related
+                    .as_ref()
+                    .is_none_or(|name| self.related.contains_key(name))
+            })
+    }
+}
+
+/// A one-to-one record a form edits beside its own.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct RelatedRecord {
+    /// The related table.
+    pub entity: String,
+    /// Has-one: the column on the related table holding this record's id.
+    pub foreign_key: Option<String>,
+    /// Belongs-to: the column on this record's table holding the related id.
+    pub belongs_to: Option<String>,
+    /// The related table's id column. Default `id`.
+    pub id_field: Option<String>,
+}
+
+impl RelatedRecord {
+    /// A has-one record: rows of `entity` whose `foreign_key` holds this id.
+    pub fn has_one(entity: impl Into<String>, foreign_key: impl Into<String>) -> Self {
+        Self {
+            entity: entity.into(),
+            foreign_key: Some(foreign_key.into()),
+            ..Self::default()
+        }
+    }
+
+    /// A belongs-to record: the row of `entity` this record's `column` names.
+    pub fn belongs_to(entity: impl Into<String>, column: impl Into<String>) -> Self {
+        Self {
+            entity: entity.into(),
+            belongs_to: Some(column.into()),
+            ..Self::default()
+        }
+    }
+
+    fn id_field(&self) -> &str {
+        self.id_field.as_deref().unwrap_or("id")
+    }
+
+    fn idents_valid(&self) -> bool {
+        valid_ident(&self.entity)
+            && self.foreign_key.as_deref().is_none_or(valid_ident)
+            && self.belongs_to.as_deref().is_none_or(valid_ident)
+            && valid_ident(self.id_field())
+            && (self.foreign_key.is_some() != self.belongs_to.is_some())
     }
 }
 
@@ -976,8 +1047,18 @@ impl PreparedForm {
     ) -> Result<Self, String> {
         if !config.idents_valid() {
             return Err(format!(
-                "form for `{}` names an invalid column (a field, slug or encrypted column)",
+                "form for `{}` names an invalid column (a field, slug, encrypted column or related record), or a field names a related record the form does not declare (each declares one of foreign_key and belongs_to)",
                 config.entity
+            ));
+        }
+        if let Some(f) = config
+            .fields
+            .iter()
+            .find(|f| f.related.is_some() && f.rules.iter().any(|r| matches!(r, Rule::Unique)))
+        {
+            return Err(format!(
+                "field `{}` is stored on a related record, where `unique` cannot check its table",
+                f.name
             ));
         }
         let mut fields = Vec::with_capacity(config.fields.len());
@@ -1083,6 +1164,9 @@ fn declared_record(
 ) -> Result<Record, String> {
     let mut rec = Record::new(&form.config.entity);
     for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
+        if field.related.is_some() {
+            continue;
+        }
         let submitted = crate::field::SubmittedField::new(&field.name, data);
         if let Some(value) = prepared
             .field_type
@@ -1144,6 +1228,7 @@ pub(crate) async fn write(
     actor: &Actor,
 ) -> Result<Record, SaveError> {
     let (mut rec, op) = prepare(db, form, data, id).await?;
+    let graph = Graph { form, data };
     persist::save(
         persist::SaveRequest {
             db,
@@ -1153,47 +1238,217 @@ pub(crate) async fn write(
             actor,
             op,
             id,
+            then: Some(&graph),
         },
         &mut rec,
     )
     .await?;
-    link_media(
-        db,
-        form,
-        data,
-        rec.id()
-            .map(|i| i.to_string())
-            .or_else(|| id.map(str::to_string)),
-    )
-    .await;
     Ok(rec)
 }
 
-/// Writes the links a saved record's media fields hold, under each field's
-/// name, so the library knows who uses a file. A type that holds no media
-/// says so and is skipped; a failure is logged, never a failed save.
-async fn link_media(
-    db: &Db,
-    form: &PreparedForm,
-    data: &HashMap<String, String>,
-    owner_id: Option<String>,
-) {
-    let Some(owner_id) = owner_id else {
-        return;
-    };
-    for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
-        let submitted = data.get(&field.name).map(String::as_str);
-        let Some(ids) = prepared.field_type.linked_media(submitted, &prepared.opts) else {
-            continue;
-        };
-        let owner = laterite_media::Owner {
-            owner_type: &form.config.entity,
-            owner_id: &owner_id,
-            field: &field.name,
-        };
-        if let Err(e) = laterite_media::link::set(db, owner, &ids).await {
-            tracing::warn!(error = %e, entity = %form.config.entity, field = %field.name, "media links could not be written");
+/// What a form writes beside its own record, in the same transaction: each
+/// related one-to-one record, and the media links its fields hold.
+struct Graph<'a> {
+    form: &'a PreparedForm,
+    data: &'a HashMap<String, String>,
+}
+
+impl Graph<'_> {
+    /// The related record `name` as this submission fills it: each of its
+    /// fields through its type. `None` when the submission carries none.
+    fn related_record(
+        &self,
+        name: &str,
+        related: &RelatedRecord,
+        mode: Mode,
+    ) -> Result<Option<Record>, SaveError> {
+        let mut rec = Record::new(&related.entity);
+        for (field, prepared) in self.form.config.fields.iter().zip(&self.form.fields) {
+            if field.related.as_deref() != Some(name) {
+                continue;
+            }
+            let submitted = crate::field::SubmittedField::new(&field.name, self.data);
+            if let Some(value) = prepared
+                .field_type
+                .to_attr(&submitted, &prepared.opts, mode)
+                .map_err(SaveError::Failed)?
+            {
+                rec.set(field.name.clone(), value);
+            }
         }
+        Ok((!rec.is_empty()).then_some(rec))
+    }
+}
+
+/// Inserts `rec` into its table, or updates the row `id` with it, on the
+/// save's transaction. Returns the row's id.
+async fn write_related(
+    cx: &mut laterite_core::SaveCx<'_>,
+    related: &RelatedRecord,
+    rec: &Record,
+    id: Option<i64>,
+) -> Result<i64, SaveError> {
+    let backend = cx.backend();
+    let fail = |e: sqlx::Error| SaveError::Failed(format!("{}: {e}", related.entity));
+    match id {
+        Some(id) => {
+            let (sql, values) = {
+                let mut update = Query::update();
+                update.table(Alias::new(&related.entity));
+                for (key, value) in rec.iter() {
+                    update.value(Alias::new(key), persist::bind_value(Some(value)));
+                }
+                update.and_where(Expr::col(Alias::new(related.id_field())).eq(id));
+                to_sql(backend, update)
+            };
+            bind_values(sqlx::query(&sql), values)
+                .execute(cx.conn())
+                .await
+                .map_err(fail)?;
+            Ok(id)
+        }
+        None => {
+            let stmt = {
+                let keys: Vec<&str> = rec.iter().map(|(k, _)| k).collect();
+                Query::insert()
+                    .into_table(Alias::new(&related.entity))
+                    .columns(keys.iter().map(|k| Alias::new(*k)))
+                    .values_panic(keys.iter().map(|k| persist::bind_value(rec.get(k))))
+                    .to_owned()
+            };
+            laterite_core::query::insert_returning_id_on(
+                backend,
+                cx.conn(),
+                stmt,
+                Alias::new(related.id_field()),
+            )
+            .await
+            .map_err(fail)
+        }
+    }
+}
+
+/// The id in `column` of `table`'s row whose `key` is `value`, read on the
+/// save's transaction.
+async fn lookup_id(
+    cx: &mut laterite_core::SaveCx<'_>,
+    table: &str,
+    column: &str,
+    key: &str,
+    value: i64,
+) -> Result<Option<i64>, SaveError> {
+    let backend = cx.backend();
+    let (sql, values) = {
+        let mut select = Query::select();
+        select
+            .expr_as(
+                Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(backend))),
+                Alias::new("lat_id"),
+            )
+            .from(Alias::new(table))
+            .and_where(Expr::col(Alias::new(key)).eq(value))
+            .limit(1);
+        to_sql(backend, select)
+    };
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(cx.conn())
+        .await
+        .map_err(|e| SaveError::Failed(e.to_string()))?;
+    Ok(row
+        .and_then(|r| r.get_text_opt("lat_id").ok().flatten())
+        .and_then(|v| v.parse().ok()))
+}
+
+#[laterite_core::strata::async_trait]
+impl persist::InTx for Graph<'_> {
+    /// Belongs-to records first, so this record can carry their ids.
+    async fn before(
+        &self,
+        cx: &mut laterite_core::SaveCx<'_>,
+        rec: &mut Record,
+        op: Op,
+    ) -> Result<(), SaveError> {
+        let mode = if op == Op::Create {
+            Mode::Create
+        } else {
+            Mode::Update
+        };
+        for (name, related) in &self.form.config.related {
+            let Some(column) = &related.belongs_to else {
+                continue;
+            };
+            let Some(child) = self.related_record(name, related, mode)? else {
+                continue;
+            };
+            let current = match rec.id() {
+                Some(id) => {
+                    lookup_id(
+                        cx,
+                        &self.form.config.entity,
+                        column,
+                        &self.form.config.id_field,
+                        id,
+                    )
+                    .await?
+                }
+                None => None,
+            };
+            let id = write_related(cx, related, &child, current).await?;
+            rec.set(column.clone(), id);
+        }
+        Ok(())
+    }
+
+    /// Has-one records once this record has its id, then the media links.
+    async fn after(
+        &self,
+        cx: &mut laterite_core::SaveCx<'_>,
+        rec: &Record,
+        op: Op,
+    ) -> Result<(), SaveError> {
+        let Some(owner_id) = rec.id() else {
+            return Ok(());
+        };
+        let mode = if op == Op::Create {
+            Mode::Create
+        } else {
+            Mode::Update
+        };
+        for (name, related) in &self.form.config.related {
+            let Some(foreign_key) = &related.foreign_key else {
+                continue;
+            };
+            let Some(mut child) = self.related_record(name, related, mode)? else {
+                continue;
+            };
+            let current = lookup_id(
+                cx,
+                &related.entity,
+                related.id_field(),
+                foreign_key,
+                owner_id,
+            )
+            .await?;
+            child.set(foreign_key.clone(), owner_id);
+            write_related(cx, related, &child, current).await?;
+        }
+        let owner = owner_id.to_string();
+        let backend = cx.backend();
+        for (field, prepared) in self.form.config.fields.iter().zip(&self.form.fields) {
+            let submitted = self.data.get(&field.name).map(String::as_str);
+            let Some(ids) = prepared.field_type.linked_media(submitted, &prepared.opts) else {
+                continue;
+            };
+            let link = laterite_media::Owner {
+                owner_type: &self.form.config.entity,
+                owner_id: &owner,
+                field: &field.name,
+            };
+            laterite_media::link::set_on(cx.conn(), backend, link, &ids)
+                .await
+                .map_err(|e| SaveError::Failed(format!("media links: {e}")))?;
+        }
+        Ok(())
     }
 }
 
@@ -1589,12 +1844,21 @@ pub(crate) async fn load_values(
             .fields
             .iter()
             .zip(&form.fields)
-            .filter(|(f, pf)| !f.transient && pf.field_type.stores())
+            .filter(|(f, pf)| !f.transient && f.related.is_none() && pf.field_type.stores())
         {
             select.expr_as(
                 Expr::col(Alias::new(&field.name)).cast_as(Alias::new(cast)),
                 Alias::new(&field.name),
             );
+        }
+        // A belongs-to record is found through this row's own column.
+        for (name, related) in &form.config.related {
+            if let Some(column) = &related.belongs_to {
+                select.expr_as(
+                    Expr::col(Alias::new(column)).cast_as(Alias::new(cast)),
+                    Alias::new(format!("lat_rel_{name}")),
+                );
+            }
         }
         select.from(Alias::new(&form.config.entity)).and_where(
             Expr::col(Alias::new(&form.config.id_field))
@@ -1615,13 +1879,63 @@ pub(crate) async fn load_values(
     else {
         return Ok(None);
     };
+    // Each related record's stored values, by field name.
+    let mut related_values: HashMap<String, Option<String>> = HashMap::new();
+    for (name, related) in &form.config.related {
+        let (key, value) = match (&related.foreign_key, &related.belongs_to) {
+            (Some(fk), _) => (fk.clone(), Some(id.to_string())),
+            (None, Some(_)) => (
+                related.id_field().to_string(),
+                row.get_text_opt(&format!("lat_rel_{name}")).ok().flatten(),
+            ),
+            (None, None) => continue,
+        };
+        let fields: Vec<&FormField> = form
+            .config
+            .fields
+            .iter()
+            .filter(|f| f.related.as_deref() == Some(name.as_str()))
+            .collect();
+        let Some(value) = value.filter(|v| !v.is_empty()) else {
+            continue;
+        };
+        let (sql, values) = {
+            let cast = text_cast(db.backend);
+            let mut select = Query::select();
+            for f in &fields {
+                select.expr_as(
+                    Expr::col(Alias::new(&f.name)).cast_as(Alias::new(cast)),
+                    Alias::new(&f.name),
+                );
+            }
+            select
+                .from(Alias::new(&related.entity))
+                .and_where(
+                    Expr::col(Alias::new(&key))
+                        .cast_as(Alias::new(cast))
+                        .eq(value),
+                )
+                .limit(1);
+            to_sql(db.backend, select)
+        };
+        if let Some(rel_row) = bind_values(sqlx::query(&sql), values)
+            .fetch_optional(&db.pool)
+            .await?
+        {
+            for f in fields {
+                related_values.insert(f.name.clone(), rel_row.get_text_opt(&f.name).ok().flatten());
+            }
+        }
+    }
     Ok(Some(
         form.config
             .fields
             .iter()
             .zip(&form.fields)
             .map(|(f, prepared)| {
-                let stored = if f.transient || !prepared.field_type.stores() {
+                let stored = if f.related.is_some() {
+                    related_values.get(&f.name).cloned().flatten()
+                } else if f.transient || !prepared.field_type.stores() {
                     None
                 } else {
                     row.get_text_opt(f.name.as_str()).ok().flatten()
@@ -2257,6 +2571,7 @@ mod tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         };
         PreparedForm::prepare(
@@ -2314,6 +2629,7 @@ mod tests {
                 footprints: false,
                 slugs: Default::default(),
                 encrypt: Vec::new(),
+                related: Default::default(),
                 done_path: None,
             },
             &crate::field::builtin_registry(),
@@ -2599,6 +2915,7 @@ mod tests {
                 footprints: false,
                 slugs: Default::default(),
                 encrypt: Vec::new(),
+                related: Default::default(),
                 done_path: None,
             },
             &st.field_types,
@@ -2650,6 +2967,7 @@ mod tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -2683,6 +3001,7 @@ mod tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -2701,7 +3020,11 @@ mod tests {
     struct RollbackPersister;
     #[laterite_core::strata::async_trait]
     impl Persister for RollbackPersister {
-        async fn create(&self, cx: &mut SaveCx<'_>, _rec: &Record) -> Result<i64, SaveError> {
+        async fn create(
+            &self,
+            cx: &mut laterite_core::SaveCx<'_>,
+            _rec: &Record,
+        ) -> Result<i64, SaveError> {
             let backend = cx.backend();
             let insert = Query::insert()
                 .into_table(Alias::new("samples"))
@@ -2762,6 +3085,7 @@ mod tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         }
     }
@@ -2863,6 +3187,7 @@ mod timestamp_tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         }
     }
@@ -2889,6 +3214,7 @@ mod timestamp_tests {
                 actor: &actor,
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -2958,6 +3284,7 @@ mod htmx_tests {
                 footprints: false,
                 slugs: Default::default(),
                 encrypt: Vec::new(),
+                related: Default::default(),
                 done_path: None,
             },
             &st.field_types,

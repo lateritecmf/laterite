@@ -19,6 +19,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   named in a descriptor as `vendor.rule`; an unknown name fails boot.
 - Polymorphic relations: `morph` on a has-many relation and `parent_type` on a
   pivot match rows on a type column holding the parent's entity.
+- `related` on a form edits one-to-one records beside its own, saved in its
+  transaction with its media links, which a failed save now rolls back too.
 
 ## [0.9.30] - 2026-11-06
 

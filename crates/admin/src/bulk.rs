@@ -121,6 +121,7 @@ async fn stamp_selected(
             actor,
             op: laterite_core::Op::Update,
             id: Some(id),
+            then: None,
         };
         match save(req, &mut rec).await {
             Ok(()) => outcome.deleted += 1,

@@ -132,6 +132,10 @@ pub struct MoveTo<'a> {
 /// text type that Postgres refuses for a bigint column. Booleans bind as
 /// integers (the one representation every backend indexes), and timestamps
 /// and JSON bind as text.
+pub(crate) fn bind_value(value: Option<&AttrValue>) -> SimpleExpr {
+    bind(value)
+}
+
 fn bind(value: Option<&AttrValue>) -> SimpleExpr {
     match value {
         None | Some(AttrValue::Null) => SimpleExpr::Keyword(sea_query::Keyword::Null),
@@ -148,6 +152,15 @@ fn bind(value: Option<&AttrValue>) -> SimpleExpr {
 /// `after_save` runs. `after_save` is not atomic with the write.
 ///
 /// `id` is the row to update, and is ignored on a create.
+/// Work that commits with a record: run in the save's transaction, `before`
+/// once the listeners have run and `after` once the persister has written
+/// (the record then carries its id). A form's related records and media links.
+#[async_trait]
+pub(crate) trait InTx: Send + Sync {
+    async fn before(&self, cx: &mut SaveCx<'_>, rec: &mut Record, op: Op) -> Result<(), SaveError>;
+    async fn after(&self, cx: &mut SaveCx<'_>, rec: &Record, op: Op) -> Result<(), SaveError>;
+}
+
 pub(crate) struct SaveRequest<'a> {
     pub db: &'a Db,
     /// Bumped for the entity once the write is committed; `None` where no
@@ -160,6 +173,8 @@ pub(crate) struct SaveRequest<'a> {
     pub op: Op,
     /// The row to update; `None` on a create.
     pub id: Option<&'a str>,
+    /// Further writes that commit with this one.
+    pub then: Option<&'a dyn InTx>,
 }
 
 pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), SaveError> {
@@ -171,6 +186,7 @@ pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), S
         actor,
         op,
         id,
+        then,
     } = req;
     let mut tx = db
         .pool
@@ -187,6 +203,7 @@ pub(crate) async fn save(req: SaveRequest<'_>, rec: &mut Record) -> Result<(), S
         rec,
         op,
         id,
+        then,
     )
     .await;
     match outcome {
@@ -335,6 +352,7 @@ async fn save_in(
     rec: &mut Record,
     op: Op,
     id: Option<&str>,
+    then: Option<&dyn InTx>,
 ) -> Result<(), SaveError> {
     let mut cx = SaveCx::new(backend, tx, actor);
 
@@ -352,6 +370,9 @@ async fn save_in(
             .await
             .map_err(SaveError::Invalid)?;
     }
+    if let Some(then) = then {
+        then.before(&mut cx, rec, op).await?;
+    }
 
     match op {
         Op::Create => {
@@ -364,6 +385,9 @@ async fn save_in(
         }
         // `Op` is non-exhaustive; a stage added later needs its arm here.
         _ => return Err(SaveError::Failed(format!("unsupported operation {op:?}"))),
+    }
+    if let Some(then) = then {
+        then.after(&mut cx, rec, op).await?;
     }
     Ok(())
 }
@@ -433,7 +457,7 @@ impl DefaultPersister {
             columns: config
                 .fields
                 .iter()
-                .filter(|f| !f.transient)
+                .filter(|f| !f.transient && f.related.is_none())
                 .map(|f| f.name.clone())
                 .collect(),
         }
@@ -618,6 +642,7 @@ mod pipeline_tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         };
         let persister = DefaultPersister::from_config(&config);
@@ -848,6 +873,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -877,6 +903,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -918,6 +945,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -955,6 +983,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -990,6 +1019,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -1097,6 +1127,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Update,
                 id: Some("1"),
+                then: None,
             },
             &mut rec,
         )
@@ -1125,6 +1156,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Create,
                 id: None,
+                then: None,
             },
             &mut rec,
         )
@@ -1149,6 +1181,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Update,
                 id: Some("7"),
+                then: None,
             },
             &mut rec,
         )
@@ -1173,6 +1206,7 @@ mod pipeline_tests {
                 actor: &actor(),
                 op: Op::Update,
                 id: None,
+                then: None,
             },
             &mut rec,
         )

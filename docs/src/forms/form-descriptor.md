@@ -118,6 +118,8 @@ Key | On | Values | Default
 `footprints` | The form | `true`, `false` | `false`; `true` stamps `created_user_id` and `updated_user_id`. See [Model listeners](../database/model-listeners.md#record-who-changed-a-row)
 `slugs` | The form | a map of slug column to a source column or a list | None. See [Model listeners](../database/model-listeners.md#generate-a-slug)
 `encrypt` | The form | a list of columns | None. See [Model listeners](../database/model-listeners.md#seal-a-column)
+`related` | The form | a map of one-to-one records | None. See [Related Records](relations.md#edit-a-one-to-one-record-in-the-form)
+`related` | A field | a name under the form's `related` | None: the field is stored on that record
 `persist` | The form | a persister name | The built-in insert and update. See [Persisters](../database/persisters.md)
 `enter` | A field | `submit`, `off`, `next` | The form's
 

@@ -6042,6 +6042,7 @@ mod tests {
             footprints: false,
             slugs: Default::default(),
             encrypt: Vec::new(),
+            related: Default::default(),
             done_path: None,
         }
     }

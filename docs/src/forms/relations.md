@@ -121,6 +121,42 @@ Column | Holds
 The type columns are written from the URL and kept hidden in the form. A
 section lists only rows whose type is its parent's entity.
 
+## Edit a one-to-one record in the form
+
+```yaml
+# descriptors/authors.yaml
+form:
+  related:
+    profile: { entity: profiles, foreign_key: author_id }
+    address: { entity: addresses, belongs_to: address_id }
+  fields:
+    name: { rules: [required] }
+    bio:  { related: profile }
+    city: { related: address }
+```
+
+```rust
+form.related.insert("profile".into(), RelatedRecord::has_one("profiles", "author_id"));
+form.related.insert("address".into(), RelatedRecord::belongs_to("addresses", "address_id"));
+```
+
+`related` key | Holds
+--- | ---
+`entity` | The related table
+`foreign_key` | Has-one: the related table's column holding this record's id
+`belongs_to` | Belongs-to: this table's column holding the related record's id
+`id_field` | The related table's id column; default `id`
+
+Step of a save | Writes
+--- | ---
+1 | Each belongs-to record, inserted or updated; its id goes into this record's column
+2 | This record
+3 | Each has-one record, inserted or updated with this record's id
+4 | The media links of this record's media fields
+
+All four run in one transaction: a failure in any of them saves none. A field
+with `related` cannot carry `unique`.
+
 ## Set the keys
 
 Key | Default | Does
