@@ -45,7 +45,7 @@ pub mod relation;
 pub(crate) mod requestlog;
 mod richtext;
 mod roles;
-mod routemap;
+pub mod routemap;
 pub mod routes;
 mod scheduled;
 mod session;

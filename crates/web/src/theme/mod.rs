@@ -401,6 +401,9 @@ impl Module for ThemeModule {
         registry.add_screen(admin::screen_with(std::sync::Arc::clone(&components)));
         registry.add_public_route(site::route());
         registry.add_public_route(site::framework_route());
+        registry.add(laterite_admin::routemap::RouteSourceReg::new(
+            std::sync::Arc::new(site::PageRoutes),
+        ));
         registry.add_static_renderer(std::sync::Arc::new(folder::Renderer));
         registry.add(source::ThemeSourceReg::new(
             "database",

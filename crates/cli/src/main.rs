@@ -25,6 +25,7 @@ mod new;
 mod plugin;
 mod project;
 mod queue;
+mod routes;
 mod schedule;
 mod serve;
 mod theme;
@@ -57,6 +58,8 @@ enum Command {
     MakeResource(make::MakeResourceArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
+    /// List every URL this application answers, with its owner, filtered or as JSON.
+    Routes(routes::RoutesArgs),
     /// Set up local wildcard domains (*.test -> 127.0.0.1) for development.
     Domain(domain::DomainArgs),
     /// Check that this application is set up to run (run from its directory).
@@ -171,6 +174,7 @@ async fn main() -> Result<()> {
         Command::MakePlugin(args) => make::run_plugin(args),
         Command::MakeResource(args) => make::run_resource(args),
         Command::Serve(args) => serve::run(args).await,
+        Command::Routes(args) => routes::run(args),
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,

@@ -23,6 +23,9 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `.flash(level, text)` on a handler's outcome, `colour_mode()` in templates
   with the boot script at `/laterite/theme-boot.js`, and a static build that
   warns about a page whose component has handlers.
+- `lat routes` and the application's `routes` command: every URL with its
+  method, kind, owner and permission, filtered by `--path`, `--method`,
+  `--kind`, `--owner`, `--permission` or `--public`, or as `--json`.
 
 ### Fixed
 

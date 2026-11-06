@@ -250,6 +250,7 @@ impl Bootstrap {
             Some("publish") => self.prepare().await?.publish().await,
             None | Some("serve") => self.serve().await,
             Some("admin") => self.prepare().await?.serve_with(true).await,
+            Some("routes") => self.prepare().await?.print_routes(&args[1..]).await,
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
             }
@@ -257,7 +258,7 @@ impl Bootstrap {
                 self.prepare().await?.tick(&args[2..]).await
             }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `build`, `publish`, `queue work` or `schedule run`"
+                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `routes`, `build`, `publish`, `queue work` or `schedule run`"
             ),
         }
     }
@@ -616,6 +617,43 @@ impl Bootstrap {
         );
         crate::routemap::check_segments(&claims);
         crate::routemap::check_collisions(&claims);
+        // The route map: every admin URL with its owner, for `routes` and the
+        // Developer section, from the same claims the collision check reads.
+        let admin_prefix = crate::normalize_path(&config.backend.path);
+        let mut route_map: Vec<crate::routemap::RouteRow> =
+            crate::routemap::framework_routes(&admin_prefix);
+        for resource in crate::builtin_resources() {
+            route_map.extend(crate::routemap::resource_routes(
+                &resource,
+                &admin_prefix,
+                "the framework",
+            ));
+        }
+        for (owner, resource) in &resources {
+            route_map.extend(crate::routemap::resource_routes(
+                resource,
+                &admin_prefix,
+                owner.as_str(),
+            ));
+        }
+        for (owner, screen) in &screens {
+            route_map.push(crate::routemap::RouteRow::new(
+                &["GET", "POST"],
+                format!("{admin_prefix}{}", screen.base_path),
+                "screen",
+                owner.as_str(),
+                Some(&screen.permission),
+            ));
+        }
+        for (owner, public_route) in &public {
+            route_map.push(crate::routemap::RouteRow::new(
+                &["GET", "POST"],
+                public_route.path.clone(),
+                "public",
+                owner.as_str(),
+                None,
+            ));
+        }
         let resources: Vec<Resource> = resources.into_iter().map(|(_, r)| r).collect();
         // Every sealed column is on record, so `lat crypt rotate` finds it.
         for resource in &resources {
@@ -673,6 +711,15 @@ impl Bootstrap {
             .map(|(owner, i)| (i.route(), owner.to_string()))
             .collect();
         crate::routemap::check_segments(&settings_claims);
+        for (owner, item) in settings.iter().filter(|(_, i)| i.link.is_none()) {
+            route_map.push(crate::routemap::RouteRow::new(
+                &["GET", "POST"],
+                format!("{admin_prefix}{}", item.route()),
+                "settings",
+                owner.as_str(),
+                item.permission.as_deref(),
+            ));
+        }
         let settings: Vec<SettingsItem> = settings.into_iter().map(|(_, i)| i).collect();
         // The cache, over the generations table every module has migrated,
         // knowing every namespace a module registered.
@@ -912,6 +959,7 @@ impl Bootstrap {
             banner: format!("{} on {origin}{admin_path}", config.app.name),
             admin_url: format!("{origin}{admin_path}"),
             storage_dir: config.backend.storage.clone(),
+            route_map,
             queue,
             schedule,
             schedule_mode,
@@ -956,6 +1004,8 @@ struct Prepared {
     banner: String,
     /// `backend.storage`, where the media library's default disk lives.
     storage_dir: String,
+    /// Every admin URL with its owner, for `routes`.
+    route_map: Vec<crate::routemap::RouteRow>,
     /// The admin's address, for `admin` to open.
     admin_url: String,
     queue: laterite_core::Queue,
@@ -1176,6 +1226,36 @@ impl Prepared {
             let _ = tokio::time::timeout(WORKER_GRACE, worker).await;
         }
         Ok(())
+    }
+
+    /// Every URL the application answers: the admin's, the modules' and the
+    /// theme's pages, as a table, or as JSON with `--json` (what `lat routes`
+    /// reads and filters).
+    async fn print_routes(self, args: &[String]) -> anyhow::Result<()> {
+        let rows = self.route_map().await;
+        if args.iter().any(|a| a == "--json") {
+            // One line, last on stdout, so a caller finds it under any log
+            // lines the boot wrote.
+            println!("{}", serde_json::to_string(&rows)?);
+        } else {
+            print!("{}", crate::routemap::render_table(&rows));
+        }
+        Ok(())
+    }
+
+    /// The route map with every registered source's rows, sorted by path.
+    async fn route_map(&self) -> Vec<crate::routemap::RouteRow> {
+        let mut rows = self.route_map.clone();
+        for reg in self
+            .static_site
+            .plugin_defined
+            .contributions::<crate::routemap::RouteSourceReg>()
+        {
+            rows.extend(reg.item.source.routes(&self.db).await);
+        }
+        rows.sort_by(|a, b| a.path.cmp(&b.path).then(a.methods.cmp(&b.methods)));
+        rows.dedup();
+        rows
     }
 
     /// A worker alone, until Ctrl-C or the arguments end it.

@@ -239,3 +239,369 @@ mod tests {
         ]);
     }
 }
+
+// ---------------------------------------------------------------- the route map
+
+/// One URL the application answers, for `lat routes` and the Developer
+/// section: what a deployment reads before changing a path.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RouteRow {
+    /// `GET`, `POST`, or both.
+    pub methods: Vec<String>,
+    /// The mounted path, as a browser hits it.
+    pub path: String,
+    /// `resource`, `screen`, `settings`, `public`, `page` or `framework`.
+    pub kind: String,
+    /// The module that owns it, or `the framework`.
+    pub owner: String,
+    /// The permission gating it; none for a public route.
+    pub permission: Option<String>,
+}
+
+impl RouteRow {
+    pub fn new(
+        methods: &[&str],
+        path: impl Into<String>,
+        kind: &str,
+        owner: impl Into<String>,
+        permission: Option<&str>,
+    ) -> Self {
+        Self {
+            methods: methods.iter().map(|m| m.to_string()).collect(),
+            path: path.into(),
+            kind: kind.to_string(),
+            owner: owner.into(),
+            permission: permission.map(str::to_string),
+        }
+    }
+}
+
+/// Rows a module adds to the map at the time it is printed, for URLs that
+/// exist only in data (a theme's pages).
+#[laterite_core::strata::async_trait]
+pub trait RouteSource: Send + Sync {
+    async fn routes(&self, db: &laterite_core::Db) -> Vec<RouteRow>;
+}
+
+/// A registered [`RouteSource`].
+pub struct RouteSourceReg {
+    pub source: std::sync::Arc<dyn RouteSource>,
+}
+
+impl RouteSourceReg {
+    pub fn new(source: std::sync::Arc<dyn RouteSource>) -> Self {
+        Self { source }
+    }
+}
+
+const FRAMEWORK: &str = "the framework";
+
+/// The framework's own admin routes, kept beside the chain in `router()`
+/// that mounts them: a row here is a route there. An integration test
+/// requests every fixed GET row as a superuser and refuses a 404.
+pub fn framework_routes(admin_path: &str) -> Vec<RouteRow> {
+    let manage = |permission: &str| Some(permission.to_string());
+    let rows: Vec<(&[&str], &str, Option<String>)> = vec![
+        (&["GET"], "", None),
+        (&["GET", "POST"], "/login", None),
+        (&["POST"], "/logout", None),
+        (&["GET", "POST"], "/forgot", None),
+        (&["GET", "POST"], "/set-password/{token}", None),
+        (&["GET", "POST"], "/setup", None),
+        (&["GET"], "/settings", None),
+        (&["GET", "POST"], "/preferences", None),
+        (&["POST"], "/preferences/password", None),
+        (&["POST"], "/preferences/menu", None),
+        (&["POST"], "/preferences/menu/moves", None),
+        (&["POST"], "/preferences/sessions/revoke", None),
+        (&["POST"], "/markdown/preview", None),
+        (&["GET"], "/editor/menu", None),
+        (&["GET"], "/dashboard/widget/{code}", None),
+        (&["POST"], "/dashboard/layout", None),
+        (&["POST"], "/dashboard/layout/reset", None),
+        (&["GET"], "/palette", None),
+        (
+            &["GET", "POST"],
+            "/roles/new",
+            manage("backend.manage_roles"),
+        ),
+        (
+            &["GET", "POST"],
+            "/roles/{id}/edit",
+            manage("backend.manage_roles"),
+        ),
+        (
+            &["GET", "POST"],
+            "/users/new",
+            manage("backend.manage_users"),
+        ),
+        (
+            &["GET", "POST"],
+            "/users/{id}/edit",
+            manage("backend.manage_users"),
+        ),
+        (
+            &["POST"],
+            "/users/{id}/active",
+            manage("backend.manage_users"),
+        ),
+        (
+            &["POST"],
+            "/users/{id}/password",
+            manage("backend.manage_users"),
+        ),
+        (
+            &["POST"],
+            "/users/{id}/unlock",
+            manage("backend.manage_users"),
+        ),
+        (&["GET"], "/plugins", manage("backend.manage_plugins")),
+        (
+            &["POST"],
+            "/plugins/toggle",
+            manage("backend.manage_plugins"),
+        ),
+        (&["GET"], "/jobs", manage("backend.manage_jobs")),
+        (&["POST"], "/jobs/retry-all", manage("backend.manage_jobs")),
+        (&["POST"], "/jobs/forget-all", manage("backend.manage_jobs")),
+        (&["POST"], "/jobs/{id}/retry", manage("backend.manage_jobs")),
+        (
+            &["POST"],
+            "/jobs/{id}/forget",
+            manage("backend.manage_jobs"),
+        ),
+        (&["GET"], "/mail-log", manage("backend.manage_mail")),
+        (&["POST"], "/mail-log/clear", manage("backend.manage_mail")),
+        (&["GET"], "/mail-log/{id}", manage("backend.manage_mail")),
+        (
+            &["GET"],
+            "/mail-log/{id}/html",
+            manage("backend.manage_mail"),
+        ),
+        (&["GET"], "/mail-templates", manage("backend.manage_mail")),
+        (
+            &["POST"],
+            "/mail-templates/brand-preview",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["GET", "POST"],
+            "/mail-templates/{kind}/new",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["GET", "POST"],
+            "/mail-templates/{kind}/{code}",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["GET"],
+            "/mail-templates/{kind}/{code}/preview",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["POST"],
+            "/mail-templates/{kind}/{code}/test",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["POST"],
+            "/mail-templates/{kind}/{code}/reset",
+            manage("backend.manage_mail"),
+        ),
+        (
+            &["POST"],
+            "/mail-templates/{kind}/{code}/delete",
+            manage("backend.manage_mail"),
+        ),
+        (&["GET"], "/scheduled-tasks", manage("backend.manage_jobs")),
+        (
+            &["POST"],
+            "/scheduled-tasks/{name}/run",
+            manage("backend.manage_jobs"),
+        ),
+    ];
+    rows.into_iter()
+        .map(|(methods, path, permission)| {
+            RouteRow::new(
+                methods,
+                format!("{admin_path}{path}"),
+                "framework",
+                FRAMEWORK,
+                permission.as_deref(),
+            )
+        })
+        .collect()
+}
+
+/// A resource's routes, from what its descriptor enables: the same
+/// conditions `mount_resource` applies.
+pub fn resource_routes(resource: &crate::Resource, admin_path: &str, owner: &str) -> Vec<RouteRow> {
+    let base = format!("{admin_path}{}", resource.base_path);
+    let permission = resource.permission.as_deref();
+    let row = |methods: &[&str], suffix: &str| {
+        RouteRow::new(
+            methods,
+            format!("{base}{suffix}"),
+            "resource",
+            owner,
+            permission,
+        )
+    };
+    let mut rows = vec![row(&["GET"], ""), row(&["POST"], "/columns")];
+    if resource.list.columns.iter().any(|c| c.editable) {
+        rows.push(row(&["GET", "POST"], "/{id}/cell"));
+    }
+    if resource.list.exportable {
+        rows.push(row(&["GET", "POST"], "/export"));
+    }
+    if resource.list.deletable {
+        rows.push(row(&["POST"], "/delete"));
+    }
+    if resource
+        .list
+        .tree
+        .as_ref()
+        .is_some_and(|t| t.source.is_some())
+    {
+        rows.push(row(&["GET", "POST"], "/{id}/move"));
+    }
+    if resource.list.reorder.is_some() {
+        rows.push(row(&["POST"], "/reorder"));
+    }
+    if resource.form.is_some() {
+        rows.push(row(&["GET", "POST"], "/new"));
+        rows.push(row(&["GET"], "/{id}/reveal/{field}"));
+        rows.push(row(&["GET", "POST"], "/{id}/edit"));
+        for rel in &resource.relations {
+            let name = &rel.name;
+            let rel_permission = rel.permission.as_deref().or(permission);
+            let rel_row = |methods: &[&str], suffix: &str| {
+                RouteRow::new(
+                    methods,
+                    format!("{base}/{{id}}/{name}{suffix}"),
+                    "resource",
+                    owner,
+                    rel_permission,
+                )
+            };
+            rows.push(rel_row(&["GET", "POST"], ""));
+            rows.push(rel_row(&["GET", "POST"], "/new"));
+            rows.push(rel_row(&["GET", "POST"], "/{child}/edit"));
+            rows.push(rel_row(&["POST"], "/delete"));
+            if rel.list.reorder.is_some() {
+                rows.push(rel_row(&["POST"], "/reorder"));
+            }
+        }
+    }
+    if resource.import.is_some() {
+        rows.push(row(&["GET", "POST"], "/import"));
+    }
+    rows
+}
+
+/// The map as a table: methods, path, kind, owner, permission.
+pub fn render_table(rows: &[RouteRow]) -> String {
+    let cells: Vec<[String; 5]> = rows
+        .iter()
+        .map(|r| {
+            [
+                r.methods.join(","),
+                r.path.clone(),
+                r.kind.clone(),
+                r.owner.clone(),
+                r.permission.clone().unwrap_or_default(),
+            ]
+        })
+        .collect();
+    let header = ["METHOD", "PATH", "KIND", "OWNER", "PERMISSION"];
+    let mut widths: Vec<usize> = header.iter().map(|h| h.len()).collect();
+    for row in &cells {
+        for (i, cell) in row.iter().enumerate() {
+            widths[i] = widths[i].max(cell.chars().count());
+        }
+    }
+    let line = |cols: [&str; 5]| -> String {
+        cols.iter()
+            .enumerate()
+            .map(|(i, c)| format!("{:<width$}", c, width = widths[i]))
+            .collect::<Vec<_>>()
+            .join("  ")
+            .trim_end()
+            .to_string()
+    };
+    let mut out = line(header);
+    out.push('\n');
+    for row in &cells {
+        out.push_str(&line([&row[0], &row[1], &row[2], &row[3], &row[4]]));
+        out.push('\n');
+    }
+    out
+}
+
+#[cfg(test)]
+mod route_map_tests {
+    use super::*;
+    use crate::form::{FormConfig, FormField};
+    use crate::list::{ListColumn, ListConfig};
+
+    #[test]
+    fn a_resource_lists_what_its_descriptor_enables() {
+        let plain = crate::Resource::new(
+            "/notes",
+            "Notes",
+            ListConfig::new("notes", "Notes", vec![ListColumn::new("title", "Title")]),
+        );
+        let rows = resource_routes(&plain, "/admin", "acme.notes");
+        let paths: Vec<&str> = rows.iter().map(|r| r.path.as_str()).collect();
+        assert_eq!(paths, ["/admin/notes", "/admin/notes/columns"]);
+
+        let full = crate::Resource::new(
+            "/notes",
+            "Notes",
+            ListConfig::new("notes", "Notes", vec![ListColumn::new("title", "Title")]).deletable(),
+        )
+        .form(FormConfig::new(
+            "notes",
+            "Note",
+            "/notes",
+            "id",
+            vec![FormField::text("title", "Title")],
+        ))
+        .permission("acme.manage_notes")
+        .import(crate::ImportConfig::new());
+        let rows = resource_routes(&full, "/admin", "acme.notes");
+        let paths: Vec<&str> = rows.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"/admin/notes/new"), "{paths:?}");
+        assert!(paths.contains(&"/admin/notes/{id}/edit"), "{paths:?}");
+        assert!(paths.contains(&"/admin/notes/delete"), "{paths:?}");
+        assert!(paths.contains(&"/admin/notes/import"), "{paths:?}");
+        assert!(rows
+            .iter()
+            .all(|r| r.permission.as_deref() == Some("acme.manage_notes")));
+    }
+
+    #[test]
+    fn the_table_aligns_its_columns() {
+        let rows = vec![
+            RouteRow::new(&["GET"], "/admin", "framework", FRAMEWORK, None),
+            RouteRow::new(
+                &["GET", "POST"],
+                "/admin/users/new",
+                "framework",
+                FRAMEWORK,
+                Some("backend.manage_users"),
+            ),
+        ];
+        let table = render_table(&rows);
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].starts_with("METHOD    PATH"), "{}", lines[0]);
+        assert!(
+            lines[2].starts_with("GET,POST  /admin/users/new"),
+            "{}",
+            lines[2]
+        );
+        assert!(lines[2].ends_with("backend.manage_users"), "{}", lines[2]);
+    }
+}

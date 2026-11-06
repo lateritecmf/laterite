@@ -562,6 +562,47 @@ pub const FRAMEWORK_PATH: &str = "/laterite/htmx.js";
 /// errors show where the form stood.
 pub const ISLAND_JS: &str = "document.addEventListener('htmx:beforeSwap',function(e){if(e.detail.xhr&&e.detail.xhr.status===422){e.detail.shouldSwap=true;e.detail.isError=false;}});";
 
+/// The active theme's pages as routes: `GET` each URL pattern, and `POST`
+/// too when the page attaches a component with handlers.
+pub struct PageRoutes;
+
+#[laterite_core::strata::async_trait]
+impl laterite_admin::routemap::RouteSource for PageRoutes {
+    async fn routes(&self, db: &Db) -> Vec<laterite_admin::routemap::RouteRow> {
+        let Ok(Some(theme)) = super::active_theme(db).await else {
+            return Vec::new();
+        };
+        let Ok(engine) = Engine::build(db, &theme.code).await else {
+            return Vec::new();
+        };
+        let owner = format!("theme {}", theme.code);
+        let mut rows = Vec::new();
+        for name in engine.routes().names() {
+            let Some(settings) = engine.page(name) else {
+                continue;
+            };
+            let posts = [
+                settings
+                    .layout_path()
+                    .and_then(|l| engine.layout_settings(&l).cloned()),
+                engine.page_bag(name).cloned(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|bag| !component::attached(&bag).unwrap_or_default().is_empty());
+            let methods: &[&str] = if posts { &["GET", "POST"] } else { &["GET"] };
+            rows.push(laterite_admin::routemap::RouteRow::new(
+                methods,
+                settings.url.clone(),
+                "page",
+                owner.clone(),
+                None,
+            ));
+        }
+        rows
+    }
+}
+
 /// The request framework's route: `/laterite/htmx.js`.
 pub fn framework_route() -> PublicRouteReg {
     PublicRouteReg::new("/laterite", Arc::new(FrameworkAssets))

@@ -2480,6 +2480,7 @@ dependencies = [
  "rpassword",
  "semver",
  "serde",
+ "serde_json",
  "sqlx",
  "syn 2.0.119",
  "tempfile",

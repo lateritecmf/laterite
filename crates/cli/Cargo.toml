@@ -11,6 +11,7 @@ name = "lat"
 path = "src/main.rs"
 
 [dependencies]
+serde_json = { workspace = true }
 laterite-core = { workspace = true }
 laterite-auth = { workspace = true }
 laterite-admin = { workspace = true }
