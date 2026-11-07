@@ -557,9 +557,10 @@ pub const TOKEN_KEY: &str = "laterite_token";
 /// Where the site serves its request framework (HTMX), for `framework()`.
 pub const FRAMEWORK_PATH: &str = "/laterite/htmx.js";
 
-/// The island `framework()` emits beside the script: a 422 answer (a
-/// refused input) is swapped into the target like a 200, so the field
-/// errors show where the form stood.
+/// The island served after HTMX in the same file: a 422 answer (a refused
+/// input) is swapped into the target like a 200, so the field errors show
+/// where the form stood. A file, never an inline script, so a Content
+/// Security Policy that allows only the site's own scripts runs it.
 pub const ISLAND_JS: &str = "document.addEventListener('htmx:beforeSwap',function(e){if(e.detail.xhr&&e.detail.xhr.status===422){e.detail.shouldSwap=true;e.detail.isError=false;}});";
 
 /// The active theme's pages as routes: `GET` each URL pattern, and `POST`
@@ -652,7 +653,7 @@ async fn framework_script(headers: HeaderMap) -> Response {
         &headers,
         "text/javascript; charset=utf-8",
         http_cache::REVALIDATE,
-        laterite_admin::HTMX_JS.as_bytes().to_vec(),
+        framework_js().into_bytes(),
     )
 }
 
@@ -667,7 +668,7 @@ impl laterite_core::SiteFile for FrameworkFile {
         "text/javascript; charset=utf-8".into()
     }
     fn render(&self, _cx: &laterite_core::SiteContext) -> String {
-        laterite_admin::HTMX_JS.to_string()
+        framework_js()
     }
 }
 
@@ -744,9 +745,14 @@ pub fn token_fields(token: &str, handler: &str) -> String {
     )
 }
 
-/// What `framework()` emits: the script and the island.
+/// What `framework()` emits: the one script, HTMX with the island.
 pub fn framework_tags() -> String {
-    format!("<script src=\"{FRAMEWORK_PATH}\" defer></script><script>{ISLAND_JS}</script>")
+    format!("<script src=\"{FRAMEWORK_PATH}\" defer></script>")
+}
+
+/// The request framework as the site serves it: HTMX, then the island.
+pub fn framework_js() -> String {
+    format!("{}\n{ISLAND_JS}\n", laterite_admin::HTMX_JS)
 }
 
 /// Escaped for a double-quoted attribute.

@@ -222,7 +222,9 @@ async fn a_visitor_gets_a_token_and_the_page_reads_it() {
         "{}",
         page.body
     );
-    assert!(page.body.contains("htmx:beforeSwap"), "{}", page.body);
+    // The 422 swap ships inside the served script: an inline one would be
+    // refused by the site's `script-src 'self'` policy.
+    assert!(!page.body.contains("htmx:beforeSwap"), "{}", page.body);
     assert!(page.body.contains(r#"hx-post="/list""#), "{}", page.body);
     assert!(
         page.body
@@ -297,6 +299,7 @@ async fn a_visitor_gets_a_token_and_the_page_reads_it() {
         "{}",
         &script.body[..80.min(script.body.len())]
     );
+    assert!(script.body.contains("htmx:beforeSwap"));
 }
 
 #[tokio::test]

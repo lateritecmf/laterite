@@ -72,7 +72,7 @@ Outcome | Renders
 
 Function | Emits
 --- | ---
-`framework()` | The script at `/laterite/htmx.js` and the island that swaps a 422.
+`framework()` | The script at `/laterite/htmx.js`, which also swaps a 422 into place. No inline script, so a `script-src 'self'` policy runs it.
 `request(handler, target=, swap=, partial=, confirm=, indicator=)` | `hx-post` to the page, `hx-headers` naming the handler and the partial, `hx-vals` with the visitor's token, and the HTMX attributes given.
 `token(handler)` | The hidden `_token` and `_handler` fields, for a form that posts without a script.
 `component(alias)` | The alias's markup: `partials/<alias>/default.htm`, else the component's own.

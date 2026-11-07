@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A refused form on the site shows its errors again: the 422 swap ships inside
+  `/laterite/htmx.js`, since the site's policy refuses the inline script.
+
 ## [0.9.31] - 2026-11-07
 
 ### Added
