@@ -157,7 +157,30 @@ async fn rows(db: &Db, table: &str, column: &str) -> Vec<(String, String)> {
         "SELECT CAST(id AS {cast}), CAST({column} AS {cast}) FROM {table} ORDER BY id",
         cast = text_cast(db.backend)
     );
-    sqlx::query_as(&sql).fetch_all(&db.pool).await.unwrap()
+    sqlx::query(&sql)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get_text_at(0), r.get_text_at(1)))
+        .collect()
+}
+
+/// The text of the `n`th column, read the way every backend can decode it.
+trait TextAt {
+    fn get_text_at(&self, n: usize) -> String;
+}
+
+impl TextAt for sqlx::any::AnyRow {
+    fn get_text_at(&self, n: usize) -> String {
+        use sqlx::Row;
+        self.try_get::<String, _>(n)
+            .or_else(|_| {
+                self.try_get::<Vec<u8>, _>(n)
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+            })
+            .unwrap()
+    }
 }
 
 #[tokio::test]
