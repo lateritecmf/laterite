@@ -252,6 +252,51 @@ mod tests {
     }
 
     /// `--source` keys the resource by a slug, adds the body for markdown,
+    #[test]
+    fn make_model_writes_a_typed_struct_and_wires_the_module() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("lib.rs"), "//! A plugin.\n").unwrap();
+        run_model(MakeModelArgs {
+            name: "article".to_string(),
+            path: tmp.path().to_path_buf(),
+            field: vec![
+                "title:text".into(),
+                "views:integer".into(),
+                "published_at:datetime".into(),
+            ],
+            table: None,
+        })
+        .unwrap();
+        let model = fs::read_to_string(src.join("models/article.rs")).unwrap();
+        assert!(model.contains("#[model(table = \"articles\")]"), "{model}");
+        assert!(model.contains("pub struct Article {"), "{model}");
+        assert!(model.contains("    pub views: i64,"), "{model}");
+        assert!(
+            model.contains("    pub published_at: Option<DateTime<Utc>>,"),
+            "{model}"
+        );
+        assert!(
+            model.contains("use laterite_core::model::{DateTime, Utc};"),
+            "{model}"
+        );
+        assert!(fs::read_to_string(src.join("models/mod.rs"))
+            .unwrap()
+            .contains("pub mod article;"));
+        assert!(fs::read_to_string(src.join("lib.rs"))
+            .unwrap()
+            .contains("pub mod models;"));
+        // Running it again refuses rather than overwriting.
+        assert!(run_model(MakeModelArgs {
+            name: "article".to_string(),
+            path: tmp.path().to_path_buf(),
+            field: Vec::new(),
+            table: None,
+        })
+        .is_err());
+    }
+
     /// and declares the source on the resource.
     #[test]
     fn make_resource_with_a_source_scaffolds_a_file_backed_resource() {
@@ -711,6 +756,123 @@ impl FieldKind {
     }
 }
 
+/// `lat make:model`: a typed struct for a table, read and written through
+/// `laterite_core::model`.
+#[derive(Args)]
+pub struct MakeModelArgs {
+    /// The entity, singular and snake_case (e.g. `article`). The table is its
+    /// plural, the struct its PascalCase name.
+    pub(crate) name: String,
+    /// The crate to scaffold in. Defaults to the current directory.
+    #[arg(long, default_value = ".")]
+    pub(crate) path: PathBuf,
+    /// Columns beyond the id, as `name:type`. Types: text, integer, boolean,
+    /// datetime. Repeat the flag or comma-separate.
+    #[arg(long, value_delimiter = ',')]
+    pub(crate) field: Vec<String>,
+    /// The table, when it is not the entity's plural.
+    #[arg(long)]
+    pub(crate) table: Option<String>,
+}
+
+impl FieldKind {
+    /// The Rust type a model field of this kind holds.
+    fn rust_type(&self) -> &'static str {
+        match self {
+            Self::Text => "String",
+            Self::Integer => "i64",
+            Self::Boolean => "bool",
+            Self::DateTime => "Option<DateTime<Utc>>",
+        }
+    }
+}
+
+fn parse_fields(raw: &[String]) -> Result<Vec<Field>> {
+    raw.iter()
+        .filter(|f| !f.trim().is_empty())
+        .map(|raw| {
+            let (name, kind) = raw.split_once(':').unwrap_or((raw.as_str(), "text"));
+            let name = slug(name);
+            if name.is_empty() {
+                bail!("a field needs a name, as `name:type`");
+            }
+            Ok(Field {
+                kind: FieldKind::parse(kind.trim())?,
+                name,
+            })
+        })
+        .collect()
+}
+
+pub fn run_model(args: MakeModelArgs) -> Result<()> {
+    let entity = slug(&args.name);
+    if entity.is_empty() {
+        bail!("the name must contain at least one letter or digit");
+    }
+    let src = args.path.join("src");
+    let lib = src.join("lib.rs");
+    if !lib.is_file() {
+        bail!(
+            "no src/lib.rs at {}.\nRun this from a plugin or application crate, or pass --path.",
+            args.path.display()
+        );
+    }
+    let fields = parse_fields(&args.field)?;
+    if fields.iter().any(|f| f.name == "id") {
+        bail!("the id column comes with every model; leave it out of --field");
+    }
+    let table = args
+        .table
+        .as_deref()
+        .map(slug)
+        .unwrap_or_else(|| plural(&entity));
+    let models = src.join("models");
+    let file = models.join(format!("{entity}.rs"));
+    if file.exists() {
+        bail!("{} already exists", file.display());
+    }
+    fs::create_dir_all(&models).with_context(|| format!("creating {}", models.display()))?;
+    write(&file, &model_source(&entity, &table, &fields))?;
+
+    let index = models.join("mod.rs");
+    let mut listing = fs::read_to_string(&index)
+        .unwrap_or_else(|_| "//! Typed models over this crate's tables.\n\n".to_string());
+    let line = format!("pub mod {entity};\n");
+    if !listing.contains(&line) {
+        listing.push_str(&line);
+        write(&index, &listing)?;
+    }
+    let lib_text =
+        fs::read_to_string(&lib).with_context(|| format!("reading {}", lib.display()))?;
+    if !lib_text.contains("mod models;") {
+        write(&lib, &format!("{}\npub mod models;\n", lib_text.trim_end()))?;
+    }
+    println!("Wrote {}", file.display());
+    Ok(())
+}
+
+fn model_source(entity: &str, table: &str, fields: &[Field]) -> String {
+    let type_name = pascal(entity);
+    let dated = fields.iter().any(|f| f.kind == FieldKind::DateTime);
+    let columns: String = fields
+        .iter()
+        .map(|f| format!("    pub {}: {},\n", f.name, f.kind.rust_type()))
+        .collect();
+    let imports = if dated {
+        "use laterite_core::model::{DateTime, Utc};\n\n"
+    } else {
+        ""
+    };
+    format!(
+        "//! A row of `{table}`, read and written through `laterite_core::model`:\n\
+         //! `model::find::<{type_name}>(&db, id)`, `model::insert(&db, &row)`.\n\n\
+         {imports}\
+         #[derive(Debug, Clone, laterite_core::Model)]\n\
+         #[model(table = \"{table}\")]\n\
+         pub struct {type_name} {{\n    pub id: i64,\n{columns}}}\n"
+    )
+}
+
 pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     let entity = slug(&args.name);
     if entity.is_empty() {
@@ -725,22 +887,7 @@ pub fn run_resource(args: MakeResourceArgs) -> Result<()> {
     }
 
     let source = SourceShape::parse(&args)?;
-    let mut fields: Vec<Field> = args
-        .field
-        .iter()
-        .filter(|f| !f.trim().is_empty())
-        .map(|raw| {
-            let (name, kind) = raw.split_once(':').unwrap_or((raw.as_str(), "text"));
-            let name = slug(name);
-            if name.is_empty() {
-                bail!("a field needs a name, as `name:type`");
-            }
-            Ok(Field {
-                kind: FieldKind::parse(kind.trim())?,
-                name,
-            })
-        })
-        .collect::<Result<_>>()?;
+    let mut fields: Vec<Field> = parse_fields(&args.field)?;
     // A sourced resource is keyed by its slug, first on the form; a markdown
     // one holds its body under the front matter.
     if let Some(shape) = &source {

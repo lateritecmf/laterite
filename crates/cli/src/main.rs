@@ -56,6 +56,9 @@ enum Command {
     /// Scaffold an entity's migration, schema, store and admin screen.
     #[command(name = "make:resource")]
     MakeResource(make::MakeResourceArgs),
+    /// Scaffold a typed model struct for a table.
+    #[command(name = "make:model")]
+    MakeModel(make::MakeModelArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
     /// List every URL this application answers, with its owner, filtered or as JSON.
@@ -173,6 +176,7 @@ async fn main() -> Result<()> {
         Command::MakeMigration(args) => make::run(args),
         Command::MakePlugin(args) => make::run_plugin(args),
         Command::MakeResource(args) => make::run_resource(args),
+        Command::MakeModel(args) => make::run_model(args),
         Command::Serve(args) => serve::run(args).await,
         Command::Routes(args) => routes::run(args),
         Command::Domain(args) => domain::run(args),

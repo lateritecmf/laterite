@@ -263,3 +263,125 @@ pub fn tn(input: TokenStream) -> TokenStream {
     }
     .into()
 }
+
+/// Implements `laterite_core::model::Model` for a struct whose named fields
+/// are its table's columns.
+///
+/// ```ignore
+/// #[derive(laterite_core::Model)]
+/// #[model(table = "posts")]
+/// struct Post {
+///     id: i64,
+///     title: String,
+///     #[model(column = "published_at")]
+///     published: Option<DateTime<Utc>>,
+/// }
+/// ```
+///
+/// `table` is required; `id = "..."` names the id field when it is not `id`.
+/// Each field's type implements `FromColumn` and `ToColumn`.
+#[proc_macro_derive(Model, attributes(model))]
+pub fn derive_model(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    match model_impl(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+fn model_impl(input: &syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let name = &input.ident;
+    let mut table: Option<String> = None;
+    let mut id_field = "id".to_string();
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("model")) {
+        attr.parse_nested_meta(|meta| {
+            let value: syn::LitStr = meta.value()?.parse()?;
+            if meta.path.is_ident("table") {
+                table = Some(value.value());
+            } else if meta.path.is_ident("id") {
+                id_field = value.value();
+            } else {
+                return Err(meta.error("expected `table` or `id`"));
+            }
+            Ok(())
+        })?;
+    }
+    let table = table.ok_or_else(|| {
+        syn::Error::new_spanned(name, "#[derive(Model)] needs #[model(table = \"...\")]")
+    })?;
+    let syn::Data::Struct(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            name,
+            "#[derive(Model)] needs a struct",
+        ));
+    };
+    let syn::Fields::Named(fields) = &data.fields else {
+        return Err(syn::Error::new_spanned(
+            name,
+            "#[derive(Model)] needs named fields",
+        ));
+    };
+    let mut idents = Vec::new();
+    let mut columns = Vec::new();
+    for field in &fields.named {
+        let ident = field.ident.clone().expect("named field");
+        let mut column = ident.to_string();
+        for attr in field.attrs.iter().filter(|a| a.path().is_ident("model")) {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("column") {
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    column = value.value();
+                    Ok(())
+                } else {
+                    Err(meta.error("expected `column`"))
+                }
+            })?;
+        }
+        idents.push(ident);
+        columns.push(column);
+    }
+    let Some(id_at) = idents.iter().position(|i| *i == id_field) else {
+        return Err(syn::Error::new_spanned(
+            name,
+            format!("#[derive(Model)] needs an `{id_field}: i64` field"),
+        ));
+    };
+    let id_ident = &idents[id_at];
+    let id_column = &columns[id_at];
+    // The id first in COLUMNS, as the trait promises.
+    let mut ordered: Vec<&String> = vec![id_column];
+    ordered.extend(columns.iter().filter(|c| *c != id_column));
+    let reads = idents.iter().zip(&columns).map(|(ident, column)| {
+        quote! { #ident: ::laterite_core::model::FromColumn::from_column(row, #column)? }
+    });
+    let writes = idents
+        .iter()
+        .zip(&columns)
+        .filter(|(ident, _)| *ident != id_ident)
+        .map(|(ident, column)| {
+            quote! { rec.set(#column, ::laterite_core::model::ToColumn::to_column(&self.#ident)); }
+        });
+    Ok(quote! {
+        impl ::laterite_core::model::Model for #name {
+            const TABLE: &'static str = #table;
+            const ID: &'static str = #id_column;
+            const COLUMNS: &'static [&'static str] = &[#(#ordered),*];
+
+            fn from_row(
+                row: &::laterite_core::model::AnyRow,
+            ) -> ::std::result::Result<Self, ::laterite_core::model::Error> {
+                ::std::result::Result::Ok(Self { #(#reads),* })
+            }
+
+            fn to_record(&self) -> ::laterite_core::Record {
+                let mut rec = ::laterite_core::Record::new(#table);
+                #(#writes)*
+                rec
+            }
+
+            fn id(&self) -> i64 {
+                self.#id_ident
+            }
+        }
+    })
+}

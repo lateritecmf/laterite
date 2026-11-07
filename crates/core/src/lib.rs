@@ -21,6 +21,7 @@ pub mod listeners;
 pub mod mail;
 pub mod markdown;
 pub mod migration;
+pub mod model;
 pub mod module;
 pub mod pagination;
 pub mod parameters;
@@ -49,10 +50,12 @@ pub use i18n::{
     collect_sources, plural_category, Arg, CatalogStore, PluralCategory, Text, Translator,
     PSEUDO_LOCALE,
 };
+pub use laterite_macros::Model;
 pub use laterite_macros::{t, tn, tp};
 pub use listeners::{Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps};
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
+pub use model::Model;
 pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};
 pub use query::AnyRowExt;
 pub use queue::Queue;

@@ -21,6 +21,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   pivot match rows on a type column holding the parent's entity.
 - `related` on a form edits one-to-one records beside its own, saved in its
   transaction with its media links, which a failed save now rolls back too.
+- `#[derive(Model)]` and `laterite_core::model`: typed find, insert, update and
+  one-query relation loads; `lat make:model` scaffolds the struct.
 
 ## [0.9.30] - 2026-11-06
 
