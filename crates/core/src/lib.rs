@@ -32,6 +32,7 @@ pub mod registry;
 pub mod schedule;
 pub mod scope;
 pub mod search;
+pub mod seed;
 pub mod site;
 pub mod source;
 pub mod strata;
@@ -65,5 +66,6 @@ pub use record::{
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use schedule::Schedule;
 pub use scope::{QueryHook, QueryHookReg, ScopeCx, SoftDelete};
+pub use seed::{Seeder, SeederSet};
 pub use site::{SiteContext, SiteFile};
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

@@ -80,6 +80,12 @@ pub trait Module: Send + Sync + 'static {
         MigrationSet::new(self.id().as_str(), Vec::new())
     }
 
+    /// This module's seeders, run by the application's `seed` command and
+    /// `lat seed`, never at boot. Defaults to none.
+    fn seeders(&self) -> crate::seed::SeederSet {
+        crate::seed::SeederSet::new(self.id().as_str(), Vec::new())
+    }
+
     /// Ids of modules whose migrations and registration must run before this
     /// module's, so cross-module foreign keys and contributions resolve. Defaults
     /// to none.

@@ -19,6 +19,7 @@ Command | Description | Options | Example
 `make:plugin <ID>` | Scaffold a plugin crate; `<ID>` is `vendor.name`. | `--path <PATH>`: where to create it, default `.`. `--admin`: scaffold the admin half. | `lat make:plugin acme.blog --admin`
 `make:resource <NAME>` | Scaffold an entity's migration, schema, store and admin screen. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id and timestamps; types `text`, `integer`, `boolean`, `datetime`; repeat or comma-separate. `--source <DIR>`: keep the records as files in that folder, keyed by a `slug` column; `--format yaml|json|markdown`, default `yaml`; `--git`: commit every save. See [Records in Files](../database/records-in-files.md). | `lat make:resource article --field title:text --source content/articles --format markdown --git`
 `make:model <NAME>` | Scaffold a typed model struct for a table in `src/models/`. | `--path <PATH>`: the crate, default `.`. `--field <name:type>`: columns beyond id; types `text`, `integer`, `boolean`, `datetime`. `--table <TABLE>`: when it is not the plural. See [Models](../database/models.md). | `lat make:model article --field title:text,views:integer`
+`seed [MODULE]` | Run the application's seeders, or one module's. | `--release`; `-p <PACKAGE>`: the binary's package in a workspace. See [Seeding](../database/seeding.md). | `lat seed acme.blog`
 
 ## Run and check
 

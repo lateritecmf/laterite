@@ -260,6 +260,7 @@ impl Bootstrap {
             None | Some("serve") => self.serve().await,
             Some("admin") => self.prepare().await?.serve_with(true).await,
             Some("routes") => self.prepare().await?.print_routes(&args[1..]).await,
+            Some("seed") => self.prepare().await?.seed(&args[1..]).await,
             Some("queue") if args.get(1).map(String::as_str) == Some("work") => {
                 self.prepare().await?.work(&args[2..]).await
             }
@@ -267,7 +268,7 @@ impl Bootstrap {
                 self.prepare().await?.tick(&args[2..]).await
             }
             Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `routes`, `build`, `publish`, `queue work` or `schedule run`"
+                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `routes`, `seed`, `build`, `publish`, `queue work` or `schedule run`"
             ),
         }
     }
@@ -1243,6 +1244,34 @@ impl Prepared {
     /// Every URL the application answers: the admin's, the modules' and the
     /// theme's pages, as a table, or as JSON with `--json` (what `lat routes`
     /// reads and filters).
+    /// `seed [module]`: runs every loaded module's seeders in load order, or
+    /// one module's.
+    async fn seed(self, args: &[String]) -> anyhow::Result<()> {
+        let only = args.iter().find(|a| !a.starts_with('-')).cloned();
+        if let Some(id) = &only {
+            if !self.active_ids.iter().any(|a| a == id) {
+                anyhow::bail!(
+                    "no loaded module `{id}`; loaded: {}",
+                    self.active_ids.join(", ")
+                );
+            }
+        }
+        let sets: Vec<laterite_core::SeederSet> = self
+            .active_ids
+            .iter()
+            .filter_map(|id| self.registry.iter().find(|m| m.id().as_str() == id))
+            .map(|m| m.seeders())
+            .collect();
+        let ran = laterite_core::seed::run(&self.db, &sets, only.as_deref()).await?;
+        if ran.is_empty() {
+            println!("Nothing to seed.");
+        }
+        for name in ran {
+            println!("Seeded {name}");
+        }
+        Ok(())
+    }
+
     async fn print_routes(self, args: &[String]) -> anyhow::Result<()> {
         let rows = self.route_map().await;
         if args.iter().any(|a| a == "--json") {

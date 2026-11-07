@@ -81,6 +81,7 @@
 - [Migrations](database/migrations.md)
 - [Queries](database/queries.md)
 - [Models](database/models.md)
+- [Seeding](database/seeding.md)
 - [Model Listeners](database/model-listeners.md)
 - [Persisters](database/persisters.md)
 - [Soft Delete](database/soft-delete.md)

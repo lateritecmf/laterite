@@ -27,6 +27,7 @@ mod project;
 mod queue;
 mod routes;
 mod schedule;
+mod seed;
 mod serve;
 mod theme;
 
@@ -59,6 +60,8 @@ enum Command {
     /// Scaffold a typed model struct for a table.
     #[command(name = "make:model")]
     MakeModel(make::MakeModelArgs),
+    /// Run the application's seeders, or one module's.
+    Seed(seed::SeedArgs),
     /// Run this application (from its directory), optionally overriding the address.
     Serve(serve::ServeArgs),
     /// List every URL this application answers, with its owner, filtered or as JSON.
@@ -177,6 +180,7 @@ async fn main() -> Result<()> {
         Command::MakePlugin(args) => make::run_plugin(args),
         Command::MakeResource(args) => make::run_resource(args),
         Command::MakeModel(args) => make::run_model(args),
+        Command::Seed(args) => seed::run(args),
         Command::Serve(args) => serve::run(args).await,
         Command::Routes(args) => routes::run(args),
         Command::Domain(args) => domain::run(args),

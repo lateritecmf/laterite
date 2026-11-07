@@ -23,6 +23,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   transaction with its media links, which a failed save now rolls back too.
 - `#[derive(Model)]` and `laterite_core::model`: typed find, insert, update and
   one-query relation loads; `lat make:model` scaffolds the struct.
+- `Seeder`, `SeederSet` and `Module::seeders`, run by `lat seed [module]` or the
+  binary's `seed`; `seed::insert_missing` keeps a seeder idempotent.
 
 ## [0.9.30] - 2026-11-06
 
