@@ -377,7 +377,7 @@
             var b = document.createElement('button');
             b.type = 'button'; b.className = 'lat-richeditor__menuitem'; b.setAttribute('role', 'menuitem');
             b.textContent = def.name;
-            if (def.description) b.title = def.description;
+            if (def.description) b.setAttribute('data-lat-tooltip', def.description);
             b.addEventListener('click', function () {
               menuBox.hidden = true;
               var insert = function (values) {

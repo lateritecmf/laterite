@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `data-lat-tooltip` on any admin element shows a styled tooltip on hover and keyboard
+  focus, with a side and shortcut keys; the colour-mode button names the current mode.
+
 ### Fixed
 
 - A refused form on the site shows its errors again: the 422 swap ships inside

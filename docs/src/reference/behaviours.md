@@ -72,6 +72,33 @@ A success or info message | Leaves after five seconds. | `session.push_flash_sti
 A control with `data-lat-confirm` | Asks before it acts. | Omit the attribute.
 A menu | Closes on a click outside, a chosen link, or Escape. | `data-lat-keep-open`.
 
+## Tooltips
+
+```html
+<button type="button" aria-label="Archive"
+        data-lat-tooltip="Archive"
+        data-lat-tooltip-position="top"
+        data-lat-tooltip-hotkey="Ctrl+E, Ctrl+Shift+E">…</button>
+```
+
+Attribute | Values | Default
+--- | --- | ---
+`data-lat-tooltip` | The text to show. | No tooltip.
+`data-lat-tooltip-position` | `top`, `bottom`, `left`, `right` | `bottom`, or the opposite side when the chosen one has no room.
+`data-lat-tooltip-hotkey` | Shortcuts, comma separated, written with `Ctrl`, `Alt`, `Shift`. | None. A Mac shows `⌘`, `⌥`, `⇧`.
+
+Where | Default | Change it
+--- | --- | ---
+A pointer resting on the element | Shows the tooltip after 300 ms. | Omit `data-lat-tooltip`.
+Keyboard focus | Shows the tooltip at once. | Omit `data-lat-tooltip`.
+Escape, a click, a scroll, a swap | Hides the tooltip. | None.
+Touch | No tooltip; `aria-label` names an icon-only control. | None.
+
+```js
+lat.tooltip.show(document.querySelector('#archive'));
+lat.tooltip.hide();
+```
+
 ## Accounts and sessions
 
 Where | Default | Change it

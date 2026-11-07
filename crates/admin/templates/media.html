@@ -23,7 +23,7 @@
       </nav>
       {% if let Some(f) = folder %}{% if may_manage %}
       <details class="lat-menu">
-        <summary class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon" title='{{ shell.t("This folder") }}' aria-label='{{ shell.t("This folder") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
+        <summary class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon" data-lat-tooltip='{{ shell.t("This folder") }}' aria-label='{{ shell.t("This folder") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
         <div class="lat-menu__panel">
           <button type="button" data-lat-dialog="rename-folder">{{ shell.t("Rename folder") }}</button>
           <form method="post" action="{{ base }}/folders/{{ f }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this empty folder?") }}'>{{ shell.t("Delete folder") }}</button></form>

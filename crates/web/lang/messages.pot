@@ -468,6 +468,10 @@ msgstr ""
 msgid "Website"
 msgstr ""
 
+#: src/theme/maintenance.rs
+msgid "While it is on, operators who may manage themes still see the site, with a bar at the foot of every page offering the visitor's view."
+msgstr ""
+
 #: src/theme/admin/mod.rs
 msgid "You are now editing the site's theme."
 msgstr ""

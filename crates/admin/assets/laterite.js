@@ -3,6 +3,19 @@
 function latModeGlyph(m) {
   return m === 'light' ? '☀' : m === 'dark' ? '☾' : '◐';
 }
+// Shows a mode on the button: its glyph, and the label for the tooltip and
+// screen readers, read from the button's translated data-label-<mode>.
+function latShowMode(m) {
+  var b = document.querySelector('[data-lat-cycle-mode]');
+  if (!b) return;
+  var e = document.getElementById('lat-mode-ico');
+  if (e) e.textContent = latModeGlyph(m);
+  var label = b.getAttribute('data-label-' + m);
+  if (label) {
+    b.setAttribute('data-lat-tooltip', label);
+    b.setAttribute('aria-label', label);
+  }
+}
 // The admin's own control over the shared mechanism: `laterite_core::theme`
 // owns storing and applying a mode, this only decides what the button does next
 // and which glyph it shows. A site builds its own control the same way.
@@ -10,8 +23,11 @@ function latCycleMode() {
   var o = latMode();
   var n = o === 'light' ? 'dark' : o === 'dark' ? 'auto' : 'light';
   latSetMode(n);
-  var e = document.getElementById('lat-mode-ico');
-  if (e) e.textContent = latModeGlyph(n);
+  latShowMode(n);
+  var b = document.querySelector('[data-lat-cycle-mode]');
+  if (b && window.lat.tooltip && (b.matches(':hover') || b.matches(':focus-visible'))) {
+    window.lat.tooltip.show(b);
+  }
 }
 
 // The drawer: opened by the burger and closed by it, the backdrop or Escape.
@@ -161,10 +177,140 @@ document.addEventListener('htmx:beforeSwap', function (e) {
   lat.scan = scan;
   document.addEventListener('DOMContentLoaded', function () {
     scan(document);
-    var e = document.getElementById('lat-mode-ico');
-    if (e) e.textContent = latModeGlyph(latMode());
+    latShowMode(latMode());
   });
   document.addEventListener('htmx:load', function (ev) { scan(ev.target); });
+})();
+
+// Tooltips: an element with data-lat-tooltip shows that text after a short
+// hover, and at once when it takes keyboard focus. data-lat-tooltip-position
+// picks the side (top, bottom, left or right; bottom by default), and
+// data-lat-tooltip-hotkey lists shortcuts, comma separated, written with Ctrl
+// and shown with the Mac symbols on a Mac. One bubble serves the page, bound at
+// the document, so a swapped fragment needs nothing. Escape, a press, a scroll
+// or a swap hides it; the pointer may rest on the bubble without losing it.
+(function () {
+  var tip = null, anchor = null, described = null, timer = null, leave = null;
+  var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  function bubble() {
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.className = 'lat-tooltip';
+    tip.id = 'lat-tooltip';
+    tip.setAttribute('role', 'tooltip');
+    tip.hidden = true;
+    tip.addEventListener('pointerenter', function () { clearTimeout(leave); });
+    tip.addEventListener('pointerleave', function () { hide(); });
+    document.body.appendChild(tip);
+    return tip;
+  }
+  function keyLabel(k) {
+    k = k.trim();
+    if (!mac) return k;
+    return k.replace(/\bCtrl\b/g, '⌘').replace(/\bAlt\b/g, '⌥').replace(/\bShift\b/g, '⇧').replace(/\+/g, '');
+  }
+  // Prefers the side the element asks for (bottom when it names none), takes
+  // the opposite side when the preferred one has no room, and keeps the bubble
+  // inside the viewport along the other axis.
+  function place(el, t) {
+    var r = el.getBoundingClientRect(), gap = 6, edge = 8;
+    var w = t.offsetWidth, h = t.offsetHeight;
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var room = {
+      top: r.top - gap - h >= edge,
+      bottom: r.bottom + gap + h <= vh - edge,
+      left: r.left - gap - w >= edge,
+      right: r.right + gap + w <= vw - edge
+    };
+    var opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
+    var side = el.getAttribute('data-lat-tooltip-position');
+    if (!room.hasOwnProperty(side)) side = 'bottom';
+    if (!room[side] && room[opposite[side]]) side = opposite[side];
+    var clamp = function (v, max) { return Math.round(Math.min(Math.max(edge, v), max - edge)); };
+    var left, top;
+    if (side === 'top' || side === 'bottom') {
+      left = clamp(r.left + r.width / 2 - w / 2, vw - w);
+      top = side === 'top' ? r.top - gap - h : r.bottom + gap;
+    } else {
+      top = clamp(r.top + r.height / 2 - h / 2, vh - h);
+      left = side === 'left' ? r.left - gap - w : r.right + gap;
+    }
+    t.style.left = Math.round(left) + 'px';
+    t.style.top = Math.round(top) + 'px';
+    t.setAttribute('data-side', side);
+  }
+  function hide() {
+    clearTimeout(timer);
+    clearTimeout(leave);
+    if (anchor && described !== null) {
+      if (described) anchor.setAttribute('aria-describedby', described);
+      else anchor.removeAttribute('aria-describedby');
+    }
+    anchor = null;
+    described = null;
+    if (tip) tip.hidden = true;
+  }
+  function show(el) {
+    var text = el.getAttribute('data-lat-tooltip');
+    if (!text) return;
+    if (anchor && anchor !== el) hide();
+    clearTimeout(timer);
+    clearTimeout(leave);
+    var t = bubble();
+    t.textContent = '';
+    var label = document.createElement('span');
+    label.textContent = text;
+    t.appendChild(label);
+    var keys = el.getAttribute('data-lat-tooltip-hotkey');
+    if (keys) keys.split(',').forEach(function (k) {
+      var kbd = document.createElement('kbd');
+      kbd.textContent = keyLabel(k);
+      t.appendChild(kbd);
+    });
+    t.hidden = false;
+    place(el, t);
+    // A tip that only repeats the accessible name would be read twice.
+    if (anchor !== el && el.getAttribute('aria-label') !== text) {
+      described = el.getAttribute('aria-describedby') || '';
+      el.setAttribute('aria-describedby', (described + ' lat-tooltip').trim());
+    }
+    anchor = el;
+  }
+  function owner(n) {
+    return n && n.closest ? n.closest('[data-lat-tooltip]') : null;
+  }
+  document.addEventListener('pointerover', function (e) {
+    if (e.pointerType === 'touch') return;
+    var el = owner(e.target);
+    if (!el) return;
+    if (el === anchor) { clearTimeout(leave); return; }
+    clearTimeout(timer);
+    // Moving between controls while a tip is up shows the next one at once.
+    timer = setTimeout(function () { show(el); }, tip && !tip.hidden ? 0 : 300);
+  });
+  document.addEventListener('pointerout', function (e) {
+    var el = owner(e.target);
+    if (!el || (e.relatedTarget && el.contains(e.relatedTarget))) return;
+    clearTimeout(timer);
+    if (el === anchor) { clearTimeout(leave); leave = setTimeout(hide, 120); }
+  });
+  document.addEventListener('focusin', function (e) {
+    var el = owner(e.target);
+    if (el && el === e.target && el.matches(':focus-visible')) show(el);
+  });
+  document.addEventListener('focusout', function (e) {
+    if (anchor && e.target === anchor) hide();
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!tip || !tip.contains(e.target)) hide();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && anchor) hide();
+  });
+  window.addEventListener('scroll', hide, true);
+  window.addEventListener('resize', hide);
+  document.addEventListener('htmx:beforeSwap', hide);
+  window.lat.tooltip = { show: show, hide: hide };
 })();
 
 // Raises a toast from script, matching the server-rendered flash markup so both

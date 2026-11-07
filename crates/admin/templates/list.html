@@ -67,7 +67,7 @@
        it needs no script; both choices are remembered per operator. #}
     <details class="lat-menu">
       <summary class="lat-btn lat-btn--secondary lat-btn--sm lat-btn--icon"
-               title='{{ shell.t("List setup") }}' aria-label='{{ shell.t("List setup") }}'>{{ shell.icon("sliders-horizontal")|safe }}</summary>
+               data-lat-tooltip='{{ shell.t("List setup") }}' aria-label='{{ shell.t("List setup") }}'>{{ shell.icon("sliders-horizontal")|safe }}</summary>
       <div class="lat-colpicker">
         <form method="post" action="{{ path }}/columns">
           {% include "_csrf.html" %}
@@ -94,7 +94,7 @@
     {# Moving the whole resource in or out: the long tail, behind one menu. #}
     <details class="lat-menu">
       <summary class="lat-btn lat-btn--secondary lat-btn--sm lat-btn--icon"
-               title='{{ shell.t("More") }}' aria-label='{{ shell.t("More") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
+               data-lat-tooltip='{{ shell.t("More") }}' aria-label='{{ shell.t("More") }}'>{{ shell.icon("ellipsis")|safe }}</summary>
       <div class="lat-menu__panel">
         {% if let Some(href) = import_href %}<a href="{{ href }}">{{ shell.t("Import") }}</a>{% endif %}
         {% if exportable %}

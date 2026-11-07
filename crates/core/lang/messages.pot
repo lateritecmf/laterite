@@ -3,6 +3,10 @@ msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
 #: src/validation.rs
+msgid "{label} could not be checked."
+msgstr ""
+
+#: src/validation.rs
 msgid "{label} is already taken."
 msgstr ""
 

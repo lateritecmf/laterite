@@ -218,7 +218,7 @@ msgid "Blank keeps the configured address."
 msgstr ""
 
 #: src/mailtemplates.rs
-msgid "Blank: the HTML body is reduced to text."
+msgid "Blank: the text part is made from the body, with the partials' text forms."
 msgstr ""
 
 #: src/field.rs
@@ -364,6 +364,18 @@ msgstr ""
 #: templates/base.html
 #: (descriptors)
 msgid "Colour mode"
+msgstr ""
+
+#: templates/base.html
+msgid "Colour mode: Auto (follows the system)"
+msgstr ""
+
+#: templates/base.html
+msgid "Colour mode: Dark"
+msgstr ""
+
+#: templates/base.html
+msgid "Colour mode: Light"
 msgstr ""
 
 #: templates/import/index.html
@@ -541,6 +553,14 @@ msgid "Delete media records still use"
 msgstr ""
 
 #: templates/list.html
+msgid "Delete permanently"
+msgstr ""
+
+#: templates/list.html
+msgid "Delete the selected records permanently? This cannot be undone."
+msgstr ""
+
+#: templates/list.html
 msgid "Delete the selected records? This cannot be undone."
 msgstr ""
 
@@ -703,12 +723,20 @@ msgstr ""
 msgid "Event"
 msgstr ""
 
+#: templates/developer_routes.html
+msgid "Every URL the application answers, with its owner. The same list as lat routes."
+msgstr ""
+
 #: templates/preferences.html
 msgid "Every browser currently signed in to this account. Signing one out ends it immediately."
 msgstr ""
 
 #: src/lib.rs
 msgid "Every other session was signed out."
+msgstr ""
+
+#: templates/developer_fields.html
+msgid "Every registered field type, rendered once with its defaults."
 msgstr ""
 
 #: templates/import/match.html
@@ -746,6 +774,10 @@ msgstr ""
 #: templates/import/_run_status.html
 #: templates/import/match.html
 msgid "Field"
+msgstr ""
+
+#: templates/developer_fields.html
+msgid "Field types"
 msgstr ""
 
 #: templates/import/index.html
@@ -872,10 +904,6 @@ msgid "Go to"
 msgstr ""
 
 #: templates/base.html
-msgid "Go to (Ctrl+K)"
-msgstr ""
-
-#: templates/base.html
 msgid "Go to a page, a setting or a record"
 msgstr ""
 
@@ -970,6 +998,7 @@ msgstr ""
 msgid "Jobs"
 msgstr ""
 
+#: templates/developer_routes.html
 #: templates/import/index.html
 #: templates/import/run.html
 msgid "Kind"
@@ -1006,11 +1035,16 @@ msgid "Last seen"
 msgstr ""
 
 #: src/mailtemplates.rs
+#: templates/developer_mail.html
 msgid "Layout"
 msgstr ""
 
 #: templates/base.html
 msgid "Leave"
+msgstr ""
+
+#: templates/list.html
+msgid "Leave the trash"
 msgstr ""
 
 #: templates/media.html
@@ -1066,6 +1100,10 @@ msgstr ""
 
 #: templates/mail_log.html
 msgid "Mail log"
+msgstr ""
+
+#: templates/developer_mail.html
+msgid "Mail previews"
 msgstr ""
 
 #: templates/mail_templates.html
@@ -1154,6 +1192,7 @@ msgstr ""
 msgid "Messages kept while the log driver was in use."
 msgstr ""
 
+#: templates/developer_routes.html
 #: (descriptors)
 msgid "Method"
 msgstr ""
@@ -1173,6 +1212,10 @@ msgstr ""
 msgid "Move down"
 msgstr ""
 
+#: templates/list.html
+msgid "Move the selected records to the trash?"
+msgstr ""
+
 #: src/lib.rs
 msgid "Move to"
 msgstr ""
@@ -1187,6 +1230,12 @@ msgstr ""
 msgid "Move up"
 msgstr ""
 
+#: src/bulk.rs
+msgid "Moved {n} record to the trash."
+msgid_plural "Moved {n} records to the trash."
+msgstr[0] ""
+msgstr[1] ""
+
 #: src/list.rs
 msgid "Moved."
 msgstr ""
@@ -1197,6 +1246,7 @@ msgstr ""
 
 #: src/mailtemplates.rs
 #: templates/_roles_form_fields.html
+#: templates/developer_mail.html
 #: templates/mail_templates.html
 #: templates/media.html
 #: (descriptors)
@@ -1334,6 +1384,10 @@ msgstr ""
 msgid "Nothing recorded yet."
 msgstr ""
 
+#: templates/developer_registries.html
+msgid "Nothing registered."
+msgstr ""
+
 #: templates/import/match.html
 msgid "Nothing: every row makes a new record"
 msgstr ""
@@ -1363,6 +1417,10 @@ msgstr ""
 msgid "Operator"
 msgstr ""
 
+#: src/mailtemplates.rs
+msgid "Optional, for a layout that keeps its stylesheet apart from the HTML."
+msgstr ""
+
 #: templates/_list_table.html
 msgid "Order"
 msgstr ""
@@ -1373,6 +1431,10 @@ msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Outcome"
+msgstr ""
+
+#: templates/developer_routes.html
+msgid "Owner"
 msgstr ""
 
 #: (descriptors)
@@ -1412,12 +1474,17 @@ msgstr ""
 msgid "Password changed. Every other device was signed out."
 msgstr ""
 
+#: templates/developer_routes.html
 #: (descriptors)
 msgid "Path"
 msgstr ""
 
 #: templates/jobs.html
 msgid "Payload"
+msgstr ""
+
+#: templates/developer_routes.html
+msgid "Permission"
 msgstr ""
 
 #: templates/users_form.html
@@ -1473,6 +1540,7 @@ msgid "Prev"
 msgstr ""
 
 #: src/field.rs
+#: templates/developer_mail.html
 #: templates/mail_edit.html
 msgid "Preview"
 msgstr ""
@@ -1530,6 +1598,10 @@ msgstr ""
 #: templates/import/_run_status.html
 #: templates/import/index.html
 msgid "Refused"
+msgstr ""
+
+#: templates/developer_registries.html
+msgid "Registries"
 msgstr ""
 
 #: src/field.rs
@@ -1595,6 +1667,16 @@ msgstr ""
 msgid "Reset {username}. Their temporary password, shown only now: {password}. Every device was signed out."
 msgstr ""
 
+#: templates/list.html
+msgid "Restore"
+msgstr ""
+
+#: src/bulk.rs
+msgid "Restored {n} record."
+msgid_plural "Restored {n} records."
+msgstr[0] ""
+msgstr[1] ""
+
 #: templates/jobs.html
 msgid "Retry"
 msgstr ""
@@ -1632,6 +1714,10 @@ msgstr ""
 #: templates/users_new.html
 #: (descriptors)
 msgid "Roles"
+msgstr ""
+
+#: templates/developer_routes.html
+msgid "Routes"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -1975,6 +2061,7 @@ msgid "Strikethrough"
 msgstr ""
 
 #: src/mailtemplates.rs
+#: templates/developer_mail.html
 #: templates/mail_log.html
 msgid "Subject"
 msgstr ""
@@ -2005,6 +2092,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Target ID"
+msgstr ""
+
+#: templates/developer_mail.html
+msgid "Template"
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -2110,6 +2201,10 @@ msgid "The file could not be stored."
 msgstr ""
 
 #: src/import/pages.rs
+msgid "The file did not arrive in full. Try again."
+msgstr ""
+
+#: src/import/pages.rs
 msgid "The file is larger than {limit} MB."
 msgstr ""
 
@@ -2212,6 +2307,10 @@ msgstr ""
 msgid "The upload could not be found."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "The upload did not arrive in full."
+msgstr ""
+
 #: src/relation.rs
 msgid "There is no such record to attach."
 msgstr ""
@@ -2299,6 +2398,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "Too many attempts. Try again later."
+msgstr ""
+
+#: templates/list.html
+msgid "Trash"
 msgstr ""
 
 #: templates/media_file.html
@@ -2441,6 +2544,10 @@ msgstr ""
 msgid "What an operator sees before choosing their own."
 msgstr ""
 
+#: templates/developer_registries.html
+msgid "What every module contributed, by registry."
+msgstr ""
+
 #: templates/media_file.html
 msgid "What the image shows, for readers who cannot see it."
 msgstr ""
@@ -2545,11 +2652,7 @@ msgid "`#rrggbb`; blank keeps {default}."
 msgstr ""
 
 #: src/mailtemplates.rs
-msgid "`{{ brand.button_bg }}` reads a brand colour."
-msgstr ""
-
-#: src/mailtemplates.rs
-msgid "`{{ content }}` is the rendered body; `{{ css }}` and `{{ brand_css }}` the stylesheets."
+msgid "`{{ content }}` is the rendered body; `{{ brand_css }}` the brand stylesheet, `{{ brand.button_bg }}` a brand colour; a `<style>` element here carries the layout's own CSS."
 msgstr ""
 
 #: templates/jobs.html

@@ -20,38 +20,38 @@ use tracing_subscriber::Layer;
 const SESSION_COOKIE: &str = "laterite_session";
 
 /// Bytes served for each asset the admin shell loads on every screen, as
-/// `(key, measured, budget)`. Measured 2026-11-06; raise a budget in the same
+/// `(key, measured, budget)`. Measured 2026-11-08; raise a budget in the same
 /// commit that knowingly grows the asset.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 83_808, 92_000),
-    ("laterite.js", 100_259, 110_000),
+    ("laterite.css", 84_954, 92_000),
+    ("laterite.js", 106_229, 110_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];
 
 /// Each screen as `(name, path, html bytes, page weight, queries)`, where page
 /// weight is the HTML plus every asset its head references, and the last three
-/// are `(measured, budget)` pairs. Measured 2026-11-06 with 25 rows.
+/// are `(measured, budget)` pairs. Measured 2026-11-08 with 25 rows.
 const SCREENS: &[Screen] = &[
     Screen {
         name: "list",
         path: "/admin/products",
-        html: (23_308, 30_000),
-        weight: (272_994, 300_000),
+        html: (23_801, 30_000),
+        weight: (280_603, 300_000),
         queries: (10, 12),
     },
     Screen {
         name: "form (new)",
         path: "/admin/products/new",
-        html: (7_865, 12_000),
-        weight: (257_551, 285_000),
+        html: (8_064, 12_000),
+        weight: (264_866, 285_000),
         queries: (7, 9),
     },
     Screen {
         name: "form (edit)",
         path: "/admin/products/1/edit",
-        html: (7_870, 12_000),
-        weight: (257_556, 285_000),
+        html: (8_069, 12_000),
+        weight: (264_871, 285_000),
         queries: (8, 10),
     },
 ];

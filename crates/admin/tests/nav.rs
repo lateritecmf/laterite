@@ -187,6 +187,35 @@ async fn the_menu_shows_each_operator_what_they_may_open() {
 }
 
 #[tokio::test]
+async fn the_top_bar_controls_carry_tooltips_and_name_each_colour_mode() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+
+    let (_, html) = get(&app, "/admin", &root).await;
+    let bar = html.split("lat-topnav__right").nth(1).unwrap_or("");
+    let bar = &bar[..bar.find("lat-usermenu__panel").unwrap_or(bar.len())];
+    for tip in ["View the site", "Go to", "Colour mode"] {
+        assert!(
+            bar.contains(&format!("data-lat-tooltip='{tip}'")),
+            "{tip} has a tooltip: {bar}"
+        );
+    }
+    assert!(bar.contains(r#"data-lat-tooltip-hotkey="Ctrl+K""#), "{bar}");
+    for label in [
+        "data-label-light='Colour mode: Light'",
+        "data-label-dark='Colour mode: Dark'",
+        "data-label-auto='Colour mode: Auto (follows the system)'",
+    ] {
+        assert!(bar.contains(label), "the mode button names {label}: {bar}");
+    }
+    assert!(
+        !bar.contains(" title="),
+        "no native title doubles a tooltip: {bar}"
+    );
+}
+
+#[tokio::test]
 async fn a_section_lists_its_entries_in_the_sidebar_and_marks_the_tab() {
     let (db, _guard) = test_db().await;
     let app = app(&db);

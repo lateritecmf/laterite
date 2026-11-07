@@ -83,6 +83,7 @@
 --accent:var(--red-500);--accent-hover:var(--red-600);--accent-active:var(--red-700);--accent-subtle:var(--red-50);--accent-quiet:var(--alpha-red-08);
 --attention:var(--ochre-500);--attention-subtle:var(--ochre-100);--attention-text:var(--ochre-700);
 --success:var(--green-500);--success-subtle:var(--green-100);--danger:var(--danger-500);--danger-subtle:var(--danger-100);--info:var(--ocean-500);--neutral-badge:var(--slate-100);
+--surface-tooltip:var(--ferro-900);--text-tooltip:var(--bone-100);
 }
 
 [data-theme="dark"]{
@@ -95,7 +96,7 @@
 --border-subtle:rgba(244,237,228,.09);--border-default:rgba(244,237,228,.14);--border-strong:rgba(244,237,228,.22);--border-input:rgba(244,237,228,.16);
 --accent-subtle:rgba(196,78,47,.14);--accent-quiet:rgba(196,78,47,.10);
 --attention-subtle:rgba(217,142,50,.16);--attention-text:var(--ochre-300);--success-subtle:rgba(47,90,59,.22);--danger-subtle:rgba(158,50,32,.24);--neutral-badge:rgba(244,237,228,.10);
-;--success:var(--green-300);--danger:var(--red-300);--info:var(--ocean-300)}
+;--success:var(--green-300);--danger:var(--red-300);--info:var(--ocean-300);--surface-tooltip:var(--ferro-600);--text-tooltip:var(--bone-100)}
 }
 
 @layer base{
@@ -924,3 +925,11 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-login--plain .lat-login__hero{display:none}
 .lat-login--plain .lat-login__form{width:100%;flex:1 1 auto}
 .lat-login--plain .lat-login__inner{margin:0 auto}
+/* Tooltip: one bubble for the page, placed by laterite.js beside the element
+   carrying data-lat-tooltip. Above dialogs and the palette, so a control inside
+   them still shows its tip. */
+.lat-tooltip{position:fixed;z-index:500;top:0;left:0;display:flex;align-items:center;gap:6px;max-width:min(280px,calc(100vw - 16px));padding:5px 8px;border:1px solid transparent;border-radius:var(--radius-md);background:var(--surface-tooltip);color:var(--text-tooltip);font-family:var(--font-body);font-size:var(--fs-12);font-weight:var(--fw-medium);line-height:var(--lh-snug);box-shadow:var(--shadow-md);animation:lat-tooltip-in var(--dur-fast) var(--ease-standard)}
+.lat-tooltip[hidden]{display:none}
+.lat-tooltip kbd{font-family:var(--font-mono);font-size:var(--fs-11);line-height:1;padding:2px 5px;border-radius:var(--radius-sm);background:var(--alpha-bone-14);color:inherit}
+@keyframes lat-tooltip-in{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.lat-tooltip{animation:none}}

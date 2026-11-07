@@ -10,11 +10,11 @@
 {% macro tools() %}
 <span class="lat-repeater__tools">
   {% if data.reorder %}
-  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__up" type="button" aria-label="{{ data.text.up }}" title="{{ data.text.up }}" hidden></button>
-  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__down" type="button" aria-label="{{ data.text.down }}" title="{{ data.text.down }}" hidden></button>
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__up" type="button" aria-label="{{ data.text.up }}" data-lat-tooltip="{{ data.text.up }}" hidden></button>
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__down" type="button" aria-label="{{ data.text.down }}" data-lat-tooltip="{{ data.text.down }}" hidden></button>
   {% endif %}
   {% if data.duplicate %}
-  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__duplicate" type="button" aria-label="{{ data.text.duplicate }}" title="{{ data.text.duplicate }}" hidden></button>
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__duplicate" type="button" aria-label="{{ data.text.duplicate }}" data-lat-tooltip="{{ data.text.duplicate }}" hidden></button>
   {% endif %}
   <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">{{ data.text.remove }}</button>
 </span>
