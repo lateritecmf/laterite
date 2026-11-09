@@ -1,7 +1,10 @@
 // Markdown: the CodeMirror engine (vendor/codeeditor.js) in markdown mode over
 // a textarea, a toolbar that writes markdown syntax around the selection, and
-// a Preview tab rendered by the server, so what the author sees is what the
-// site's own renderer makes of the text. The textarea stays the control the
+// a preview rendered by the server, so what the author sees is what the
+// site's own renderer makes of the text. The preview is a tab beside Write, or,
+// with `data-layout="side"`, a pane beside the text re-rendered as you type. An
+// endpoint that answers a PDF (a module's own `preview_url`) shows in the pane
+// as the document itself. The textarea stays the control the
 // form submits and keeps every keystroke, so no script means a plain textarea.
 //
 // Markup: `<div data-lat-widget="markdown" data-preview="<url>" data-pick="<url>">`
@@ -258,6 +261,7 @@
         area.value = u.state.doc.toString();
         area.dispatchEvent(new Event('input', { bubbles: true }));
         stale = true;
+        if (side) schedule();
       })
     ];
     if (area.placeholder) ext.push(C.placeholder(area.placeholder));
@@ -279,6 +283,14 @@
 
     // Preview: the server renders the text with the site's own renderer.
     var stale = true;
+    var side = root.getAttribute('data-layout') === 'side';
+    var timer = null, inflight = false, pdfUrl = null;
+    // Side by side, a render follows a pause in typing; one request at a time,
+    // and a change made while one runs renders again when it lands.
+    function schedule() {
+      clearTimeout(timer);
+      timer = setTimeout(render, 350);
+    }
     function showTab(name) {
       root.querySelectorAll('[data-md-tab]').forEach(function (t) {
         var on = t.getAttribute('data-md-tab') === name;
@@ -295,24 +307,52 @@
     function render() {
       if (!pane) return;
       if (!stale) return;
+      if (inflight) { schedule(); return; }
       var url = root.getAttribute('data-preview');
       if (!url) return;
-      var fd = new FormData();
+      // URL-encoded, the form body the preview endpoints read.
+      var fd = new URLSearchParams();
       var token = form && form.querySelector('input[name="_csrf"]');
       fd.append('text', view.state.doc.toString());
       pane.setAttribute('aria-busy', 'true');
+      inflight = true;
+      stale = false;
       fetch(url, {
         method: 'POST', body: fd, credentials: 'same-origin',
         headers: { 'X-Requested-With': 'fetch', 'X-CSRF-Token': token ? token.value : '' }
       })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
-        .then(function (html) {
-          pane.innerHTML = html || '<p class="lat-markdown__empty">' + word('nothing') + '</p>';
-          stale = false;
-          window.lat.emit(root, 'markdown:previewed', {});
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.status);
+          var type = r.headers.get('Content-Type') || '';
+          return type.indexOf('application/pdf') === 0
+            ? r.blob().then(showPdf)
+            : r.text().then(showHtml);
         })
-        .catch(function () { pane.textContent = word('preview-failed'); })
-        .then(function () { pane.removeAttribute('aria-busy'); });
+        .then(function () { window.lat.emit(root, 'markdown:previewed', {}); })
+        .catch(function () { stale = true; pane.textContent = word('preview-failed'); })
+        .then(function () { inflight = false; pane.removeAttribute('aria-busy'); });
+    }
+    function showHtml(html) {
+      var top = pane.scrollTop;
+      pane.classList.remove('is-pdf');
+      pane.innerHTML = html || '<p class="lat-markdown__empty">' + word('nothing') + '</p>';
+      pane.scrollTop = top;
+    }
+    // A PDF replaces the frame's document; the old object URL is let go.
+    function showPdf(blob) {
+      var frame = pane.querySelector('iframe');
+      if (!frame) {
+        pane.textContent = '';
+        frame = document.createElement('iframe');
+        frame.className = 'lat-markdown__pdf';
+        frame.title = word('preview-title');
+        pane.appendChild(frame);
+      }
+      pane.classList.add('is-pdf');
+      var next = URL.createObjectURL(blob);
+      frame.src = next + '#toolbar=0&view=FitH';
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      pdfUrl = next;
     }
 
     var label = area.id && document.querySelector('label[for="' + area.id + '"]');
@@ -324,6 +364,7 @@
     function set(text) { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }); }
     if (form) form.addEventListener('reset', function () { setTimeout(function () { set(area.defaultValue); }, 0); });
     root.classList.add('is-ready');
+    if (side) render();
     window.lat.emit(root, 'markdown:ready', {});
     return {
       root: root,

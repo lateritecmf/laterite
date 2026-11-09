@@ -59,14 +59,16 @@ record.
 
 ```yaml
 fields:
-  body: { type: markdown, rows: 12, preview: true }
+  body: { type: markdown, rows: 12, preview: side }
+  terms: { type: markdown, preview: side, preview_url: acme/terms/preview }
 ```
 
 Key | Default | Description
 --- | --- | ---
 `rows` | | The height, in lines.
 `placeholder` | none | The placeholder.
-`preview` | `true` | A Preview tab rendered by the server.
+`preview` | `tab` | `tab` (or `true`): a Preview tab. `side`: the preview beside the text, re-rendered as you type. `off` (or `false`): none.
+`preview_url` | the built-in renderer | An endpoint of your own, under the admin (`acme/terms/preview`) or absolute (`/render`). It receives `text` by POST and answers HTML, or a PDF to show the document itself.
 
 Stores the markdown as written; the site renders it with the
 [`markdown` filter](../markup/filters.md).

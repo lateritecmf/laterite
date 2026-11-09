@@ -2942,7 +2942,7 @@ pub fn router(
 /// The admin's content security policy: no inline script, assets and calls
 /// from the panel's own origin, images and uploads also from any HTTPS origin
 /// (a presigning disk), frames and forms from the panel alone.
-pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self'; connect-src 'self' https:; frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'";
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self'; connect-src 'self' https:; frame-src 'self' blob:; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'";
 
 /// Fallback for unmatched admin URLs: a styled 404.
 /// The styled 404, counted in the request log first.

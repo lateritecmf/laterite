@@ -11,9 +11,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `data-lat-tooltip` on any admin element shows a styled tooltip on hover and keyboard
   focus, with a side and shortcut keys; the colour-mode button names the current mode.
+- `preview: side` on a markdown field shows the preview beside the text, live, and
+  `preview_url` points it at a module's own renderer, which may answer a PDF.
 
 ### Fixed
 
+- The markdown field's preview renders again: it sent multipart data the endpoint
+  refused with a 415, broken since 0.9.18.
 - A refused form on the site shows its errors again: the 422 swap ships inside
   `/laterite/htmx.js`, since the site's policy refuses the inline script.
 

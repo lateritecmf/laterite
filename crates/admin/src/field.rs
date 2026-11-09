@@ -1351,15 +1351,20 @@ impl FieldType for RichEditorField {
 }
 
 /// A markdown editor's own keys: its height in rows, what an empty one shows,
-/// and whether the Preview tab is offered.
+/// how the preview is offered, and where it is rendered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MarkdownOptions {
     #[serde(default)]
     rows: Option<u16>,
     #[serde(default)]
     placeholder: Option<String>,
-    #[serde(default = "yes")]
-    preview: bool,
+    #[serde(default)]
+    preview: MarkdownPreview,
+    /// An endpoint of the module's own that renders the preview instead of the
+    /// framework's markdown renderer: a path under the admin (`legal/preview`) or
+    /// an absolute one. It receives `text` and answers HTML or a PDF.
+    #[serde(default)]
+    preview_url: Option<String>,
 }
 
 impl Default for MarkdownOptions {
@@ -1367,7 +1372,43 @@ impl Default for MarkdownOptions {
         Self {
             rows: None,
             placeholder: None,
-            preview: true,
+            preview: MarkdownPreview::Tab,
+            preview_url: None,
+        }
+    }
+}
+
+/// How a markdown editor shows its preview: in a tab beside Write (`true` or
+/// `tab`, the default), beside the text and re-rendered as you type (`side`),
+/// or not at all (`false` or `off`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MarkdownPreview {
+    Off,
+    #[default]
+    Tab,
+    Side,
+}
+
+impl<'de> Deserialize<'de> for MarkdownPreview {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Mode(String),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Flag(true) => Ok(Self::Tab),
+            Raw::Flag(false) => Ok(Self::Off),
+            Raw::Mode(m) => match m.as_str() {
+                "tab" => Ok(Self::Tab),
+                "side" => Ok(Self::Side),
+                "off" => Ok(Self::Off),
+                other => Err(serde::de::Error::custom(format!(
+                    "preview: `{other}` is not tab, side or off"
+                ))),
+            },
         }
     }
 }
@@ -1377,6 +1418,7 @@ impl Default for MarkdownOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct MarkdownData {
     preview_url: Option<String>,
+    side: bool,
     pick_url: String,
     menu_url: String,
     rows: Option<u16>,
@@ -1407,7 +1449,7 @@ impl FieldType for MarkdownField {
         "markdown"
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        keys(&["rows", "placeholder", "preview"])
+        keys(&["rows", "placeholder", "preview", "preview_url"])
     }
     fn resolve_options(
         &self,
@@ -1435,9 +1477,14 @@ impl FieldType for MarkdownField {
             icon: cx.icon(icon),
         };
         let data = MarkdownData {
-            preview_url: opts
-                .preview
-                .then(|| format!("{}/markdown/preview", cx.base)),
+            preview_url: (opts.preview != MarkdownPreview::Off).then(|| {
+                match opts.preview_url.as_deref() {
+                    Some(url) if url.starts_with('/') => url.to_string(),
+                    Some(url) => format!("{}/{}", cx.base, url.trim_start_matches('/')),
+                    None => format!("{}/markdown/preview", cx.base),
+                }
+            }),
+            side: opts.preview == MarkdownPreview::Side,
             pick_url: format!("{}/media/pick", cx.base),
             menu_url: format!("{}/editor/menu?surface=markdown", cx.base),
             rows: opts.rows,
@@ -1493,6 +1540,10 @@ impl FieldType for MarkdownField {
                     "preview-failed".into(),
                     cx.i18n
                         .t(&laterite_core::t!("The preview could not be rendered.")),
+                ),
+                (
+                    "preview-title".into(),
+                    cx.i18n.t(&laterite_core::t!("Document preview")),
                 ),
                 (
                     "library-title".into(),
@@ -3347,6 +3398,46 @@ mod tests {
             &cx("body", &value, &opts),
         );
         assert!(!html.as_str().contains("data-md-tab"), "{}", html.as_str());
+    }
+
+    #[test]
+    fn markdown_side_preview_shows_both_panes_and_takes_a_module_endpoint() {
+        let types = FieldRegistry::default();
+        let value = FieldValue::Text("# Hi".to_string());
+        let render = |raw: serde_json::Value| {
+            let opts = MarkdownField.resolve_options(&raw, &types).unwrap();
+            render_field(
+                &MarkdownField,
+                &NoOverrides,
+                &scope(),
+                &cx("body", &value, &opts),
+            )
+            .as_str()
+            .to_string()
+        };
+        let html = render(serde_json::json!({ "preview": "side" }));
+        assert!(html.contains(r#"data-layout="side""#), "{html}");
+        assert!(
+            !html.contains("data-md-tab"),
+            "no tabs side by side: {html}"
+        );
+        assert!(
+            html.contains("data-md-preview")
+                && !html
+                    .contains("data-md-preview aria-live=\"polite\" aria-label=\"Preview\" hidden"),
+            "the pane shows from the start: {html}"
+        );
+        let html = render(serde_json::json!({ "preview": "side", "preview_url": "legal/preview" }));
+        assert!(
+            html.contains(r#"data-preview="/admin/legal/preview""#),
+            "a relative endpoint sits under the admin: {html}"
+        );
+        let html = render(serde_json::json!({ "preview": "tab", "preview_url": "/docs/render" }));
+        assert!(html.contains(r#"data-preview="/docs/render""#), "{html}");
+        assert!(html.contains(r#"data-md-tab="preview""#), "{html}");
+        assert!(MarkdownField
+            .resolve_options(&serde_json::json!({ "preview": "split" }), &types)
+            .is_err());
     }
 
     #[test]
