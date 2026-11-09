@@ -272,6 +272,9 @@ pub(crate) struct PreparedRelation {
     /// Has-many: the child form. Many-to-many: the pivot row's form.
     form: Arc<PreparedForm>,
     bulk: Arc<BulkContext>,
+    /// The parent's update grant: changing related records is changing the
+    /// parent, so without it the section offers no New.
+    write_permission: Option<String>,
 }
 
 /// Keeps a text column of this name out of sight and in the submission: a
@@ -446,6 +449,7 @@ impl PreparedRelation {
             kind,
             form: Arc::new(form),
             bulk,
+            write_permission: parent.permissions.update.clone(),
         })
     }
 
@@ -484,6 +488,9 @@ impl PreparedRelation {
     fn list_for(&self, parent_id: &str) -> ListConfig {
         let mut list = self.config.list.clone();
         list.remember = false;
+        // Without the parent's update grant, rows cannot be deleted either.
+        list.delete_permission = self.write_permission.clone();
+        list.create_permission = self.write_permission.clone();
         match &self.kind {
             Kind::HasMany { foreign_key } => {
                 list.edit_base = Some(self.path(parent_id));
@@ -673,12 +680,18 @@ impl PreparedRelation {
         )
         .await
         .ok()?;
+        let writable = self
+            .write_permission
+            .as_deref()
+            .is_none_or(|p| user.permissions.allows(p));
+        let mut toolbar = crate::ui::Toolbar::section(self.config.title.clone());
+        if writable {
+            toolbar = toolbar.button(
+                crate::ui::Button::link(self.new_label(shell), format!("{path}/new")).small(),
+            );
+        }
         Some(RelationSection {
-            toolbar: crate::ui::Toolbar::section(self.config.title.clone())
-                .button(
-                    crate::ui::Button::link(self.new_label(shell), format!("{path}/new")).small(),
-                )
-                .render(shell),
+            toolbar: toolbar.render(shell),
             html,
         })
     }

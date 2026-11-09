@@ -1,0 +1,16 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.posts
+permissions: { create: acme.posts.create, update: acme.posts.update, delete: acme.posts.delete }
+list:
+  creatable: true
+  deletable: true
+  columns:
+    title: {}
+form:
+  timestamps: false
+  actions:
+    - { label: Duplicate, action: "posts/{id}/duplicate", permission: acme.posts.create }
+  fields:
+    title: { rules: [required] }

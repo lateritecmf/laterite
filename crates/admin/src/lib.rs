@@ -651,6 +651,8 @@ pub struct Shell {
     crumbs: Vec<CrumbView>,
     /// The tabs above a page that is one of a settings item's tabs.
     tabs: Vec<PageTab>,
+    /// What the operator may do, for the controls a page shows.
+    perms: laterite_auth::PermissionSet,
     /// The icon set, for chrome that renders one outside a nav entry.
     pub(crate) icon_set: Arc<laterite_core::icons::IconSet>,
     /// Where the sprite lives, so chrome can reference a glyph rather than
@@ -856,6 +858,7 @@ impl Shell {
             nav,
             crumbs,
             tabs: Vec::new(),
+            perms: user.permissions.clone(),
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
@@ -867,6 +870,17 @@ impl Shell {
             session_ends: session_ends.timestamp(),
             username: user.user.username.clone(),
         }
+    }
+
+    /// Whether the operator holds `permission`, for a module's own screens
+    /// deciding what to show and what to refuse.
+    pub fn allows(&self, permission: &str) -> bool {
+        self.perms.allows(permission)
+    }
+
+    /// The signed-in operator's username.
+    pub fn username(&self) -> &str {
+        &self.username
     }
 
     /// The site's own root, for the chrome's link out to the front of the site.
@@ -1045,6 +1059,7 @@ impl Shell {
             sidebar: Vec::new(),
             crumbs: Vec::new(),
             tabs: Vec::new(),
+            perms: Default::default(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
             assets: Vec::new(),
@@ -1375,6 +1390,9 @@ pub struct Resource {
     /// only for a read-only resource: a resource with a create/edit `form` must
     /// declare a permission, or boot aborts (see `mount_resource`).
     pub permission: Option<String>,
+    /// What each kind of write asks for beyond [`Resource::permission`]: a
+    /// separate grant to create, to update, or to delete.
+    pub permissions: ActionPermissions,
     /// Whether records may be imported into this resource, and by whom. The
     /// pages mount under the resource's path; see [`import`].
     pub import: Option<ImportConfig>,
@@ -1391,6 +1409,25 @@ pub struct Resource {
     pub source: Option<laterite_core::source::Source>,
     /// Whether a delete moves a record to the trash. See [`Resource::soft_delete`].
     pub soft_delete: bool,
+}
+
+/// The grants a resource's writes ask for, each in addition to the resource's
+/// own permission: `permissions: { create: acme.posts.create }` in a file.
+/// Unset asks for the resource's permission alone.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ActionPermissions {
+    /// To open the New form and create a record.
+    #[serde(default)]
+    pub create: Option<String>,
+    /// To save a record, edit a cell, reorder, and change its related records.
+    /// Without it the form opens read-only.
+    #[serde(default)]
+    pub update: Option<String>,
+    /// To delete, restore from the trash, or delete permanently.
+    #[serde(default)]
+    pub delete: Option<String>,
 }
 
 /// What a resource declares when records may be imported into it: `import:
@@ -1568,6 +1605,7 @@ impl Resource {
             list,
             form: None,
             permission: None,
+            permissions: ActionPermissions::default(),
             import: None,
             palette: None,
             relations: Vec::new(),
@@ -1631,6 +1669,25 @@ impl Resource {
     /// The permission gating every route this resource mounts.
     pub fn permission(mut self, permission: impl Into<String>) -> Self {
         self.permission = Some(permission.into());
+        self
+    }
+
+    /// A grant creating a record asks for, beside the resource's permission.
+    pub fn create_permission(mut self, code: impl Into<String>) -> Self {
+        self.permissions.create = Some(code.into());
+        self
+    }
+
+    /// A grant saving a record asks for, beside the resource's permission;
+    /// without it the form opens read-only.
+    pub fn update_permission(mut self, code: impl Into<String>) -> Self {
+        self.permissions.update = Some(code.into());
+        self
+    }
+
+    /// A grant deleting a record asks for, beside the resource's permission.
+    pub fn delete_permission(mut self, code: impl Into<String>) -> Self {
+        self.permissions.delete = Some(code.into());
         self
     }
 }
@@ -1896,6 +1953,9 @@ pub fn router(
     // built from them agree.
     for resource in resources.iter_mut().chain(app_resources.iter_mut()) {
         prefix_resource(&admin_path, resource);
+        // The list hides New and Delete from an operator without the grant.
+        resource.list.create_permission = resource.permissions.create.clone();
+        resource.list.delete_permission = resource.permissions.delete.clone();
     }
     // A resource that may be imported into shows the way to its import pages. A
     // write path, so it is gated: the key's permission, else the resource's,
@@ -3456,6 +3516,18 @@ fn mount_resource(
             resource.base_path
         );
     }
+    let actions = &resource.permissions;
+    for code in [&actions.create, &actions.update, &actions.delete]
+        .into_iter()
+        .flatten()
+    {
+        if !permission_codes.contains(code) {
+            panic!(
+                "admin resource `{}` asks for permission `{code}`, which no module registers",
+                resource.base_path
+            );
+        }
+    }
     let base = resource.base_path.clone();
     let list_path = base.clone();
     let mut list_cfg = resource.list.clone();
@@ -3762,6 +3834,7 @@ fn mount_resource(
                 .with_rules(rules.clone());
         // Sections live on the edit page, so a form with them offers to stay there.
         prepared.stay = !relations.is_empty();
+        prepared.update_permission = resource.permissions.update.clone();
         let prepared = Arc::new(prepared);
         prepared_form = Some(prepared.clone());
         let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
@@ -3965,6 +4038,8 @@ fn mount_resource(
         router = router.merge(routes);
     }
 
+    // Each write asks for its own grant, when the resource declares one.
+    router = guard_actions(router, &resource.base_path, &resource.permissions);
     // Gate every route the resource mounts on its permission.
     if let Some(permission) = &resource.permission {
         router = guard_with_permission(router, permission);
@@ -3987,6 +4062,63 @@ fn guard_superuser(router: Router<AdminState>) -> Router<AdminState> {
             }
         },
     ))
+}
+
+/// Asks each write route for the grant [`ActionPermissions`] names for it: the
+/// New form and its save for `create`; a save, a cell, a move, a reorder and
+/// a related record's change for `update`; a delete, a restore and a purge for
+/// `delete`. Reads pass, so an operator without `update` still opens a record.
+fn guard_actions(
+    router: Router<AdminState>,
+    base: &str,
+    permissions: &ActionPermissions,
+) -> Router<AdminState> {
+    if permissions.create.is_none() && permissions.update.is_none() && permissions.delete.is_none()
+    {
+        return router;
+    }
+    let base: Arc<str> = Arc::from(base);
+    let permissions = Arc::new(permissions.clone());
+    router.route_layer(middleware::from_fn(
+        move |Extension(user): Extension<AuthenticatedUser>,
+              matched: Option<axum::extract::MatchedPath>,
+              req: Request,
+              next: Next| {
+            let (base, permissions) = (base.clone(), permissions.clone());
+            async move {
+                let post = req.method() == axum::http::Method::POST;
+                let needed = matched
+                    .as_ref()
+                    .and_then(|m| action_permission(m.as_str(), &base, post, &permissions));
+                if needed.is_some_and(|p| !user.allows(p)) {
+                    forbidden()
+                } else {
+                    next.run(req).await
+                }
+            }
+        },
+    ))
+}
+
+/// The grant a route under `base` asks for, by its matched path.
+fn action_permission<'a>(
+    matched: &str,
+    base: &str,
+    post: bool,
+    permissions: &'a ActionPermissions,
+) -> Option<&'a str> {
+    let rest = matched.strip_prefix(base)?;
+    let segments: Vec<&str> = rest.trim_start_matches('/').split('/').collect();
+    let wanted = match segments.as_slice() {
+        ["new"] => &permissions.create,
+        ["delete" | "restore" | "purge"] => &permissions.delete,
+        ["reorder"] if post => &permissions.update,
+        ["{id}", "edit" | "cell" | "move"] if post => &permissions.update,
+        ["{id}", "reveal", ..] | ["{id}", _] => return None,
+        ["{id}", _, ..] => &permissions.update,
+        _ => return None,
+    };
+    wanted.as_deref()
 }
 
 fn guard_with_permission(router: Router<AdminState>, permission: &str) -> Router<AdminState> {
@@ -5682,6 +5814,7 @@ fn builtin_resources() -> Vec<Resource> {
             list: backend_users_list_config(),
             form: None,
             permission: Some("backend.manage_users".to_string()),
+            permissions: ActionPermissions::default(),
             import: None,
             palette: None,
             relations: Vec::new(),
@@ -5697,6 +5830,7 @@ fn builtin_resources() -> Vec<Resource> {
             // `roles` module), mounted separately, not the generic form.
             form: None,
             permission: Some("backend.manage_roles".to_string()),
+            permissions: ActionPermissions::default(),
             import: None,
             palette: None,
             relations: Vec::new(),
@@ -6120,6 +6254,7 @@ mod tests {
             list: backend_users_list_config(),
             form,
             permission: permission.map(str::to_string),
+            permissions: ActionPermissions::default(),
             import: None,
             palette: None,
             relations: Vec::new(),

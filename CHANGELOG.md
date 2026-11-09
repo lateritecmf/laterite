@@ -19,6 +19,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   markdown preview endpoint now receives the form's other fields beside `text`.
 - `NavItem::in_settings` places a module's entry or section in Settings, a section as one
   item with tabs; `[backend.menu]` moves a section into Settings or back to the top bar.
+- `permissions: { create, update, delete }` on a resource asks each write for its own grant;
+  without `update` the form opens read-only. Form actions and `Shell::allows` take grants too.
 
 ### Fixed
 

@@ -51,6 +51,9 @@ struct ResourceFile {
     /// Required once the resource has a form: an unguarded write aborts boot.
     #[serde(default)]
     permission: Option<String>,
+    /// Grants for create, update and delete beside `permission`.
+    #[serde(default)]
+    permissions: crate::ActionPermissions,
     /// The primary key column.
     #[serde(default = "default_id_field")]
     id_field: String,
@@ -187,6 +190,7 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     if let Some(permission) = file.permission {
         resource = resource.permission(permission);
     }
+    resource.permissions = file.permissions;
     if let Some(mut form) = file.form {
         form.entity = file.entity;
         form.id_field = file.id_field;

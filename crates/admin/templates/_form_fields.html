@@ -1,6 +1,7 @@
 <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-lat-widget="form"{% if refused %} data-lat-refused{% endif %}{% if leave_off %} data-lat-confirm-leave="off"{% endif %}{% if !focus.is_empty() %} data-lat-focus="{{ focus }}"{% endif %}{% if enter_off %} data-lat-enter="off"{% endif %}>
   {% include "_csrf.html" %}
   {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  {% if read_only %}<p class="lat-note">{{ shell.t("You can view this record but not change it.") }}</p><fieldset class="lat-fieldset" disabled>{% endif %}
   <div class="lat-fields">
   {% for field in fields %}
   {% if field.hidden %}{{ field.control|safe }}{% else if field.section %}
@@ -18,9 +19,10 @@
   {% endif %}
   {% endfor %}
   </div>
+  {% if read_only %}</fieldset>{% endif %}
   <div class="lat-actions">
-    <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
-    {% if stay %}<button class="lat-btn lat-btn--secondary" type="submit" name="then" value="stay">{{ shell.t("Save and continue editing") }}</button>{% endif %}
+    {% if !read_only %}<button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>{% endif %}
+    {% if stay && !read_only %}<button class="lat-btn lat-btn--secondary" type="submit" name="then" value="stay">{{ shell.t("Save and continue editing") }}</button>{% endif %}
     {% for a in actions %}{% if a.post %}<button class="lat-btn lat-btn--secondary" type="submit" formaction="{{ a.href }}" formmethod="post" formnovalidate hx-post="{{ a.href }}"{% if let Some(q) = a.confirm %} data-lat-confirm="{{ q }}"{% endif %}>{{ a.label }}</button>{% else %}<a class="lat-btn lat-btn--secondary" href="{{ a.href }}">{{ a.label }}</a>{% endif %}{% endfor %}
     <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
   </div>

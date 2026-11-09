@@ -856,7 +856,11 @@ fn toolbar_views(
     shell: &crate::Shell,
 ) -> Vec<ToolbarView> {
     let mut out = Vec::new();
-    if config.creatable {
+    let may_create = config
+        .create_permission
+        .as_deref()
+        .is_none_or(|p| user.permissions.allows(p));
+    if config.creatable && may_create {
         if let Some(base) = &config.edit_base {
             out.push(ToolbarView {
                 label: shell.tt(&laterite_core::t!("New")),
@@ -1289,6 +1293,13 @@ pub struct ListConfig {
     /// Whether to offer a "New" link to `{edit_base}/new`. A resource that only
     /// edits existing records (no create screen) sets this false.
     pub creatable: bool,
+    /// The grant New asks for beside the resource's, from
+    /// [`crate::ActionPermissions`]. Set at mount.
+    #[serde(skip)]
+    pub(crate) create_permission: Option<String>,
+    /// The grant Delete asks for beside the resource's. Set at mount.
+    #[serde(skip)]
+    pub(crate) delete_permission: Option<String>,
     /// Filters offered above the table. Empty hides the bar.
     #[serde(
         deserialize_with = "crate::keyed::deserialize",
@@ -1506,6 +1517,8 @@ impl Default for ListConfig {
             id_field: "id".to_string(),
             edit_base: None,
             creatable: false,
+            create_permission: None,
+            delete_permission: None,
             filters: Vec::new(),
             deletable: false,
             protected: None,
@@ -2469,7 +2482,11 @@ async fn build_page(
                 export_query,
                 path: path.to_string(),
                 filters: filter_views,
-                deletable: config.deletable,
+                deletable: config.deletable
+                    && config
+                        .delete_permission
+                        .as_deref()
+                        .is_none_or(|p| user.permissions.allows(p)),
                 exportable: config.exportable,
                 import_href: config
                     .import

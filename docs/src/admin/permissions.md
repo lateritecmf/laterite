@@ -59,6 +59,38 @@ Where | Effect
 `SettingsItem::permission` | Hides the item from the settings menu and refuses its form.
 `ScreenReg::new(path, permission, ..)` | Required. Enforced before the handler runs.
 `ToolbarButton::require` | The button is not rendered without the grant.
+`Shell::allows(code)` | In a module's own handler: whether to show a control or answer `403`.
+`Resource::create_permission`, `update_permission`, `delete_permission` | One write each, beside `Resource::permission` (below).
+
+## Gate each write
+
+```yaml
+# descriptors/posts.yaml
+permission: acme.posts
+permissions:
+  create: acme.posts.create
+  update: acme.posts.update
+  delete: acme.posts.delete
+```
+
+```rust
+Resource::new("/posts", "Posts", list)
+    .form(form)
+    .permission("acme.posts")
+    .create_permission("acme.posts.create")
+    .update_permission("acme.posts.update")
+    .delete_permission("acme.posts.delete")
+```
+
+Key | Asked for by | Without it
+--- | --- | ---
+`create` | The New form and its save | No New button; `403`
+`update` | A save, an editable cell, a move or reorder, a related record's change | The form opens read-only, with no Save; the section has no New; `403`
+`delete` | Delete, restore, delete permanently | No row selection or Delete; `403`
+
+An operator needs `permission` and the key's grant. A key left out asks for
+`permission` alone. A key naming a permission no module registers
+aborts the start.
 
 ## Match a grant
 

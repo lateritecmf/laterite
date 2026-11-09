@@ -280,6 +280,7 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-check{display:flex;align-items:center;gap:8px;font-size:var(--fs-13);color:var(--text-body);cursor:pointer}
 .lat-check input{width:16px;height:16px}
 .lat-check--control{min-height:var(--control-h)}
+.lat-fieldset{border:0;margin:0;padding:0;min-width:0}
 .lat-permgroup{border:1px solid var(--border-subtle);border-radius:var(--radius-control);padding:12px 14px;margin:14px 0 0}
 .lat-permgroup__legend{padding:0 6px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-muted)}
 .lat-permgroup .lat-check{padding:5px 0}

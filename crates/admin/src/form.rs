@@ -726,6 +726,9 @@ pub struct FormAction {
     /// A question asked before the action runs.
     #[serde(default)]
     pub confirm: Option<Text>,
+    /// A permission the operator must hold to see the button.
+    #[serde(default)]
+    pub permission: Option<String>,
 }
 
 impl FormAction {
@@ -736,6 +739,7 @@ impl FormAction {
             action: action.into(),
             method: post_method(),
             confirm: None,
+            permission: None,
         }
     }
 
@@ -748,6 +752,12 @@ impl FormAction {
     /// Asks `question` before running.
     pub fn confirm(mut self, question: impl Into<Text>) -> Self {
         self.confirm = Some(question.into());
+        self
+    }
+
+    /// Shows the button only to an operator holding `code`.
+    pub fn permission(mut self, code: impl Into<String>) -> Self {
+        self.permission = Some(code.into());
         self
     }
 }
@@ -1005,6 +1015,9 @@ pub(crate) struct PreparedForm {
     /// Offer "Save and continue editing" beside Save: a resource with relation
     /// sections wants to land on the edit page, where the sections are.
     pub(crate) stay: bool,
+    /// The grant a save asks for beside the resource's; without it the edit
+    /// page opens read-only.
+    pub(crate) update_permission: Option<String>,
     /// The registered validation rules a field may name.
     rules: Arc<laterite_core::validation::RuleRegistry>,
 }
@@ -1201,6 +1214,7 @@ impl PreparedForm {
             persister,
             listeners,
             stay: false,
+            update_permission: None,
             rules: Arc::new(Default::default()),
         })
     }
@@ -2126,6 +2140,7 @@ fn invalid_response(
             fields: page.fields,
             stay: page.stay,
             actions: page.actions,
+            read_only: page.read_only,
             enter_off: page.enter_off,
             refused: page.refused,
             leave_off: page.leave_off,
@@ -2246,6 +2261,11 @@ fn build(
     let error = error.map(|m| shell.tt(&m));
     let shell_base = shell.base.clone();
     let shell_i18n = shell.clone();
+    let read_only = !action.ends_with("/new")
+        && form
+            .update_permission
+            .as_deref()
+            .is_some_and(|p| !shell.allows(p));
     let mut shell = shell.clone();
     shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
     FormTemplate {
@@ -2261,6 +2281,7 @@ fn build(
         fields,
         stay: form.stay,
         actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
+        read_only,
         sections: Vec::new(),
         pending: Vec::new(),
         enter_off: form.config.enter == EnterPolicy::Off,
@@ -2343,6 +2364,7 @@ fn action_views(
     }
     actions
         .iter()
+        .filter(|a| a.permission.as_deref().is_none_or(|p| shell.allows(p)))
         .map(|a| {
             let target = a.action.replace("{id}", id);
             let href = if target.starts_with("http://") || target.starts_with("https://") {
@@ -2377,6 +2399,9 @@ struct FormFragment {
     stay: bool,
     /// The module's buttons beside Save.
     actions: Vec<ActionView>,
+    /// The operator may look but not save: the fields are disabled and Save
+    /// is gone.
+    read_only: bool,
     /// Enter never submits this form.
     enter_off: bool,
     /// The form holds a submission that was not saved.
@@ -2400,6 +2425,8 @@ struct FormTemplate {
     stay: bool,
     /// The module's buttons beside Save.
     actions: Vec<ActionView>,
+    /// The operator may look but not save.
+    read_only: bool,
     /// The related records, one section each, on an edit page.
     sections: Vec<RelationSection>,
     /// The relations a create page cannot show yet, by section title.
