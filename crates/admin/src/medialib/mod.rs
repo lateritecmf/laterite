@@ -687,7 +687,11 @@ async fn pick(
     let listing = Listing {
         folder: folder_id,
         search: (!q.is_empty()).then(|| q.clone()),
-        kind: (mode == "image").then_some(Kind::Image),
+        kind: match mode.as_str() {
+            "image" => Some(Kind::Image),
+            "font" => Some(Kind::Font),
+            _ => None,
+        },
         sort: Sort::default(),
         page,
         per_page: PER_PAGE,
@@ -890,6 +894,7 @@ fn kind_icon(kind: Kind) -> &'static str {
         Kind::Video => "film",
         Kind::Audio => "music",
         Kind::Document => "file-text",
+        Kind::Font => "type",
         Kind::Other => "file",
     }
 }
@@ -900,6 +905,7 @@ fn kind_label(shell: &Shell, kind: Kind) -> String {
         Kind::Video => shell.t("Video"),
         Kind::Audio => shell.t("Audio"),
         Kind::Document => shell.t("Documents"),
+        Kind::Font => shell.t("Fonts"),
         Kind::Other => shell.t("Other"),
     }
 }
@@ -1027,18 +1033,27 @@ async fn index(
             name: f.name,
         })
         .collect();
+    // Most libraries never hold a font, so Fonts is listed once one exists.
+    let has_fonts = laterite_media::library::has_kind(db, Kind::Font)
+        .await
+        .unwrap_or(false);
     let kind_links = std::iter::once(NavLink {
         label: shell.t("Everything"),
         href: browse_href(&base, folder_id, &q, "", &sort_name, 1),
         icon: "layers",
         active: kind.is_none(),
     })
-    .chain(Kind::ALL.into_iter().map(|k| NavLink {
-        label: kind_label(&shell, k),
-        href: browse_href(&base, folder_id, &q, k.as_str(), &sort_name, 1),
-        icon: kind_icon(k),
-        active: kind == Some(k),
-    }))
+    .chain(
+        Kind::ALL
+            .into_iter()
+            .filter(|k| *k != Kind::Font || has_fonts || kind == Some(Kind::Font))
+            .map(|k| NavLink {
+                label: kind_label(&shell, k),
+                href: browse_href(&base, folder_id, &q, k.as_str(), &sort_name, 1),
+                icon: kind_icon(k),
+                active: kind == Some(k),
+            }),
+    )
     .collect();
     let sort_links = [
         ("newest", shell.t("Newest first")),

@@ -72,9 +72,25 @@ fn sniff(head: &[u8]) -> String {
     if crate::sanitize::is_svg(head) {
         return "image/svg+xml".to_string();
     }
+    if let Some(font) = font_type(head) {
+        return font.to_string();
+    }
     infer::get(head)
         .map(|t| t.mime_type().to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string())
+}
+
+/// A font's standard type from its signature: each format names itself in its
+/// first four bytes.
+fn font_type(head: &[u8]) -> Option<&'static str> {
+    match head.get(..4)? {
+        [0x00, 0x01, 0x00, 0x00] | b"true" => Some("font/ttf"),
+        b"OTTO" => Some("font/otf"),
+        b"ttcf" => Some("font/collection"),
+        b"wOFF" => Some("font/woff"),
+        b"wOF2" => Some("font/woff2"),
+        _ => None,
+    }
 }
 
 /// Hashes and stores a byte stream, returning what it turned out to be.
@@ -227,6 +243,24 @@ mod tests {
         // Unrecognised bytes get a neutral type rather than a guess.
         let out = ingest(&disk, stream_of("just text"), 1024).await.unwrap();
         assert_eq!(out.content_type, "application/octet-stream");
+    }
+
+    /// A font is known by its signature and stored under its standard type.
+    #[tokio::test]
+    async fn fonts_are_sniffed_by_their_signature() {
+        let (disk, _dir) = disk();
+        for (head, expected) in [
+            (&[0x00, 0x01, 0x00, 0x00][..], "font/ttf"),
+            (b"OTTO", "font/otf"),
+            (b"ttcf", "font/collection"),
+            (b"wOFF", "font/woff"),
+            (b"wOF2", "font/woff2"),
+        ] {
+            let mut bytes = head.to_vec();
+            bytes.extend_from_slice(expected.as_bytes());
+            let out = ingest(&disk, stream_of(bytes), 1024).await.unwrap();
+            assert_eq!(out.content_type, expected);
+        }
     }
 
     /// Sniffing reads only the leading bytes, so a signature split across the

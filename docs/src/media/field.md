@@ -7,11 +7,12 @@ A `media` field holds one file, or a list of files, picked from the
 fields:
   cover_id: { type: media, label: Cover, mode: image }
   gallery: { type: media, label: Gallery, max: 6 }
+  fonts: { type: media, label: Fonts, mode: font, max: 0 }
 ```
 
 Option | Default | Meaning
 --- | --- | ---
-`mode` | `file` | `image` offers images alone and shows thumbnails.
+`mode` | `file` | `image` offers images alone and shows thumbnails; `font` offers font files alone.
 `max` | `1` | How many files the field holds: `1` stores one id in a bigint column; any other number stores a JSON list in a text column, `0` meaning no limit.
 
 A save links the picked files to the record under the field's name. The file

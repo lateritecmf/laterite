@@ -84,6 +84,10 @@ fn kind_condition(kind: Kind) -> SimpleExpr {
             .or(Expr::col(Media::ContentType).like("%msword%"))
             .or(Expr::col(Media::ContentType).like("%officedocument%"))
             .or(Expr::col(Media::ContentType).like("%opendocument%")),
+        Kind::Font => Expr::col(Media::ContentType)
+            .like("font/%")
+            .or(Expr::col(Media::ContentType).like("application/font-%"))
+            .or(Expr::col(Media::ContentType).like("application/x-font%")),
         Kind::Other => Expr::col(Media::ContentType)
             .not_like("image/%")
             .and(Expr::col(Media::ContentType).not_like("video/%"))
@@ -92,7 +96,10 @@ fn kind_condition(kind: Kind) -> SimpleExpr {
             .and(Expr::col(Media::ContentType).not_like("text/%"))
             .and(Expr::col(Media::ContentType).not_like("%msword%"))
             .and(Expr::col(Media::ContentType).not_like("%officedocument%"))
-            .and(Expr::col(Media::ContentType).not_like("%opendocument%")),
+            .and(Expr::col(Media::ContentType).not_like("%opendocument%"))
+            .and(Expr::col(Media::ContentType).not_like("font/%"))
+            .and(Expr::col(Media::ContentType).not_like("application/font-%"))
+            .and(Expr::col(Media::ContentType).not_like("application/x-font%")),
     }
 }
 
@@ -162,4 +169,22 @@ pub async fn list(db: &Db, listing: &Listing) -> Result<Page, RecordError> {
         .await?;
     let items = rows.iter().map(from_row).collect::<Result<_, _>>()?;
     Ok(Page { items, total })
+}
+
+/// Whether the library holds a file of `kind` in any folder.
+pub async fn has_kind(db: &Db, kind: Kind) -> Result<bool, RecordError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(Media::Id)
+            .from(Media::Table)
+            .and_where(Expr::col(Media::InLibrary).eq(1))
+            .and_where(kind_condition(kind))
+            .limit(1)
+            .to_owned(),
+    );
+    let found = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(found.is_some())
 }

@@ -20,6 +20,8 @@ pub enum MediaMode {
     File,
     /// Images alone, shown as thumbnails.
     Image,
+    /// Font files alone.
+    Font,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -70,7 +72,7 @@ struct MediaTmpl<'a> {
     words: &'a MediaData,
 }
 
-/// The `media` field type. Options: `mode: image | file` and `max`.
+/// The `media` field type. Options: `mode: image | font | file` and `max`.
 pub struct MediaField;
 
 /// The ids in a control's value: `"3,7"` or a stored JSON list `[3, 7]`.
@@ -149,6 +151,7 @@ impl FieldType for MediaField {
             resolve_url: &data.resolve_url,
             mode: match data.mode {
                 MediaMode::Image => "image",
+                MediaMode::Font => "font",
                 MediaMode::File => "file",
             },
             max: data.max,

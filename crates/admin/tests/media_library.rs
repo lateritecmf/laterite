@@ -857,3 +857,46 @@ async fn a_name_outside_the_allow_list_is_refused_and_an_svg_is_cleaned() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn fonts_get_their_own_kind_once_one_is_uploaded() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+
+    let (_, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert!(!html.contains("kind=font"), "no Fonts until one exists");
+    assert!(html.contains("kind=document"));
+
+    let (status, _) = post(&app, "/admin/media/folders", &root, "name=Brand").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let brand = folder::children(&db, None).await.unwrap()[0].clone();
+    let mut font = vec![0x00, 0x01, 0x00, 0x00, 0x00];
+    font.extend_from_slice(&[7u8; 64]);
+    let (status, _) = upload(
+        &app,
+        &root,
+        &[("folder", &brand.id.to_string())],
+        &[("Acme-Regular.ttf", &font), ("logo.png", &png(3))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        laterite_media::library::has_kind(&db, laterite_media::Kind::Font)
+            .await
+            .unwrap()
+    );
+
+    let (_, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert!(
+        html.contains("kind=font") && html.contains("Fonts"),
+        "{html}"
+    );
+    let path = format!("/admin/media?folder={}&kind=font", brand.id);
+    let (_, html, _) = get(&app, &path, Some(&root)).await;
+    assert!(
+        html.contains("Acme-Regular.ttf") && !html.contains("logo.png"),
+        "{html}"
+    );
+}

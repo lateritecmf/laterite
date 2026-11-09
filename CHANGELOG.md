@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- The media library files TTF, OTF, TTC, WOFF and WOFF2 files as Fonts, listed once one exists;
+  `mode: font` on a media field picks fonts alone.
 - `data-lat-tooltip` on any admin element shows a styled tooltip on hover and keyboard
   focus, with a side and shortcut keys; the colour-mode button names the current mode.
 - `preview: side` on a markdown field shows the preview beside the text, live as the

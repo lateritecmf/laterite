@@ -13,17 +13,20 @@ pub enum Kind {
     Audio,
     /// A PDF, text, word-processing, spreadsheet, presentation, RTF or EPUB file.
     Document,
+    /// A TTF, OTF, TTC, WOFF or WOFF2 font.
+    Font,
     /// Any content type the other kinds do not cover.
     Other,
 }
 
 impl Kind {
     /// Every kind, in display order.
-    pub const ALL: [Kind; 5] = [
+    pub const ALL: [Kind; 6] = [
         Kind::Image,
         Kind::Video,
         Kind::Audio,
         Kind::Document,
+        Kind::Font,
         Kind::Other,
     ];
 
@@ -45,6 +48,11 @@ impl Kind {
             || ct == "application/epub+zip"
         {
             Kind::Document
+        } else if ct.starts_with("font/")
+            || ct.starts_with("application/font-")
+            || ct.starts_with("application/x-font")
+        {
+            Kind::Font
         } else {
             Kind::Other
         }
@@ -57,6 +65,7 @@ impl Kind {
             Kind::Video => "video",
             Kind::Audio => "audio",
             Kind::Document => "document",
+            Kind::Font => "font",
             Kind::Other => "other",
         }
     }
@@ -89,7 +98,11 @@ mod tests {
             Kind::of("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             Kind::Document
         );
+        assert_eq!(Kind::of("font/ttf"), Kind::Font);
+        assert_eq!(Kind::of("font/woff2"), Kind::Font);
+        assert_eq!(Kind::of("application/font-sfnt"), Kind::Font);
         assert_eq!(Kind::of("application/zip"), Kind::Other);
+        assert_eq!(Kind::parse("font"), Some(Kind::Font));
         assert_eq!(Kind::parse("video"), Some(Kind::Video));
         assert_eq!(Kind::parse("thing"), None);
     }

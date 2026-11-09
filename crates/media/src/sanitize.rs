@@ -17,7 +17,7 @@ pub const DEFAULT_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg", "ico", "pdf", "txt", "csv", "md",
     "rtf", "odt", "doc", "docx", "ods", "xls", "xlsx", "odp", "ppt", "pptx", "ics", "epub", "mp3",
     "wav", "ogg", "m4a", "flac", "aac", "mp4", "webm", "mov", "m4v", "mpeg", "mpg", "mkv", "avi",
-    "woff", "woff2", "ttf", "otf", "eot", "zip", "rar", "7z", "gz", "tar",
+    "woff", "woff2", "ttf", "otf", "ttc", "eot", "zip", "rar", "7z", "gz", "tar",
 ];
 
 /// The extension of a file name, lowercased, or `None` when it has none.

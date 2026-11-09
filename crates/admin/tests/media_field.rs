@@ -252,3 +252,34 @@ async fn the_field_renders_and_its_picker_offers_the_library() {
     assert_eq!(items[0]["name"], "a.png");
     assert!(items[0]["thumb"].as_str().unwrap().contains("/thumb/"));
 }
+
+/// `mode: font` offers font files alone.
+#[tokio::test]
+async fn the_font_picker_offers_fonts_alone() {
+    let (db, _guard) = test_db().await;
+    let (app, _) = boot(&db);
+    let token = session(&db).await;
+    file(&db, "a.png").await;
+    record::create_with(
+        &db,
+        NewMedia {
+            disk: "public".into(),
+            hash: format!("{:0>64}", "f"),
+            size: 10,
+            content_type: "font/ttf".into(),
+            original_name: "Acme-Regular.ttf".into(),
+            in_library: true,
+            created_by: None,
+        },
+        NewMediaExtra::default(),
+    )
+    .await
+    .unwrap();
+
+    let (status, fragment) = get(&app, "/admin/media/pick?mode=font", &token).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        fragment.contains("Acme-Regular.ttf") && !fragment.contains("a.png"),
+        "{fragment}"
+    );
+}

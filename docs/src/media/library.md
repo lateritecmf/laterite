@@ -32,7 +32,7 @@ Control | Narrows to
 --- | ---
 Folder | The files in it.
 Search | A name, across every folder.
-Kind | `Image`, `Video`, `Audio`, `Document` or `Other`.
+Kind | `Image`, `Video`, `Audio`, `Document`, `Font` or `Other`; `Font` is listed once the library holds a font.
 Sort | Newest, oldest, name or size.
 
 ## Manage folders and files
