@@ -95,11 +95,13 @@ A section | One settings item linking to its first entry; each entry's list show
 An entry | A settings item linking to its page.
 A tab the operator lacks the permission for | Left out of the tabs.
 
-A deployment's `[backend.menu]` move places a section the same way:
+A deployment's `[backend.menu]` move places a section the same way, or puts a
+module's settings section back in the top bar with its entries in the sidebar:
 
 ```toml
 [backend.menu]
 "acme.shop" = { in = "backend.settings", category = "Shop" }
+"rainmill.pdf" = { in = "backend.nav" }
 ```
 
 ## Order a hierarchy

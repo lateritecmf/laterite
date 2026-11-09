@@ -670,3 +670,50 @@ async fn a_section_placed_in_settings_shows_its_entries_as_tabs() {
         "a record's form shows no tabs"
     );
 }
+
+/// A deployment moves a module's settings section back to the top bar: the
+/// section returns with its entries in the sidebar, and no tabs.
+#[tokio::test]
+async fn a_deployment_moves_a_settings_section_back_to_the_top_bar() {
+    let (db, _g) = test_db().await;
+    let mut config = AdminConfig::default();
+    config.origin = "https://acme.test".to_string();
+    config.menu.insert(
+        "acme.content".to_string(),
+        serde_json::from_value(serde_json::json!({ "in": "backend.nav" })).unwrap(),
+    );
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![
+                resource!("tests/descriptors/nav_posts.yaml"),
+                resource!("tests/descriptors/nav_pages.yaml"),
+            ],
+            nav: vec![NavItem::section("acme.content", "Content").in_settings("Website")],
+            picker_sources: vec![PickerSourceReg::new(
+                "acme.posttitles",
+                Arc::new(TableSource::new("posts", "id", "title")),
+            )],
+            permissions: vec![
+                Permission::new("acme.posts", t!("Posts"), t!("Acme")),
+                Permission::new("acme.pages", t!("Pages"), t!("Acme")),
+            ],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    );
+    let (root, _) = sessions(&db).await;
+    let (_, html) = get(&app, "/admin/posts", &root).await;
+    assert!(
+        tabs(&html).contains(&"Content".to_string()),
+        "a top-bar tab again"
+    );
+    assert!(!html.contains("lat-pagetabs"), "no page tabs in the menu");
+    let sidebar = &html[html.find("lat-sidebar").expect("a sidebar")..];
+    assert!(
+        sidebar.contains(r#"href="/admin/pages""#) && sidebar.contains(r#"href="/admin/posts""#),
+        "the entries are the section's sidebar"
+    );
+}

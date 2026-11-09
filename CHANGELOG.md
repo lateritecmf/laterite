@@ -17,8 +17,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   The editors' Insert button shows only once a command or snippet exists.
 - `actions` on a form puts a module's buttons beside Save on an existing record, and a
   markdown preview endpoint now receives the form's other fields beside `text`.
-- `NavItem::in_settings` places a module's entry or section in Settings; a section there
-  is one item whose entries show as tabs. `[backend.menu]` moves sections the same way.
+- `NavItem::in_settings` places a module's entry or section in Settings, a section as one
+  item with tabs; `[backend.menu]` moves a section into Settings or back to the top bar.
 
 ### Fixed
 

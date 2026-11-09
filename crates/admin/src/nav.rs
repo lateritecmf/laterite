@@ -612,6 +612,10 @@ pub(crate) fn apply_moves(
                 continue;
             }
             let item = settings.remove(at);
+            if !item.tabs.is_empty() {
+                into_menu(items, item, section, spec.slot, spec.order);
+                continue;
+            }
             let path = item.link.clone().unwrap_or_else(|| item.route());
             let mut moved = NavItem::new(item.code.clone(), item.label.clone(), path)
                 .slot(spec.slot.unwrap_or(item.slot))
@@ -691,10 +695,52 @@ fn into_settings(
     }
     for entry in entries {
         if let Some(link) = entry.path {
-            moved = moved.tab(entry.label, link, entry.permission);
+            moved.tabs.push(crate::settings::SettingsTab {
+                key: entry.key,
+                label: entry.label,
+                link,
+                permission: entry.permission,
+                icon: entry.icon,
+                order: entry.order,
+            });
         }
     }
     settings.push(moved);
+}
+
+/// Puts a settings item of tabs back in the menu as the section it came from,
+/// its tabs the section's entries. Moved under another section, the entries
+/// join that section, since sections do not nest.
+fn into_menu(
+    items: &mut Vec<NavItem>,
+    item: crate::settings::SettingsItem,
+    under: Option<String>,
+    slot: Option<i32>,
+    order: Option<i32>,
+) {
+    let parent = match under {
+        Some(section) => section,
+        None => {
+            let mut section = NavItem::section(item.code.clone(), item.label.clone())
+                .slot(slot.unwrap_or(item.slot))
+                .order(order.unwrap_or(item.order));
+            section.icon = item.icon.clone();
+            section.permission = item.permission.clone();
+            if !item.description.source().is_empty() {
+                section.description = Some(item.description.clone());
+            }
+            items.push(section);
+            item.code.clone()
+        }
+    };
+    for tab in item.tabs {
+        let mut entry = NavItem::new(tab.key, tab.label, tab.link)
+            .under(parent.clone())
+            .order(tab.order);
+        entry.icon = tab.icon;
+        entry.permission = tab.permission;
+        items.push(entry);
+    }
 }
 
 /// `tools` as a heading: `Tools`.
@@ -925,6 +971,34 @@ mod tests {
         assert_eq!(settings.len(), 1);
         assert_eq!(settings[0].category.source(), "Documents");
         assert_eq!(settings[0].tabs.len(), 2);
+    }
+
+    #[test]
+    fn a_section_moved_back_to_the_menu_is_the_section_again() {
+        let mut items = pdf_section();
+        let mut settings = Vec::new();
+        settle(&mut items, &mut settings);
+        let moves = std::collections::BTreeMap::from([(
+            "acme.pdf".to_string(),
+            serde_json::from_value::<laterite_core::arrange::Move>(serde_json::json!({
+                "in": TOP_HIERARCHY,
+            }))
+            .unwrap(),
+        )]);
+        apply_moves(&mut items, &mut settings, &moves);
+        assert!(settings.is_empty());
+        let tree = NavTree::build(items, "/admin").unwrap();
+        let pdf = tree
+            .top
+            .iter()
+            .find(|n| n.item.key == "acme.pdf")
+            .expect("the section is back");
+        let entries: Vec<&str> = pdf.children.iter().map(|c| c.item.key.as_str()).collect();
+        assert_eq!(
+            entries,
+            ["resource:/pdf/templates", "resource:/pdf/layouts"]
+        );
+        assert_eq!(pdf.children[0].item.permission.as_deref(), Some("acme.pdf"));
     }
 
     #[test]

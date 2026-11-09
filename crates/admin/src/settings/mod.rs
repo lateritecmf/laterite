@@ -171,12 +171,19 @@ pub struct SettingsItem {
 /// One tab of a [`SettingsItem`] that holds several pages.
 #[derive(Debug, Clone, Serialize)]
 pub struct SettingsTab {
+    /// The menu key of the page (`resource:/rainmill/pdf/templates`), kept so the
+    /// item can move back to the menu as the section it came from.
+    pub key: String,
     /// The tab's label, localized at render.
     pub label: Text,
     /// The page, under the admin root (`/rainmill/pdf/templates`).
     pub link: String,
     /// What the operator must hold to see the tab.
     pub permission: Option<String>,
+    /// The page's menu icon, used when the item moves back to the menu.
+    pub icon: Option<String>,
+    /// The page's menu order, used when the item moves back to the menu.
+    pub order: i32,
 }
 
 /// A secondary action on a settings screen.
@@ -221,18 +228,23 @@ impl SettingsItem {
         }
     }
 
-    /// Adds a tab leading to `link` (under the admin root), shown to an
-    /// operator holding `permission`.
+    /// Adds the page `key` as a tab leading to `link` (under the admin root),
+    /// shown to an operator holding `permission`.
     pub fn tab(
         mut self,
+        key: impl Into<String>,
         label: impl Into<Text>,
         link: impl Into<String>,
         permission: Option<String>,
     ) -> Self {
+        let order = self.tabs.len() as i32;
         self.tabs.push(SettingsTab {
+            key: key.into(),
             label: label.into(),
             link: link.into(),
             permission,
+            icon: None,
+            order,
         });
         self
     }
