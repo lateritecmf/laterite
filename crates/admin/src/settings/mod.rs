@@ -163,6 +163,20 @@ pub struct SettingsItem {
     /// Buttons beside Save that post to their own route under the admin
     /// root: a Send test, a Clear.
     pub actions: Vec<SettingsAction>,
+    /// Pages shown as tabs on each other's lists: a menu section placed in
+    /// Settings. The item links to the first.
+    pub tabs: Vec<SettingsTab>,
+}
+
+/// One tab of a [`SettingsItem`] that holds several pages.
+#[derive(Debug, Clone, Serialize)]
+pub struct SettingsTab {
+    /// The tab's label, localized at render.
+    pub label: Text,
+    /// The page, under the admin root (`/rainmill/pdf/templates`).
+    pub link: String,
+    /// What the operator must hold to see the tab.
+    pub permission: Option<String>,
 }
 
 /// A secondary action on a settings screen.
@@ -203,7 +217,24 @@ impl SettingsItem {
             route: None,
             per_operator: false,
             actions: Vec::new(),
+            tabs: Vec::new(),
         }
+    }
+
+    /// Adds a tab leading to `link` (under the admin root), shown to an
+    /// operator holding `permission`.
+    pub fn tab(
+        mut self,
+        label: impl Into<Text>,
+        link: impl Into<String>,
+        permission: Option<String>,
+    ) -> Self {
+        self.tabs.push(SettingsTab {
+            label: label.into(),
+            link: link.into(),
+            permission,
+        });
+        self
     }
 
     /// A button beside Save posting to `path` under the admin root.
@@ -788,6 +819,7 @@ mod field_system_tests {
             route: None,
             per_operator: false,
             actions: Vec::new(),
+            tabs: Vec::new(),
         }
     }
 
@@ -939,6 +971,7 @@ mod tests {
             route: None,
             per_operator: false,
             actions: Vec::new(),
+            tabs: Vec::new(),
         }
     }
 
@@ -981,6 +1014,7 @@ mod tests {
                 route: None,
                 per_operator: false,
                 actions: Vec::new(),
+                tabs: Vec::new(),
             },
             SettingsItem {
                 code: "a".into(),
@@ -998,6 +1032,7 @@ mod tests {
                 route: None,
                 per_operator: false,
                 actions: Vec::new(),
+                tabs: Vec::new(),
             },
             SettingsItem {
                 code: "l".into(),
@@ -1015,6 +1050,7 @@ mod tests {
                 route: None,
                 per_operator: false,
                 actions: Vec::new(),
+                tabs: Vec::new(),
             },
         ];
         let groups = sidebar_groups(

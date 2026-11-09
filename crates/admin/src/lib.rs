@@ -649,6 +649,8 @@ pub struct Shell {
     /// The way to this page: the active tab, then the active sidebar entry.
     /// Rendered only when there are two, so a tab's own page shows none.
     crumbs: Vec<CrumbView>,
+    /// The tabs above a page that is one of a settings item's tabs.
+    tabs: Vec<PageTab>,
     /// The icon set, for chrome that renders one outside a nav entry.
     pub(crate) icon_set: Arc<laterite_core::icons::IconSet>,
     /// Where the sprite lives, so chrome can reference a glyph rather than
@@ -853,6 +855,7 @@ impl Shell {
             skin,
             nav,
             crumbs,
+            tabs: Vec::new(),
             full_name,
             initial,
             tz: resolve_display_tz(user.user.timezone.as_deref(), default_tz),
@@ -1041,6 +1044,7 @@ impl Shell {
             i18n: Translator::new("en"),
             sidebar: Vec::new(),
             crumbs: Vec::new(),
+            tabs: Vec::new(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
             assets: Vec::new(),
@@ -1079,10 +1083,12 @@ fn settings_context(
     }
     let linked = visible
         .iter()
-        .filter_map(|i| {
+        .flat_map(|i| {
             i.link
-                .as_deref()
-                .map(|link| (format!("{admin_path}{link}"), &i.code))
+                .iter()
+                .map(String::as_str)
+                .chain(i.tabs.iter().map(|t| t.link.as_str()))
+                .map(move |link| (format!("{admin_path}{link}"), &i.code))
         })
         .filter(|(link, _)| path == link.as_str() || path.starts_with(&format!("{link}/")))
         .max_by_key(|(link, _)| link.len())
@@ -2006,6 +2012,8 @@ pub fn router(
     }
     // A deployment's moves: an entry rendered somewhere other than its home,
     // keeping its label, icon, permission and target.
+    // Entries a module placed in Settings, then a deployment's moves.
+    nav::settle(&mut nav_items, &mut settings);
     nav::apply_moves(&mut nav_items, &mut settings, &config.menu);
     let nav = nav::NavTree::build_with(nav_items.clone(), &admin_path, &config.order)
         .unwrap_or_else(|e| panic!("admin menu: {e}"));
@@ -4170,8 +4178,15 @@ async fn require_auth(
         own.settings_order.as_deref(),
         &own.settings_collapsed,
     );
+    let tabs = page_tabs(
+        &own_settings,
+        &state.admin_path,
+        &user.permissions,
+        &path,
+        &i18n,
+    );
     let brand = state.brand().await;
-    let shell = Shell::new(
+    let mut shell = Shell::new(
         &state.admin_path,
         brand,
         state.skin.clone(),
@@ -4189,6 +4204,7 @@ async fn require_auth(
         state.sprite_url.clone(),
         resolved.expires_at,
     );
+    shell.tabs = tabs;
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
     request.extensions_mut().insert(handle.clone());
@@ -4976,10 +4992,9 @@ struct AvailableWidgetView {
 /// Whether an operator may see a settings item: items with no permission are
 /// public, otherwise the operator must hold the item's permission.
 fn operator_can_see(item: &settings::SettingsItem, perms: &PermissionSet) -> bool {
-    match &item.permission {
-        None => true,
-        Some(p) => perms.allows(p),
-    }
+    let allowed = |p: &Option<String>| p.as_deref().is_none_or(|p| perms.allows(p));
+    allowed(&item.permission)
+        && (item.tabs.is_empty() || item.tabs.iter().any(|t| allowed(&t.permission)))
 }
 
 /// The settings items this operator may see, in registry order. Both the index
@@ -4993,6 +5008,17 @@ fn visible_settings(
         .iter()
         .filter(|item| operator_can_see(item, perms))
         .cloned()
+        .map(|mut item| {
+            // An item of tabs leads to the first tab this operator may open.
+            if let Some(tab) = item
+                .tabs
+                .iter()
+                .find(|t| t.permission.as_deref().is_none_or(|p| perms.allows(p)))
+            {
+                item.link = Some(tab.link.clone());
+            }
+            item
+        })
         .collect()
 }
 
@@ -5990,6 +6016,45 @@ struct CrumbView {
     href: String,
 }
 
+/// One tab above a page, from a settings item's tabs.
+#[derive(Clone)]
+struct PageTab {
+    label: String,
+    href: String,
+    active: bool,
+}
+
+/// The tabs `path` shows: those of the settings item one of whose tab pages it
+/// is, as `perms` allows; none on any other page, a record's form included.
+fn page_tabs(
+    items: &[settings::SettingsItem],
+    admin_path: &str,
+    perms: &PermissionSet,
+    path: &str,
+    tr: &Translator,
+) -> Vec<PageTab> {
+    let Some(item) = items.iter().find(|i| {
+        operator_can_see(i, perms)
+            && i.tabs
+                .iter()
+                .any(|t| path == format!("{admin_path}{}", t.link))
+    }) else {
+        return Vec::new();
+    };
+    item.tabs
+        .iter()
+        .filter(|t| t.permission.as_deref().is_none_or(|p| perms.allows(p)))
+        .map(|t| {
+            let href = format!("{admin_path}{}", t.link);
+            PageTab {
+                label: tr.t(&t.label),
+                active: path == href,
+                href,
+            }
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct NavView {
     /// The item's key, which the operator's own order names.
@@ -6486,6 +6551,7 @@ mod tests {
             route: None,
             per_operator: false,
             actions: Vec::new(),
+            tabs: Vec::new(),
         }
     }
 

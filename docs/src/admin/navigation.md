@@ -47,6 +47,8 @@ Slot | Value | Holds
 `NavItem::new(key, label, path)` | An entry leading to `path` under the admin mount.
 `NavItem::section(key, label)` | A tab holding entries; it leads to the first one the operator may open.
 `.icon(name)`, `.order(n)`, `.after(key)`, `.before(key)`, `.under(key)`, `.permission(code)` | As the `menu` keys above; `permission` hides the entry from an operator without it.
+`.in_settings(category)` | Renders the entry in Settings under `category` (see below).
+`.description(text)` | The line under the label in Settings.
 
 A resource's entry carries the resource's permission, a screen's its own. A
 duplicate key, `under` naming a key nobody declared, or `after` and `before`
@@ -64,6 +66,41 @@ Resource::new("/pages", "Pages", list)
 A section is a tab in the top bar. An operator sees only the entries they may
 open; a section with none left is not shown. Dashboard and Settings are always
 first and last.
+
+## Place a section in Settings
+
+```rust
+registry.add_nav(
+    NavItem::section("acme.shop", t!("Shop"))
+        .icon("store")
+        .description(t!("Products, orders and invoices."))
+        .slot(slot::SYSTEM)
+        .in_settings(t!("Shop")),
+);
+```
+
+```yaml
+# descriptors/products.yaml
+menu: { under: acme.shop, order: 1 }
+```
+
+```yaml
+# descriptors/orders.yaml
+menu: { under: acme.shop, order: 2 }
+```
+
+Placed | Renders
+--- | ---
+A section | One settings item linking to its first entry; each entry's list shows the entries as tabs.
+An entry | A settings item linking to its page.
+A tab the operator lacks the permission for | Left out of the tabs.
+
+A deployment's `[backend.menu]` move places a section the same way:
+
+```toml
+[backend.menu]
+"acme.shop" = { in = "backend.settings", category = "Shop" }
+```
 
 ## Order a hierarchy
 
@@ -120,8 +157,8 @@ The entry | A menu key (`resource:/orders`, `screen:/reports`, a contributed ite
 
 A moved entry keeps its label, icon, permission and target: a resource moved
 into settings opens at its own path with the settings sidebar beside it, and
-a settings item moved into the top bar is a tab. A section cannot move into
-settings.
+a settings item moved into the top bar is a tab. A section moved into settings
+is one item with its entries as tabs.
 
 ## Register a palette source
 

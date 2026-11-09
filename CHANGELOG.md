@@ -17,9 +17,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   The editors' Insert button shows only once a command or snippet exists.
 - `actions` on a form puts a module's buttons beside Save on an existing record, and a
   markdown preview endpoint now receives the form's other fields beside `text`.
+- `NavItem::in_settings` places a module's entry or section in Settings; a section there
+  is one item whose entries show as tabs. `[backend.menu]` moves sections the same way.
 
 ### Fixed
 
+- A switch field sits level with the inputs beside it instead of at the top of the row.
 - The markdown field's preview renders again: it sent multipart data the endpoint
   refused with a 415, broken since 0.9.18.
 - A refused form on the site shows its errors again: the 422 swap ships inside

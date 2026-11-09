@@ -93,6 +93,9 @@
         {% if shell.crumbs.len() > 1 %}
         <nav class="lat-breadcrumb" aria-label='{{ shell.t("You are here") }}'>{% for c in shell.crumbs %}{% if !loop.first %}<span aria-hidden="true">&rsaquo;</span>{% endif %}<a href="{{ c.href }}">{{ c.label }}</a>{% endfor %}</nav>
         {% endif %}
+        {% if !shell.tabs.is_empty() %}
+        <nav class="lat-pagetabs" aria-label='{{ shell.t("Pages") }}'>{% for tab in shell.tabs %}<a class="lat-pagetabs__tab{% if tab.active %} is-active{% endif %}" href="{{ tab.href }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
+        {% endif %}
         {% block content %}{% endblock %}
       </div>
     </main>

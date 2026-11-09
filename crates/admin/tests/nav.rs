@@ -602,3 +602,71 @@ async fn a_folded_settings_group_stays_folded_until_unfolded() {
     let (_, html) = get(&app, "/admin/settings", &root).await;
     assert_eq!(html.matches("\" open>").count(), groups.len());
 }
+
+/// A module places a section in Settings: one item there, its entries shown as
+/// tabs on their lists, as the operator's permissions allow.
+#[tokio::test]
+async fn a_section_placed_in_settings_shows_its_entries_as_tabs() {
+    let (db, _g) = test_db().await;
+    let mut config = AdminConfig::default();
+    config.origin = "https://acme.test".to_string();
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![
+                resource!("tests/descriptors/nav_posts.yaml"),
+                resource!("tests/descriptors/nav_pages.yaml"),
+            ],
+            nav: vec![NavItem::section("acme.content", "Content")
+                .description("Pages and posts.")
+                .in_settings("Website")],
+            picker_sources: vec![PickerSourceReg::new(
+                "acme.posttitles",
+                Arc::new(TableSource::new("posts", "id", "title")),
+            )],
+            permissions: vec![
+                Permission::new("acme.posts", t!("Posts"), t!("Acme")),
+                Permission::new("acme.pages", t!("Pages"), t!("Acme")),
+            ],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    );
+    let (root, editor) = sessions(&db).await;
+    let (_, html) = get(&app, "/admin", &root).await;
+    assert!(
+        !tabs(&html).contains(&"Content".to_string()),
+        "gone from the top bar"
+    );
+    let (_, html) = get(&app, "/admin/settings", &root).await;
+    assert!(html.contains("Pages and posts.") && html.contains(r#"href="/admin/pages""#));
+
+    let (_, html) = get(&app, "/admin/posts", &root).await;
+    let strip = &html[html.find("lat-pagetabs").expect("a tab strip")..];
+    let strip = &strip[..strip.find("</nav>").unwrap()];
+    assert!(strip.find("/admin/pages").unwrap() < strip.find("/admin/posts").unwrap());
+    assert!(
+        strip.contains(r#"href="/admin/posts" aria-current="page""#),
+        "{strip}"
+    );
+    assert!(
+        html.contains("lat-sidebar__item is-active"),
+        "the settings item is marked"
+    );
+
+    let (_, html) = get(&app, "/admin/posts", &editor).await;
+    let strip = &html[html.find("lat-pagetabs").expect("a tab strip")..];
+    let strip = &strip[..strip.find("</nav>").unwrap()];
+    assert!(
+        !strip.contains("/admin/pages"),
+        "a tab the operator cannot open is left out"
+    );
+
+    let (_, html) = get(&app, "/admin/posts/new", &root).await;
+    assert!(
+        !html.contains("lat-pagetabs"),
+        "a record's form shows no tabs"
+    );
+}

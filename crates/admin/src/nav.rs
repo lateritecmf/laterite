@@ -44,6 +44,11 @@ pub struct NavItem {
     pub before: Option<String>,
     /// The key of the item this sits under; `None` is the top bar.
     pub under: Option<String>,
+    /// Renders the entry in Settings under this category instead of the menu.
+    /// A section placed there is one item whose entries show as tabs.
+    pub in_settings: Option<Text>,
+    /// The line under the entry's label when it renders in Settings.
+    pub description: Option<Text>,
 }
 
 impl laterite_core::arrange::Arranged for NavNode {
@@ -72,6 +77,8 @@ impl NavItem {
             after: None,
             before: None,
             under: None,
+            in_settings: None,
+            description: None,
         }
     }
 
@@ -88,6 +95,8 @@ impl NavItem {
             after: None,
             before: None,
             under: None,
+            in_settings: None,
+            description: None,
         }
     }
 
@@ -130,6 +139,19 @@ impl NavItem {
     /// Sits right before the sibling with this key.
     pub fn before(mut self, key: impl Into<String>) -> Self {
         self.before = Some(key.into());
+        self
+    }
+
+    /// Renders the entry in Settings under `category`; a section there is one
+    /// item whose entries show as tabs.
+    pub fn in_settings(mut self, category: impl Into<Text>) -> Self {
+        self.in_settings = Some(category.into());
+        self
+    }
+
+    /// The line under the label when the entry renders in Settings.
+    pub fn description(mut self, text: impl Into<Text>) -> Self {
+        self.description = Some(text.into());
         self
     }
 }
@@ -540,13 +562,13 @@ pub(crate) fn section_sidebar(
 /// moved to `backend.nav` (or `backend.nav.<section>`) becomes a menu entry;
 /// a move within a hierarchy changes the band, the order or the section. An
 /// entry keeps its label, icon, permission and target wherever it renders. A
-/// key nobody declared, or a section (which has no page), is logged and left.
+/// section moved to settings is one item whose entries show as tabs. A key
+/// nobody declared, or a section with no entries, is logged and left.
 pub(crate) fn apply_moves(
     items: &mut Vec<NavItem>,
     settings: &mut Vec<crate::settings::SettingsItem>,
     moves: &std::collections::BTreeMap<String, laterite_core::arrange::Move>,
 ) {
-    use laterite_core::arrange::slot;
     for (key, spec) in moves {
         let to_settings = spec.hierarchy == crate::settings::HIERARCHY;
         let to_nav = spec.hierarchy == TOP_HIERARCHY
@@ -571,32 +593,8 @@ pub(crate) fn apply_moves(
                 }
                 continue;
             }
-            let Some(path) = items[at].path.clone() else {
-                tracing::warn!(key = %key, "a section has no page of its own and cannot move into settings");
-                continue;
-            };
-            let item = items.remove(at);
-            let band = spec.slot.unwrap_or(item.slot);
-            let mut moved = crate::settings::SettingsItem::new(
-                item.key.clone(),
-                item.label.clone(),
-                Vec::new(),
-            )
-            .category(laterite_core::Text::dynamic(
-                spec.category
-                    .clone()
-                    .unwrap_or_else(|| title(&slot::name(band))),
-            ))
-            .slot(band)
-            .order(spec.order.unwrap_or(item.order))
-            .link(path);
-            if let Some(icon) = item.icon.clone() {
-                moved = moved.icon(icon);
-            }
-            if let Some(permission) = item.permission.clone() {
-                moved = moved.permission(permission);
-            }
-            settings.push(moved);
+            let category = spec.category.clone().map(laterite_core::Text::dynamic);
+            into_settings(items, settings, at, category, spec.slot, spec.order);
             continue;
         }
         if let Some(at) = settings.iter().position(|i| &i.code == key) {
@@ -626,6 +624,77 @@ pub(crate) fn apply_moves(
         }
         tracing::warn!(key = %key, "a menu move names an entry nothing declared");
     }
+}
+
+/// Moves the entries a module declared `in_settings` into Settings, before any
+/// deployment move, so a deployment can still move them back.
+pub(crate) fn settle(items: &mut Vec<NavItem>, settings: &mut Vec<crate::settings::SettingsItem>) {
+    while let Some(at) = items.iter().position(|i| i.in_settings.is_some()) {
+        let category = items[at].in_settings.take();
+        into_settings(items, settings, at, category, None, None);
+    }
+}
+
+/// Turns the menu entry at `at` into a linked settings item. A section takes its
+/// entries with it: the item links to the first, and each becomes a tab.
+fn into_settings(
+    items: &mut Vec<NavItem>,
+    settings: &mut Vec<crate::settings::SettingsItem>,
+    at: usize,
+    category: Option<Text>,
+    slot: Option<i32>,
+    order: Option<i32>,
+) {
+    use laterite_core::arrange::slot as slots;
+    let item = items.remove(at);
+    let mut entries: Vec<NavItem> = Vec::new();
+    if item.path.is_none() {
+        let mut i = 0;
+        while i < items.len() {
+            if items[i].under.as_deref() == Some(item.key.as_str()) {
+                entries.push(items.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        entries.sort_by(|a, b| {
+            a.order
+                .cmp(&b.order)
+                .then_with(|| a.label.source().cmp(b.label.source()))
+        });
+    }
+    let Some(path) = item
+        .path
+        .clone()
+        .or_else(|| entries.first().and_then(|e| e.path.clone()))
+    else {
+        tracing::warn!(key = %item.key, "a section with no entries cannot move into settings");
+        items.push(item);
+        return;
+    };
+    let band = slot.unwrap_or(item.slot);
+    let mut moved =
+        crate::settings::SettingsItem::new(item.key.clone(), item.label.clone(), Vec::new())
+            .category(category.unwrap_or_else(|| Text::dynamic(title(&slots::name(band)))))
+            .slot(band)
+            .order(order.unwrap_or(item.order))
+            .link(path);
+    if let Some(icon) = item.icon.clone() {
+        moved = moved.icon(icon);
+    }
+    if let Some(description) = item.description.clone() {
+        moved = moved.description(description);
+    }
+    // A section's item shows when any tab does, each tab carrying its own.
+    if let Some(permission) = item.permission.clone() {
+        moved = moved.permission(permission);
+    }
+    for entry in entries {
+        if let Some(link) = entry.path {
+            moved = moved.tab(entry.label, link, entry.permission);
+        }
+    }
+    settings.push(moved);
 }
 
 /// `tools` as a heading: `Tools`.
@@ -793,5 +862,77 @@ mod tests {
         assert_eq!(at("/admin/settings/users").as_deref(), Some("settings"));
         assert_eq!(at("/admin").as_deref(), Some("dashboard"));
         assert_eq!(at("/admin/elsewhere"), None);
+    }
+
+    fn pdf_section() -> Vec<NavItem> {
+        vec![
+            NavItem::section("acme.pdf", "PDF")
+                .description("Templates and layouts.")
+                .in_settings("System"),
+            NavItem::new("resource:/pdf/layouts", "Layouts", "/pdf/layouts")
+                .under("acme.pdf")
+                .permission("acme.pdf")
+                .order(2),
+            NavItem::new("resource:/pdf/templates", "Templates", "/pdf/templates")
+                .under("acme.pdf")
+                .permission("acme.pdf")
+                .order(1),
+            NavItem::new("acme.shop", "Shop", "/shop"),
+        ]
+    }
+
+    #[test]
+    fn a_section_in_settings_is_one_item_with_its_entries_as_tabs() {
+        let mut items = pdf_section();
+        let mut settings = Vec::new();
+        settle(&mut items, &mut settings);
+        let keys: Vec<&str> = items.iter().map(|i| i.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["acme.shop"],
+            "the section and its entries leave the menu"
+        );
+        let [item] = settings.as_slice() else {
+            panic!("one settings item, got {}", settings.len())
+        };
+        assert_eq!(item.category.source(), "System");
+        assert_eq!(item.description.source(), "Templates and layouts.");
+        assert_eq!(
+            item.link.as_deref(),
+            Some("/pdf/templates"),
+            "links to the first entry"
+        );
+        assert_eq!(item.permission, None, "each tab carries the permission");
+        assert_eq!(item.tabs[0].permission.as_deref(), Some("acme.pdf"));
+        let tabs: Vec<&str> = item.tabs.iter().map(|t| t.link.as_str()).collect();
+        assert_eq!(tabs, ["/pdf/templates", "/pdf/layouts"]);
+    }
+
+    #[test]
+    fn a_deployment_moves_a_section_into_settings_too() {
+        let mut items = pdf_section();
+        items[0].in_settings = None;
+        let mut settings = Vec::new();
+        let moves = std::collections::BTreeMap::from([(
+            "acme.pdf".to_string(),
+            serde_json::from_value::<laterite_core::arrange::Move>(serde_json::json!({
+                "in": crate::settings::HIERARCHY,
+                "category": "Documents",
+            }))
+            .unwrap(),
+        )]);
+        apply_moves(&mut items, &mut settings, &moves);
+        assert_eq!(settings.len(), 1);
+        assert_eq!(settings[0].category.source(), "Documents");
+        assert_eq!(settings[0].tabs.len(), 2);
+    }
+
+    #[test]
+    fn a_section_with_no_entries_stays_in_the_menu() {
+        let mut items = vec![NavItem::section("acme.empty", "Empty").in_settings("System")];
+        let mut settings = Vec::new();
+        settle(&mut items, &mut settings);
+        assert!(settings.is_empty());
+        assert_eq!(items.len(), 1);
     }
 }
