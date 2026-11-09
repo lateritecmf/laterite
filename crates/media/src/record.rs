@@ -317,6 +317,33 @@ pub async fn replace_blob(
     update_one(db, id, stmt).await
 }
 
+/// Moves record `id` onto `disk`, its blob already copied there. Returns
+/// whether the blob is now unused on the disk it left.
+pub async fn set_disk(db: &Db, id: i64, disk: &str) -> Result<bool, RecordError> {
+    let Some(record) = find(db, id).await? else {
+        return Ok(false);
+    };
+    let stmt = Query::update()
+        .table(Media::Table)
+        .value(Media::Disk, disk)
+        .to_owned();
+    update_one(db, id, stmt).await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr(Expr::col(Media::Id).count())
+            .from(Media::Table)
+            .and_where(Expr::col(Media::Hash).eq(record.hash))
+            .and_where(Expr::col(Media::Disk).eq(record.disk))
+            .to_owned(),
+    );
+    let remaining: i64 = bind_values_as(sqlx::query_as::<_, (i64,)>(&sql), values)
+        .fetch_one(&db.pool)
+        .await?
+        .0;
+    Ok(remaining == 0)
+}
+
 /// Moves a record into a folder (`None` for the root).
 pub async fn move_to_folder(db: &Db, id: i64, folder_id: Option<i64>) -> Result<(), RecordError> {
     let stmt = Query::update()

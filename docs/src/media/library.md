@@ -25,6 +25,13 @@ A file whose extension is not listed is refused; an empty list allows images,
 documents, audio, video, fonts and archives. An SVG is cleaned on the way in.
 Library uploads go to the disk named `public`, else `media` under
 `backend.storage` (see [Storage Disks](../services/storage-disks.md)).
+Ticking **Private** sends them to the disk named `private`, else `private`
+under `backend.storage`.
+
+File | Served at
+--- | ---
+Public | `/storage/media/<hash>/<name>`, cacheable.
+Private | The same address with a signature, `private, no-store`; no address without one. A tile carries a lock.
 
 ## Find a file
 
@@ -42,6 +49,7 @@ Action | Where | Needs
 Make, rename, move or remove a folder | The folder bar | `media.manage`; an empty folder only.
 Retitle, rename or move a file | The file page | `media.manage`
 Crop an image | The file page | `media.manage`; a new file `<stem>-crop.<ext>` beside it, or the file replaced.
+Make private, make public | The file page | `media.manage`; the file moves disk and its thumbnails are made again.
 Delete a file | The file page | `media.delete`, or `media.delete_linked` when records use it.
 
 ## Work the library from code
@@ -69,6 +77,8 @@ let page = library::list(&db, &Listing {
 record::update_details(&db, id, Some("Our cat"), Some("A tabby")).await?;
 record::rename(&db, id, "cat.png").await?;
 record::move_to_folder(&db, id, Some(photos.id)).await?;
+let has_fonts = library::has_kind(&db, Kind::Font).await?;
+let unused = record::set_disk(&db, id, "private").await?;           // after copying the blob
 record::set_in_library(&db, id, true, None).await?;
 ```
 

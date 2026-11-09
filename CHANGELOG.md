@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A library file can be private: ticked on upload, or Make private and Make public on its page;
+  it serves only at signed URLs. `medialib::private_driver` reads them from a plugin.
 - The media library files TTF, OTF, TTC, WOFF and WOFF2 files as Fonts, listed once one exists;
   `mode: font` on a media field picks fonts alone.
 - `data-lat-tooltip` on any admin element shows a styled tooltip on hover and keyboard

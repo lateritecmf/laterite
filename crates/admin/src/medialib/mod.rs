@@ -50,6 +50,9 @@ pub const DELETE_LINKED: &str = "media.delete_linked";
 
 /// The disk library uploads go to, by name.
 pub const DISK: &str = "public";
+
+/// The disk private library files live on: served only at signed URLs.
+pub const PRIVATE_DISK: &str = crate::import::DISK;
 /// The most one upload may weigh.
 const UPLOAD_LIMIT: u64 = 256 * 1024 * 1024;
 const PER_PAGE: u64 = 60;
@@ -147,6 +150,21 @@ pub fn library_driver(
         .unwrap_or_else(|| Arc::new(LocalDisk::new(format!("{storage_dir}/media"))))
 }
 
+/// The driver private library files live on: the registered `private` disk,
+/// else `private` under `storage_dir`. A plugin reading library files hands it
+/// to its renderer beside [`library_driver`].
+pub fn private_driver(
+    registry: &laterite_core::Registry,
+    storage_dir: &str,
+) -> Arc<dyn StorageDriver> {
+    registry
+        .contributions::<DiskReg>()
+        .into_iter()
+        .find(|d| d.item.name == PRIVATE_DISK)
+        .map(|d| Arc::clone(&d.item.driver))
+        .unwrap_or_else(|| Arc::new(LocalDisk::new(format!("{storage_dir}/{PRIVATE_DISK}"))))
+}
+
 /// Writes every record's file, and every variant made so far, into a static
 /// build at the paths the site serves them from: `/storage/media/<hash>/<name>`
 /// and `/storage/media/<hash>/<preset>/<name>`. Returns how many it wrote.
@@ -236,6 +254,8 @@ pub(crate) fn serve_route() -> PublicRouteReg {
 struct Disks {
     by_name: HashMap<String, (Arc<dyn StorageDriver>, bool)>,
     library: Arc<dyn StorageDriver>,
+    /// Where private library files go.
+    protected: Arc<dyn StorageDriver>,
 }
 
 fn disks(ctx: &RouteCtx) -> Disks {
@@ -261,7 +281,12 @@ fn disks(ctx: &RouteCtx) -> Disks {
         )));
         by_name.insert(crate::import::DISK.to_string(), (driver, true));
     }
-    Disks { by_name, library }
+    let protected = Arc::clone(&by_name[PRIVATE_DISK].0);
+    Disks {
+        by_name,
+        library,
+        protected,
+    }
 }
 
 struct AppState {
@@ -305,6 +330,8 @@ impl Screen for MediaScreen {
             .route("/{id}", get(file))
             .route("/{id}/update", post(update_file))
             .route("/{id}/move", post(move_file))
+            .route("/{id}/make-private", post(make_private))
+            .route("/{id}/make-public", post(make_public))
             .route("/{id}/crop", post(crop_file))
             .route("/{id}/delete", post(delete_file))
             // The framework's default request body limit is two megabytes,
@@ -822,6 +849,9 @@ struct FileActionsTemplate {
     linked: bool,
     /// Whether the file is an image the operator may crop.
     may_crop: bool,
+    /// Whether the operator may make it protected or public.
+    may_manage: bool,
+    protected: bool,
 }
 
 struct FileView {
@@ -835,6 +865,8 @@ struct FileView {
     preview_url: String,
     href: String,
     is_image: bool,
+    /// On a private disk: served only at signed URLs.
+    protected: bool,
 }
 
 struct CrumbView {
@@ -966,6 +998,7 @@ fn file_view(app: &AppState, r: &MediaRecord) -> FileView {
         preview_url: admin_url_for(app, r, Some(preset::PREVIEW)),
         href: app.ctx.url(&r.id.to_string()),
         is_image: r.kind() == Kind::Image && r.content_type != "image/svg+xml",
+        protected: app.disks.by_name.get(&r.disk).is_some_and(|(_, p)| *p),
     }
 }
 
@@ -1176,6 +1209,7 @@ async fn upload(
         .is_some_and(|v| v == "fetch");
     let ctx = &app.ctx;
     let mut folder_id: Option<i64> = None;
+    let mut protect = false;
     let mut stored: Vec<StoredFile> = Vec::new();
     let mut refused: Vec<RefusedFile> = Vec::new();
     let refuse = |name: String, reason: Text| RefusedFile {
@@ -1190,6 +1224,9 @@ async fn upload(
                     .await
                     .ok()
                     .and_then(|t| t.trim().parse::<i64>().ok());
+            }
+            "private" => {
+                protect = field.text().await.is_ok_and(|t| !t.trim().is_empty());
             }
             "file" => {
                 let name = field
@@ -1244,24 +1281,24 @@ async fn upload(
                 // Metadata goes before the hash, so two copies of one photo
                 // with different EXIF still share a blob.
                 let prepared = laterite_media::image::prepare(bytes::Bytes::from(bytes));
-                let ingested = match ingest(
-                    app.disks.library.as_ref(),
-                    stream_of(prepared.bytes.clone()),
-                    UPLOAD_LIMIT,
-                )
-                .await
-                {
-                    Ok(i) => i,
-                    Err(e) => {
-                        tracing::error!(error = %e, "a library upload could not be stored");
-                        refused.push(refuse(name, t!("Could not be stored.")));
-                        continue;
-                    }
+                let (disk_name, driver) = if protect {
+                    (PRIVATE_DISK, app.disks.protected.as_ref())
+                } else {
+                    (DISK, app.disks.library.as_ref())
                 };
+                let ingested =
+                    match ingest(driver, stream_of(prepared.bytes.clone()), UPLOAD_LIMIT).await {
+                        Ok(i) => i,
+                        Err(e) => {
+                            tracing::error!(error = %e, "a library upload could not be stored");
+                            refused.push(refuse(name, t!("Could not be stored.")));
+                            continue;
+                        }
+                    };
                 let id = match record::create_with(
                     ctx.db(),
                     NewMedia {
-                        disk: DISK.to_string(),
+                        disk: disk_name.to_string(),
                         hash: ingested.hash.clone(),
                         size: ingested.size as i64,
                         content_type: ingested.content_type,
@@ -1861,6 +1898,8 @@ async fn file(
         may_delete,
         linked,
         may_crop,
+        may_manage: user.permissions.allows(MANAGE),
+        protected: view.protected,
     })
     .unwrap_or_else(|_| Markup::empty());
     page_with(
@@ -2243,6 +2282,106 @@ async fn move_file(
         }
         Err(e) => {
             tracing::error!(error = %e, "a media record could not be moved");
+            session.push_flash(FlashLevel::Error, t!("Could not save. Please try again."));
+        }
+    }
+    Redirect::to(&here).into_response()
+}
+
+async fn make_private(
+    State(app): App,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+) -> Response {
+    set_protection(&app, &session, &user, id, true).await
+}
+
+async fn make_public(
+    State(app): App,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+) -> Response {
+    set_protection(&app, &session, &user, id, false).await
+}
+
+/// Moves a file between the library's public disk and its private one: the
+/// blob is copied, the record follows, and the old copy and its variants go
+/// once nothing else on that disk uses them. Variants are made again on demand.
+async fn set_protection(
+    app: &AppState,
+    session: &SessionHandle,
+    user: &AuthenticatedUser,
+    id: i64,
+    protect: bool,
+) -> Response {
+    if !user.permissions.allows(MANAGE) {
+        return forbidden();
+    }
+    let ctx = &app.ctx;
+    let here = ctx.url(&id.to_string());
+    let Some(r) = load(ctx, id).await else {
+        return AdminError::NotFound.into_response();
+    };
+    let target = if protect { PRIVATE_DISK } else { DISK };
+    if r.disk == target {
+        return Redirect::to(&here).into_response();
+    }
+    let (Some((from, _)), Some((to, _))) = (
+        app.disks.by_name.get(&r.disk),
+        app.disks.by_name.get(target),
+    ) else {
+        session.push_flash(FlashLevel::Error, t!("Could not save. Please try again."));
+        return Redirect::to(&here).into_response();
+    };
+    let copied = match from.get(&blob_path(&r.hash)).await {
+        Ok(stream) => ingest(to.as_ref(), stream, u64::MAX).await.ok(),
+        Err(e) => {
+            tracing::error!(error = %e, hash = %r.hash, "a blob could not be read to move it");
+            None
+        }
+    };
+    if copied.as_ref().is_none_or(|c| c.hash != r.hash) {
+        session.push_flash(FlashLevel::Error, t!("Could not save. Please try again."));
+        return Redirect::to(&here).into_response();
+    }
+    let variants = variant::list_for(ctx.db(), id).await.unwrap_or_default();
+    let _ = variant::delete_for(ctx.db(), id).await;
+    match record::set_disk(ctx.db(), id, target).await {
+        Ok(last) => {
+            for v in &variants {
+                let _ = from.delete(&v.path).await;
+            }
+            if last {
+                if let Err(e) = from.delete(&blob_path(&r.hash)).await {
+                    tracing::warn!(error = %e, hash = %r.hash, "a blob could not be removed");
+                }
+            }
+            ctx.audit(
+                user,
+                if protect {
+                    "media.make_private"
+                } else {
+                    "media.make_public"
+                },
+                Some("media"),
+                Some(&id.to_string()),
+                Some(&r.original_name),
+                None,
+            )
+            .await;
+            session.push_flash(
+                FlashLevel::Success,
+                if protect {
+                    t!("The file is private: it serves only at signed links.")
+                } else {
+                    t!("The file is public.")
+                },
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "a media record could not change disk");
             session.push_flash(FlashLevel::Error, t!("Could not save. Please try again."));
         }
     }

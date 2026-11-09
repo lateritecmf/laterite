@@ -900,3 +900,76 @@ async fn fonts_get_their_own_kind_once_one_is_uploaded() {
         "{html}"
     );
 }
+
+#[tokio::test]
+async fn a_private_upload_has_no_public_address_and_can_be_made_public() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+
+    let (status, _) = upload(
+        &app,
+        &root,
+        &[("private", "1")],
+        &[("contract.txt", b"signed terms")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let listed = laterite_media::library::list(
+        &db,
+        &laterite_media::library::Listing {
+            per_page: 10,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let r = listed.items[0].clone();
+    assert_eq!(r.disk, "private");
+    assert!(dir
+        .path()
+        .join("private")
+        .join(blob_path(&r.hash))
+        .is_file());
+    let bare = format!("/storage/media/{}/contract.txt", r.hash);
+    let (status, _, _) = get(&app, &bare, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "no public address");
+    let (_, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert!(
+        html.contains("lat-media-card__lock"),
+        "the tile shows the lock"
+    );
+    let (_, html, _) = get(&app, &format!("/admin/media/{}", r.id), Some(&root)).await;
+    assert!(html.contains("Make public"), "{html}");
+
+    let (status, _) = post(
+        &app,
+        &format!("/admin/media/{}/make-public", r.id),
+        &root,
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let moved = record::find(&db, r.id).await.unwrap().unwrap();
+    assert_eq!(moved.disk, "public");
+    assert!(!dir.path().join("private").join(blob_path(&r.hash)).exists());
+    let (status, body, _) = get(&app, &bare, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "signed terms");
+
+    let (status, _) = post(
+        &app,
+        &format!("/admin/media/{}/make-private", r.id),
+        &root,
+        "",
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        record::find(&db, r.id).await.unwrap().unwrap().disk,
+        "private"
+    );
+    let (status, _, _) = get(&app, &bare, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "private again");
+}

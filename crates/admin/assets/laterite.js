@@ -745,6 +745,18 @@ window.lat.widget('upload', function (root) {
   }
 
   // The ordinary path: the file in a multipart POST to the upload URL.
+  // Inputs in the form marked data-upload-field travel with each file: a
+  // checkbox only when ticked.
+  function chosen() {
+    var out = [];
+    if (!form) return out;
+    form.querySelectorAll('[data-upload-field]').forEach(function (el) {
+      if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+      out.push([el.name, el.value]);
+    });
+    return out;
+  }
+
   function post(file, li, bar, status) {
     var body = new FormData();
     var token = form && form.querySelector('input[name="_csrf"]');
@@ -753,6 +765,7 @@ window.lat.widget('upload', function (root) {
       var at = pair.indexOf('=');
       if (at > 0) body.append(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
     });
+    chosen().forEach(function (f) { body.append(f[0], f[1]); });
     body.append(input.name || 'file', file, file.name);
     var xhr = new XMLHttpRequest();
     xhr.upload.addEventListener('progress', function (e) {
@@ -826,7 +839,8 @@ window.lat.widget('upload', function (root) {
     var status = li.querySelector('.lat-upload__status');
     status.textContent = words.uploading;
     var ask = root.getAttribute('data-upload-direct');
-    if (ask) direct(file, li, bar, status, ask); else post(file, li, bar, status);
+    // A chosen field (a protected upload) is honoured by the ordinary path alone.
+    if (ask && chosen().length === 0) direct(file, li, bar, status, ask); else post(file, li, bar, status);
   }
 
   function take(files) {
