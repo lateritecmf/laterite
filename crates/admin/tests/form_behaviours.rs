@@ -184,6 +184,35 @@ async fn an_edit_opens_for_reading_and_a_refusal_is_marked() {
     assert!(form_tag(&refused).contains("data-lat-refused"), "{refused}");
 }
 
+#[tokio::test]
+async fn an_existing_record_offers_the_form_actions_and_a_new_one_does_not() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let id = laterite_auth::store::create_role(&db, "desk", "Desk", &[])
+        .await
+        .unwrap();
+
+    let edit = get(&db, &token, &format!("/admin/notes/{id}/edit")).await;
+    assert!(
+        edit.contains(&format!(r#"formaction="/admin/acme/notes/{id}/reset""#))
+            && edit.contains(r#"data-lat-confirm="Reset this note?""#)
+            && edit.contains(">Reset to default</button>"),
+        "a post action submits the form to its own path: {edit}"
+    );
+    assert!(
+        edit.contains(&format!(
+            r#"href="/admin/acme/notes/{id}/preview">Preview</a>"#
+        )),
+        "a get action is a link: {edit}"
+    );
+
+    let new = get(&db, &token, "/admin/notes/new").await;
+    assert!(
+        !new.contains("Reset to default"),
+        "a new record has no id to act on"
+    );
+}
+
 #[test]
 fn the_keys_are_checked_when_the_file_is_read() {
     let file = |form: &str, field: &str| {

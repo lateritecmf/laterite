@@ -102,6 +102,9 @@ form:
   footprints: true
   slugs: { slug: title }
   encrypt: [api_key]
+  actions:
+    - { label: Reset to default, action: "acme/templates/{id}/reset", confirm: Reset this template? }
+    - { label: Download PDF, action: "acme/templates/{id}/pdf", method: get }
   fields:
     title: { rules: [{ max_length: 80 }], counter: true }
     body:  { type: textarea, rows: 8, grow: false }
@@ -121,6 +124,7 @@ Key | On | Values | Default
 `related` | The form | a map of one-to-one records | None. See [Related Records](relations.md#edit-a-one-to-one-record-in-the-form)
 `related` | A field | a name under the form's `related` | None: the field is stored on that record
 `persist` | The form | a persister name | The built-in insert and update. See [Persisters](../database/persisters.md)
+`actions` | The form | a list of `label`, `action` (a path under the admin root, `{id}` for the record), `method` (`post` or `get`), `confirm` | None. Shown beside Save on an existing record; `post` submits the form to `action`, `get` links to it
 `enter` | A field | `submit`, `off`, `next` | The form's
 
 A `max_length` rule also sets the control's `maxlength`.

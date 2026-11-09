@@ -643,6 +643,7 @@ mod pipeline_tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         };
         let persister = DefaultPersister::from_config(&config);

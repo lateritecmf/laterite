@@ -15,6 +15,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   `preview_url` points it at a module's own renderer, which may answer a PDF.
 - The media picker uploads in place: files land in the folder shown, ready to choose.
   The editors' Insert button shows only once a command or snippet exists.
+- `actions` on a form puts a module's buttons beside Save on an existing record, and a
+  markdown preview endpoint now receives the form's other fields beside `text`.
 
 ### Fixed
 

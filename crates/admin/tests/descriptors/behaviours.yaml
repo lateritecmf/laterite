@@ -9,6 +9,9 @@ form:
   title: Note
   confirm_leave: false
   focus: off
+  actions:
+    - { label: Reset to default, action: "acme/notes/{id}/reset", confirm: Reset this note? }
+    - { label: Preview, action: "acme/notes/{id}/preview", method: get }
   fields:
     code: { rules: [required, { max_length: 60 }] }
     name: { rules: [{ max_length: 20 }], counter: true }

@@ -21,6 +21,7 @@
   <div class="lat-actions">
     <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
     {% if stay %}<button class="lat-btn lat-btn--secondary" type="submit" name="then" value="stay">{{ shell.t("Save and continue editing") }}</button>{% endif %}
+    {% for a in actions %}{% if a.post %}<button class="lat-btn lat-btn--secondary" type="submit" formaction="{{ a.href }}" formmethod="post" formnovalidate hx-post="{{ a.href }}"{% if let Some(q) = a.confirm %} data-lat-confirm="{{ q }}"{% endif %}>{{ a.label }}</button>{% else %}<a class="lat-btn lat-btn--secondary" href="{{ a.href }}">{{ a.label }}</a>{% endif %}{% endfor %}
     <a class="lat-btn lat-btn--ghost" href="{{ cancel_path }}">{{ shell.t("Cancel") }}</a>
   </div>
 </form>

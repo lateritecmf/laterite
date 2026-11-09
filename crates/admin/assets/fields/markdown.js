@@ -310,10 +310,17 @@
       if (inflight) { schedule(); return; }
       var url = root.getAttribute('data-preview');
       if (!url) return;
-      // URL-encoded, the form body the preview endpoints read.
+      // URL-encoded, the form body the preview endpoints read: the form's other
+      // fields too, so a module's renderer sees the record around the text (its
+      // layout, its sample data), with `text` holding what is in the editor.
       var fd = new URLSearchParams();
       var token = form && form.querySelector('input[name="_csrf"]');
-      fd.append('text', view.state.doc.toString());
+      if (form) {
+        new FormData(form).forEach(function (value, key) {
+          if (typeof value === 'string' && key !== area.name) fd.append(key, value);
+        });
+      }
+      fd.set('text', view.state.doc.toString());
       pane.setAttribute('aria-busy', 'true');
       inflight = true;
       stale = false;

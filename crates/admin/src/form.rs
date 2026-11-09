@@ -412,6 +412,7 @@ impl Default for FormConfig {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         }
     }
@@ -706,6 +707,55 @@ impl FormField {
     }
 }
 
+/// A button beside Save on an existing record's form.
+///
+/// `action` is a path under the admin root with `{id}` standing for the
+/// record's id. A `post` action submits the form there, request token
+/// included, so the handler also sees what the operator typed; a `get` action
+/// is a link.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct FormAction {
+    /// The button's words.
+    pub label: Text,
+    /// A path under the admin root, `{id}` replaced by the record's id.
+    pub action: String,
+    /// `post` (the default) or `get`.
+    #[serde(default = "post_method")]
+    pub method: String,
+    /// A question asked before the action runs.
+    #[serde(default)]
+    pub confirm: Option<Text>,
+}
+
+impl FormAction {
+    /// A `post` action labelled `label` at `action`.
+    pub fn new(label: impl Into<Text>, action: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            action: action.into(),
+            method: post_method(),
+            confirm: None,
+        }
+    }
+
+    /// Makes it a link rather than a submission.
+    pub fn link(mut self) -> Self {
+        self.method = "get".into();
+        self
+    }
+
+    /// Asks `question` before running.
+    pub fn confirm(mut self, question: impl Into<Text>) -> Self {
+        self.confirm = Some(question.into());
+        self
+    }
+}
+
+fn post_method() -> String {
+    "post".into()
+}
+
 /// A form descriptor: which table, its editable fields, the id column, and the
 /// base path the form lives under (`{base_path}/new`, `{base_path}/{id}/edit`).
 ///
@@ -760,6 +810,10 @@ pub struct FormConfig {
     /// transaction as this one.
     #[serde(default)]
     pub related: std::collections::BTreeMap<String, RelatedRecord>,
+    /// Buttons beside Save on an existing record's form, for a module's own
+    /// actions on it: Reset, Duplicate, Publish.
+    #[serde(default)]
+    pub actions: Vec<FormAction>,
     /// Where a save and a cancel return to, when it is not the list under
     /// `base_path`: a related record's form returns to its parent. Set by the
     /// router, never by a descriptor.
@@ -794,6 +848,7 @@ impl FormConfig {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         }
     }
@@ -2070,6 +2125,7 @@ fn invalid_response(
             error: page.error,
             fields: page.fields,
             stay: page.stay,
+            actions: page.actions,
             enter_off: page.enter_off,
             refused: page.refused,
             leave_off: page.leave_off,
@@ -2188,6 +2244,8 @@ fn build(
     let shell_title = shell.tt(&form.config.title);
     let refused = error.is_some() || !bag.is_empty();
     let error = error.map(|m| shell.tt(&m));
+    let shell_base = shell.base.clone();
+    let shell_i18n = shell.clone();
     let mut shell = shell.clone();
     shell.assets = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
     FormTemplate {
@@ -2202,6 +2260,7 @@ fn build(
         error,
         fields,
         stay: form.stay,
+        actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
         sections: Vec::new(),
         pending: Vec::new(),
         enter_off: form.config.enter == EnterPolicy::Off,
@@ -2254,6 +2313,57 @@ pub(crate) fn escape_attr(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// One of a module's buttons beside Save, resolved for this record.
+struct ActionView {
+    label: String,
+    href: String,
+    post: bool,
+    confirm: Option<String>,
+}
+
+/// The form's actions for the record `action` edits; none on a new record,
+/// which has no id to act on yet.
+fn action_views(
+    actions: &[FormAction],
+    action: &str,
+    base: &str,
+    shell: &crate::Shell,
+) -> Vec<ActionView> {
+    let path = action.trim_end_matches('/');
+    let path = path.strip_suffix("/edit").unwrap_or(path);
+    let Some(id) = path
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty() && *s != "new")
+    else {
+        return Vec::new();
+    };
+    if action.ends_with("/new") {
+        return Vec::new();
+    }
+    actions
+        .iter()
+        .map(|a| {
+            let target = a.action.replace("{id}", id);
+            let href = if target.starts_with("http://") || target.starts_with("https://") {
+                target
+            } else {
+                format!(
+                    "{}/{}",
+                    base.trim_end_matches('/'),
+                    target.trim_start_matches('/')
+                )
+            };
+            ActionView {
+                label: shell.tt(&a.label),
+                href,
+                post: !a.method.eq_ignore_ascii_case("get"),
+                confirm: a.confirm.as_ref().map(|c| shell.tt(c)),
+            }
+        })
+        .collect()
+}
+
 /// Just the form element, for an HTMX submit that failed validation: the
 /// response replaces the form in place rather than reloading the page.
 #[derive(Template)]
@@ -2265,6 +2375,8 @@ struct FormFragment {
     error: Option<String>,
     fields: Vec<FieldView>,
     stay: bool,
+    /// The module's buttons beside Save.
+    actions: Vec<ActionView>,
     /// Enter never submits this form.
     enter_off: bool,
     /// The form holds a submission that was not saved.
@@ -2286,6 +2398,8 @@ struct FormTemplate {
     fields: Vec<FieldView>,
     /// Offer "Save and continue editing".
     stay: bool,
+    /// The module's buttons beside Save.
+    actions: Vec<ActionView>,
     /// The related records, one section each, on an edit page.
     sections: Vec<RelationSection>,
     /// The relations a create page cannot show yet, by section title.
@@ -2572,6 +2686,7 @@ mod tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         };
         PreparedForm::prepare(
@@ -2630,6 +2745,7 @@ mod tests {
                 slugs: Default::default(),
                 encrypt: Vec::new(),
                 related: Default::default(),
+                actions: Vec::new(),
                 done_path: None,
             },
             &crate::field::builtin_registry(),
@@ -2916,6 +3032,7 @@ mod tests {
                 slugs: Default::default(),
                 encrypt: Vec::new(),
                 related: Default::default(),
+                actions: Vec::new(),
                 done_path: None,
             },
             &st.field_types,
@@ -2968,6 +3085,7 @@ mod tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -3002,6 +3120,7 @@ mod tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -3086,6 +3205,7 @@ mod tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         }
     }
@@ -3188,6 +3308,7 @@ mod timestamp_tests {
             slugs: Default::default(),
             encrypt: Vec::new(),
             related: Default::default(),
+            actions: Vec::new(),
             done_path: None,
         }
     }
@@ -3285,6 +3406,7 @@ mod htmx_tests {
                 slugs: Default::default(),
                 encrypt: Vec::new(),
                 related: Default::default(),
+                actions: Vec::new(),
                 done_path: None,
             },
             &st.field_types,
