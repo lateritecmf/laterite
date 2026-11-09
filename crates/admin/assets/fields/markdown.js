@@ -370,6 +370,18 @@
     }
     function set(text) { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }); }
     if (form) form.addEventListener('reset', function () { setTimeout(function () { set(area.defaultValue); }, 0); });
+    // Side by side, the rest of the form counts too: a module's renderer reads
+    // fields beside the text (a title, a layout, sample data), so changing one
+    // renders again. Typing in this editor already does.
+    if (side && form) {
+      var others = function (e) {
+        if (root.contains(e.target)) return;
+        stale = true;
+        schedule();
+      };
+      form.addEventListener('input', others);
+      form.addEventListener('change', others);
+    }
     root.classList.add('is-ready');
     if (window.lat.revealInsert) window.lat.revealInsert(root, root.querySelector('[data-md-cmd="insert"]'));
     if (side) render();

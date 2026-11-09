@@ -11,8 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `data-lat-tooltip` on any admin element shows a styled tooltip on hover and keyboard
   focus, with a side and shortcut keys; the colour-mode button names the current mode.
-- `preview: side` on a markdown field shows the preview beside the text, live, and
-  `preview_url` points it at a module's own renderer, which may answer a PDF.
+- `preview: side` on a markdown field shows the preview beside the text, live as the
+  form changes, and `preview_url` points it at a module's renderer, which may answer a PDF.
 - The media picker uploads in place: files land in the folder shown, ready to choose.
   The editors' Insert button shows only once a command or snippet exists.
 - `actions` on a form puts a module's buttons beside Save on an existing record, and a

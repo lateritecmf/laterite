@@ -67,7 +67,7 @@ Key | Default | Description
 --- | --- | ---
 `rows` | | The height, in lines.
 `placeholder` | none | The placeholder.
-`preview` | `tab` | `tab` (or `true`): a Preview tab. `side`: the preview beside the text, re-rendered as you type. `off` (or `false`): none.
+`preview` | `tab` | `tab` (or `true`): a Preview tab. `side`: the preview beside the text, rendered again as the text or any other field of the form changes. `off` (or `false`): none.
 `preview_url` | the built-in renderer | An endpoint of your own, under the admin (`acme/terms/preview`) or absolute (`/render`). It receives the form's fields by POST, with `text` holding the editor's content, and answers HTML, or a PDF to show the document itself.
 
 Stores the markdown as written; the site renders it with the
