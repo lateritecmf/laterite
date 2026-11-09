@@ -617,6 +617,13 @@ struct PickTemplate {
     files: Vec<PickFile>,
     page: u64,
     pages: u64,
+    /// The user may upload: the picker then offers an uploader into the folder
+    /// it shows, so a file never has to be fetched from the library first.
+    may_upload: bool,
+    upload_url: String,
+    upload_direct: String,
+    upload_fields: String,
+    upload_hint: String,
 }
 
 fn pick_href(base: &str, folder: Option<i64>, q: &str, mode: &str, page: u64) -> String {
@@ -643,6 +650,7 @@ fn pick_href(base: &str, folder: Option<i64>, q: &str, mode: &str, page: u64) ->
 async fn pick(
     State(app): App,
     Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
     Query(query): Query<PickQuery>,
 ) -> Response {
     let ctx = &app.ctx;
@@ -715,6 +723,15 @@ async fn pick(
         files,
         page,
         pages,
+        may_upload: user.permissions.allows(UPLOAD),
+        upload_url: ctx.url("upload"),
+        upload_direct: ctx.url("direct"),
+        upload_fields: folder_id.map(|f| format!("folder={f}")).unwrap_or_default(),
+        upload_hint: if folder_id.is_none() {
+            shell.t("Into the library. Identical files are stored once.")
+        } else {
+            shell.t("Into this folder. Identical files are stored once.")
+        },
     }) {
         Ok(body) => axum::response::Html(body.into_string()).into_response(),
         Err(e) => {

@@ -2439,6 +2439,7 @@ msgstr ""
 
 #: templates/media.html
 #: templates/media_actions.html
+#: templates/media_pick.html
 msgid "Upload"
 msgstr ""
 

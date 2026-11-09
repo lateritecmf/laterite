@@ -11,7 +11,22 @@
       <input class="lat-input lat-listbar__search" type="search" name="q" value="{{ q }}" placeholder='{{ shell.t("Search the library") }}' aria-label='{{ shell.t("Search") }}'>
       <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Search") }}</button>
     </form>
+    {% if may_upload %}<button type="button" class="lat-btn lat-btn--primary lat-btn--sm" data-pick-upload-toggle aria-expanded="false" aria-controls="lat-pick-upload"><span class="lat-btn__icon">{{ shell.icon("upload")|safe }}</span>{{ shell.t("Upload") }}</button>{% endif %}
   </div>
+  {% if may_upload %}
+  <form class="lat-pick__upload" id="lat-pick-upload" method="post" action="{{ upload_url }}" enctype="multipart/form-data" data-upload-stay hidden>
+    <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+    {% if let Some(f) = folder %}<input type="hidden" name="folder" value="{{ f }}">{% endif %}
+    {% let upload_id = "lat-pick-files" %}
+    {% let upload_accept = "" %}
+    {% let upload_multiple = true %}
+    {% let upload_url = upload_url %}
+    {% let upload_direct = upload_direct %}
+    {% let upload_fields = upload_fields %}
+    {% let upload_hint = upload_hint %}
+    {% include "_upload.html" %}
+  </form>
+  {% endif %}
   {% if folders.is_empty() && files.is_empty() %}
   <div class="lat-media-empty">{% if q.is_empty() %}{{ shell.t("No files here yet.") }}{% else %}{{ shell.t("Nothing matches.") }}{% endif %}</div>
   {% else %}

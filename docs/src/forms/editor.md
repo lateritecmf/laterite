@@ -2,6 +2,7 @@
 
 A module adds entries to the Insert menu of the rich and markdown editors: a
 command that inserts fixed content, or a snippet with properties the user fills.
+The editors show the Insert button once at least one command or snippet exists.
 
 ## Add a command
 

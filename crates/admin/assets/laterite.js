@@ -690,7 +690,9 @@ document.addEventListener('htmx:sendError', latRequestFailed);
 // each picked or dropped file itself, one request per file, with the request
 // token first in the body as the upload guard requires and data-upload-fields
 // ("folder=3") before the file; a row per file shows progress and the outcome,
-// and the page reloads once every file is stored. Without the URL it is the
+// and the page reloads once every file is stored, unless the uploader sits in
+// a `[data-upload-stay]` container (the picker), which takes the `upload:done`
+// event and its `stored` ids instead. Without the URL it is the
 // styled field of an ordinary form: it names what was picked and the form
 // submits as it always did.
 window.lat.widget('upload', function (root) {
@@ -706,6 +708,8 @@ window.lat.widget('upload', function (root) {
   };
   var pending = 0;
   var failures = 0;
+  var storedIds = [];
+  var stay = !!root.closest('[data-upload-stay]');
 
   function size(n) {
     if (n < 1024) return n + ' B';
@@ -725,15 +729,18 @@ window.lat.widget('upload', function (root) {
     return li;
   }
 
-  function finish(li, ok, text) {
+  function finish(li, ok, text, id) {
+    if (ok && id) storedIds.push(String(id));
     li.classList.add(ok ? 'is-done' : 'is-failed');
     li.querySelector('.lat-upload__status').textContent = text;
     if (!ok) failures += 1;
     pending -= 1;
     window.lat.emit(root, ok ? 'upload:stored' : 'upload:failed', { name: li.querySelector('.lat-upload__name').textContent, reason: text });
     if (pending === 0) {
-      window.lat.emit(root, 'upload:done', { failed: failures });
-      if (failures === 0) setTimeout(function () { location.reload(); }, 350);
+      window.lat.emit(root, 'upload:done', { failed: failures, stored: storedIds.slice() });
+      if (failures === 0 && !stay) setTimeout(function () { location.reload(); }, 350);
+      storedIds = [];
+      failures = 0;
     }
   }
 
@@ -756,7 +763,7 @@ window.lat.widget('upload', function (root) {
       try { out = JSON.parse(xhr.responseText); } catch (e) { out = null; }
       var stored = out && out.stored && out.stored[0];
       var refused = out && out.refused && out.refused[0];
-      if (xhr.status === 200 && stored) finish(li, true, words.stored);
+      if (xhr.status === 200 && stored) finish(li, true, words.stored, stored.id);
       else finish(li, false, (refused && refused.reason) || words.failed);
     });
     xhr.addEventListener('error', function () { finish(li, false, words.failed); });
@@ -802,7 +809,7 @@ window.lat.widget('upload', function (root) {
             .then(function (out) {
               var stored = out && out.stored && out.stored[0];
               var refused = out && out.refused && out.refused[0];
-              if (stored) finish(li, true, words.stored);
+              if (stored) finish(li, true, words.stored, stored.id);
               else finish(li, false, (refused && refused.reason) || words.failed);
             })
             .catch(function () { finish(li, false, words.failed); });
@@ -873,6 +880,27 @@ window.lat.widget('upload', function (root) {
 // fragment. Folder links and the search inside the fragment refetch it; a
 // tile click chooses (one file closes the dialog, several toggle and a
 // footer button confirms). With no script the hidden input keeps its ids.
+// The editors' Insert menu (`/editor/menu?surface=...`): asked once a page per
+// surface, so every editor on it learns whether there is anything to insert
+// from one request. The Insert button stays hidden while the menu is empty.
+(function () {
+  var asked = {};
+  window.lat.editorMenu = function (url) {
+    if (!url) return Promise.resolve({ commands: [], snippets: [] });
+    asked[url] = asked[url] || fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .catch(function () { return {}; });
+    return asked[url];
+  };
+  window.lat.revealInsert = function (root, button) {
+    if (!button) return;
+    window.lat.editorMenu(root.getAttribute('data-menu')).then(function (menu) {
+      var any = (menu.commands && menu.commands.length) || (menu.snippets && menu.snippets.length);
+      button.hidden = !any;
+    });
+  };
+})();
+
 // The library picker: a dialog that browses the media library through the
 // `/media/pick` fragments (folders, search, kind) and hands the chosen files
 // to `onDone(items)`, each `{ id, name, kind, thumb, url, is_image }`. One
@@ -906,6 +934,15 @@ window.lat.mediaPicker = function (opts) {
     document.body.appendChild(dialog);
     dialog.addEventListener('click', function (e) {
       if (!e.target.closest) return;
+      var toggle = e.target.closest('[data-pick-upload-toggle]');
+      if (toggle) {
+        var panel = dialog.querySelector('#lat-pick-upload');
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+        if (!panel.hidden) { var input = panel.querySelector('input[type=file]'); if (input) input.click(); }
+        return;
+      }
       var go = e.target.closest('[data-pick-go]');
       if (go) { e.preventDefault(); show(go.getAttribute('href')); return; }
       var file = e.target.closest('[data-pick-file]');
@@ -924,6 +961,13 @@ window.lat.mediaPicker = function (opts) {
         chosen = on ? chosen.filter(function (c) { return c.id !== item.id; }) : chosen.concat([item]);
       }
     });
+    // Files uploaded from the picker: the folder is shown again with the new
+    // files marked and the first one focused, ready to be chosen.
+    dialog.addEventListener('lat:upload:done', function (e) {
+      var ids = (e.detail && e.detail.stored) || [];
+      if (!ids.length) return;
+      show(current, ids);
+    });
     dialog.addEventListener('submit', function (e) {
       var form = e.target.closest ? e.target.closest('[data-pick-search]') : null;
       if (!form) return;
@@ -933,12 +977,21 @@ window.lat.mediaPicker = function (opts) {
     });
     return dialog;
   }
-  function show(url) {
+  var current = null;
+  function show(url, fresh) {
     var body = box().querySelector('[data-pick-body]');
+    current = url;
     fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { return r.text(); })
       .then(function (html) {
         body.innerHTML = html;
+        if (window.lat.scan) window.lat.scan(body);
+        (fresh || []).forEach(function (id, i) {
+          var tile = body.querySelector('[data-pick-file][data-id="' + id + '"]');
+          if (!tile) return;
+          tile.classList.add('is-new');
+          if (i === 0) { tile.focus(); tile.scrollIntoView({ block: 'nearest' }); }
+        });
         // Tiles already chosen stay marked across folder changes.
         chosen.forEach(function (c) {
           var el = body.querySelector('[data-pick-file][data-id="' + c.id + '"]');

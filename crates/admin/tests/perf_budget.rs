@@ -23,8 +23,8 @@ const SESSION_COOKIE: &str = "laterite_session";
 /// `(key, measured, budget)`. Measured 2026-11-08; raise a budget in the same
 /// commit that knowingly grows the asset.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 84_954, 92_000),
-    ("laterite.js", 106_229, 110_000),
+    ("laterite.css", 85_214, 92_000),
+    ("laterite.js", 108_681, 110_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];

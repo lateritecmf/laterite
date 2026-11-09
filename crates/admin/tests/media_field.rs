@@ -238,6 +238,12 @@ async fn the_field_renders_and_its_picker_offers_the_library() {
             && !fragment.contains("<html"),
         "{fragment}"
     );
+    assert!(
+        fragment.contains("data-pick-upload-toggle")
+            && fragment.contains("data-upload-stay")
+            && fragment.contains(r#"data-upload-url="/admin/media/upload""#),
+        "the picker uploads in place for someone who may upload: {fragment}"
+    );
 
     let (status, json) = get(&app, &format!("/admin/media/resolve?ids={a},999"), &token).await;
     assert_eq!(status, StatusCode::OK);

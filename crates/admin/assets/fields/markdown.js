@@ -364,6 +364,7 @@
     function set(text) { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }); }
     if (form) form.addEventListener('reset', function () { setTimeout(function () { set(area.defaultValue); }, 0); });
     root.classList.add('is-ready');
+    if (window.lat.revealInsert) window.lat.revealInsert(root, root.querySelector('[data-md-cmd="insert"]'));
     if (side) render();
     window.lat.emit(root, 'markdown:ready', {});
     return {

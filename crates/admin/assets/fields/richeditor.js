@@ -492,6 +492,7 @@
     area.hidden = true;
     if (form) form.addEventListener('reset', function () { setTimeout(function () { editor.commands.setContent(area.defaultValue); }, 0); });
     root.classList.add('is-ready');
+    if (window.lat.revealInsert) window.lat.revealInsert(root, buttons.insert);
     refresh();
     window.lat.emit(root, 'richeditor:ready', {});
     return {
