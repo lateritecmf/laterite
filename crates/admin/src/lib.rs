@@ -92,7 +92,7 @@ use axum::routing::{any, get, post};
 use axum::{Extension, Form, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono_tz::{Tz, TZ_VARIANTS};
-use laterite_auth::{AuthService, AuthenticatedUser, NewOperator, PermissionSet, RequestContext};
+use laterite_auth::{AuthService, NewOperator, PermissionSet, RequestContext};
 use laterite_core::{t, CatalogStore, Db, Text, Translator};
 use serde::{Deserialize, Serialize};
 
@@ -1476,6 +1476,10 @@ pub struct Permission {
     pub renamed_from: Vec<String>,
 }
 
+/// The signed-in operator a module's handler extracts
+/// (`Extension<AuthenticatedUser>`) and hands to [`routes::RouteCtx::audit`],
+/// re-exported so a plugin needs no `laterite-auth` dependency of its own.
+pub use laterite_auth::AuthenticatedUser;
 pub use laterite_auth::{ROLE_ADMIN, ROLE_EDITOR};
 
 impl Permission {

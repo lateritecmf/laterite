@@ -23,6 +23,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   without `update` the form opens read-only. Form actions and `Shell::allows` take grants too.
 - A module registers a command with `CommandReg`; the application runs it as `<app> <name>`,
   and `lat <name>` forwards to it (`lat help-app` lists them).
+- `laterite_admin::AuthenticatedUser` is re-exported for a module's handlers and
+  `RouteCtx::audit`, so a plugin needs no `laterite-auth` dependency of its own.
 
 ### Fixed
 
