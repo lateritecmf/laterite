@@ -27,6 +27,8 @@ Command | Description | Options | Example
 --- | --- | --- | ---
 `serve` | Run this application, or preview a static website's theme folder, optionally overriding the address. | `--host <HOST>`, `--port <PORT>`, `--listen <HOST:PORT>`, `--release`: build and run optimised. | `lat serve --port 3000`
 `doctor` | Check that this application is set up to run. | None. | `lat doctor`
+`help-app` | List the application's commands, its modules' included. | None. | `lat help-app`
+any other | Run the application's command of that name, added by a module ([Console Commands](../plugins/console-commands.md)). | The command's own. | `lat pdf check`
 `routes` | List every URL the application answers: method, path, kind, owner, permission. | `--path <TEXT>`, `--method <GET\|POST\|QUERY>`, `--kind <resource\|screen\|settings\|public\|page\|framework>`, `--owner <MODULE>`, `--permission <CODE>`, `--public`: keep matching rows, combined. `--json`: print JSON. `--release`. `-p <PACKAGE>`: the binary's package in a workspace. | `lat routes --path events --method POST`
 
 ## Local domains

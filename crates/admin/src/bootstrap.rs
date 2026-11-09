@@ -241,8 +241,10 @@ impl Bootstrap {
     /// (the default, as [`Bootstrap::serve`]), `admin` (serve, and open the
     /// admin in the browser), `queue work [--once] [--stop-when-empty]
     /// [--queue a,b]` (a worker alone) or `schedule run [--once]` (the ticker
-    /// alone). The scaffolded `main` calls this, so `lat queue work` and
-    /// `lat schedule run` have something to run.
+    /// alone). `help` lists the commands, and any other word runs the module
+    /// command registered under it ([`laterite_core::CommandReg`]). The
+    /// scaffolded `main` calls this, so `lat queue work`, `lat schedule run`
+    /// and a module's `lat <name>` have something to run.
     ///
     /// A static website (`[theme] folder` in the config) takes `build
     /// [--out DIR] [--base-url URL]` to render itself, and `serve` (the
@@ -267,9 +269,8 @@ impl Bootstrap {
             Some("schedule") if args.get(1).map(String::as_str) == Some("run") => {
                 self.prepare().await?.tick(&args[2..]).await
             }
-            Some(other) => anyhow::bail!(
-                "unknown command `{other}`: the application takes `serve` (the default), `admin`, `routes`, `seed`, `build`, `publish`, `queue work` or `schedule run`"
-            ),
+            Some("help") | Some("--help") | Some("-h") => self.prepare().await?.help(),
+            Some(other) => self.prepare().await?.command(other, &args[1..]).await,
         }
     }
 
@@ -965,6 +966,7 @@ impl Bootstrap {
             app = extend(app, &ctx);
         }
 
+        check_commands(&static_site.plugin_defined)?;
         let admin_path = normalize_path(&config.backend.path);
         Ok(Prepared {
             app,
@@ -1270,6 +1272,60 @@ impl Prepared {
             println!("Seeded {name}");
         }
         Ok(())
+    }
+
+    /// The commands the binary answers: its own, then every module's.
+    fn help(self) -> anyhow::Result<()> {
+        println!("Commands:");
+        for (name, about) in [
+            ("serve", "Serve the application (the default)"),
+            ("admin", "Serve, and open the admin in the browser"),
+            ("routes", "Every URL the application answers"),
+            ("seed [module]", "Run the modules' seeders"),
+            ("build", "Render the static site"),
+            ("publish", "Publish the static site"),
+            ("queue work", "Run a queue worker"),
+            ("schedule run", "Run the schedule"),
+        ] {
+            println!("  {name:<16} {about}");
+        }
+        let regs = self
+            .static_site
+            .plugin_defined
+            .items::<laterite_core::CommandReg>();
+        if !regs.is_empty() {
+            println!("\nFrom modules:");
+            let en = laterite_core::Translator::new("en");
+            for reg in regs {
+                println!("  {:<16} {}", reg.name, en.t(&reg.about));
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs the module command `name` with `args`.
+    async fn command(self, name: &str, args: &[String]) -> anyhow::Result<()> {
+        let regs = self
+            .static_site
+            .plugin_defined
+            .items::<laterite_core::CommandReg>();
+        let Some(reg) = regs.iter().find(|r| r.name == name) else {
+            let mut known: Vec<&str> = laterite_core::command::RESERVED.to_vec();
+            known.extend(regs.iter().map(|r| r.name.as_str()));
+            anyhow::bail!(
+                "unknown command `{name}`; the application takes {}",
+                known.join(", ")
+            );
+        };
+        let cx = laterite_core::CommandCx::new(
+            &self.db,
+            &self.static_site.plugin_defined,
+            &self.storage_dir,
+        );
+        reg.command
+            .run(&cx, args)
+            .await
+            .map_err(|e| anyhow::anyhow!("{name}: {e}"))
     }
 
     async fn print_routes(self, args: &[String]) -> anyhow::Result<()> {
@@ -1622,4 +1678,22 @@ async fn signing_key(db: &laterite_core::Db, configured: Option<&str>) -> anyhow
     let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
     crate::settings::store::set(db, SIGNING_KEY, &serde_json::Value::String(hex)).await?;
     Ok(key)
+}
+
+/// Refuses a module command whose name is reserved, malformed or taken twice.
+fn check_commands(registry: &laterite_core::Registry) -> anyhow::Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for reg in registry.items::<laterite_core::CommandReg>() {
+        if !laterite_core::command::valid_name(&reg.name) {
+            anyhow::bail!(
+                "a module registers the command `{}`: a command is one lowercase word the application does not answer itself ({})",
+                reg.name,
+                laterite_core::command::RESERVED.join(", ")
+            );
+        }
+        if !seen.insert(reg.name.clone()) {
+            anyhow::bail!("two modules register the command `{}`", reg.name);
+        }
+    }
+    Ok(())
 }

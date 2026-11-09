@@ -21,6 +21,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
   item with tabs; `[backend.menu]` moves a section into Settings or back to the top bar.
 - `permissions: { create, update, delete }` on a resource asks each write for its own grant;
   without `update` the form opens read-only. Form actions and `Shell::allows` take grants too.
+- A module registers a command with `CommandReg`; the application runs it as `<app> <name>`,
+  and `lat <name>` forwards to it (`lat help-app` lists them).
 
 ### Fixed
 

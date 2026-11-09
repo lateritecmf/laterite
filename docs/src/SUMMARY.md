@@ -67,6 +67,7 @@
 - [Writing a Plugin](plugins/writing-a-plugin.md)
 - [Installing Plugins](plugins/installing.md)
 - [Resource Features and Hooks](plugins/resource-hooks.md)
+- [Console Commands](plugins/console-commands.md)
 
 # Screens and Routes
 

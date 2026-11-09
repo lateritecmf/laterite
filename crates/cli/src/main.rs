@@ -16,6 +16,7 @@ mod cache;
 mod crypt;
 mod doctor;
 mod domain;
+mod external;
 mod i18n;
 mod key;
 mod mail;
@@ -32,7 +33,12 @@ mod serve;
 mod theme;
 
 #[derive(Parser)]
-#[command(name = "lat", version, about = "The Laterite command-line tool")]
+#[command(
+    name = "lat",
+    version,
+    about = "The Laterite command-line tool",
+    after_help = "Any other command runs the application's own, added by its modules (`lat pdf check`). `lat help-app` lists them."
+)]
 struct Cli {
     /// Database connection URL (Postgres, MySQL, or SQLite). Falls back to the
     /// DATABASE_URL environment variable, then to the configuration of the
@@ -122,6 +128,10 @@ enum Command {
         #[command(subcommand)]
         command: mail::MailCommand,
     },
+    /// Any other command runs the application's own, from its modules
+    /// (`lat pdf check`); `lat help-app` lists them.
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Subcommand)]
@@ -199,6 +209,12 @@ async fn main() -> Result<()> {
         Command::Queue { command } => queue::run(command, cli.database_url).await,
         Command::Schedule { command } => schedule::run(command, cli.database_url).await,
         Command::Mail { command } => mail::run(command, cli.database_url).await,
+        Command::External(mut args) => {
+            if args.first().map(String::as_str) == Some("help-app") {
+                args[0] = "help".into();
+            }
+            external::run(args)
+        }
     }
 }
 
