@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-10
+
+### Breaking
+
+- `laterite_media::Kind` gains `Font` (`Kind::ALL` now holds six) and the media field's `MediaMode`
+  gains `Font`: an exhaustive `match` on either needs the new arm.
+
 ### Added
 
 - A library file can be private: ticked on upload, or Make private and Make public on its page;

@@ -1110,6 +1110,14 @@ msgstr ""
 msgid "Mail templates"
 msgstr ""
 
+#: templates/media_file_actions.html
+msgid "Make private"
+msgstr ""
+
+#: templates/media_file_actions.html
+msgid "Make public"
+msgstr ""
+
 #: src/widgets.rs
 msgid "Manage"
 msgstr ""
@@ -1450,6 +1458,10 @@ msgstr ""
 msgid "Page {page} of {pages}"
 msgstr ""
 
+#: templates/base.html
+msgid "Pages"
+msgstr ""
+
 #: (descriptors)
 msgid "Panel background"
 msgstr ""
@@ -1553,6 +1565,14 @@ msgstr ""
 #: templates/media.html
 #: templates/media_pick.html
 msgid "Previous"
+msgstr ""
+
+#: templates/media.html
+msgid "Private"
+msgstr ""
+
+#: templates/media.html
+msgid "Private: served only through signed links, never at a public address"
 msgstr ""
 
 #: templates/plugins.html
@@ -2208,6 +2228,14 @@ msgstr ""
 msgid "The file is larger than {limit} MB."
 msgstr ""
 
+#: src/medialib/mod.rs
+msgid "The file is private: it serves only at signed links."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "The file is public."
+msgstr ""
+
 #: templates/import/index.html
 #: templates/import/match.html
 msgid "The first row holds the column titles"
@@ -2602,6 +2630,10 @@ msgstr ""
 
 #: templates/base.html
 msgid "You are here"
+msgstr ""
+
+#: templates/_form_fields.html
+msgid "You can view this record but not change it."
 msgstr ""
 
 #: templates/users_form.html

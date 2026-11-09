@@ -5,7 +5,7 @@ into a directory any static host serves.
 
 ```toml
 [dependencies]
-laterite-web = "0.9"
+laterite-web = "0.10"
 ```
 
 Type | Role

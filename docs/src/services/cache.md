@@ -53,7 +53,7 @@ Key | Description
 
 ```toml
 [dependencies]
-laterite-core = { version = "0.9", features = ["redis"] }
+laterite-core = { version = "0.10", features = ["redis"] }
 ```
 
 Store | Values | Generations and locks
