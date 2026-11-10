@@ -3045,6 +3045,7 @@ struct RefPickerTmpl<'a> {
     search_url: &'a str,
     resolve_url: &'a str,
     placeholder: &'a str,
+    label: &'a str,
 }
 
 /// A picker over a reference to another record: stores that record's id, shows
@@ -3188,6 +3189,7 @@ impl FieldType for RefPickerField {
             search_url: &data.search_url,
             resolve_url: &data.resolve_url,
             placeholder: &data.placeholder,
+            label: &vm.label,
         })
         .unwrap_or_default()
     }

@@ -6,3 +6,6 @@
 .lat-refpicker__item{padding:8px 10px;border-radius:var(--radius-sm);font-size:var(--fs-13);color:var(--text-body);cursor:pointer}
 .lat-refpicker__item:hover,.lat-refpicker__item.is-active{background:var(--accent-quiet);color:var(--accent)}
 .lat-refpicker select[hidden]{display:none}
+.lat-refpicker__box{display:flex;align-items:center;white-space:nowrap;overflow:hidden;cursor:text}
+.lat-refpicker__box:empty::before{content:attr(data-placeholder);color:var(--text-subtle);pointer-events:none}
+.lat-refpicker__box br{display:none}

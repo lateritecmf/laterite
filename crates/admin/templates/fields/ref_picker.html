@@ -1,6 +1,8 @@
 <div class="lat-refpicker" data-lat-widget="ref-picker" data-lat-enter-scope data-search="{{ search_url }}" data-resolve="{{ resolve_url }}">
   <input type="hidden" name="{{ name }}" value="{{ value }}" data-refpicker-id>
-  <input class="lat-input" type="text" id="{{ id }}" autocomplete="off" placeholder="{{ placeholder }}" data-refpicker-search>
+  {# Editable text, not an input: password managers offer sign-ins on inputs
+     that look like a username and ignore every attribute that says otherwise. #}
+  <span class="lat-input lat-refpicker__box" id="{{ id }}" contenteditable="plaintext-only" spellcheck="false" tabindex="0" role="combobox" aria-label="{{ label }}" data-placeholder="{{ placeholder }}" data-refpicker-search></span>
   <span class="lat-refpicker__caret" aria-hidden="true">&#9660;</span>
   <ul class="lat-refpicker__menu" data-refpicker-menu hidden></ul>
 </div>

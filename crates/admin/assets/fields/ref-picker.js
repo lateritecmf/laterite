@@ -15,6 +15,22 @@
   // `source.search(query, done)` hands `done` an array of `{ id, label, hint }`;
   // `source.resolve(id, done)` hands it the one item, or null. `source.choose`
   // and `source.clear` write the choice wherever the form reads it.
+  // The box is an input, or an editable span: the record picker uses a span,
+  // because password managers offer sign-ins on any input that resembles a
+  // username, whatever its attributes say, and leave editable text alone.
+  function read(box) { return box.isContentEditable ? box.textContent : box.value; }
+  function write(box, text) {
+    if (box.isContentEditable) box.textContent = text; else box.value = text;
+  }
+  function selectAll(box) {
+    if (!box.isContentEditable) { box.select(); return; }
+    var range = document.createRange();
+    range.selectNodeContents(box);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
   function typeahead(root, source) {
     var search = root.querySelector('[data-refpicker-search]');
     var menu = root.querySelector('[data-refpicker-menu]');
@@ -25,6 +41,11 @@
     var items = [];
 
     menu.id = menu.id || ('lat-menu-' + (++ids));
+    // A label cannot focus a span by itself.
+    if (search.isContentEditable && search.id) {
+      var label = document.querySelector('label[for="' + search.id + '"]');
+      if (label) label.addEventListener('click', function () { search.focus(); });
+    }
     search.setAttribute('role', 'combobox');
     search.setAttribute('aria-autocomplete', 'list');
     search.setAttribute('aria-expanded', 'false');
@@ -61,7 +82,7 @@
       var previous = currentId;
       currentId = String(item.id);
       currentLabel = item.label;
-      search.value = item.label;
+      write(search, item.label);
       closeMenu();
       source.choose(item, previous);
     }
@@ -71,7 +92,7 @@
       if (!previous) return;
       currentId = '';
       currentLabel = '';
-      search.value = '';
+      write(search, '');
       closeMenu();
       source.clear(previous);
     }
@@ -129,7 +150,7 @@
       source.resolve(currentId, function (item) {
         if (!item) return;
         currentLabel = item.label;
-        search.value = item.label;
+        write(search, item.label);
       });
     }
 
@@ -137,18 +158,18 @@
     // Focusing opens the list (a searchable dropdown, not just autocomplete) and
     // selects the shown label so typing replaces it.
     search.addEventListener('focus', function () {
-      search.select();
+      selectAll(search);
       runSearch('');
     });
     search.addEventListener('input', function () {
       clearTimeout(timer);
-      var q = search.value.trim();
+      var q = read(search).trim();
       timer = setTimeout(function () { runSearch(q); }, source.delay || 0);
     });
     search.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (menu.hidden) runSearch(search.value.trim()); else highlight(active + 1);
+        if (menu.hidden) runSearch(read(search).trim()); else highlight(active + 1);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (!menu.hidden) highlight(active - 1);
@@ -159,6 +180,8 @@
         e.preventDefault();
         highlight(items.length - 1);
       } else if (e.key === 'Enter') {
+        // An editable span would take Enter as a new line; it stays one line.
+        if (search.isContentEditable) e.preventDefault();
         if (menu.hidden) return;
         e.preventDefault();
         var pick = items[active >= 0 ? active : 0];
@@ -168,7 +191,7 @@
         // a half-typed query never lingers; the rest of the page hears it too.
         if (!menu.hidden) e.stopPropagation();
         closeMenu();
-        search.value = currentLabel;
+        write(search, currentLabel);
       }
     });
 
@@ -178,7 +201,7 @@
     search.addEventListener('blur', function () {
       setTimeout(function () {
         closeMenu();
-        if (search.value.trim() === '') clear(); else search.value = currentLabel;
+        if (read(search).trim() === '') clear(); else write(search, currentLabel);
       }, 150);
     });
 
