@@ -58,6 +58,8 @@ pub use laterite_macros::{t, tn, tp};
 pub use listeners::{Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps};
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
+/// The template engine of mail and themes, at the framework's version.
+pub use minijinja;
 pub use model::Model;
 pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};
 pub use query::AnyRowExt;
@@ -68,6 +70,16 @@ pub use record::{
 pub use registry::{ContributeMode, ContributeOpts, Contribution, Registry};
 pub use schedule::Schedule;
 pub use scope::{QueryHook, QueryHookReg, ScopeCx, SoftDelete};
+/// The query and schema builder, at the framework's version
+/// (`use laterite_core::sea_query;`, which also serves `#[derive(Iden)]`).
+pub use sea_query;
 pub use seed::{Seeder, SeederSet};
+/// JSON values, at the framework's version: descriptor data, events, component
+/// data and settings all carry them.
+pub use serde_json;
 pub use site::{SiteContext, SiteFile};
+/// The database driver, at the version the framework is built with. A plugin
+/// reaches it here (`laterite_core::sqlx`) so its pools and rows are the
+/// framework's own types.
+pub use sqlx;
 pub use validation::{validate, validate_fields, ErrorBag, FieldRules, Mode, Rule};

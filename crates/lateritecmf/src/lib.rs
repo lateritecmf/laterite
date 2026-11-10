@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! lateritecmf = { version = "0.9", features = ["postgres"] }
+//! lateritecmf = { version = "0.10", features = ["postgres"] }
 //! ```
 //!
 //! ```rust,ignore
@@ -22,8 +22,16 @@
 //! A plugin depends on the crates it uses directly (`laterite-core`,
 //! `laterite-admin`), which keeps its dependency light; the umbrella is for the
 //! application that assembles them.
+//!
+//! The crates whose types cross between the framework, plugins and the
+//! application are re-exported at the root (`lateritecmf::sqlx`,
+//! `lateritecmf::sea_query`, `lateritecmf::serde_json`, `lateritecmf::minijinja`,
+//! `lateritecmf::axum`), so everything shares the framework's versions.
 
 #![warn(missing_docs)]
+
+pub use laterite_admin::axum;
+pub use laterite_core::{minijinja, sea_query, serde_json, sqlx};
 
 /// The platform library: config, the database, migrations, the record layer,
 /// events, validation, localization, modules and the registry.

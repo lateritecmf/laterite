@@ -342,6 +342,12 @@ mod tests {
         let plugin_dir = plugin.path().join("site-plugin");
         let cargo = fs::read_to_string(plugin_dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("static = true"), "{cargo}");
+        for shared in ["\nsqlx", "\nsea-query", "\nserde_json", "\nminijinja"] {
+            assert!(
+                !cargo.contains(shared),
+                "comes through laterite-core: {cargo}"
+            );
+        }
         let lib = fs::read_to_string(plugin_dir.join("src/lib.rs")).unwrap();
         assert!(lib.contains("fn supports_static(&self) -> bool"), "{lib}");
         assert!(
@@ -378,7 +384,10 @@ mod tests {
         );
         let cargo = fs::read_to_string(plugin_dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("laterite-web = "), "{cargo}");
-        assert!(cargo.contains("serde_json = \"1\""), "{cargo}");
+        assert!(
+            !cargo.contains("\nserde_json"),
+            "through laterite-core: {cargo}"
+        );
 
         let migration =
             fs::read_to_string(src.join("migrations").join("m0001_create_articles.rs")).unwrap();
@@ -549,14 +558,9 @@ plugin = "{id}"
 # its own [patch.crates-io].
 laterite-core = "{req}"
 laterite-admin = "{req}"
-# The schema identifier enums use sea-query's `Iden` derive, whose generated code
-# names the crate directly.
-sea-query = {{ version = "0.32", features = ["derive"] }}
-sqlx = {{ version = "0.8", default-features = false, features = [
-    "runtime-tokio",
-    "tls-rustls",
-    "any",
-] }}
+# sqlx, sea-query, serde_json and minijinja come through laterite-core
+# (`laterite_core::sea_query`, or `use laterite_core::strata::*;`), at the
+# framework's versions; listing them here could split their types in two.
 chrono = {{ version = "0.4", default-features = false, features = ["clock"] }}
 
 [dev-dependencies]
@@ -1091,9 +1095,6 @@ fn add_dependencies(manifest: &Path) -> Result<()> {
     if !toml.contains("\nlaterite-web") {
         lines.push(format!("laterite-web = \"{req}\""));
     }
-    if !toml.contains("\nserde_json") {
-        lines.push("serde_json = \"1\"".to_string());
-    }
     if lines.is_empty() {
         return Ok(());
     }
@@ -1156,8 +1157,9 @@ use laterite_web::theme::component::{{
     Component, ComponentContext, ComponentOutput, ComponentReg, PropertyDef, PropertyKind,
 }};
 use laterite_web::theme::ThemeError;
-use sea_query::{{Alias, Expr, Order, Query}};
-use serde_json::{{json, Map, Value}};
+use laterite_core::sea_query::{{Alias, Expr, Order, Query}};
+use laterite_core::serde_json::{{json, Map, Value}};
+use laterite_core::sqlx;
 
 /// The columns a template reads, in the form's order.
 const COLUMNS: &[&str] = &[

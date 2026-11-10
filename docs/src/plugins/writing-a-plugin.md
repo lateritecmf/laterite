@@ -38,6 +38,26 @@ Error: acme-legacy needs laterite-core ^0.2, and this application is on 0.5.0.
 Never declare the framework by path. An application on a local checkout maps
 it with `[patch.crates-io]`, which `lat new` writes in development mode.
 
+## Use the framework's crates
+
+```rust
+use laterite_core::sea_query::{self, Alias, Expr, Iden, Query};
+use laterite_core::serde_json::json;
+use laterite_core::{minijinja, sqlx};
+use laterite_admin::axum::Router;
+```
+
+Crate | Reach it at
+--- | ---
+`sqlx` | `laterite_core::sqlx`
+`sea-query` | `laterite_core::sea_query` (with `use`, `#[derive(Iden)]` works)
+`serde_json` | `laterite_core::serde_json`
+`minijinja` | `laterite_core::minijinja`
+`axum` | `laterite_admin::axum`
+`serde` | a dependency of the plugin's own: `serde = { version = "1", features = ["derive"] }`
+
+`lat plugin sync` warns when a plugin lists one of the first five itself.
+
 ## Expose the module
 
 At the crate root:

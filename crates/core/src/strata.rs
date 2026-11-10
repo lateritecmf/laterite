@@ -18,6 +18,9 @@ pub use crate::query::{
     on_conflict_ignore, text_cast, AnyRowExt,
 };
 pub use crate::scope::soft_delete_col;
+/// The query builder and the driver crates themselves, at the framework's
+/// versions, so `#[derive(Iden)]` and `sqlx::query` resolve through this import.
+pub use crate::{sea_query, sqlx};
 pub use crate::{Db, DbBackend};
 
 // Common `sea-query` items for building DDL and queries, re-exported so a
