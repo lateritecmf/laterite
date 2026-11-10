@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-10
+
 ### Added
 
 - `laterite_core` re-exports `sqlx`, `sea_query`, `serde_json` and `minijinja`, and `lateritecmf`
