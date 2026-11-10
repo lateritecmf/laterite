@@ -11,7 +11,7 @@ version, and reaches everything through one path.
 
 ```toml
 [dependencies]
-lateritecmf = { version = "0.9", features = ["postgres"] }
+lateritecmf = { version = "0.10", features = ["postgres"] }
 ```
 
 ```rust
@@ -26,6 +26,11 @@ async fn main() -> anyhow::Result<()> {
 A plugin depends on the crates it uses directly (`laterite-core`,
 `laterite-admin`), which keeps its dependency light; the umbrella is for the
 application that assembles them.
+
+The crates whose types cross between the framework, plugins and the
+application are re-exported at the root (`lateritecmf::sqlx`,
+`lateritecmf::sea_query`, `lateritecmf::serde_json`, `lateritecmf::minijinja`,
+`lateritecmf::axum`), so everything shares the framework's versions.
 
 ## Part of Laterite
 
