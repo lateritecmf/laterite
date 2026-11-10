@@ -68,7 +68,7 @@ made a hyphen, and reading as its entry under `labels`.
 ```yaml
 columns:
   website:   { type: link, new_tab: true }
-  instagram: { type: link, url: "https://www.instagram.com/{value}/", icon: "acme.social:instagram", text: "", new_tab: true }
+  instagram: { type: link, icon: instagram, text: "@{value|handle}", new_tab: true }
   order:     { type: link, url: "acme/orders/{id}/edit", text: "Open {code}" }
 ```
 
@@ -76,6 +76,12 @@ Key | Default | Description
 --- | --- | ---
 `url` | the value | The address, with `{value}` for the cell's value, `{id}` for the record's and `{column}` for another column on the list. A value filled in is URL-encoded. An address with no scheme and no leading `/` is under the admin.
 `text` | the value | What the link reads, with the same placeholders. `""` shows the icon alone.
+
+Placeholder | Fills in
+--- | ---
+`{value}`, `{id}`, `{column}` | The value as stored
+`{value\|handle}` | The last part of a link's path, without `@`: `band` from `https://social.acme/@band`
+`{value\|host}` | A link's domain, without `www.`: `acme.com`
 `icon` | none | An icon from the [icon set](../reference/icons.md), before the text.
 `new_tab` | `false` | Opens the address in a new tab.
 

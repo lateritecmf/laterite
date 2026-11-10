@@ -665,7 +665,8 @@ impl ColumnType for LinkColumn {
     }
 }
 
-/// `template` with each `{column}` replaced by that column's value in the row
+/// `template` with each `{column}` replaced by that column's value in the row,
+/// or `{column|handle}` / `{column|host}` by that part of a link
 /// (`{value}` is the cell's own, `{id}` the record's), encoded for a URL when
 /// `encode`. `None` when a placeholder names a column the row lacks or holds
 /// empty, so a half-filled address never becomes a link.
@@ -675,22 +676,45 @@ fn fill(template: &str, cx: &CellCx<'_>, encode: bool) -> Option<String> {
     while let Some(open) = rest.find('{') {
         let close = open + rest[open..].find('}')?;
         out.push_str(&rest[..open]);
-        let name = &rest[open + 1..close];
+        let (name, filter) = match rest[open + 1..close].split_once('|') {
+            Some((name, filter)) => (name.trim(), Some(filter.trim())),
+            None => (rest[open + 1..close].trim(), None),
+        };
         let value = if name == "value" {
             Some(cx.value.trim())
         } else {
             cx.field(name)
         };
         let value = value.filter(|v| !v.is_empty())?;
-        out.push_str(&if encode {
-            url_component(value)
-        } else {
-            value.to_string()
-        });
+        let value = match filter {
+            None => value.to_string(),
+            Some("handle") => url_handle(value)?,
+            Some("host") => url_host(value)?,
+            Some(_) => return None,
+        };
+        out.push_str(&if encode { url_component(&value) } else { value });
         rest = &rest[close + 1..];
     }
     out.push_str(rest);
     Some(out)
+}
+
+/// The last segment of a link's path without a leading `@`: the handle in
+/// `https://social.acme/@band/` or `https://acme.com/in/band`.
+fn url_handle(value: &str) -> Option<String> {
+    let rest = value.split_once("://").map_or(value, |(_, r)| r);
+    let path = rest.split(['?', '#']).next().unwrap_or("");
+    let segment = path.split('/').skip(1).filter(|s| !s.is_empty()).last()?;
+    let handle = segment.trim_start_matches('@');
+    (!handle.is_empty()).then(|| handle.to_string())
+}
+
+/// A link's host without `www.`: `acme.com` from `https://www.acme.com/about`.
+fn url_host(value: &str) -> Option<String> {
+    let rest = value.split_once("://").map(|(_, r)| r)?;
+    let host = rest.split(['/', '?', '#', ':']).next().unwrap_or("");
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// Whether `href` is an address a cell may link to: a web, mail or phone
@@ -4051,6 +4075,20 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("Open ord-1"), "{html}");
+
+        // Filters: the handle and the host of a link.
+        let options = serde_json::json!({ "text": "@{value|handle} on {value|host}" });
+        for url in [
+            "https://www.social.acme/band/",
+            "https://social.acme/@band",
+            "https://social.acme/in/band?x=1",
+        ] {
+            let cx = CellCx::new(url, Tz::UTC, chrono::Locale::en_US).with_options(&options);
+            let html = LinkColumn
+                .render_default(&LinkColumn.view_model(&cx))
+                .into_string();
+            assert!(html.contains("@band on social.acme"), "{url}: {html}");
+        }
 
         // A placeholder the row cannot fill leaves the cell unlinked.
         let options = serde_json::json!({ "url": "acme/orders/{missing}" });
