@@ -9,7 +9,10 @@
 #   * One icon per concept. No `mail` AND `envelope`; no `pencil` AND `pen`.
 #     This single rule does more against bloat than any quota.
 #   * Every group carries its evidence: why these, not someone's taste.
-#   * Out by category: brands, weather, faces, sports, food, animals.
+#   * Out by category: weather, faces, sports, food, animals.
+#   * Brands are in (2026-11-10), as their own group: links to a profile or a
+#     contact channel are on nearly every site, and the outline upstream ships
+#     none. They come from Simple Icons (CC0) and render solid.
 #   * A group past roughly twenty entries is a signal to prune, not to add.
 #
 # `fillable` marks closed shapes that read correctly filled, which is how a
@@ -24,6 +27,8 @@
 
 upstream = "lucide"
 upstream_version = "1.46.0"
+brands_upstream = "simple-icons"
+brands_upstream_version = "16.35.0"
 
 [chrome]
 # The panel's own furniture: every one is rendered by Laterite itself or by a screen it ships.
@@ -271,4 +276,26 @@ icons = [
   "triangle",  # fillable
   "trophy",
   "wrench",
+]
+
+[brands]
+# Profile and contact links: the platforms a site or an admin links people to.
+# LinkedIn is absent because Simple Icons removed it at LinkedIn's request.
+# 15 icons.
+icons = [
+  "apple",
+  "discord",
+  "facebook",
+  "github",
+  "google",
+  "instagram",
+  "pinterest",
+  "soundcloud",
+  "spotify",
+  "telegram",
+  "threads",
+  "tiktok",
+  "whatsapp",
+  "x-twitter",  # from x
+  "youtube",
 ]

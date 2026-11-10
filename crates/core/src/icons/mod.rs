@@ -42,11 +42,14 @@ use std::collections::BTreeMap;
 ///
 /// The SVG must be a `24x24` root element drawing with `currentColor`; see
 /// [`validate`] for what is refused and why.
+#[non_exhaustive]
 pub struct IconReg {
     /// The name within the contributing module, without its namespace.
     pub name: String,
     /// The full `<svg>` element, usually `include_str!` of a file.
     pub svg: String,
+    /// Drawn filled rather than as an outline, as a brand mark is.
+    pub solid: bool,
 }
 
 impl IconReg {
@@ -55,7 +58,14 @@ impl IconReg {
         Self {
             name: name.into(),
             svg: svg.into(),
+            solid: false,
         }
+    }
+
+    /// Draws it filled, as a brand mark is, rather than as an outline.
+    pub fn solid(mut self) -> Self {
+        self.solid = true;
+        self
     }
 }
 
@@ -160,7 +170,14 @@ pub fn validate(svg: &str) -> Result<String, IconError> {
 /// modules contributed.
 pub struct IconSet {
     entries: BTreeMap<String, String>,
-    flags: BTreeMap<String, (bool, bool)>,
+    flags: BTreeMap<String, Flags>,
+}
+
+/// How an icon renders: filled for a state, mirrored under RTL, drawn solid.
+#[derive(Clone, Copy, Default)]
+struct Flags {
+    mirror: bool,
+    solid: bool,
 }
 
 impl Default for IconSet {
@@ -176,7 +193,13 @@ impl IconSet {
         let mut flags = BTreeMap::new();
         for icon in ICONS.iter() {
             entries.insert(icon.name.to_string(), icon.body.to_string());
-            flags.insert(icon.name.to_string(), (icon.fillable, icon.mirror));
+            flags.insert(
+                icon.name.to_string(),
+                Flags {
+                    mirror: icon.mirror,
+                    solid: icon.solid,
+                },
+            );
         }
         Self { entries, flags }
     }
@@ -192,7 +215,13 @@ impl IconSet {
         let body = validate(&reg.svg)?;
         let key = format!("{owner}:{}", reg.name);
         self.entries.insert(key.clone(), body);
-        self.flags.insert(key.clone(), (false, false));
+        self.flags.insert(
+            key.clone(),
+            Flags {
+                mirror: false,
+                solid: reg.solid,
+            },
+        );
         Ok(key)
     }
 
@@ -272,15 +301,26 @@ impl IconSet {
         if !self.has(name) {
             return None;
         }
-        let (_, mirror) = self.flags.get(name).copied().unwrap_or((false, false));
+        let flags = self.flags.get(name).copied().unwrap_or_default();
         let semantics = match label {
             Some(text) => format!(r#" role="img" aria-label="{}""#, escape(text)),
             None => r#" aria-hidden="true" focusable="false""#.to_string(),
         };
-        let data = if mirror { r#" data-mirror="true""# } else { "" };
+        let data = if flags.mirror {
+            r#" data-mirror="true""#
+        } else {
+            ""
+        };
+        // A solid mark is filled by the class, which page CSS styles: the outer
+        // element is where presentation lives (see `sprite`).
+        let class = if flags.solid {
+            "lat-icon lat-icon--solid"
+        } else {
+            "lat-icon"
+        };
         let id = name.replace(':', "--");
         Some(format!(
-            r##"<svg class="lat-icon"{semantics}{data}><use href="{sprite_url}#lat-{id}"/></svg>"##
+            r##"<svg class="{class}"{semantics}{data}><use href="{sprite_url}#lat-{id}"/></svg>"##
         ))
     }
 
@@ -291,16 +331,25 @@ impl IconSet {
     /// meaning, and prefer naming the button around it.
     pub fn inline(&self, name: &str, label: Option<&str>) -> Option<String> {
         let body = self.body(name)?;
-        let (fillable, mirror) = self.flags.get(name).copied().unwrap_or((false, false));
+        let flags = self.flags.get(name).copied().unwrap_or_default();
         let semantics = match label {
             Some(text) => format!(r#" role="img" aria-label="{}""#, escape(text)),
             None => r#" aria-hidden="true" focusable="false""#.to_string(),
         };
-        let data = if mirror { r#" data-mirror="true""# } else { "" };
-        let _ = fillable;
-        Some(format!(
-            r#"<svg class="lat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"{semantics}{data}>{body}</svg>"#
-        ))
+        let data = if flags.mirror {
+            r#" data-mirror="true""#
+        } else {
+            ""
+        };
+        Some(if flags.solid {
+            format!(
+                r#"<svg class="lat-icon lat-icon--solid" viewBox="0 0 24 24" fill="currentColor" stroke="none"{semantics}{data}>{body}</svg>"#
+            )
+        } else {
+            format!(
+                r#"<svg class="lat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"{semantics}{data}>{body}</svg>"#
+            )
+        })
     }
 }
 
@@ -314,6 +363,35 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_brand_mark_renders_solid_and_an_outline_does_not() {
+        let set = IconSet::new();
+        let brand = set.inline("instagram", None).unwrap();
+        assert!(
+            brand.contains(r#"fill="currentColor" stroke="none""#),
+            "{brand}"
+        );
+        assert!(set
+            .use_ref("instagram", "/s.svg", None)
+            .unwrap()
+            .contains("lat-icon--solid"));
+        assert!(!set
+            .use_ref("users", "/s.svg", None)
+            .unwrap()
+            .contains("--solid"));
+        assert!(
+            set.has("x-twitter") && set.has("x"),
+            "the X mark leaves the close icon alone"
+        );
+
+        let mut set = IconSet::new();
+        let svg = r#"<svg viewBox="0 0 24 24"><path d="M1 1h22v22H1z"/></svg>"#;
+        let key = set
+            .add("acme.social", &IconReg::new("mark", svg).solid())
+            .unwrap();
+        assert!(set.inline(&key, None).unwrap().contains("lat-icon--solid"));
+    }
 
     #[test]
     fn the_set_covers_what_the_framework_and_its_plugins_name() {

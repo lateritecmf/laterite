@@ -51,10 +51,11 @@ jobs:
       - name: The icon set must be regenerated and committed
         run: |
           version="$(grep -oE 'upstream_version = "[^"]+"' icons.toml | cut -d'"' -f2)"
-          cd /tmp && npm pack "lucide-static@${version}" >/dev/null 2>&1
-          tar xzf "lucide-static-${version}.tgz"
-          cd - >/dev/null
-          python3 scripts/gen-icons.py /tmp/package
+          brands="$(grep -oE 'brands_upstream_version = "[^"]+"' icons.toml | cut -d'"' -f2)"
+          mkdir -p /tmp/lucide /tmp/simple-icons
+          (cd /tmp/lucide && npm pack "lucide-static@${version}" >/dev/null 2>&1 && tar xzf "lucide-static-${version}.tgz")
+          (cd /tmp/simple-icons && npm pack "simple-icons@${brands}" >/dev/null 2>&1 && tar xzf "simple-icons-${brands}.tgz")
+          python3 scripts/gen-icons.py /tmp/lucide/package /tmp/simple-icons/package
           drift="$(git status --porcelain -- crates/core/src/icons/generated.rs docs/src/reference/icons.md crates/core/NOTICE)"
           if [ -n "$drift" ]; then
             echo "The icon set is stale:" >&2

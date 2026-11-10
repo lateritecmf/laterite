@@ -353,6 +353,7 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 /* Icons reference a shared sprite, so the outer element owns every presentation
    attribute: a symbol carrying its own could not be restyled from here. */
 .lat-icon{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lat-icon--solid{fill:currentColor;stroke:none}
 /* Direction carries meaning for some glyphs and not others; the set says which. */
 [dir="rtl"] .lat-icon[data-mirror]{transform:scaleX(-1)}
 /* A name that did not resolve. Deliberately unlike any real icon. */
