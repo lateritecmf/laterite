@@ -28,7 +28,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
-- List filters are compact `Label: value` pills, so more of them fit on one row.
+- List filters are compact `Label: value` pills set close together, so more of them fit on one row.
 - The admin sidebar fits its titles between `--sidebar-min` (new, 200px) and `--sidebar-w` (now 280px); a longer title ends in an ellipsis.
 
 ## [0.10.1] - 2026-11-10

@@ -532,7 +532,7 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 /* Sits on the table card as its top strip, not as a card of its own: floating it
    above put a second tinted bar directly over the tinted column header, reading
    as a detached copy of it. Radii and the shared border join the two. */
-.lat-filterbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:var(--surface-card);border:1px solid var(--border-subtle);border-bottom:0;border-radius:var(--radius-card) var(--radius-card) 0 0}
+.lat-filterbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:var(--surface-card);border:1px solid var(--border-subtle);border-bottom:0;border-radius:var(--radius-card) var(--radius-card) 0 0}
 .lat-filterbar ~ #lat-list>.lat-tablewrap{border-top-left-radius:0;border-top-right-radius:0}
 .lat-filterbar__filter{display:flex;align-items:center;height:var(--control-h-sm);padding-left:10px;background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);cursor:pointer}
 .lat-filterbar__filter:focus-within{border-color:var(--accent);box-shadow:var(--ring-focus)}
