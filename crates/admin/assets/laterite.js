@@ -2361,6 +2361,43 @@ window.lat.widget('menu-order', function (nav) {
   });
 });
 
+// Top bar overflow: when the sections are wider than the bar, the bar scrolls
+// sideways (trackpad, wheel, touch), a shade marks each edge with more beyond
+// it, and the chevron there pages across. The current section is brought into
+// view on load. Dragging stays the menu-order gesture, so there is no drag-scroll.
+window.lat.widget('topnav-scroll', function (rail) {
+  var nav = rail.querySelector('.lat-topnav__nav');
+  if (!nav) return;
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function update() {
+    var max = nav.scrollWidth - nav.clientWidth;
+    rail.classList.toggle('is-scroll-before', max > 1 && nav.scrollLeft > 1);
+    rail.classList.toggle('is-scroll-after', max > 1 && nav.scrollLeft < max - 1);
+  }
+  nav.addEventListener('scroll', update, { passive: true });
+  nav.addEventListener('wheel', function (e) {
+    if (nav.scrollWidth <= nav.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    nav.scrollLeft += e.deltaY;
+  }, { passive: false });
+  rail.addEventListener('click', function (e) {
+    var step = e.target.closest ? e.target.closest('[data-step]') : null;
+    if (!step) return;
+    var by = Number(step.getAttribute('data-step')) * nav.clientWidth * 0.8;
+    nav.scrollBy({ left: by, behavior: still ? 'auto' : 'smooth' });
+  });
+  nav.addEventListener('focusin', function (e) {
+    if (e.target.scrollIntoView) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+  if (window.ResizeObserver) new ResizeObserver(update).observe(nav);
+  else window.addEventListener('resize', update);
+  var active = nav.querySelector('.is-active');
+  if (active && nav.scrollWidth > nav.clientWidth) {
+    nav.scrollLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
+  }
+  update();
+});
+
 // Command palette: one box that finds a page, a setting or a record and goes
 // there. The search button opens it, as does Ctrl+K (Cmd+K on a Mac); the
 // arrows move, Enter goes, Escape closes. Without scripting the button is a

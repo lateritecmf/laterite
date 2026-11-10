@@ -20,11 +20,11 @@ use tracing_subscriber::Layer;
 const SESSION_COOKIE: &str = "laterite_session";
 
 /// Bytes served for each asset the admin shell loads on every screen, as
-/// `(key, measured, budget)`. Measured 2026-11-08; raise a budget in the same
+/// `(key, measured, budget)`. Measured 2026-11-10; raise a budget in the same
 /// commit that knowingly grows the asset.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 85_214, 92_000),
-    ("laterite.js", 108_681, 110_000),
+    ("laterite.css", 87_527, 92_000),
+    ("laterite.js", 111_091, 114_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];

@@ -169,6 +169,17 @@ async fn the_menu_shows_each_operator_what_they_may_open() {
         ["Dashboard", "Media", "Content", "Orders", "Settings"],
         "Dashboard first, Media in its band before the application, Settings last: {html}"
     );
+    // The sections sit in a rail that scrolls when they overflow, with a
+    // chevron at each edge kept out of the tab order.
+    let rail = html
+        .split(r#"data-lat-widget="topnav-scroll""#)
+        .nth(1)
+        .unwrap_or("");
+    assert!(
+        rail.contains("lat-topnav__step--back") && rail.contains("lat-topnav__step--on"),
+        "{html}"
+    );
+    assert!(rail.find("lat-topnav__step--back") < rail.find("lat-topnav__nav"));
     assert!(
         html.contains(r#"href="/admin/pages""#) && !html.contains(r#"href="/admin/drafts""#),
         "the Content tab leads to its first entry; a hidden resource has no entry"
