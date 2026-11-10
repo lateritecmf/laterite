@@ -740,13 +740,13 @@ fn safe_href(href: &str) -> bool {
         || (lower.starts_with('/') && !lower.starts_with("//"))
 }
 
-/// `value` percent-encoded for one URL component: unreserved characters and
-/// `@` pass, every other byte is escaped.
+/// `value` percent-encoded for one URL component: unreserved characters, `@`
+/// and `+` (an international phone number) pass, every other byte is escaped.
 fn url_component(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'@' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'@' | b'+' => {
                 (b as char).to_string()
             }
             _ => format!("%{b:02X}"),
@@ -4122,6 +4122,18 @@ mod tests {
             .into_string();
         assert!(
             html.contains(">@band<") && html.contains(r#"href="https://www.social.acme/band""#),
+            "{html}"
+        );
+
+        // A phone number keeps its plus sign in a tel: address.
+        let options = serde_json::json!({ "url": "tel:{value}" });
+        let cx =
+            CellCx::new("+919845012345", Tz::UTC, chrono::Locale::en_US).with_options(&options);
+        let html = LinkColumn
+            .render_default(&LinkColumn.view_model(&cx))
+            .into_string();
+        assert!(
+            html.contains(r#"href="tel:+919845012345""#) && html.contains(">+919845012345<"),
             "{html}"
         );
 
