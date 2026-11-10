@@ -632,6 +632,13 @@ impl ColumnType for LinkColumn {
             None if value.is_empty() => href.clone(),
             None => value.to_string(),
         };
+        // A value that cannot be linked still shows, even where the link
+        // would have been the icon alone.
+        let text = if href.is_empty() && text.is_empty() {
+            value.to_string()
+        } else {
+            text
+        };
         let icon = match cx.option_str("icon") {
             Some(name) if !href.is_empty() => cx.icon(name),
             _ => String::new(),
@@ -4050,6 +4057,12 @@ mod tests {
             serde_json::json!({ "url": "https://acme.com/{value}" }),
         );
         assert!(escaped.contains("https://acme.com/a%20b%2Fc"), "{escaped}");
+
+        let bare = render(
+            "acme_band",
+            serde_json::json!({ "text": "", "icon": "at-sign" }),
+        );
+        assert!(bare.contains("acme_band") && !bare.contains("<a"), "{bare}");
 
         let script = render("javascript:alert(1)", serde_json::json!({}));
         assert!(

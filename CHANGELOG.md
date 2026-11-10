@@ -14,7 +14,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
-- A `link` column type: an address from the value or a `url` template, with `text`, `icon`, `new_tab` and `{column|handle}` / `{column|host}` placeholders.
+- A `link` column type: an address from the value or a `url` template, with `text`, `icon`, `new_tab` and `{column|handle}` / `{column|host}` placeholders; a value it cannot link shows as text.
 - Fifteen brand icons (`instagram`, `whatsapp`, `x-twitter`, ...) drawn solid, and `IconReg::solid` for a plugin's own.
 
 ### Fixed
