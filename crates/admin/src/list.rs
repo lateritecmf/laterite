@@ -3614,8 +3614,8 @@ pub(crate) async fn set_columns(
             );
         }
     }
-    let back = format!("{}{}", state.admin_path, path);
-    crate::form::saved_response(crate::form::is_htmx(headers), &back)
+    // `path` is the resource's mounted path, the admin prefix already on it.
+    crate::form::saved_response(crate::form::is_htmx(headers), path)
 }
 
 /// One row of the column picker.

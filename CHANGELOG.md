@@ -21,6 +21,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- Applying the list setup returns to the list; it led to a missing page under a doubled admin path.
 - Saving an existing record no longer fails when its form has a `section` field.
 - A `section` field's `trigger` now shows and hides the heading.
 - Leaving an untouched form that uses `trigger` no longer warns of unsaved changes.

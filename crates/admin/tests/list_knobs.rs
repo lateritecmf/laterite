@@ -137,7 +137,7 @@ async fn search_is_on_by_default() {
 }
 
 async fn post_setup(router: Router, token: &str, body: &str) -> StatusCode {
-    router
+    let response = router
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -149,8 +149,12 @@ async fn post_setup(router: Router, token: &str, body: &str) -> StatusCode {
                 .unwrap(),
         )
         .await
-        .unwrap()
-        .status()
+        .unwrap();
+    // Apply returns to the list itself, the admin prefix once.
+    if let Some(to) = response.headers().get("location") {
+        assert_eq!(to, "/admin/things");
+    }
+    response.status()
 }
 
 async fn csrf_token(router: Router, token: &str) -> String {
@@ -171,7 +175,7 @@ async fn the_chosen_page_size_is_remembered_in_the_list_setup() {
         &format!("_csrf={csrf}&column=name&per_page=50"),
     )
     .await;
-    assert!(status.is_redirection() || status.is_success(), "{status}");
+    assert!(status.is_redirection(), "{status}");
     let (_, html) = page(app(db, list), &token).await;
     assert!(html.contains("Rows per page"));
     assert!(
