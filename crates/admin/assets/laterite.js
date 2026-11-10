@@ -2299,6 +2299,10 @@ window.lat.widget('cell', function () {});
 // the order is kept with their preferences, so it follows them. Dashboard and
 // Settings stay put; the others move among themselves.
 window.lat.widget('menu-order', function (nav) {
+  // A sidebar title cut short by the width limit shows in full on hover.
+  Array.prototype.forEach.call(nav.querySelectorAll('.lat-sidebar__title'), function (t) {
+    if (t.scrollWidth > t.clientWidth) t.closest('a').title = t.textContent;
+  });
   var post = nav.getAttribute('data-menu-post');
   if (!post) return;
   // A folded group stays folded: the toggle posts the folded set, so the next

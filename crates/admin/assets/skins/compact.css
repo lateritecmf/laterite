@@ -3,7 +3,7 @@
    on the document attribute the shell sets from `backend.skin`. */
 :root[data-lat-skin="compact"]{
 --space-8:20px;--space-9:24px;
---topnav-h:54px;--sidebar-w:230px;
+--topnav-h:54px;--sidebar-w:230px;--sidebar-min:180px;
 --control-h:34px;--control-h-sm:28px;--control-h-lg:40px;
 --page-gutter:20px;--card-pad:14px;--side-panel-w:300px;
 --fs-15:14px;--fs-16:15px;
