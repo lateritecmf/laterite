@@ -1056,9 +1056,11 @@ window.lat.widget('media-field', function (root) {
     el.className = 'lat-mediafield__tile';
     el.setAttribute('data-id', item.id);
     el.innerHTML =
+      '<a class="lat-mediafield__open" target="_blank" rel="noopener">' +
       '<span class="lat-media-card__thumb"></span>' +
-      '<span class="lat-media-card__name"></span>' +
+      '<span class="lat-media-card__name"></span></a>' +
       '<button type="button" class="lat-mediafield__remove">&times;</button>';
+    if (item.url) el.querySelector('.lat-mediafield__open').href = item.url;
     var thumb = el.querySelector('.lat-media-card__thumb');
     if (item.is_image) {
       var img = document.createElement('img');

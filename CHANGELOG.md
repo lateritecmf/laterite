@@ -18,6 +18,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A `link` column type: an address from the value or a `url` template, with `text`, `icon`, `new_tab` and `{column|handle}` / `{column|host}` placeholders; a value it cannot link shows as text, and a `+` stays as typed (`tel:{value}`).
 - A field `format` (`base`, `prefix`, `pattern`, `lowercase`): the form stores one address from any shape typed and refuses others; a `link` column shows it as `@name`.
 - Fifteen brand icons (`instagram`, `whatsapp`, `x-twitter`, ...) drawn solid, and `IconReg::solid` for a plugin's own.
+- A `media` field's tile opens its file in a new tab.
 
 ### Fixed
 
