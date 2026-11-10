@@ -568,6 +568,8 @@ pub struct PublicRouteReg {
     pub path: String,
     /// The route's handlers.
     pub route: Arc<dyn PublicRoute>,
+    /// Left out of the origin check; the route authenticates requests itself.
+    pub skip_origin_check: bool,
 }
 
 impl PublicRouteReg {
@@ -576,7 +578,16 @@ impl PublicRouteReg {
         Self {
             path: path.into(),
             route,
+            skip_origin_check: false,
         }
+    }
+
+    /// Leaves the route, and everything below it, out of the origin check
+    /// that refuses a POST from another site. For an endpoint that
+    /// authenticates each request itself: an API token, a signed webhook.
+    pub fn skip_origin_check(mut self) -> Self {
+        self.skip_origin_check = true;
+        self
     }
 
     /// The site itself: the route every URL reaches that no admin route and no

@@ -448,6 +448,10 @@ pub struct BackendConfig {
     /// Empty, the admin's default list applies: images, documents, audio,
     /// video, fonts and archives, with no scripts, markup or stylesheets.
     pub upload_extensions: Vec<String>,
+    /// Paths left out of the check that refuses a POST from another site: an
+    /// exact path (`/api/capture`) or a prefix ending in `*` (`/webhooks/*`).
+    /// For endpoints that authenticate each request themselves.
+    pub origin_check_except: Vec<String>,
 }
 
 impl Default for BackendConfig {
@@ -464,6 +468,7 @@ impl Default for BackendConfig {
             storage: "storage".to_string(),
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
+            origin_check_except: Vec::new(),
         }
     }
 }

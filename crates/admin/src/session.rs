@@ -274,6 +274,15 @@ pub fn origin_ok(headers: &HeaderMap, expected_origin: &str) -> bool {
     }
 }
 
+/// Whether `path` is left out of the origin gate by one of `patterns`: an exact
+/// path (`/api/capture`), or a prefix ending in `*` (`/webhooks/*`).
+pub(crate) fn origin_check_skipped(path: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|p| match p.strip_suffix('*') {
+        Some(prefix) => path.starts_with(prefix),
+        None => path == p.trim_end_matches('/') || path == p,
+    })
+}
+
 /// Extracts a submitted CSRF token: the [`CSRF_HEADER`] header if present, else
 /// the [`CSRF_FIELD`] field of an urlencoded form body.
 pub(crate) fn submitted_token(headers: &HeaderMap, body: &[u8]) -> Option<String> {
@@ -444,6 +453,15 @@ mod tests {
             !is_multipart(&HeaderMap::new()),
             "no content type is not an upload"
         );
+    }
+
+    #[test]
+    fn listed_paths_skip_the_origin_gate() {
+        let patterns = vec!["/api/capture".to_string(), "/webhooks/*".to_string()];
+        assert!(origin_check_skipped("/api/capture", &patterns));
+        assert!(origin_check_skipped("/webhooks/acme/paid", &patterns));
+        assert!(!origin_check_skipped("/api/capture/more", &patterns));
+        assert!(!origin_check_skipped("/admin/acme", &patterns));
     }
 
     #[test]

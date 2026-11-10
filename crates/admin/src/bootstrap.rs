@@ -867,6 +867,7 @@ impl Bootstrap {
             storage_dir: config.backend.storage.clone(),
             skin: config.backend.skin.clone(),
             upload_extensions: config.backend.upload_extensions.clone(),
+            origin_check_except: config.backend.origin_check_except.clone(),
             order: config.backend.order.clone(),
             menu: config.backend.menu.clone(),
             secret,

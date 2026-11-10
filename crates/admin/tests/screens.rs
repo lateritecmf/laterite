@@ -442,3 +442,66 @@ async fn a_route_can_be_mounted_from_a_hand_built_context() {
         .unwrap();
     assert_eq!(String::from_utf8(bytes.to_vec()).unwrap(), "/backoffice");
 }
+
+/// A POST endpoint that answers "taken" when it runs.
+struct Hook;
+
+impl PublicRoute for Hook {
+    fn mount(&self, _ctx: &RouteCtx) -> Router {
+        Router::new().route("/", axum::routing::post(|| async { "taken" }))
+    }
+}
+
+fn app_with_hooks(db: Db, config: AdminConfig) -> Router {
+    router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db,
+        Contributions {
+            public_routes: vec![
+                PublicRouteReg::new("/api/capture", Arc::new(Hook)).skip_origin_check(),
+                PublicRouteReg::new("/api/guarded", Arc::new(Hook)),
+                PublicRouteReg::new("/webhooks/paid", Arc::new(Hook)),
+            ],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    )
+}
+
+async fn post_from_elsewhere(app: &Router, path: &str) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("origin", "https://elsewhere.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn a_route_that_authenticates_itself_or_is_listed_skips_the_origin_check() {
+    let (db, _guard) = test_db().await;
+    let mut config = AdminConfig::default();
+    config.origin = "https://acme.test".to_string();
+    config.origin_check_except = vec!["/webhooks/*".to_string()];
+    let app = app_with_hooks(db, config);
+
+    assert_eq!(
+        post_from_elsewhere(&app, "/api/capture").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post_from_elsewhere(&app, "/webhooks/paid").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post_from_elsewhere(&app, "/api/guarded").await,
+        StatusCode::FORBIDDEN
+    );
+}

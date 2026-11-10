@@ -291,6 +291,9 @@ pub(crate) struct AdminState {
     sprite_url: Arc<str>,
     /// The public origin for the CSRF origin check (see [`AdminConfig::origin`]).
     origin: Arc<str>,
+    /// Paths the origin check skips: the configured list and the public routes
+    /// that authenticate requests themselves.
+    origin_check_except: Arc<Vec<String>>,
     timezone: Tz,
     /// The deployment default UI locale (a base tag like `en`), the last stop in a
     /// request's locale chain before the English source. An operator's own
@@ -390,6 +393,7 @@ impl AdminState {
             order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),
+            origin_check_except: Arc::new(Vec::new()),
             timezone: Tz::UTC,
             default_locale: Arc::from("en"),
             catalogs: Arc::new(CatalogStore::default()),
@@ -489,6 +493,10 @@ pub struct AdminConfig {
     /// The file extensions an upload may carry; empty means
     /// [`laterite_media::sanitize::DEFAULT_EXTENSIONS`]. Compared lowercased.
     pub upload_extensions: Vec<String>,
+    /// Paths left out of the origin check (`backend.origin_check_except`): an
+    /// exact path or a prefix ending in `*`. A public route registered with
+    /// [`routes::PublicRouteReg::skip_origin_check`] is added to these.
+    pub origin_check_except: Vec<String>,
     /// Arrangement overrides by hierarchy (`backend.order`): the keys of the
     /// top bar, a section or the settings index in the wanted order.
     pub order: std::collections::BTreeMap<String, Vec<String>>,
@@ -533,6 +541,7 @@ impl Default for AdminConfig {
             storage_dir: "storage".to_string(),
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
+            origin_check_except: Vec::new(),
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
             secret: random_key(),
@@ -2451,6 +2460,22 @@ pub fn router(
         icons: icons_arc.clone(),
         sprite_url: sprite_url.clone(),
         origin: Arc::from(config.origin.trim_end_matches('/')),
+        origin_check_except: Arc::new(
+            config
+                .origin_check_except
+                .iter()
+                .cloned()
+                .chain(
+                    app_public
+                        .iter()
+                        .filter(|r| r.skip_origin_check)
+                        .flat_map(|r| {
+                            let path = r.path.trim_end_matches('/').to_string();
+                            [path.clone(), format!("{path}/*")]
+                        }),
+                )
+                .collect(),
+        ),
         timezone: config.timezone.parse().unwrap_or(Tz::UTC),
         default_locale: Arc::from(default_locale(&config.locale, &catalogs.locales())),
         catalogs,
@@ -4532,6 +4557,7 @@ async fn capture_client(
 
 async fn enforce_origin(State(state): State<AdminState>, request: Request, next: Next) -> Response {
     if !session::is_safe_method(request.method())
+        && !session::origin_check_skipped(request.uri().path(), &state.origin_check_except)
         && !session::origin_ok(request.headers(), &state.origin)
     {
         tracing::warn!(
@@ -6649,6 +6675,7 @@ mod tests {
             order: std::collections::BTreeMap::new(),
             secure_cookie: false,
             origin: Arc::from(""),
+            origin_check_except: Arc::new(Vec::new()),
             timezone: Tz::UTC,
             default_locale: Arc::from("en"),
             catalogs: Arc::new(CatalogStore::default()),

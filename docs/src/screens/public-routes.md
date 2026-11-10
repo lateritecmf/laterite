@@ -24,6 +24,19 @@ registry.add_public_route(PublicRouteReg::new("/robots.txt", Arc::new(Robots)));
 --- | ---
 `new(path, route)` | `path` is literal, never namespaced. A route inside the admin mount is refused.
 
-A POST decides its own CSRF stance. `ctx.url`, `ctx.base_url`, middleware and
+A POST must come from the site's own origin. A route that authenticates each
+request itself (an API token, a signed webhook) leaves that check:
+
+```rust
+registry.add_public_route(
+    PublicRouteReg::new("/api/capture", Arc::new(Capture)).skip_origin_check(),
+);
+```
+
+`PublicRouteReg` | Description
+--- | ---
+`skip_origin_check()` | The path and everything below it skip the origin check. The route verifies each request.
+
+A path can also be listed in `backend.origin_check_except`. See [Admin](../configuration/admin.md). `ctx.url`, `ctx.base_url`, middleware and
 other modules' contributions work as on an
 [admin screen](admin-screens.md#link-to-yourself).
