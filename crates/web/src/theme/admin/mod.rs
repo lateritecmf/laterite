@@ -44,7 +44,7 @@ pub fn screen_with(
 pub fn settings_item() -> laterite_admin::settings::SettingsItem {
     laterite_admin::settings::SettingsItem::new("web.themes", t!("Themes"), Vec::new())
         .description(t!("The look of the site: pick, preview and edit themes."))
-        .category(t!("Website"))
+        .category(laterite_admin::settings::category::WEBSITE)
         .slot(laterite_core::arrange::slot::CONTENT)
         .order(10)
         .icon("palette")

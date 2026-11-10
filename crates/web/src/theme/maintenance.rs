@@ -34,7 +34,7 @@ pub fn permission() -> Permission {
 pub fn settings_item() -> SettingsItem {
     SettingsItem::new(
         MaintenanceSettings::CODE,
-        t!("Maintenance mode"),
+        t!("Maintenance Mode"),
         vec![
             FormField::switch("enabled", t!("Show visitors the maintenance page")),
             FormField::textarea("message", t!("Message")).help(t!(
@@ -46,7 +46,7 @@ pub fn settings_item() -> SettingsItem {
     .hint(t!(
         "While it is on, operators who may manage themes still see the site, with a bar at the foot of every page offering the visitor's view."
     ))
-    .category(t!("Website"))
+    .category(laterite_admin::settings::category::WEBSITE)
     .slot(laterite_core::arrange::slot::CONTENT)
     .order(20)
     .icon("wrench")

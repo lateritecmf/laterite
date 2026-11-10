@@ -241,7 +241,7 @@ msgid "Lowercase letters, digits and hyphens."
 msgstr ""
 
 #: src/theme/maintenance.rs
-msgid "Maintenance mode"
+msgid "Maintenance Mode"
 msgstr ""
 
 #: templates/theme_actions.html

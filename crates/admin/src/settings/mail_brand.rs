@@ -94,7 +94,7 @@ fn colour(name: &str, label: laterite_core::Text, default: &str) -> FormField {
 pub fn settings_item() -> SettingsItem {
     SettingsItem::new(
         MailBrandSetting::CODE,
-        t!("Mail branding"),
+        t!("Mail Branding"),
         vec![
             colour("body_bg", t!("Page background"), "#f3f1ee"),
             colour("content_bg", t!("Content background"), "#ffffff"),
@@ -114,7 +114,7 @@ pub fn settings_item() -> SettingsItem {
     .hint(t!(
         "Save, then preview the test template to see the result."
     ))
-    .category(t!("System"))
+    .category(super::category::MAIL)
     .slot(laterite_core::arrange::slot::SYSTEM)
     .order(16)
     .icon("palette")

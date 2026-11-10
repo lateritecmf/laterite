@@ -5915,7 +5915,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
     vec![
         settings::SettingsItem::new("backend.administrators", "Administrators", Vec::new())
             .description("Manage backend administrator accounts.")
-            .category("Users")
+            .category(settings::category::USERS)
             .slot(laterite_core::arrange::slot::PEOPLE)
             .order(10)
             .icon("users")
@@ -5923,7 +5923,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/users"),
         settings::SettingsItem::new("backend.roles", "Roles", Vec::new())
             .description("Manage roles and their permissions.")
-            .category("Users")
+            .category(settings::category::USERS)
             .slot(laterite_core::arrange::slot::PEOPLE)
             .order(20)
             .icon("shield")
@@ -5932,7 +5932,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::brand::settings_item(),
         settings::SettingsItem::new("backend.plugins", "Plugins", Vec::new())
             .description("Enable or disable installed plugins.")
-            .category("System")
+            .category(settings::category::SYSTEM)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(10)
             .icon("plug")
@@ -5940,7 +5940,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/plugins"),
         settings::SettingsItem::new("backend.jobs", "Jobs", Vec::new())
             .description("Watch the queues and retry or drop failed jobs.")
-            .category("System")
+            .category(settings::category::SYSTEM)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(12)
             .icon("layers")
@@ -5948,7 +5948,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/jobs"),
         settings::SettingsItem::new("backend.scheduled_tasks", "Scheduled Tasks", Vec::new())
             .description("See when each scheduled entry last ran and run one now.")
-            .category("System")
+            .category(settings::category::SYSTEM)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(13)
             .icon("clock")
@@ -5957,7 +5957,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::mail::settings_item(),
         settings::SettingsItem::new("backend.mail_templates", "Mail Templates", Vec::new())
             .description("Edit the templates, layouts and partials mail is built from.")
-            .category("System")
+            .category(settings::category::MAIL)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(15)
             .icon("layout-template")
@@ -5966,7 +5966,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
         settings::mail_brand::settings_item(),
         settings::SettingsItem::new("backend.mail_log", "Mail Log", Vec::new())
             .description("Read the messages the log driver kept.")
-            .category("System")
+            .category(settings::category::LOGS)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(17)
             .icon("file-text")
@@ -5974,7 +5974,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/mail-log"),
         settings::SettingsItem::new("backend.audit_log", "Audit Log", Vec::new())
             .description("Review the record of administrative changes.")
-            .category("System")
+            .category(settings::category::LOGS)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(20)
             .icon("history")
@@ -5982,7 +5982,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/audit-log"),
         settings::SettingsItem::new("backend.access_log", "Access Log", Vec::new())
             .description("Review sign-ins, failures and lockouts.")
-            .category("System")
+            .category(settings::category::LOGS)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(30)
             .icon("log-in")
@@ -5990,7 +5990,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .link("/access-log"),
         settings::SettingsItem::new("backend.request_log", "Request Log", Vec::new())
             .description("Review the URLs the panel could not serve.")
-            .category("System")
+            .category(settings::category::LOGS)
             .slot(laterite_core::arrange::slot::SYSTEM)
             .order(31)
             .icon("unlink")

@@ -112,6 +112,21 @@ use crate::{render, render_error, AdminState};
 /// field-type registry. There is no settings-specific field vocabulary.
 pub use crate::form::FormField;
 
+/// The settings headings the framework files its own items under. An item
+/// naming one joins that heading; any other name starts a heading of its own.
+pub mod category {
+    /// The site's themes and maintenance mode.
+    pub const WEBSITE: &str = "Website";
+    /// Administrators, roles and user settings.
+    pub const USERS: &str = "Users";
+    /// Mail configuration, templates and branding.
+    pub const MAIL: &str = "Mail";
+    /// Every log: audit, access, request and mail.
+    pub const LOGS: &str = "Logs";
+    /// Branding, plugins, jobs and scheduled tasks.
+    pub const SYSTEM: &str = "System";
+}
+
 /// A settings model surfaced in the admin: a storage `code`, a `category` and
 /// `order` that place it in the index, and the fields to edit.
 #[derive(Debug, Clone, Serialize)]
@@ -298,7 +313,8 @@ impl SettingsItem {
         self
     }
 
-    /// The group heading this item sorts under.
+    /// The group heading this item sorts under: one of [`category`]'s names
+    /// joins the framework's own heading.
     pub fn category(mut self, text: impl Into<Text>) -> Self {
         self.category = text.into();
         self

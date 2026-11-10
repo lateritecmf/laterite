@@ -62,7 +62,7 @@ impl SettingsModel for BrandSetting {
 pub(crate) fn settings_item() -> SettingsItem {
     SettingsItem::new(
         BrandSetting::CODE,
-        "Branding",
+        "Admin Branding",
         vec![
             FormField::text("app_name", "Application name").help(
                 "Shown as the admin brand. Clearing it falls back to the configured application name.",
@@ -100,7 +100,7 @@ pub(crate) fn settings_item() -> SettingsItem {
         ],
     )
     .description("The name, mark, colours and sign-in page of the admin.")
-    .category("System")
+    .category(super::category::SYSTEM)
     .slot(laterite_core::arrange::slot::SYSTEM)
     .order(10)
     .icon("palette")

@@ -19,6 +19,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A field `format` (`base`, `prefix`, `pattern`, `lowercase`): the form stores one address from any shape typed and refuses others; a `link` column shows it as `@name`.
 - Fifteen brand icons (`instagram`, `whatsapp`, `x-twitter`, ...) drawn solid, and `IconReg::solid` for a plugin's own.
 - A `media` field's tile opens its file in a new tab.
+- `settings::category` names the standard settings headings (`WEBSITE`, `USERS`, `MAIL`, `LOGS`, `SYSTEM`), so a plugin's item joins one.
 
 ### Fixed
 
@@ -31,6 +32,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- Settings are grouped under Website, Users, Mail, Logs and System, with labels in title case (Mail Configuration, Admin Branding, Maintenance Mode).
 - List filters are compact `Label: value` pills set close together, so more of them fit on one row.
 - The admin sidebar fits its titles between `--sidebar-min` (new, 200px) and `--sidebar-w` (now 280px); a longer title ends in an ellipsis.
 

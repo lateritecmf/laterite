@@ -61,7 +61,7 @@ impl SettingsModel for MailSetting {
 pub fn settings_item() -> SettingsItem {
     SettingsItem::new(
         MailSetting::CODE,
-        t!("Mail"),
+        t!("Mail Configuration"),
         vec![
             FormField::text("from_name", t!("Sender name")).help(t!("Shown as the sender; blank keeps the configured name.")),
             FormField::text("from_address", t!("Sender address")).help(t!("Blank keeps the configured address.")),
@@ -88,7 +88,7 @@ pub fn settings_item() -> SettingsItem {
     )
     .description(t!("The sender, the transport and a test message."))
     .hint(t!("Blank fields keep the values from the configuration file. Save, then send a test message to yourself."))
-    .category(t!("System"))
+    .category(super::category::MAIL)
     .slot(laterite_core::arrange::slot::SYSTEM)
     .order(14)
     .icon("mail")

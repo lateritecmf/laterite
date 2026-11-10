@@ -93,6 +93,10 @@ msgstr ""
 msgid "Address"
 msgstr ""
 
+#: (descriptors)
+msgid "Admin Branding"
+msgstr ""
+
 #: templates/login.html
 msgid "Admin panel"
 msgstr ""
@@ -227,10 +231,6 @@ msgstr ""
 
 #: (descriptors)
 msgid "Borders"
-msgstr ""
-
-#: (descriptors)
-msgid "Branding"
 msgstr ""
 
 #: templates/media.html
@@ -1076,9 +1076,22 @@ msgstr ""
 msgid "Logo"
 msgstr ""
 
-#: src/settings/mail.rs
+#: (descriptors)
+msgid "Logs"
+msgstr ""
+
 #: (descriptors)
 msgid "Mail"
+msgstr ""
+
+#: src/settings/mail_brand.rs
+#: (descriptors)
+msgid "Mail Branding"
+msgstr ""
+
+#: src/settings/mail.rs
+#: (descriptors)
+msgid "Mail Configuration"
 msgstr ""
 
 #: (descriptors)
@@ -1087,11 +1100,6 @@ msgstr ""
 
 #: (descriptors)
 msgid "Mail Templates"
-msgstr ""
-
-#: src/settings/mail_brand.rs
-#: (descriptors)
-msgid "Mail branding"
 msgstr ""
 
 #: templates/mail_log.html
@@ -1246,6 +1254,10 @@ msgstr[1] ""
 
 #: src/list.rs
 msgid "Moved."
+msgstr ""
+
+#: src/format.rs
+msgid "Must be a link on {host}, or the name on its own."
 msgstr ""
 
 #: (descriptors)
@@ -2090,8 +2102,6 @@ msgstr ""
 msgid "Superuser"
 msgstr ""
 
-#: src/settings/mail.rs
-#: src/settings/mail_brand.rs
 #: src/widgets.rs
 #: (descriptors)
 msgid "System"

@@ -8,7 +8,7 @@ use lateritecmf::web::theme::maintenance::MaintenanceSettings;
 let settings: MaintenanceSettings = lateritecmf::admin::settings::load(&db).await?;
 ```
 
-Settings › Website › Maintenance mode, under `web.manage_site`:
+Settings › Website › Maintenance Mode, under `web.manage_site`:
 
 Field | Meaning
 --- | ---
@@ -26,7 +26,7 @@ A user with `web.manage_themes` sees the site as usual, with a bar at the foot o
 Link on the bar | Opens
 --- | ---
 View as a visitor | The same path with `?maintenance=visitor`: the maintenance page, status 503.
-Turn it off | The Maintenance mode settings screen.
+Turn it off | The Maintenance Mode settings screen.
 Back to the site | The path without the query, from the visitor's view.
 
 ```html

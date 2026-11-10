@@ -121,6 +121,27 @@ Builder | Description
 `link(path)` | Places an existing screen in the settings menu, with no form.
 `confirm_leave(false)` | Leaving the screen with changes unsaved does not ask.
 
+## Headings
+
+```rust
+use laterite_admin::settings::category;
+
+SettingsItem::new("acme.webhook_log", "Webhook Log", Vec::new())
+    .category(category::LOGS)
+    .link("/acme/webhook-log");
+```
+
+Constant | Heading | Holds
+--- | --- | ---
+`category::WEBSITE` | Website | Themes, Maintenance Mode
+`category::USERS` | Users | Administrators, Roles
+`category::MAIL` | Mail | Mail Configuration, Mail Templates, Mail Branding
+`category::LOGS` | Logs | Audit Log, Access Log, Request Log, Mail Log
+`category::SYSTEM` | System | Admin Branding, Plugins, Jobs, Scheduled Tasks
+
+Items naming the same heading share it, whatever their band. Labels are in
+title case.
+
 Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
 `textarea`, `switch`, `select`, `date`, `repeater`, and any registered type
 through `FormField::of(name, label, "vendor.type")`. A type that refuses its

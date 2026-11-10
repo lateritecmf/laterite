@@ -394,7 +394,7 @@ async fn maintenance_mode_answers_visitors_with_503_and_lets_operators_through()
         (s, h)
     };
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Maintenance mode"), "{html}");
+    assert!(html.contains("Maintenance Mode"), "{html}");
 }
 
 #[tokio::test]
