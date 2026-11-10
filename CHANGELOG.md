@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving an existing record no longer fails when its form has a `section` field.
+
 ## [0.10.1] - 2026-11-10
 
 ### Added

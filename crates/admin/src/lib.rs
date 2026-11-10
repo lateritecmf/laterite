@@ -3667,7 +3667,9 @@ fn mount_resource(
                     )
                 }),
                 None => match &resource.form {
-                    Some(form) => Arc::new(persist::DefaultPersister::from_config(form)),
+                    Some(form) => {
+                        Arc::new(persist::DefaultPersister::from_config(form, field_types))
+                    }
                     None => Arc::new(persist::DefaultPersister::from_list(&resource.list)),
                 },
             };

@@ -1176,7 +1176,7 @@ impl PreparedForm {
                 .get(key)
                 .cloned()
                 .ok_or_else(|| format!("form names unregistered persister `{key}`"))?,
-            None => Arc::new(DefaultPersister::from_config(&config)),
+            None => Arc::new(DefaultPersister::from_config(&config, field_types)),
         };
         // The framework's own listeners run first, so a contributed one can see
         // or override what they set.
@@ -2816,7 +2816,8 @@ mod tests {
         );
 
         let id = row_id(&db, "c1").await;
-        let persister = DefaultPersister::from_config(&form.config);
+        let persister =
+            DefaultPersister::from_config(&form.config, &crate::field::builtin_registry());
         let rec = delete(DeleteRequest {
             db: &db,
             cache: None,

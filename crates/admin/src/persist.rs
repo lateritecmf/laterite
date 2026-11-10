@@ -450,7 +450,12 @@ impl DefaultPersister {
         }
     }
 
-    pub(crate) fn from_config(config: &FormConfig) -> Self {
+    /// A persister over the form's table. A field whose type stores nothing (a
+    /// section heading) is neither read for the snapshot nor written.
+    pub(crate) fn from_config(
+        config: &FormConfig,
+        field_types: &crate::field::FieldRegistry,
+    ) -> Self {
         Self {
             entity: config.entity.clone(),
             id_field: config.id_field.clone(),
@@ -458,6 +463,7 @@ impl DefaultPersister {
                 .fields
                 .iter()
                 .filter(|f| !f.transient && f.related.is_none())
+                .filter(|f| field_types.get(&f.field_type).is_none_or(|t| t.stores()))
                 .map(|f| f.name.clone())
                 .collect(),
         }
@@ -622,7 +628,7 @@ mod pipeline_tests {
         }
     }
 
-    /// The built-in writer never names a transient field as a column.
+    /// The built-in writer never names a transient field or a section as a column.
     #[test]
     fn the_default_persister_leaves_transient_fields_out() {
         let config = FormConfig {
@@ -636,6 +642,7 @@ mod pipeline_tests {
             fields: vec![
                 crate::form::FormField::text("code", "Code"),
                 crate::form::FormField::password("secret", "Secret").transient(),
+                crate::form::FormField::of("details", "Details", "section"),
             ],
             persist: None,
             timestamps: false,
@@ -646,7 +653,7 @@ mod pipeline_tests {
             actions: Vec::new(),
             done_path: None,
         };
-        let persister = DefaultPersister::from_config(&config);
+        let persister = DefaultPersister::from_config(&config, &crate::field::builtin_registry());
         assert_eq!(persister.columns, vec!["code".to_string()]);
     }
 
