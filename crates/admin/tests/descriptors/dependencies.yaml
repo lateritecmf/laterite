@@ -13,6 +13,10 @@ form:
     description:
       type: textarea
       trigger: { action: show|empty, field: name, condition: "value[*]" }
+    later:
+      type: section
+      label: Delivery
+      trigger: { action: show, field: "permissions[]", condition: "value[later]" }
     permissions:
       type: checklist
       options: [{ value: later, label: Send later }]

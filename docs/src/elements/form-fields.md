@@ -159,7 +159,14 @@ fields:
 ```
 
 No keys. A heading over the fields after it, with `help` as the line beneath.
-Nothing is stored or submitted.
+Nothing is stored or submitted. A `trigger` shows and hides the heading:
+
+```yaml
+fields:
+  kind:    { type: select, options: [{ value: post }, { value: event }] }
+  when:    { type: section, label: When, trigger: { action: show, field: kind, condition: "value[event]" } }
+  starts:  { type: date, trigger: { action: show, field: kind, condition: "value[event]" } }
+```
 
 ## date
 

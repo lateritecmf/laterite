@@ -10,6 +10,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Fixed
 
 - Saving an existing record no longer fails when its form has a `section` field.
+- A `section` field's `trigger` now shows and hides the heading.
 
 ## [0.10.1] - 2026-11-10
 

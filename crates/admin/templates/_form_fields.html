@@ -5,7 +5,7 @@
   <div class="lat-fields">
   {% for field in fields %}
   {% if field.hidden %}{{ field.control|safe }}{% else if field.section %}
-  <div class="lat-field lat-field--section{{ field.layout }}">
+  <div class="lat-field lat-field--section{{ field.layout }}"{{ field.attrs|safe }}>
     <h3 class="lat-field__heading">{{ field.label }}</h3>
     {% if let Some(help) = field.help %}<p class="lat-field__help">{{ help }}</p>{% endif %}
   </div>

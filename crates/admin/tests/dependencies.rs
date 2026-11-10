@@ -85,6 +85,12 @@ async fn the_keys_reach_the_field_wrapper() {
         html.contains(r#"data-lat-trigger-field="permissions[]""#),
         "{html}"
     );
+    // A section heading carries its trigger, so it hides with its fields.
+    assert!(
+        html.contains(r#"lat-field--section lat-span-12" data-lat-trigger-action="show""#)
+            || html.contains(r#"lat-field--section" data-lat-trigger-action="show""#),
+        "{html}"
+    );
     // The wrapper carries them; the control does not.
     assert!(!html.contains(
         r#"<input class="lat-input" type="text" id="code" name="code" value="" required data-lat"#
