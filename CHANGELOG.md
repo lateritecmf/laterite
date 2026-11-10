@@ -11,6 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - Saving an existing record no longer fails when its form has a `section` field.
 - A `section` field's `trigger` now shows and hides the heading.
+- Leaving an untouched form that uses `trigger` no longer warns of unsaved changes.
 - The admin top bar scrolls sideways when its sections overflow, with a chevron at each edge, rather than pushing the page wider.
 
 ### Changed

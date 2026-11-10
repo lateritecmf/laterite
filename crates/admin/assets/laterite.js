@@ -1794,13 +1794,19 @@ window.lat.widget('copy', function (btn) {
 
   function changed() {
     return guarded.some(function (g) {
-      return document.body.contains(g.form) && !g.sent && (g.refused || snapshot(g.form) !== g.opened);
+      return document.body.contains(g.form) && !g.sent && (g.refused || (g.opened !== null && snapshot(g.form) !== g.opened));
     });
   }
 
   window.lat.widget('form', function (form) {
     var refused = form.hasAttribute('data-lat-refused');
-    var state = { form: form, opened: snapshot(form), refused: refused, sent: false };
+    // The opened state is read once the page's other islands have settled:
+    // a trigger hiding a field at load drops it from the submission, which is
+    // not a change the user made.
+    var state = { form: form, opened: null, refused: refused, sent: false };
+    var take = function () { setTimeout(function () { state.opened = snapshot(form); }, 0); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', take);
+    else take();
     if (form.getAttribute('data-lat-confirm-leave') !== 'off') {
       guarded = guarded.filter(function (g) { return document.body.contains(g.form); });
       guarded.push(state);
@@ -1824,7 +1830,7 @@ window.lat.widget('copy', function (btn) {
     }
 
     return {
-      changed: function () { return !state.sent && (state.refused || snapshot(form) !== state.opened); },
+      changed: function () { return !state.sent && (state.refused || (state.opened !== null && snapshot(form) !== state.opened)); },
       // Takes the form as it stands for saved, so leaving asks nothing.
       settle: function () { state.refused = false; state.opened = snapshot(form); }
     };
