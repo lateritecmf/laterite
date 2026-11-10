@@ -26,7 +26,7 @@ Command | Description | Options | Example
 Command | Description | Options | Example
 --- | --- | --- | ---
 `serve` | Run this application, or preview a static website's theme folder, optionally overriding the address. | `--host <HOST>`, `--port <PORT>`, `--listen <HOST:PORT>`, `--release`: build and run optimised. | `lat serve --port 3000`
-`doctor` | Check that this application is set up to run. | None. | `lat doctor`
+`doctor` | Check that this application is set up to run, plugin dependencies included. | None. | `lat doctor`
 `help-app` | List the application's commands, its modules' included. | None. | `lat help-app`
 any other | Run the application's command of that name, added by a module ([Console Commands](../plugins/console-commands.md)). | The command's own. | `lat pdf check`
 `routes` | List every URL the application answers: method, path, kind, owner, permission. | `--path <TEXT>`, `--method <GET\|POST\|QUERY>`, `--kind <resource\|screen\|settings\|public\|page\|framework>`, `--owner <MODULE>`, `--permission <CODE>`, `--public`: keep matching rows, combined. `--json`: print JSON. `--release`. `-p <PACKAGE>`: the binary's package in a workspace. | `lat routes --path events --method POST`
@@ -55,9 +55,9 @@ Command | Description | Options | Example
 --- | --- | --- | ---
 `plugin add <SOURCE>` | Add a plugin from a local path or a git URL, and record it. | `--as <FOLDER>`: the folder under `plugins/`, default the crate's name. In a static website the first add writes its Cargo project and a plugin needs `static = true`. | `lat plugin add ../blog-plugin`
 `plugin remove <NAME>` | Remove a plugin from the list by crate name or folder. | `--delete`: also delete its folder. | `lat plugin remove acme-blog --delete`
-`plugin sync` | Regenerate the `plugins-manifest` crate from `plugins/plugins.toml`. | None. | `lat plugin sync`
+`plugin sync` | Regenerate the `plugins-manifest` crate from `plugins/plugins.toml`, then check the plugins' dependencies. | None. | `lat plugin sync`
 `plugin list` | List the plugins this application compiles in. | None. | `lat plugin list`
-`plugin check` | Check each installed plugin against the expected layout. | None. | `lat plugin check`
+`plugin check` | Check each installed plugin against the expected layout and its dependencies, listing every crate built twice. | None. | `lat plugin check`
 
 ## Translations
 

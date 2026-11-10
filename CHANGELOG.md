@@ -11,6 +11,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `laterite_core` re-exports `sqlx`, `sea_query`, `serde_json` and `minijinja`, and `lateritecmf`
   re-exports them with `axum` at its root, so plugins share the framework's versions.
+- `lat plugin sync`, `lat plugin check` and `lat doctor` name the plugin behind a crate built in two
+  versions across the plugin boundary, a native library linked twice, or a re-exported crate listed itself.
 
 ## [0.10.0] - 2026-11-10
 

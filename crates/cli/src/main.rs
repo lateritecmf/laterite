@@ -14,6 +14,7 @@ use laterite_core::Db;
 
 mod cache;
 mod crypt;
+mod deps;
 mod doctor;
 mod domain;
 mod external;

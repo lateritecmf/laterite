@@ -56,7 +56,22 @@ Crate | Reach it at
 `axum` | `laterite_admin::axum`
 `serde` | a dependency of the plugin's own: `serde = { version = "1", features = ["derive"] }`
 
-`lat plugin sync` warns when a plugin lists one of the first five itself.
+`lat plugin sync`, `lat plugin check` and `lat doctor` read the application's dependency graph:
+
+```console
+$ lat plugin sync
+Dependencies:
+  error sea-query is built in 2 versions (0.31.1 for acme-maps; 0.32.7 for the framework); values of one do not fit the other, so these cannot exchange them. Move the plugin onto the framework's version.
+  warn  acme-maps depends on sea-query itself; reach it through `laterite_core::sea_query` so a version change on either side cannot split its types
+  note  44 other crate(s) are built in more than one version, none crossing a plugin boundary (`lat plugin check` lists them)
+```
+
+Finding | Level
+--- | ---
+A crate whose types cross the boundary (`sqlx`, `sea-query`, `serde_json`, `minijinja`, `axum`, `laterite-*`) in two versions | error
+Two plugins, or a plugin and the framework, linking the same native library | error
+A plugin listing a re-exported crate itself | warning
+Any other crate in two versions | note
 
 ## Expose the module
 

@@ -678,6 +678,16 @@ fn check(root: &Path) -> Result<()> {
     } else {
         println!("\n{total} departure(s) from the expected layout.");
     }
+    if !plugins.is_empty() {
+        println!("\nDependencies:");
+        let findings = crate::deps::inspect(root, &installed(root, &plugins), true);
+        if findings.is_empty() {
+            println!("  ok    every plugin shares the framework's crates");
+        }
+        if crate::deps::print(&findings) {
+            bail!("the plugins' dependencies conflict (above)");
+        }
+    }
     Ok(())
 }
 
@@ -698,7 +708,47 @@ fn sync(root: &Path) -> Result<()> {
         }
     }
     warn_if_unwired(root);
+    if plugins.is_empty() {
+        return Ok(());
+    }
+    println!("\nDependencies:");
+    let findings = crate::deps::inspect(root, &installed(root, &plugins), false);
+    if findings.is_empty() {
+        println!("  ok    every plugin shares the framework's crates");
+    }
+    if crate::deps::print(&findings) {
+        bail!(
+            "the plugins' dependencies conflict (above); the application will not build correctly"
+        );
+    }
     Ok(())
+}
+
+/// The installed plugins as the dependency check reads them.
+fn installed(root: &Path, plugins: &[Plugin]) -> Vec<crate::deps::Installed> {
+    plugins
+        .iter()
+        .map(|p| crate::deps::Installed {
+            name: p.crate_name.clone(),
+            dir: root.join(PLUGINS_DIR).join(&p.entry.path),
+        })
+        .collect()
+}
+
+/// The dependency findings for the application at `app_root`, or `None` when it
+/// does not use plugins.
+pub fn dependency_findings(app_root: &Path) -> Result<Option<Vec<crate::deps::Finding>>> {
+    let Some(plugins) = read_list(app_root)? else {
+        return Ok(None);
+    };
+    if plugins.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(crate::deps::inspect(
+        app_root,
+        &installed(app_root, &plugins),
+        false,
+    )))
 }
 
 fn list(root: &Path) -> Result<()> {

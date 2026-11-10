@@ -98,6 +98,24 @@ pub async fn run() -> Result<()> {
         }
     }
 
+    // Plugins must share the framework's versions of the crates whose types
+    // cross between them, and must not clash over a native library.
+    match crate::plugin::dependency_findings(&project.root) {
+        Ok(Some(findings)) => {
+            let clean = !findings
+                .iter()
+                .any(|f| f.level == crate::deps::Level::Error);
+            ok &= check("Plugins share the framework's crates", clean);
+            crate::deps::print(&findings);
+        }
+        Ok(None) => {}
+        Err(err) => {
+            report(false, "Plugins share the framework's crates");
+            println!("    {err}");
+            ok = false;
+        }
+    }
+
     // Descriptor files are embedded at build time, so a typo already fails the
     // build. Reading them here names the file and line without a compile.
     let mut bad: Vec<String> = Vec::new();
