@@ -1,0 +1,1 @@
+{% if href.is_empty() %}{{ text }}{% else %}<a class="lat-cell-link" href="{{ href }}"{% if new_tab %} target="_blank" rel="noopener noreferrer"{% endif %}{% if text.is_empty() %} aria-label="{{ label }}" title="{{ label }}"{% endif %}>{{ icon|safe }}{% if !text.is_empty() %}<span>{{ text }}</span>{% endif %}</a>{% endif %}

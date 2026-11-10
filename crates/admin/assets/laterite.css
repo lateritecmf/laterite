@@ -120,6 +120,10 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-main{flex:1;min-width:0;overflow-y:auto;scrollbar-gutter:stable}
 .lat-page{padding:var(--page-gutter)}
 
+.lat-cell-link{display:inline-flex;align-items:center;gap:6px;color:var(--accent);text-decoration:none}
+.lat-cell-link:hover{text-decoration:underline}
+.lat-cell-link svg{width:18px;height:18px;flex:0 0 auto}
+
 /* Top navigation */
 .lat-topnav{height:var(--topnav-h);flex:0 0 auto;display:flex;align-items:stretch;background:var(--surface-nav);color:var(--text-inverse);padding-right:16px;position:relative;z-index:20}
 .lat-topnav__brand{display:flex;align-items:center;gap:10px;padding:0 22px 0 20px;text-decoration:none}

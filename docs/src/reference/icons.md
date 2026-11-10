@@ -17,7 +17,7 @@ matches suggested.
 The set is a subset of upstream. A plugin registers what it needs:
 
 ```rust,ignore
-registry.add_icon(IconReg::new(
+registry.add(IconReg::new(
     "map-pin-house",
     include_str!("../assets/icons/map-pin-house.svg"),
 ));

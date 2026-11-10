@@ -221,7 +221,9 @@ impl ListColumn {
 }
 
 /// The per-cell state a column type renders from: the raw (text-cast) value, the
-/// display timezone, and the locale for date month/day names.
+/// display timezone, the locale for date month/day names, the column's own keys,
+/// and the icon set. Built with [`CellCx::new`].
+#[non_exhaustive]
 pub struct CellCx<'a> {
     /// The cell's stored value, cast to text.
     pub value: &'a str,
@@ -229,6 +231,77 @@ pub struct CellCx<'a> {
     pub tz: Tz,
     /// The locale month and day names are formatted in.
     pub locale: chrono::Locale,
+    /// The column's entry from the descriptor beyond the keys every column
+    /// has (`url`, `icon`), as an object; null when it has none.
+    pub options: &'a serde_json::Value,
+    icon: &'a dyn Fn(&str) -> String,
+    row: &'a [(&'a str, &'a str)],
+    base: &'a str,
+}
+
+static NO_OPTIONS: serde_json::Value = serde_json::Value::Null;
+static NO_ICONS: fn(&str) -> String = |_| String::new();
+
+impl<'a> CellCx<'a> {
+    /// A cell holding `value`, shown in `tz` with names in `locale`, with no
+    /// column keys and no icons.
+    pub fn new(value: &'a str, tz: Tz, locale: chrono::Locale) -> Self {
+        Self {
+            value,
+            tz,
+            locale,
+            options: &NO_OPTIONS,
+            icon: &NO_ICONS,
+            row: &[],
+            base: "",
+        }
+    }
+
+    /// Reads the row's other values from `row`: `(column, value)` pairs, the
+    /// record's id under `id`.
+    pub fn with_row(mut self, row: &'a [(&'a str, &'a str)]) -> Self {
+        self.row = row;
+        self
+    }
+
+    /// Places an admin-relative address under `base` (`/admin`).
+    pub fn with_base(mut self, base: &'a str) -> Self {
+        self.base = base;
+        self
+    }
+
+    /// Another value in the same row, by column; `id` is the record's id.
+    pub fn field(&self, column: &str) -> Option<&'a str> {
+        self.row.iter().find(|(c, _)| *c == column).map(|(_, v)| *v)
+    }
+
+    /// The admin mount an admin-relative address goes under.
+    pub fn base(&self) -> &'a str {
+        self.base
+    }
+
+    /// Reads the column's own keys from `options`.
+    pub fn with_options(mut self, options: &'a serde_json::Value) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Renders icons through `icon`, which takes a name and returns inline SVG.
+    pub fn with_icons(mut self, icon: &'a dyn Fn(&str) -> String) -> Self {
+        self.icon = icon;
+        self
+    }
+
+    /// Inline SVG for a named icon from the set; empty without an icon set,
+    /// the missing mark for an unknown name.
+    pub fn icon(&self, name: &str) -> String {
+        (self.icon)(name)
+    }
+
+    /// The column's key `key` as text, when it is one.
+    pub fn option_str(&self, key: &str) -> Option<&'a str> {
+        self.options.get(key).and_then(|v| v.as_str())
+    }
 }
 
 /// The chrono locale for month/day names, parsed from the operator's locale tag.
@@ -331,6 +404,7 @@ pub(crate) fn builtin_column_types() -> Vec<Arc<dyn ColumnType>> {
         Arc::new(TimeColumn),
         Arc::new(BoolColumn),
         Arc::new(StatusPillColumn),
+        Arc::new(LinkColumn),
     ]
 }
 
@@ -506,6 +580,142 @@ impl ColumnType for StatusPillColumn {
         })
         .unwrap_or_default()
     }
+}
+
+#[derive(Template)]
+#[template(path = "cells/link.html")]
+struct CellLinkTmpl<'a> {
+    href: &'a str,
+    text: &'a str,
+    label: &'a str,
+    icon: &'a str,
+    new_tab: bool,
+}
+
+/// A link: the value is the address, or fills `{value}` in the column's `url`.
+/// Only `http`, `https`, `mailto`, `tel` and admin-relative addresses link; any
+/// other value shows as text.
+struct LinkColumn;
+impl ColumnType for LinkColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(vec!["url", "text", "icon", "new_tab"])
+    }
+    fn view_key(&self) -> &'static str {
+        "link"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        let value = cx.value.trim();
+        let href = match cx.option_str("url") {
+            Some(template) => fill(template, cx, true)
+                .map(|url| {
+                    let lower = url.to_ascii_lowercase();
+                    let absolute = url.starts_with('/')
+                        || url.contains("://")
+                        || lower.starts_with("mailto:")
+                        || lower.starts_with("tel:");
+                    if absolute {
+                        url
+                    } else {
+                        format!("{}/{url}", cx.base())
+                    }
+                })
+                .unwrap_or_default(),
+            None => value.to_string(),
+        };
+        let href = if safe_href(&href) {
+            href
+        } else {
+            String::new()
+        };
+        let text = match cx.option_str("text") {
+            Some(text) => fill(text, cx, false).unwrap_or_default(),
+            None if value.is_empty() => href.clone(),
+            None => value.to_string(),
+        };
+        let icon = match cx.option_str("icon") {
+            Some(name) if !href.is_empty() => cx.icon(name),
+            _ => String::new(),
+        };
+        let new_tab = cx
+            .options
+            .get("new_tab")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        CellVm {
+            view_key: "link".to_string(),
+            value: cx.value.to_string(),
+            display: text,
+            data: serde_json::json!({ "href": href, "icon": icon, "new_tab": new_tab }),
+        }
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        let field = |k: &str| vm.data.get(k).and_then(|v| v.as_str()).unwrap_or("");
+        Markup::from_template(&CellLinkTmpl {
+            href: field("href"),
+            text: &vm.display,
+            label: &vm.value,
+            icon: field("icon"),
+            new_tab: vm
+                .data
+                .get("new_tab")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        })
+        .unwrap_or_default()
+    }
+}
+
+/// `template` with each `{column}` replaced by that column's value in the row
+/// (`{value}` is the cell's own, `{id}` the record's), encoded for a URL when
+/// `encode`. `None` when a placeholder names a column the row lacks or holds
+/// empty, so a half-filled address never becomes a link.
+fn fill(template: &str, cx: &CellCx<'_>, encode: bool) -> Option<String> {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let close = open + rest[open..].find('}')?;
+        out.push_str(&rest[..open]);
+        let name = &rest[open + 1..close];
+        let value = if name == "value" {
+            Some(cx.value.trim())
+        } else {
+            cx.field(name)
+        };
+        let value = value.filter(|v| !v.is_empty())?;
+        out.push_str(&if encode {
+            url_component(value)
+        } else {
+            value.to_string()
+        });
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+/// Whether `href` is an address a cell may link to: a web, mail or phone
+/// address, or a path on this site. Anything else (`javascript:`, `data:`)
+/// renders as text.
+fn safe_href(href: &str) -> bool {
+    let lower = href.trim_start().to_ascii_lowercase();
+    ["https://", "http://", "mailto:", "tel:"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+        || (lower.starts_with('/') && !lower.starts_with("//"))
+}
+
+/// `value` percent-encoded for one URL component: unreserved characters and
+/// `@` pass, every other byte is escaped.
+fn url_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'@' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// A CSS-safe modifier from a status value (lowercased, non-alphanumerics to `-`).
@@ -2324,6 +2534,7 @@ async fn build_page(
         {
             let total_pages = ((result.total + per_page - 1) / per_page).max(1);
             let date_loc = date_locale(shell.locale());
+            let icon = |name: &str| shell.icon(name);
             // Each column's labels, localized once for the page.
             let labels: Vec<Option<HashMap<String, String>>> = config
                 .columns
@@ -2340,52 +2551,64 @@ async fn build_page(
             let rows: Vec<RenderedRow> = result
                 .rows
                 .into_iter()
-                .map(|row| RenderedRow {
-                    depth,
-                    indent: format!("{}px", 16 + depth * 18),
-                    toggle: (structure.is_some() && row.children > 0)
-                        .then(|| format!("{path}?parent={}&depth={}", row.id, depth + 1)),
-                    id: row.id.clone(),
-                    protected: row.protected,
-                    cells: row
-                        .cells
-                        .iter()
-                        .zip(config.columns.iter().zip(&labels))
-                        .map(|(raw, (col, labels))| {
-                            let cx = CellCx {
-                                value: raw,
-                                tz: shell.tz,
-                                locale: date_loc,
-                            };
-                            let scope = OverrideScope {
-                                surface: Surface::Column,
-                                view_key: &col.column_type,
-                                resource: Some(&config.entity),
-                                field: Some(&col.field),
-                            };
-                            let html = match (&config.editor, col.editable && !trashed) {
-                                (Some(editor), true) => cell_markup(
-                                    state, &editor.0, path, &row.id, &col.field, raw, &shell, None,
-                                ),
-                                _ => match state.column_types.get(&col.column_type) {
-                                    Some(ct) => render_cell(
-                                        ct.as_ref(),
-                                        state.overrides.as_ref(),
-                                        &scope,
-                                        &cx,
-                                        labels.as_ref(),
-                                    )
-                                    .into_string(),
-                                    // Unreachable: `check` refused the type at boot.
-                                    None => String::new(),
-                                },
-                            };
-                            CellView {
-                                html,
-                                class: col.align_class().to_string(),
-                            }
-                        })
-                        .collect(),
+                .map(|row| {
+                    let fields: Vec<(&str, &str)> = std::iter::once(("id", row.id.as_str()))
+                        .chain(
+                            config
+                                .columns
+                                .iter()
+                                .map(|c| c.field.as_str())
+                                .zip(row.cells.iter().map(String::as_str)),
+                        )
+                        .collect();
+                    RenderedRow {
+                        depth,
+                        indent: format!("{}px", 16 + depth * 18),
+                        toggle: (structure.is_some() && row.children > 0)
+                            .then(|| format!("{path}?parent={}&depth={}", row.id, depth + 1)),
+                        id: row.id.clone(),
+                        protected: row.protected,
+                        cells: row
+                            .cells
+                            .iter()
+                            .zip(config.columns.iter().zip(&labels))
+                            .map(|(raw, (col, labels))| {
+                                let cx = CellCx::new(raw, shell.tz, date_loc)
+                                    .with_options(&col.options)
+                                    .with_icons(&icon)
+                                    .with_row(&fields)
+                                    .with_base(shell.base());
+                                let scope = OverrideScope {
+                                    surface: Surface::Column,
+                                    view_key: &col.column_type,
+                                    resource: Some(&config.entity),
+                                    field: Some(&col.field),
+                                };
+                                let html = match (&config.editor, col.editable && !trashed) {
+                                    (Some(editor), true) => cell_markup(
+                                        state, &editor.0, path, &row.id, &col.field, raw, &shell,
+                                        None,
+                                    ),
+                                    _ => match state.column_types.get(&col.column_type) {
+                                        Some(ct) => render_cell(
+                                            ct.as_ref(),
+                                            state.overrides.as_ref(),
+                                            &scope,
+                                            &cx,
+                                            labels.as_ref(),
+                                        )
+                                        .into_string(),
+                                        // Unreachable: `check` refused the type at boot.
+                                        None => String::new(),
+                                    },
+                                };
+                                CellView {
+                                    html,
+                                    class: col.align_class().to_string(),
+                                }
+                            })
+                            .collect(),
+                    }
                 })
                 .collect();
             let editable_assets: Vec<&'static str> = match &config.editor {
@@ -3629,12 +3852,8 @@ mod tests {
     fn column_types_format_their_cell_display() {
         let ist: Tz = "Asia/Kolkata".parse().unwrap();
         let display = |ct: &dyn ColumnType, value: &str, tz: Tz| {
-            ct.view_model(&CellCx {
-                value,
-                tz,
-                locale: chrono::Locale::en_US,
-            })
-            .display
+            ct.view_model(&CellCx::new(value, tz, chrono::Locale::en_US))
+                .display
         };
         // 10:00 UTC is 15:30 in Asia/Kolkata (UTC+5:30)
         assert_eq!(
@@ -3741,11 +3960,7 @@ mod tests {
                 resource: Some("products"),
                 field: Some("stars"),
             },
-            &CellCx {
-                value: "3",
-                tz: Tz::UTC,
-                locale: chrono::Locale::en_US,
-            },
+            &CellCx::new("3", Tz::UTC, chrono::Locale::en_US),
             None,
         );
         assert!(rendered.into_string().contains("***"));
@@ -3774,12 +3989,88 @@ mod tests {
     }
 
     #[test]
+    fn a_link_cell_links_safe_addresses_with_its_options() {
+        let render = |value: &str, options: serde_json::Value| {
+            let icon = |name: &str| format!("<svg data-icon=\"{name}\"></svg>");
+            let cx = CellCx::new(value, Tz::UTC, chrono::Locale::en_US)
+                .with_options(&options)
+                .with_icons(&icon);
+            LinkColumn
+                .render_default(&LinkColumn.view_model(&cx))
+                .into_string()
+        };
+        let plain = render("https://acme.com/a", serde_json::json!({}));
+        assert!(plain.contains(r#"href="https://acme.com/a""#), "{plain}");
+        assert!(!plain.contains("target="), "{plain}");
+
+        let icon_only = render(
+            "acme_band",
+            serde_json::json!({ "url": "https://social.acme/{value}", "text": "", "icon": "at-sign", "new_tab": true }),
+        );
+        assert!(
+            icon_only.contains(r#"href="https://social.acme/acme_band""#),
+            "{icon_only}"
+        );
+        assert!(
+            icon_only.contains(r#"target="_blank" rel="noopener noreferrer""#),
+            "{icon_only}"
+        );
+        assert!(icon_only.contains(r#"data-icon="at-sign""#), "{icon_only}");
+        assert!(
+            icon_only.contains(r#"aria-label="acme_band""#),
+            "{icon_only}"
+        );
+
+        let escaped = render(
+            "a b/c",
+            serde_json::json!({ "url": "https://acme.com/{value}" }),
+        );
+        assert!(escaped.contains("https://acme.com/a%20b%2Fc"), "{escaped}");
+
+        let script = render("javascript:alert(1)", serde_json::json!({}));
+        assert!(
+            !script.contains("<a"),
+            "an unsafe address is text: {script}"
+        );
+        assert!(render("", serde_json::json!({ "icon": "at-sign" }))
+            .trim()
+            .is_empty());
+
+        // Other columns of the row, and an address under the admin.
+        let row = [("id", "7"), ("code", "ord-1")];
+        let options = serde_json::json!({ "url": "acme/orders/{id}/edit", "text": "Open {code}" });
+        let cx = CellCx::new("", Tz::UTC, chrono::Locale::en_US)
+            .with_options(&options)
+            .with_row(&row)
+            .with_base("/admin");
+        let html = LinkColumn
+            .render_default(&LinkColumn.view_model(&cx))
+            .into_string();
+        assert!(
+            html.contains(r#"href="/admin/acme/orders/7/edit""#),
+            "{html}"
+        );
+        assert!(html.contains("Open ord-1"), "{html}");
+
+        // A placeholder the row cannot fill leaves the cell unlinked.
+        let options = serde_json::json!({ "url": "acme/orders/{missing}" });
+        let cx = CellCx::new("x", Tz::UTC, chrono::Locale::en_US)
+            .with_options(&options)
+            .with_row(&row)
+            .with_base("/admin");
+        let html = LinkColumn
+            .render_default(&LinkColumn.view_model(&cx))
+            .into_string();
+        assert!(!html.contains("<a"), "{html}");
+    }
+
+    #[test]
     fn status_pill_renders_a_slugged_markup_span() {
-        let vm = StatusPillColumn.view_model(&CellCx {
-            value: "In Progress",
-            tz: Tz::UTC,
-            locale: chrono::Locale::en_US,
-        });
+        let vm = StatusPillColumn.view_model(&CellCx::new(
+            "In Progress",
+            Tz::UTC,
+            chrono::Locale::en_US,
+        ));
         let html = StatusPillColumn.render_default(&vm).into_string();
         assert!(html.contains(r#"class="lat-status lat-status--in-progress""#));
         assert!(html.contains(">In Progress<"));

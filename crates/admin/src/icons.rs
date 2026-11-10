@@ -81,7 +81,7 @@ pub(crate) fn require(set: &IconSet, what: &str, name: Option<&str>) {
     panic!(
         "{what} names the icon `{name}`, which is not in the set{hint} \
          See docs/src/reference/icons.md for the full list, or register your \
-         own with `add_icon`."
+         own with `registry.add(IconReg::new(..))`."
     );
 }
 

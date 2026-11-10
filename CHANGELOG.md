@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Breaking
+
+- `CellCx` is non-exhaustive and is built with `CellCx::new`; it now carries the column's `options`, the row (`field`), the icon set (`icon`) and the admin mount (`base`).
+
+### Added
+
+- A `link` column type: an address from the value or a `url` template, with `text`, `icon` and `new_tab`.
+
 ### Fixed
 
 - Saving an existing record no longer fails when its form has a `section` field.

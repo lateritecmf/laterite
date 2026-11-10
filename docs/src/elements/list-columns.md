@@ -1,9 +1,8 @@
 # List Columns
 
-Every built-in column type. None reads a key of its own; the keys every column
-takes (`label`, `width`, `labels`, ...) are on [List
-Descriptor](../lists/list-descriptor.md), and a type of your own is [Writing a
-Column Type](../lists/column-types.md).
+Every built-in column type. The keys every column takes (`label`, `width`,
+`labels`, ...) are on [List Descriptor](../lists/list-descriptor.md), and a type
+of your own is [Writing a Column Type](../lists/column-types.md).
 
 ## text
 
@@ -63,3 +62,26 @@ columns:
 
 A pill coloured by the value, lowercased with anything but letters and digits
 made a hyphen, and reading as its entry under `labels`.
+
+## link
+
+```yaml
+columns:
+  website:   { type: link, new_tab: true }
+  instagram: { type: link, url: "https://www.instagram.com/{value}/", icon: "acme.social:instagram", text: "", new_tab: true }
+  order:     { type: link, url: "acme/orders/{id}/edit", text: "Open {code}" }
+```
+
+Key | Default | Description
+--- | --- | ---
+`url` | the value | The address, with `{value}` for the cell's value, `{id}` for the record's and `{column}` for another column on the list. A value filled in is URL-encoded. An address with no scheme and no leading `/` is under the admin.
+`text` | the value | What the link reads, with the same placeholders. `""` shows the icon alone.
+`icon` | none | An icon from the [icon set](../reference/icons.md), before the text.
+`new_tab` | `false` | Opens the address in a new tab.
+
+Case | Shown as
+--- | ---
+`http`, `https`, `mailto`, `tel` or a `/` path | A link
+Any other address (`javascript:`, `data:`) | Text
+A placeholder whose column is not on the list, or is empty | Text
+An empty value with no `url` | Nothing
