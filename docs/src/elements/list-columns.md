@@ -84,6 +84,7 @@ Placeholder | Fills in
 `{value\|host}` | A link's domain, without `www.`: `acme.com`
 `icon` | none | An icon from the [icon set](../reference/icons.md), before the text.
 `new_tab` | `false` | Opens the address in a new tab.
+`format` | the field's | Shows a stored address as its prefixed name. See [Field Formats](../forms/field-formats.md).
 
 Case | Shown as
 --- | ---

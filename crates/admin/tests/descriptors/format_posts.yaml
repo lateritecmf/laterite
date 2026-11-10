@@ -1,0 +1,14 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+    name: { type: link }
+form:
+  title: Post
+  fields:
+    code: { rules: [required] }
+    name:
+      format: { base: "https://www.social.acme/", prefix: "@", pattern: "[a-z0-9._]{1,30}", lowercase: true }

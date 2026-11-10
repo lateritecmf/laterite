@@ -28,6 +28,7 @@ mod error;
 mod export;
 pub mod field;
 pub mod form;
+pub mod format;
 pub mod html;
 pub mod http_cache;
 mod icons;
@@ -3535,6 +3536,37 @@ fn mount_resource(
     let base = resource.base_path.clone();
     let list_path = base.clone();
     let mut list_cfg = resource.list.clone();
+    // A `link` column shows its field's format unless it declares its own.
+    for column in list_cfg
+        .columns
+        .iter_mut()
+        .filter(|c| c.column_type == "link")
+    {
+        if column.options.get("format").is_none() {
+            let inherited = resource
+                .form
+                .as_ref()
+                .and_then(|f| f.fields.iter().find(|x| x.name == column.field))
+                .and_then(|x| x.format.as_ref());
+            if let Some(format) = inherited {
+                if !column.options.is_object() {
+                    column.options = serde_json::json!({});
+                }
+                column.options["format"] = serde_json::to_value(format).unwrap_or_default();
+            }
+        }
+        if let Some(raw) = column.options.get("format") {
+            let checked = serde_json::from_value::<format::FieldFormat>(raw.clone())
+                .map_err(|e| e.to_string())
+                .and_then(|f| f.check());
+            if let Err(e) = checked {
+                panic!(
+                    "admin resource `{}`: column `{}`: {e}",
+                    resource.base_path, column.field
+                );
+            }
+        }
+    }
     // Editable cells write through the resource's form, prepared here for
     // them: a column that edits a field the form lacks aborts boot.
     if resource.list.columns.iter().any(|c| c.editable) {

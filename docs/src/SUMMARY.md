@@ -38,6 +38,7 @@
 
 - [Form Descriptor](forms/form-descriptor.md)
 - [Field Dependencies](forms/field-dependencies.md)
+- [Field Formats](forms/field-formats.md)
 - [Related Records](forms/relations.md)
 - [Validation](forms/validation.md)
 - [Writing a Field Type](forms/field-types.md)

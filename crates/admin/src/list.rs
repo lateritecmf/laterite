@@ -598,7 +598,7 @@ struct CellLinkTmpl<'a> {
 struct LinkColumn;
 impl ColumnType for LinkColumn {
     fn option_keys(&self) -> Option<Vec<&'static str>> {
-        Some(vec!["url", "text", "icon", "new_tab"])
+        Some(vec!["url", "text", "icon", "new_tab", "format"])
     }
     fn view_key(&self) -> &'static str {
         "link"
@@ -627,10 +627,15 @@ impl ColumnType for LinkColumn {
         } else {
             String::new()
         };
-        let text = match cx.option_str("text") {
-            Some(text) => fill(text, cx, false).unwrap_or_default(),
-            None if value.is_empty() => href.clone(),
-            None => value.to_string(),
+        let format = cx
+            .options
+            .get("format")
+            .and_then(|f| serde_json::from_value::<crate::format::FieldFormat>(f.clone()).ok());
+        let text = match (cx.option_str("text"), &format) {
+            (Some(text), _) => fill(text, cx, false).unwrap_or_default(),
+            (None, Some(format)) if !value.is_empty() => format.display(value),
+            (None, _) if value.is_empty() => href.clone(),
+            (None, _) => value.to_string(),
         };
         // A value that cannot be linked still shows, even where the link
         // would have been the icon alone.
@@ -4102,6 +4107,23 @@ mod tests {
                 .into_string();
             assert!(html.contains("@band on social.acme"), "{url}: {html}");
         }
+
+        // A format shows the stored address as the prefixed name.
+        let options =
+            serde_json::json!({ "format": { "base": "https://www.social.acme/", "prefix": "@" } });
+        let cx = CellCx::new(
+            "https://www.social.acme/band",
+            Tz::UTC,
+            chrono::Locale::en_US,
+        )
+        .with_options(&options);
+        let html = LinkColumn
+            .render_default(&LinkColumn.view_model(&cx))
+            .into_string();
+        assert!(
+            html.contains(">@band<") && html.contains(r#"href="https://www.social.acme/band""#),
+            "{html}"
+        );
 
         // A placeholder the row cannot fill leaves the cell unlinked.
         let options = serde_json::json!({ "url": "acme/orders/{missing}" });

@@ -83,6 +83,9 @@ pub struct FormField {
     pub related: Option<String>,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
+    /// What a value looks like: the shapes accepted, the one stored, and how a
+    /// `link` column on the field shows it. See [`crate::format::FieldFormat`].
+    pub format: Option<crate::format::FieldFormat>,
 }
 
 /// How a preset shapes the text it copies.
@@ -453,6 +456,7 @@ impl<'de> Deserialize<'de> for FormField {
                         "break" => field.break_row = map.next_value()?,
                         "preset" => field.preset = map.next_value()?,
                         "trigger" => field.trigger = map.next_value()?,
+                        "format" => field.format = Some(map.next_value()?),
                         "hidden" => field.hidden = map.next_value()?,
                         "transient" => field.transient = map.next_value()?,
                         "related" => field.related = Some(map.next_value()?),
@@ -504,6 +508,9 @@ impl Serialize for FormField {
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
+        if let Some(format) = &self.format {
+            map.serialize_entry("format", format)?;
+        }
         crate::keyed::serialize_theirs(&mut map, &self.options)?;
         map.end()
     }
@@ -537,7 +544,14 @@ impl FormField {
             hidden: false,
             transient: false,
             related: None,
+            format: None,
         }
+    }
+
+    /// Accepts and stores values in `format`.
+    pub fn format(mut self, format: crate::format::FieldFormat) -> Self {
+        self.format = Some(format);
+        self
     }
 
     /// Follows `field` as it is typed, shaped as `shape`, until this field is
@@ -1160,6 +1174,11 @@ impl PreparedForm {
             })?;
             crate::field::check_field_keys(f, ft.as_ref())
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
+            if let Some(format) = &f.format {
+                format
+                    .check()
+                    .map_err(|e| format!("field `{}`: {e}", f.name))?;
+            }
             let opts = ft
                 .resolve_options(&f.options, field_types)
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
@@ -1540,6 +1559,22 @@ async fn prepare(
         None => (Mode::Create, Op::Create),
         Some(_) => (Mode::Update, Op::Update),
     };
+    // A formatted field is stored in its one shape; a value in none of the
+    // shapes it accepts is refused on the field.
+    let mut formatted = ErrorBag::default();
+    let mut normalized = data.clone();
+    for field in &form.config.fields {
+        let (Some(format), Some(value)) = (&field.format, data.get(&field.name)) else {
+            continue;
+        };
+        match format.normalize(value) {
+            Ok(stored) => {
+                normalized.insert(field.name.clone(), stored);
+            }
+            Err(message) => formatted.add(&field.name, message),
+        }
+    }
+    let data = &normalized;
     let fields = merged_field_rules(form);
     let mut bag = validate(
         db,
@@ -1552,6 +1587,11 @@ async fn prepare(
     )
     .await
     .map_err(|e| SaveError::Failed(e.to_string()))?;
+    for (field, messages) in formatted.iter() {
+        for message in messages {
+            bag.add(field, message.clone());
+        }
+    }
     laterite_core::validation::validate_custom(
         db,
         &form.config.entity,
