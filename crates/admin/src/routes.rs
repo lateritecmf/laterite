@@ -45,7 +45,13 @@ pub struct RouteCtx {
     events: Events,
     forms: Forms,
     settings_paths: Arc<HashMap<String, String>>,
+    entity_access: Arc<EntityAccess>,
 }
+
+/// For each entity a resource or a relation shows, the permissions that let
+/// an operator see its records: holding any one is enough, and `None` among
+/// them leaves the entity open to every signed-in operator.
+pub(crate) type EntityAccess = HashMap<String, Vec<Option<String>>>;
 
 impl RouteCtx {
     #[allow(clippy::too_many_arguments)]
@@ -89,7 +95,28 @@ impl RouteCtx {
             events,
             forms,
             settings_paths,
+            entity_access: Arc::default(),
         }
+    }
+
+    /// The context knowing which permissions show each entity's records.
+    pub(crate) fn with_entity_access(mut self, access: Arc<EntityAccess>) -> Self {
+        self.entity_access = access;
+        self
+    }
+
+    /// Whether `permissions` lets an operator see records of `entity`: some
+    /// resource or relation over it asks for nothing, or for a permission
+    /// held. An entity no screen shows is closed.
+    pub(crate) fn may_see_entity(
+        &self,
+        entity: &str,
+        permissions: &laterite_auth::PermissionSet,
+    ) -> bool {
+        self.entity_access.get(entity).is_some_and(|asks| {
+            asks.iter()
+                .any(|ask| ask.as_deref().is_none_or(|p| permissions.allows(p)))
+        })
     }
 
     /// Where a settings screen is served, by its storage code

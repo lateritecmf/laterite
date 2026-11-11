@@ -31,7 +31,7 @@ under `backend.storage`.
 File | Served at
 --- | ---
 Public | `/storage/media/<hash>/<name>`, cacheable.
-Private | The same address with a signature, `private, no-store`; no address without one. A tile carries a lock.
+Private | `/admin/media-files/<id>/<name>`, signed in, for whoever may browse the library or see a record the file is attached to; see [Storage disks](../services/storage-disks.md). A tile carries a lock.
 
 ## Find a file
 

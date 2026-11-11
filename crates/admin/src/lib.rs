@@ -2669,6 +2669,24 @@ pub fn router(
     // A module's own screens: routes it wrote, mounted inside the protected tree
     // so they inherit the session, the permission guard, CSRF and the error pages.
     // Nested as a service, so the screen's router carries no framework state.
+    // Which permissions show each entity's records, so a private file opens
+    // for whoever may see a record it is attached to.
+    let entity_access: Arc<routes::EntityAccess> = {
+        let mut access = routes::EntityAccess::new();
+        for resource in &resources {
+            access
+                .entry(resource.list.entity.clone())
+                .or_default()
+                .push(resource.permission.clone());
+            for relation in &resource.relations {
+                access
+                    .entry(relation.entity.clone())
+                    .or_default()
+                    .push(relation.permission.clone().or(resource.permission.clone()));
+            }
+        }
+        Arc::new(access)
+    };
     for reg in &app_screens {
         let base = format!("{admin_path}{}", reg.base_path);
         let ctx = routes::RouteCtx::new(
@@ -2690,11 +2708,20 @@ pub fn router(
             state.auth.events().clone(),
             forms.clone(),
             settings_paths(&state.settings, &admin_path),
-        );
+        )
+        .with_entity_access(entity_access.clone());
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,
         ));
+        // Private files serve beside the library, behind the session alone:
+        // the route decides file by file who may open one.
+        if reg.base_path == medialib::SCREEN_PATH {
+            protected = protected.merge(Router::new().nest_service(
+                &format!("{admin_path}{}", medialib::FILES_PATH),
+                medialib::private_files(&ctx),
+            ));
+        }
     }
 
     // The roles screen has a dedicated create/edit form (the permission editor),

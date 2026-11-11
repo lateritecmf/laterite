@@ -23,7 +23,23 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
     laterite_core::testing::connect_test(&laterite_admin::builtin_migrations()).await
 }
 
+/// A screen that keeps the context it is mounted with, for a test that signs
+/// a link as an application would.
+struct Keeper(Arc<std::sync::OnceLock<laterite_admin::routes::RouteCtx>>);
+
+impl laterite_admin::routes::Screen for Keeper {
+    fn mount(&self, ctx: &laterite_admin::routes::RouteCtx) -> Router {
+        let _ = self.0.set(ctx.clone());
+        Router::new()
+    }
+}
+
 fn app(db: &Db, root: &std::path::Path) -> Router {
+    app_and_ctx(db, root).0
+}
+
+fn app_and_ctx(db: &Db, root: &std::path::Path) -> (Router, laterite_admin::routes::RouteCtx) {
+    let kept = Arc::new(std::sync::OnceLock::new());
     let mut config = AdminConfig::default();
     config.origin = "https://acme.test".to_string();
     config.storage_dir = root.display().to_string();
@@ -35,15 +51,22 @@ fn app(db: &Db, root: &std::path::Path) -> Router {
     ));
     let contributions = Contributions {
         plugin_defined: Arc::new(registry),
+        screens: vec![laterite_admin::routes::ScreenReg::new(
+            "/keeper",
+            "media.browse",
+            Arc::new(Keeper(kept.clone())),
+        )],
         ..Default::default()
     };
-    router(
+    let app = router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
         contributions,
         config,
         Arc::new(CatalogStore::default()),
-    )
+    );
+    let ctx = kept.get().cloned().expect("the screen was mounted");
+    (app, ctx)
 }
 
 async fn sessions(db: &Db) -> (String, String) {
@@ -363,11 +386,12 @@ async fn files_upload_into_folders_and_serve_from_their_hash() {
 
 /// A file on a private disk never serves bare. The admin's own link to it is
 /// signed, bound to the hash and timed; a tampered or retargeted token fails.
+/// The admin shows the file at its own signed-in address.
 #[tokio::test]
 async fn a_private_file_serves_only_behind_a_live_signature() {
     let (db, _g) = test_db().await;
     let dir = tempfile::tempdir().unwrap();
-    let app = app(&db, dir.path());
+    let (app, ctx) = app_and_ctx(&db, dir.path());
     let (root, _) = sessions(&db).await;
 
     let private = LocalDisk::new(dir.path().join("private"));
@@ -399,13 +423,24 @@ async fn a_private_file_serves_only_behind_a_live_signature() {
     let (status, _, _) = get(&app, &bare, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "no token, no file");
 
+    // The admin addresses the file inside itself and hands out no signed link.
     let (status, html, _) = get(&app, &format!("/admin/media/{id}"), Some(&root)).await;
     assert_eq!(status, StatusCode::OK);
-    let start = html.find(&format!("{bare}?e=")).expect("a signed link");
-    let end = html[start..].find('"').unwrap();
-    let signed = html[start..start + end]
-        .replace("&amp;", "&")
-        .replace("&#38;", "&");
+    let inside = format!("/admin/media-files/{id}/report.txt");
+    assert!(html.contains(&inside) && !html.contains("?e="), "{html}");
+    let (status, body, _) = get(&app, &inside, Some(&root)).await;
+    assert_eq!((status, body.as_str()), (StatusCode::OK, "secret report"));
+    let (status, body, _) = get(&app, &inside, None).await;
+    assert!(
+        status.is_redirection() && body != "secret report",
+        "{status}"
+    );
+
+    // A link an application signs on purpose opens without a session.
+    let file = record::find(&db, id).await.unwrap().unwrap();
+    let signed =
+        laterite_admin::medialib::signed_file_url(&ctx, &file, std::time::Duration::from_secs(60));
+    assert!(signed.starts_with(&format!("{bare}?e=")), "{signed}");
     let (status, body, headers) = get(&app, &signed, None).await;
     assert_eq!(status, StatusCode::OK, "{signed}");
     assert_eq!(body, "secret report");

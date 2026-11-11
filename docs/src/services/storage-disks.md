@@ -213,7 +213,20 @@ Part | Value
 `Cache-Control` | `private, no-store`
 Bare, expired, altered or retargeted | 404
 
-The admin's own links to a private file carry a one-hour signature.
+Inside the admin a private file has an address of its own, with no signature:
+
+```text
+/admin/media-files/<id>/<name>
+/admin/media-files/<id>/<preset>/<name>
+```
+
+Who asks | Answer
+--- | ---
+Signed out | The sign-in page.
+A superuser | The file.
+Holds `media.browse`, and the file is in the library | The file.
+Holds the permission of a resource or relation whose record the file is attached to | The file.
+Anyone else | 404
 
 ## Write a driver
 

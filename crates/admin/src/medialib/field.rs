@@ -116,7 +116,7 @@ impl FieldType for MediaField {
         let resolved = cx.opts.get::<MediaResolved>();
         let data = MediaData {
             pick_url: format!("{}/media/pick", cx.base),
-            resolve_url: format!("{}/media/resolve", cx.base),
+            resolve_url: format!("{}/media-files/resolve", cx.base),
             mode: resolved.map(|r| r.mode).unwrap_or_default(),
             max: resolved.map(|r| r.max).unwrap_or(1),
             select: cx.i18n.t(&laterite_core::t!("Select")),

@@ -84,7 +84,7 @@
       {% let upload_fields = upload_fields %}
       {% let upload_hint = upload_hint %}
       {% include "_upload.html" %}
-      <label class="lat-check lat-upload__protect"><input type="checkbox" name="private" value="1" data-upload-field> {{ shell.t("Private: served only through signed links, never at a public address") }}</label>
+      <label class="lat-check lat-upload__protect"><input type="checkbox" name="private" value="1" data-upload-field> {{ shell.t("Private: opened only by signed-in people with access, never at a public address") }}</label>
     </div>
     <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Close") }}</button><button class="lat-btn lat-btn--primary" type="submit" data-upload-submit>{{ shell.t("Upload") }}</button></div>
   </form>

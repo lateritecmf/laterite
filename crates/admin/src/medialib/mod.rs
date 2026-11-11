@@ -51,7 +51,8 @@ pub const DELETE_LINKED: &str = "media.delete_linked";
 /// The disk library uploads go to, by name.
 pub const DISK: &str = "public";
 
-/// The disk private library files live on: served only at signed URLs.
+/// The disk private library files live on: served inside the admin to who
+/// may open them, or at a link an application signs.
 pub const PRIVATE_DISK: &str = crate::import::DISK;
 /// The most one upload may weigh.
 const UPLOAD_LIMIT: u64 = 256 * 1024 * 1024;
@@ -92,7 +93,7 @@ pub(crate) fn permissions() -> Vec<Permission> {
 
 /// The Media tab.
 pub(crate) fn screen() -> ScreenReg {
-    ScreenReg::new("/media", BROWSE, Arc::new(MediaScreen))
+    ScreenReg::new(SCREEN_PATH, BROWSE, Arc::new(MediaScreen))
         .in_menu(t!("Media"))
         .menu(
             crate::nav::Placement::new()
@@ -245,6 +246,23 @@ impl laterite_core::Listener<MediaRemoved> for MediaCommit {
     }
 }
 
+/// Where the Media tab mounts, under the admin.
+pub(crate) const SCREEN_PATH: &str = "/media";
+
+/// Where private files serve to a signed-in operator, under the admin.
+pub(crate) const FILES_PATH: &str = "/media-files";
+
+/// The routes a private file serves at inside the admin:
+/// `<id>/<name>` and `<id>/<preset>/<name>`. The session is required by the
+/// tree they mount in; each request is then checked against the file.
+pub(crate) fn private_files(ctx: &RouteCtx) -> Router {
+    Router::new()
+        // The tiles of a `media` field, for anyone who can see the form.
+        .route("/resolve", get(resolve))
+        .route("/{id}/{*name}", get(serve_private))
+        .with_state(AppState::new(ctx))
+}
+
 /// The serve route.
 pub(crate) fn serve_route() -> PublicRouteReg {
     PublicRouteReg::new("/storage/media", Arc::new(Serve))
@@ -385,7 +403,7 @@ fn url_for(record: &MediaRecord, preset: Option<&str>) -> String {
     }
 }
 
-/// How long a signed URL the admin hands out stays valid.
+/// A lifetime for a signed URL an application hands out: one hour.
 pub const SIGNED_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// The URL a file on a private disk serves at for `ttl`: [`file_url`] carrying
@@ -430,10 +448,39 @@ fn admin_url(app: &AppState, record: &MediaRecord) -> String {
     admin_url_for(app, record, None)
 }
 
+/// A file on a private disk is addressed inside the admin, where the session
+/// and the file's own access rule stand in front of it; the admin hands out
+/// no signed link.
 fn admin_url_for(app: &AppState, record: &MediaRecord, preset: Option<&str>) -> String {
     match app.disks.by_name.get(&record.disk) {
-        Some((_, true)) => signed_url_for(&app.ctx, record, preset, SIGNED_TTL),
+        Some((_, true)) => {
+            let name = safe_name(&record.original_name);
+            let base = format!("{}{FILES_PATH}/{}", app.ctx.admin_path(), record.id);
+            match preset {
+                Some(p) => format!("{base}/{p}/{name}"),
+                None => format!("{base}/{name}"),
+            }
+        }
         _ => url_for(record, preset),
+    }
+}
+
+/// Whether `user` may open the private file `record`: a library file for
+/// whoever may browse the library, and any file for whoever may see a record
+/// it is attached to. A file attached to nothing, outside the library, opens
+/// for a superuser alone.
+async fn may_open(app: &AppState, user: &AuthenticatedUser, record: &MediaRecord) -> bool {
+    if user.permissions.is_superuser() || (record.in_library && user.permissions.allows(BROWSE)) {
+        return true;
+    }
+    match link::users_of(app.ctx.db(), record.id).await {
+        Ok(links) => links
+            .iter()
+            .any(|l| app.ctx.may_see_entity(&l.owner_type, &user.permissions)),
+        Err(e) => {
+            tracing::warn!(error = %e, media = record.id, "reading a file's links failed");
+            false
+        }
     }
 }
 
@@ -539,6 +586,48 @@ async fn serve(
             _ => return AdminError::NotFound.into_response(),
         },
     };
+    respond(&app, &headers, record, driver, private, preset).await
+}
+
+/// `GET <admin>/media-files/<id>/<name>` and `<id>/<preset>/<name>`: a file on
+/// a private disk, for a signed-in operator who may open it. Anyone else, and
+/// any file on a public disk, gets the 404 a missing file would.
+async fn serve_private(
+    State(app): App,
+    Extension(user): Extension<AuthenticatedUser>,
+    headers: HeaderMap,
+    Path((id, name)): Path<(i64, String)>,
+) -> Response {
+    let preset = match name.split_once('/') {
+        Some((preset, _)) => match app.presets.get(preset) {
+            Some(p) => Some(p),
+            None => return AdminError::NotFound.into_response(),
+        },
+        None => None,
+    };
+    let record = match record::find(app.ctx.db(), id).await {
+        Ok(Some(r)) => r,
+        _ => return AdminError::NotFound.into_response(),
+    };
+    let driver = match app.disks.by_name.get(&record.disk) {
+        Some((driver, true)) => Arc::clone(driver),
+        _ => return AdminError::NotFound.into_response(),
+    };
+    if !may_open(&app, &user, &record).await {
+        return AdminError::NotFound.into_response();
+    }
+    respond(&app, &headers, &record, driver, true, preset).await
+}
+
+/// The file or its variant in `preset`, as a response.
+async fn respond(
+    app: &AppState,
+    headers: &HeaderMap,
+    record: &MediaRecord,
+    driver: Arc<dyn StorageDriver>,
+    private: bool,
+    preset: Option<&Preset>,
+) -> Response {
     let cache_control = if private {
         "private, no-store".to_string()
     } else {
@@ -567,7 +656,7 @@ async fn serve(
         None => record.hash.clone(),
     };
     let etag = format!("\"{validator}\"");
-    if !private && http_cache::matches_etag(&headers, &validator) {
+    if !private && http_cache::matches_etag(headers, &validator) {
         return (
             StatusCode::NOT_MODIFIED,
             [(header::ETAG, etag), (header::CACHE_CONTROL, cache_control)],
@@ -780,7 +869,11 @@ struct ResolveQuery {
 
 /// The tiles for ids a field holds: name, kind, thumbnail and URL per file,
 /// in the order asked; an id that no longer exists is left out.
-async fn resolve(State(app): App, Query(query): Query<ResolveQuery>) -> Response {
+async fn resolve(
+    State(app): App,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(query): Query<ResolveQuery>,
+) -> Response {
     let mut out = Vec::new();
     for id in query
         .ids
@@ -789,6 +882,11 @@ async fn resolve(State(app): App, Query(query): Query<ResolveQuery>) -> Response
         .take(64)
     {
         if let Ok(Some(r)) = record::find(app.ctx.db(), id).await {
+            // A private file is named only to someone who may open it.
+            let private = matches!(app.disks.by_name.get(&r.disk), Some((_, true)));
+            if private && !may_open(&app, &user, &r).await {
+                continue;
+            }
             out.push(serde_json::json!({
                 "id": r.id,
                 "name": r.display_name(),
@@ -865,7 +963,7 @@ struct FileView {
     preview_url: String,
     href: String,
     is_image: bool,
-    /// On a private disk: served only at signed URLs.
+    /// On a private disk: served inside the admin, never at a public address.
     protected: bool,
 }
 
@@ -2374,7 +2472,7 @@ async fn set_protection(
             session.push_flash(
                 FlashLevel::Success,
                 if protect {
-                    t!("The file is private: it serves only at signed links.")
+                    t!("The file is private: it opens only for signed-in people with access.")
                 } else {
                     t!("The file is public.")
                 },

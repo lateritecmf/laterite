@@ -1653,7 +1653,7 @@ msgid "Private"
 msgstr ""
 
 #: templates/media.html
-msgid "Private: served only through signed links, never at a public address"
+msgid "Private: opened only by signed-in people with access, never at a public address"
 msgstr ""
 
 #: templates/plugins.html
@@ -2313,7 +2313,7 @@ msgid "The file is larger than {size}."
 msgstr ""
 
 #: src/medialib/mod.rs
-msgid "The file is private: it serves only at signed links."
+msgid "The file is private: it opens only for signed-in people with access."
 msgstr ""
 
 #: src/medialib/mod.rs
