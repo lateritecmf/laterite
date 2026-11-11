@@ -32,6 +32,13 @@
       {{ role_list|safe }}
     </div>
     {% endif %}
+    {% if !group_list.is_empty() %}
+    <div class="lat-field">
+      <span class="lat-field__label">{{ shell.t("Groups") }}</span>
+      <p class="lat-help">{{ shell.t("A group names people who belong together. It grants no permissions.") }}</p>
+      {{ group_list|safe }}
+    </div>
+    {% endif %}
     <p class="lat-help">{{ shell.t("A temporary password is generated and shown to you once. The new user must replace it at their first sign-in.") }}</p>
     <div class="lat-actions">
       <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Create account") }}</button>

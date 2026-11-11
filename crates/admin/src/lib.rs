@@ -1738,6 +1738,46 @@ impl laterite_core::ModelListener for SystemRoleGuard {
     }
 }
 
+/// A group new accounts join by default takes in the accounts that already
+/// exist when it is created, and its code is stored folded like every key.
+struct GroupDefaults;
+
+#[laterite_core::strata::async_trait]
+impl laterite_core::ModelListener for GroupDefaults {
+    async fn before_save(
+        &self,
+        _cx: &mut laterite_core::SaveCx<'_>,
+        rec: &mut laterite_core::Record,
+        _op: laterite_core::Op,
+    ) -> Result<(), laterite_core::ErrorBag> {
+        if let Some(code) = rec.get("code").and_then(|v| v.to_text()) {
+            rec.set("code", code.trim().to_lowercase());
+        }
+        Ok(())
+    }
+
+    async fn after_save(
+        &self,
+        cx: &laterite_core::SavedCx<'_>,
+        rec: &laterite_core::Record,
+        op: laterite_core::Op,
+    ) {
+        if op != laterite_core::Op::Create {
+            return;
+        }
+        let default = rec
+            .get("is_new_user_default")
+            .and_then(|v| v.to_text())
+            .is_some_and(|v| matches!(v.as_str(), "1" | "true"));
+        let (Some(id), true) = (rec.id(), default) else {
+            return;
+        };
+        if let Err(e) = laterite_auth::store::join_everyone(cx.db(), id).await {
+            tracing::error!(error = %e, group = id, "adding every account to a new default group failed");
+        }
+    }
+}
+
 /// The framework's own permissions, offered in the role editor under a
 /// "Backend" group. These gate the built-in Users and Roles screens.
 fn builtin_permissions() -> Vec<Permission> {
@@ -1746,6 +1786,7 @@ fn builtin_permissions() -> Vec<Permission> {
     let mut out = vec![
         Permission::new("backend.manage_users", "Manage backend users", "Backend"),
         Permission::new("backend.manage_roles", "Manage roles", "Backend"),
+        Permission::new("backend.manage_groups", "Manage groups", "Backend"),
         Permission::new("backend.manage_branding", "Manage branding", "Backend"),
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
         Permission::new(jobs::PERMISSION, "Manage jobs", "Backend"),
@@ -2004,6 +2045,17 @@ pub fn router(
         0,
         laterite_core::ModelListenerReg::for_entity("backend_roles", Arc::new(SystemRoleGuard)),
     );
+    app_listeners.insert(
+        1,
+        laterite_core::ModelListenerReg::for_entity(
+            "backend_groups",
+            Arc::new(laterite_core::listeners::Timestamps),
+        ),
+    );
+    app_listeners.insert(
+        2,
+        laterite_core::ModelListenerReg::for_entity("backend_groups", Arc::new(GroupDefaults)),
+    );
 
     let mut permissions = builtin_permissions();
     permissions.extend(app_permissions);
@@ -2120,7 +2172,13 @@ pub fn router(
     // The picker-source registry, keyed by dotted name. A bad name or a duplicate
     // is a wiring bug, so it aborts boot.
     let mut pickers = picker::PickerRegistry::new();
-    for reg in app_picker_sources {
+    // The administrators, for a group's Members section.
+    let builtin_pickers = [picker::PickerSourceReg::new(
+        "backend.administrators",
+        Arc::new(picker::TableSource::new("backend_users", "id", "username").with_hint("email")),
+    )
+    .require("backend.manage_groups")];
+    for reg in builtin_pickers.into_iter().chain(app_picker_sources) {
         let name = reg.name.clone();
         if !field::is_name(&name, true) {
             panic!("invalid picker source name `{name}`");
@@ -5920,6 +5978,7 @@ fn builtin_resources() -> Vec<Resource> {
             soft_delete: false,
             menu: nav::Placement::default(),
         },
+        resource!("descriptors/groups.yaml"),
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
         resource!("descriptors/request-log.yaml"),
@@ -5947,6 +6006,14 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("shield")
             .permission("backend.manage_roles")
             .link("/roles"),
+        settings::SettingsItem::new("backend.groups", "Groups", Vec::new())
+            .description("Name sets of administrators, such as a team.")
+            .category(settings::category::USERS)
+            .slot(laterite_core::arrange::slot::PEOPLE)
+            .order(30)
+            .icon("users")
+            .permission("backend.manage_groups")
+            .link("/groups"),
         settings::brand::settings_item(),
         settings::SettingsItem::new("backend.plugins", "Plugins", Vec::new())
             .description("Enable or disable installed plugins.")

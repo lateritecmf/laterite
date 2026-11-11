@@ -64,3 +64,35 @@ Page | Does
 
 Both templates are edited under **Settings → System → Mail Templates**. The mail goes through the configured transport; with the `log` driver it sits in the Mail Log.
 
+## Groups
+
+A group is a named set of accounts, for addressing people together. It grants
+no permissions. Groups are managed under **Settings → Users → Groups**, gated
+by `backend.manage_groups`, and ticked on an account's page.
+
+```rust
+use laterite_auth::store;
+
+let staff = store::create_group(&db, "staff", "Staff", Some("Everyone"), true).await?;
+store::join_group(&db, user_id, staff).await?;
+store::set_user_groups(&db, user_id, &[staff]).await?;
+
+let mine = store::user_group_ids(&db, user_id).await?;
+let members = store::group_member_ids(&db, staff).await?;
+let id = store::group_id_by_code(&db, "staff").await?;
+```
+
+Call | Description
+--- | ---
+`create_group(db, code, name, description, default)` | A new group; the id is returned. The code is stored lowercase.
+`list_groups(db)` | Every group, by name.
+`group_id_by_code(db, code)` | The id of the group with that code.
+`join_group(db, user, group)` | Adds one account.
+`join_everyone(db, group)` | Adds every account.
+`set_user_groups(db, user, groups)` | Replaces an account's groups.
+`user_group_ids(db, user)` | The groups an account is in.
+`group_member_ids(db, group)` | The accounts in a group.
+
+A group whose **New accounts join this group** is on is given to every account
+created afterwards; creating one on the Groups screen also adds every existing
+account.

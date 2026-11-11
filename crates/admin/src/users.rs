@@ -223,12 +223,21 @@ pub(crate) async fn new_form(
         &editor.permissions,
         false,
     );
+    let groups = laterite_auth::store::list_groups(&state.db).await?;
+    // The groups a new account joins by default start ticked.
+    let joined: Vec<i64> = groups
+        .iter()
+        .filter(|g| g.is_new_user_default)
+        .map(|g| g.id)
+        .collect();
+    let group_list = group_checklist(&groups, &joined, &shell);
     Ok(render(new_page(
         &state,
         shell,
         None,
         NewFields::default(),
         roles,
+        group_list,
     )))
 }
 
@@ -246,6 +255,9 @@ pub(crate) async fn create(
         .require(MANAGE_USERS)
         .map_err(|_| AdminError::Forbidden)?;
     let (fields, wanted) = NewFields::parse(&pairs);
+    let groups = laterite_auth::store::list_groups(&state.db).await?;
+    let joined = ticked_groups(&pairs, &groups);
+    let group_list = group_checklist(&groups, &joined, &shell);
     let roles = role_rows(
         laterite_auth::store::list_roles(&state.db).await?,
         &wanted,
@@ -259,6 +271,7 @@ pub(crate) async fn create(
             Some(t!("Username, email and first name are required.")),
             fields,
             roles,
+            group_list.clone(),
         )));
     }
     if !fields.email.contains('@') {
@@ -268,6 +281,7 @@ pub(crate) async fn create(
             Some(t!("That is not an email address.")),
             fields,
             roles,
+            group_list.clone(),
         )));
     }
     let password = laterite_auth::password::generate();
@@ -298,6 +312,7 @@ pub(crate) async fn create(
                 )),
                 fields,
                 roles,
+                group_list.clone(),
             )));
         }
     };
@@ -308,6 +323,7 @@ pub(crate) async fn create(
         .map(|r| r.id)
         .collect();
     laterite_auth::store::set_user_roles(&state.db, id, &granted).await?;
+    laterite_auth::store::set_user_groups(&state.db, id, &joined).await?;
     state.auth.require_password_change(id).await?;
     // The invitation carries a link to set a password of their own; the
     // temporary one is shown as well, for a deployment whose mail goes nowhere.
@@ -372,12 +388,14 @@ fn new_page(
     error: Option<Text>,
     fields: NewFields,
     roles: Vec<RoleRowView>,
+    group_list: String,
 ) -> UsersNewTemplate {
     let error = error.map(|e| shell.tt(&e));
     let role_list = role_checklist(&roles, &shell);
     UsersNewTemplate {
         shell,
         role_list,
+        group_list,
         action: format!("{}/users/new", state.admin_path),
         cancel_path: format!("{}/users", state.admin_path),
         error,
@@ -404,6 +422,42 @@ struct UsersNewTemplate {
     roles: Vec<RoleRowView>,
     /// The roles as a checklist, rendered.
     role_list: String,
+    /// The groups as a checklist, rendered; empty when there are none.
+    group_list: String,
+}
+
+/// The groups as a checklist, ticked where `joined`; empty when there are no
+/// groups, so the form shows no section.
+fn group_checklist(
+    groups: &[laterite_auth::store::GroupSummary],
+    joined: &[i64],
+    shell: &Shell,
+) -> String {
+    if groups.is_empty() {
+        return String::new();
+    }
+    let mut list = Checklist::new(shell.tt(&t!("Groups")));
+    for group in groups {
+        list = list.choice(
+            Choice::new("group", group.id.to_string(), group.name.clone())
+                .code(group.code.clone())
+                .checked(joined.contains(&group.id)),
+        );
+    }
+    list.render(shell.i18n()).into_string()
+}
+
+/// The ids of existing groups a submission ticked.
+fn ticked_groups(
+    pairs: &[(String, String)],
+    groups: &[laterite_auth::store::GroupSummary],
+) -> Vec<i64> {
+    pairs
+        .iter()
+        .filter(|(k, _)| k == "group")
+        .filter_map(|(_, v)| v.trim().parse::<i64>().ok())
+        .filter(|id| groups.iter().any(|g| g.id == *id))
+        .collect()
 }
 
 /// Renders the edit form for a user, populated with their current overrides.
@@ -497,6 +551,11 @@ pub(crate) async fn edit_form(
         &overrides,
         roles,
     );
+    page.group_list = group_checklist(
+        &laterite_auth::store::list_groups(&state.db).await?,
+        &laterite_auth::store::user_group_ids(&state.db, target_id).await?,
+        &page.shell,
+    );
     page.password_changed = password_changed;
     page.can_reset = can_reset;
     page.reset_action = format!("{}/users/{id}/password", state.admin_path);
@@ -534,11 +593,27 @@ pub(crate) async fn update(
         .fetch_optional(&state.db.pool)
         .await?
         .ok_or(AdminError::NotFound)?;
-    // A superuser has no editable overrides; nothing to save.
+    let target_id = id.parse::<i64>().map_err(|_| AdminError::NotFound)?;
+    // Groups grant nothing, so any account's may be set, a superuser's too.
+    let groups = laterite_auth::store::list_groups(&state.db).await?;
+    let joined = ticked_groups(&pairs, &groups);
+    if joined != laterite_auth::store::user_group_ids(&state.db, target_id).await? {
+        laterite_auth::store::set_user_groups(&state.db, target_id, &joined).await?;
+        crate::audit::record(
+            &state,
+            &editor,
+            "backend.user.groups",
+            Some("backend_user"),
+            Some(&id),
+            row.get_text("username").ok().as_deref(),
+            None,
+        )
+        .await;
+    }
+    // A superuser has no editable overrides; nothing more to save.
     if row.get_bool("is_superuser").unwrap_or(false) {
         return Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response());
     }
-    let target_id = id.parse::<i64>().map_err(|_| AdminError::NotFound)?;
 
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let mut overrides: HashMap<String, i64> = serde_json::from_str(&perms_json).unwrap_or_default();
@@ -711,6 +786,7 @@ fn build(
         groups,
         roles_locked: !roles.is_empty() && roles.iter().all(|r| !r.changeable),
         roles,
+        group_list: String::new(),
         password_changed: None,
         can_reset: false,
         reset_action: String::new(),
@@ -804,6 +880,8 @@ struct UsersFormTemplate {
     role_list: String,
     /// Whether any role is changeable, so the screen can say why not.
     roles_locked: bool,
+    /// The groups as a checklist, rendered; empty when there are none.
+    group_list: String,
     /// When the password last changed, formatted; `None` when not recorded.
     password_changed: Option<String>,
     /// Whether the viewing operator may give this account a temporary

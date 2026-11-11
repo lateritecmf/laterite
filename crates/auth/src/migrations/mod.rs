@@ -30,4 +30,6 @@ laterite_core::migration_set! {
     m0017_add_backend_user_password_changed_at,
     m0018_add_backend_audit_target_label,
     m0019_add_backend_user_must_change_password,
+    m0020_create_backend_groups,
+    m0021_create_backend_user_groups,
 }

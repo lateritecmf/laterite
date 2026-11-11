@@ -123,3 +123,24 @@ pub(crate) enum BackendAuditLog {
     Detail,
     CreatedAt,
 }
+
+#[derive(Iden)]
+pub(crate) enum BackendGroups {
+    Table,
+    Id,
+    Code,
+    Name,
+    Description,
+    /// A new account joins the group when it is created.
+    IsNewUserDefault,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Iden)]
+pub(crate) enum BackendUserGroups {
+    Table,
+    Id,
+    BackendUserId,
+    BackendGroupId,
+}

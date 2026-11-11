@@ -29,8 +29,8 @@ use sqlx::Row;
 use crate::error::AuthError;
 use crate::models::{AccessEvent, BackendUser, BackendUserSummary};
 use crate::schema::{
-    BackendAccessLog, BackendAuditLog, BackendRememberTokens, BackendRoles, BackendSessions,
-    BackendUserPreferences, BackendUserRoles, BackendUsers,
+    BackendAccessLog, BackendAuditLog, BackendGroups, BackendRememberTokens, BackendRoles,
+    BackendSessions, BackendUserGroups, BackendUserPreferences, BackendUserRoles, BackendUsers,
 };
 
 fn now_ts() -> String {
@@ -1341,7 +1341,17 @@ pub async fn create_user(
             now.into(),
         ])
         .to_owned();
-    Ok(insert_returning_id(db, stmt, BackendUsers::Id).await?)
+    let id = insert_returning_id(db, stmt, BackendUsers::Id).await?;
+    let defaults: Vec<i64> = list_groups(db)
+        .await?
+        .into_iter()
+        .filter(|g| g.is_new_user_default)
+        .map(|g| g.id)
+        .collect();
+    for group_id in defaults {
+        join_group(db, id, group_id).await?;
+    }
+    Ok(id)
 }
 
 /// Whether any backend user exists.
@@ -1671,6 +1681,219 @@ fn apply_rename(code: &str, renames: &[(String, String)]) -> String {
         .find(|(old, _)| old == code)
         .map(|(_, new)| new.clone())
         .unwrap_or_else(|| code.to_string())
+}
+
+/// A group: a named set of operators, for addressing people together. It
+/// grants nothing; permissions come from roles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupSummary {
+    /// Id of the group's row.
+    pub id: i64,
+    /// Unique group code.
+    pub code: String,
+    /// Display name of the group.
+    pub name: String,
+    /// What the group is for.
+    pub description: Option<String>,
+    /// Whether a new account joins it when created.
+    pub is_new_user_default: bool,
+}
+
+/// Creates a group, returning its id.
+pub async fn create_group(
+    db: &Db,
+    code: &str,
+    name: &str,
+    description: Option<&str>,
+    is_new_user_default: bool,
+) -> Result<i64, AuthError> {
+    let now = now_ts();
+    let stmt = Query::insert()
+        .into_table(BackendGroups::Table)
+        .columns([
+            BackendGroups::Code,
+            BackendGroups::Name,
+            BackendGroups::Description,
+            BackendGroups::IsNewUserDefault,
+            BackendGroups::CreatedAt,
+            BackendGroups::UpdatedAt,
+        ])
+        .values_panic([
+            normalize_key(code).into(),
+            name.trim().into(),
+            description.map(str::to_string).into(),
+            is_new_user_default.into(),
+            now.clone().into(),
+            now.into(),
+        ])
+        .to_owned();
+    Ok(insert_returning_id(db, stmt, BackendGroups::Id).await?)
+}
+
+/// Every group, by name.
+pub async fn list_groups(db: &Db) -> Result<Vec<GroupSummary>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendGroups::Id,
+                BackendGroups::Code,
+                BackendGroups::Name,
+                BackendGroups::Description,
+                BackendGroups::IsNewUserDefault,
+            ])
+            .from(BackendGroups::Table)
+            .order_by(BackendGroups::Name, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(GroupSummary {
+                id: row.try_get::<i64, _>("id")?,
+                code: row.get_text("code")?,
+                name: row.get_text("name")?,
+                description: row.get_text_opt("description")?,
+                is_new_user_default: row.get_bool("is_new_user_default")?,
+            })
+        })
+        .collect()
+}
+
+/// The id of the group with this code.
+pub async fn group_id_by_code(db: &Db, code: &str) -> Result<Option<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendGroups::Id)
+            .from(BackendGroups::Table)
+            .and_where(Expr::col(BackendGroups::Code).eq(normalize_key(code)))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    row.map(|row| Ok(row.try_get::<i64, _>("id")?)).transpose()
+}
+
+/// The groups this operator belongs to.
+pub async fn user_group_ids(db: &Db, user_id: i64) -> Result<Vec<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUserGroups::BackendGroupId)
+            .from(BackendUserGroups::Table)
+            .and_where(Expr::col(BackendUserGroups::BackendUserId).eq(user_id))
+            .order_by(BackendUserGroups::BackendGroupId, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok(row.try_get::<i64, _>("backend_group_id")?))
+        .collect()
+}
+
+/// The operators in a group.
+pub async fn group_member_ids(db: &Db, group_id: i64) -> Result<Vec<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUserGroups::BackendUserId)
+            .from(BackendUserGroups::Table)
+            .and_where(Expr::col(BackendUserGroups::BackendGroupId).eq(group_id))
+            .order_by(BackendUserGroups::BackendUserId, Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok(row.try_get::<i64, _>("backend_user_id")?))
+        .collect()
+}
+
+/// Puts `user_id` in the group `group_id`; a membership already held stays.
+pub async fn join_group(db: &Db, user_id: i64, group_id: i64) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::insert()
+            .into_table(BackendUserGroups::Table)
+            .columns([
+                BackendUserGroups::BackendUserId,
+                BackendUserGroups::BackendGroupId,
+            ])
+            .values_panic([user_id.into(), group_id.into()])
+            .on_conflict(on_conflict_ignore([
+                BackendUserGroups::BackendUserId,
+                BackendUserGroups::BackendGroupId,
+            ]))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// Puts every operator in the group `group_id`: what creating a group new
+/// accounts join by default does for the accounts that already exist.
+pub async fn join_everyone(db: &Db, group_id: i64) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUsers::Id)
+            .from(BackendUsers::Table)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    for row in rows {
+        join_group(db, row.try_get::<i64, _>("id")?, group_id).await?;
+    }
+    Ok(())
+}
+
+/// Replaces this operator's groups with exactly `group_ids`, in one
+/// transaction.
+pub async fn set_user_groups(db: &Db, user_id: i64, group_ids: &[i64]) -> Result<(), AuthError> {
+    let mut tx = db.pool.begin().await?;
+    let (sql, values) = build(
+        db.backend,
+        Query::delete()
+            .from_table(BackendUserGroups::Table)
+            .and_where(Expr::col(BackendUserGroups::BackendUserId).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&mut *tx)
+        .await?;
+    for group_id in group_ids {
+        let (sql, values) = build(
+            db.backend,
+            Query::insert()
+                .into_table(BackendUserGroups::Table)
+                .columns([
+                    BackendUserGroups::BackendUserId,
+                    BackendUserGroups::BackendGroupId,
+                ])
+                .values_panic([user_id.into(), (*group_id).into()])
+                .on_conflict(on_conflict_ignore([
+                    BackendUserGroups::BackendUserId,
+                    BackendUserGroups::BackendGroupId,
+                ]))
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 /// A role as the assignment screen lists it.

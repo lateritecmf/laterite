@@ -1,0 +1,46 @@
+# Groups: named sets of administrators, for addressing people together
+# (sharing, mail). A group grants nothing; permissions come from roles.
+entity: backend_groups
+path: /groups
+title: Groups
+permission: backend.manage_groups
+list:
+  order_by: name
+  order_dir: asc
+  no_records_message: No groups yet. A group names people who belong together, such as a team.
+  columns:
+    name: { label: Name }
+    code: { label: Code }
+    description: { label: Description, sortable: false }
+    is_new_user_default: { label: New accounts join, type: boolean }
+form:
+  title: Group
+  fields:
+    name: { label: Name, span: 1/2, rules: [required, unique] }
+    code:
+      label: Code
+      span: 1/2
+      rules: [required, unique]
+      help: A short name code refers to the group by, such as owners.
+    description: { label: Description, type: textarea, rows: 2 }
+    is_new_user_default:
+      label: New accounts join this group
+      type: switch
+      help: Turning this on for a new group also adds every existing account.
+relations:
+  members:
+    label: Member
+    title: Members
+    entity: backend_users
+    pivot:
+      table: backend_user_groups
+      parent_key: backend_group_id
+      related_key: backend_user_id
+      source: backend.administrators
+    list:
+      order_by: username
+      columns:
+        username: { label: Username }
+        first_name: { label: First name }
+        last_name: { label: Last name }
+        email: { label: Email }

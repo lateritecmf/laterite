@@ -117,6 +117,7 @@ Permission | Grants
 --- | ---
 `backend.manage_users` | The backend users list and per-user overrides.
 `backend.manage_roles` | The roles list and the role editor.
+`backend.manage_groups` | The groups list, a group's form and its members.
 `backend.manage_plugins` | The plugins screen.
 `backend.view_audit_log` | The audit log.
 `backend.view_access_log` | The access log.

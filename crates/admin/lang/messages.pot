@@ -42,6 +42,11 @@ msgstr ""
 msgid "A file is stored"
 msgstr ""
 
+#: templates/users_form.html
+#: templates/users_new.html
+msgid "A group names people who belong together. It grants no permissions."
+msgstr ""
+
 #: templates/palette.html
 msgid "A page, a setting or a record"
 msgstr ""
@@ -936,6 +941,9 @@ msgstr ""
 msgid "Group"
 msgstr ""
 
+#: src/users.rs
+#: templates/users_form.html
+#: templates/users_new.html
 #: (descriptors)
 msgid "Groups"
 msgstr ""

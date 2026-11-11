@@ -57,6 +57,21 @@
 
   {% if is_superuser %}
   <div class="lat-alert lat-alert--ok">{{ shell.t("This user is a superuser and holds every permission, so there is nothing to override.") }}</div>
+  {% if !group_list.is_empty() %}
+  <form method="post" action="{{ action }}" data-lat-widget="form">
+    {% include "_csrf.html" %}
+    {% if !group_list.is_empty() %}
+    <div class="lat-field">
+      <span class="lat-field__label">{{ shell.t("Groups") }}</span>
+      <p class="lat-help">{{ shell.t("A group names people who belong together. It grants no permissions.") }}</p>
+      {{ group_list|safe }}
+    </div>
+    {% endif %}
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
+    </div>
+  </form>
+  {% endif %}
   {% else %}
   <form method="post" action="{{ action }}" data-lat-widget="form">
     {% include "_csrf.html" %}
@@ -65,6 +80,13 @@
       <span class="lat-field__label">{{ shell.t("Roles") }}</span>
       <p class="lat-help">{% if roles_locked %}{{ shell.t("You cannot change your own roles, and a role granting more than you hold yourself is shown locked.") }}{% else %}{{ shell.t("A role grants every permission it holds. A role granting more than you hold yourself is shown locked.") }}{% endif %}</p>
       {{ role_list|safe }}
+    </div>
+    {% endif %}
+    {% if !group_list.is_empty() %}
+    <div class="lat-field">
+      <span class="lat-field__label">{{ shell.t("Groups") }}</span>
+      <p class="lat-help">{{ shell.t("A group names people who belong together. It grants no permissions.") }}</p>
+      {{ group_list|safe }}
     </div>
     {% endif %}
     <div class="lat-field">
