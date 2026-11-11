@@ -33,6 +33,87 @@ pub const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}
 /// The purpose a sealed form field uses; its AAD is the field's name.
 pub const FIELD_PURPOSE: &str = "field";
 
+/// A file kept sealed in a column: what a `sensitive` field with `file: true`
+/// stores. The plaintext is a small JSON document of the name and the bytes,
+/// so the column opens with the same purpose and AAD as a sealed text field.
+///
+/// ```ignore
+/// let key = SealedFile::open(&crypt, "service_key", &sealed)?;
+/// let json: serde_json::Value = serde_json::from_slice(&key.bytes)?;
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SealedFile {
+    /// The file's name as uploaded, without any path.
+    pub name: String,
+    /// The file's contents.
+    pub bytes: Vec<u8>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SealedFileDoc {
+    name: String,
+    data: String,
+}
+
+impl SealedFile {
+    /// A file named `name` holding `bytes`. Any directory in `name` is dropped.
+    pub fn new(name: &str, bytes: Vec<u8>) -> Self {
+        let name = name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        Self { name, bytes }
+    }
+
+    /// A file from its name and its contents as standard base64, which is how
+    /// a form submission carries one. `None` when the text is not base64.
+    pub fn from_base64(name: &str, data: &str) -> Option<Self> {
+        base64::engine::general_purpose::STANDARD
+            .decode(data.trim().as_bytes())
+            .ok()
+            .map(|bytes| Self::new(name, bytes))
+    }
+
+    /// The file sealed for the field (column) named `field`.
+    pub fn seal(&self, crypt: &Crypt, field: &str) -> Result<String, CryptError> {
+        crypt.encrypt(FIELD_PURPOSE, field.as_bytes(), self.document().as_bytes())
+    }
+
+    /// The file a sealed column holds. [`CryptError::Invalid`] when the value
+    /// does not open or holds something other than a file.
+    pub fn open(crypt: &Crypt, field: &str, sealed: &str) -> Result<Self, CryptError> {
+        let plain = crypt.decrypt(FIELD_PURPOSE, field.as_bytes(), sealed)?;
+        let text = String::from_utf8(plain).map_err(|_| CryptError::Invalid)?;
+        Self::parse(&text).ok_or(CryptError::Invalid)
+    }
+
+    /// The file from an opened column's plaintext, as
+    /// [`Record::opened`](crate::Record::opened) returns it.
+    pub fn parse(plain: &str) -> Option<Self> {
+        let doc: SealedFileDoc = serde_json::from_str(plain).ok()?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(doc.data.as_bytes())
+            .ok()?;
+        Some(Self::new(&doc.name, bytes))
+    }
+
+    /// The first sixteen hex digits of the contents' BLAKE3 hash: enough to
+    /// tell two files apart on a screen, and nothing an attacker can reverse.
+    pub fn fingerprint(&self) -> String {
+        blake3::hash(&self.bytes).to_hex()[..16].to_string()
+    }
+
+    fn document(&self) -> String {
+        serde_json::to_string(&SealedFileDoc {
+            name: self.name.clone(),
+            data: base64::engine::general_purpose::STANDARD.encode(&self.bytes),
+        })
+        .unwrap_or_default()
+    }
+}
+
 /// The registry of sealed columns: what `lat crypt rotate` re-seals.
 #[derive(Iden)]
 pub(crate) enum CryptColumns {
@@ -449,6 +530,36 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod sealed_file_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_seals_and_opens_under_its_field_alone() {
+        let crypt = Crypt::ephemeral();
+        let file = SealedFile::new("keys/acme.p12", vec![0, 159, 146, 150, 255]);
+        assert_eq!(file.name, "acme.p12");
+        let sealed = file.seal(&crypt, "service_key").unwrap();
+        assert_eq!(
+            SealedFile::open(&crypt, "service_key", &sealed),
+            Ok(file.clone())
+        );
+        assert_eq!(
+            SealedFile::open(&crypt, "other", &sealed),
+            Err(CryptError::Invalid)
+        );
+        assert_eq!(file.fingerprint().len(), 16);
+        // A sealed text value is no file.
+        let text = crypt
+            .encrypt(FIELD_PURPOSE, b"service_key", b"hunter2")
+            .unwrap();
+        assert_eq!(
+            SealedFile::open(&crypt, "service_key", &text),
+            Err(CryptError::Invalid)
+        );
+    }
 }
 
 #[cfg(test)]

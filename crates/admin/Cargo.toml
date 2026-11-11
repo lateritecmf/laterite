@@ -48,6 +48,7 @@ sqlite = ["laterite-core/sqlite", "laterite-auth/sqlite", "laterite-media/sqlite
 
 [dev-dependencies]
 laterite-core = { workspace = true, features = ["testing"] }
+base64 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }

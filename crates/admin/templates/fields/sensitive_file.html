@@ -1,0 +1,5 @@
+<div class="lat-sealedfile" data-lat-widget="sealed-file" data-max="{{ max }}" data-accept="{{ accept }}" data-pending="{{ words.pending }}" data-too-large="{{ words.too_large }}" data-wrong-type="{{ words.wrong_type }}" data-replace="{{ words.replace }}">
+<input type="hidden" name="{{ name }}" value="{{ value }}" data-sealedfile-value>
+<span class="lat-sealedfile__state" data-sealedfile-state>{% if file_name.is_empty() %}<span class="lat-sealedfile__none">{{ words.none }}</span>{% else %}<span class="lat-sealedfile__name">{{ file_name }}</span>{% if !meta.is_empty() %} <span class="lat-sealedfile__meta">{{ meta }}</span>{% endif %}{% endif %}</span>
+<label class="lat-btn lat-btn--secondary lat-btn--sm lat-sealedfile__pick"><span data-sealedfile-label>{% if value.is_empty() %}{{ words.choose }}{% else %}{{ words.replace }}{% endif %}</span><input class="lat-upload__input" type="file" id="{{ id }}"{% if !accept.is_empty() %} accept="{{ accept }}"{% endif %}></label>
+</div>

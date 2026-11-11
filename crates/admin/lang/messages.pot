@@ -2,6 +2,10 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
+#: (descriptors)
+msgid ""
+msgstr ""
+
 #: templates/setup.html
 msgid "(optional)"
 msgstr ""
@@ -34,6 +38,10 @@ msgstr ""
 msgid "A field marked * must be matched."
 msgstr ""
 
+#: src/field.rs
+msgid "A file is stored"
+msgstr ""
+
 #: templates/palette.html
 msgid "A page, a setting or a record"
 msgstr ""
@@ -53,6 +61,10 @@ msgstr ""
 #: templates/users_form.html
 #: templates/users_new.html
 msgid "A role grants every permission it holds. A role granting more than you hold yourself is shown locked."
+msgstr ""
+
+#: (descriptors)
+msgid "A short name code refers to the group by, such as owners."
 msgstr ""
 
 #: src/mailtemplates.rs
@@ -325,6 +337,10 @@ msgstr ""
 
 #: templates/settings_index.html
 msgid "Choose a section from the list to configure it."
+msgstr ""
+
+#: src/field.rs
+msgid "Choose file"
 msgstr ""
 
 #: templates/_upload.html
@@ -605,6 +621,7 @@ msgstr ""
 
 #: src/mailtemplates.rs
 #: templates/mail_templates.html
+#: (descriptors)
 msgid "Description"
 msgstr ""
 
@@ -915,6 +932,14 @@ msgstr ""
 msgid "Go to the sign-in page"
 msgstr ""
 
+#: (descriptors)
+msgid "Group"
+msgstr ""
+
+#: (descriptors)
+msgid "Groups"
+msgstr ""
+
 #: src/mailtemplates.rs
 #: templates/mail_log_view.html
 msgid "HTML"
@@ -1147,6 +1172,10 @@ msgid "Manage branding"
 msgstr ""
 
 #: (descriptors)
+msgid "Manage groups"
+msgstr ""
+
+#: (descriptors)
 msgid "Manage jobs"
 msgstr ""
 
@@ -1193,6 +1222,14 @@ msgstr ""
 #: src/medialib/mod.rs
 #: (descriptors)
 msgid "Media"
+msgstr ""
+
+#: (descriptors)
+msgid "Member"
+msgstr ""
+
+#: (descriptors)
+msgid "Members"
 msgstr ""
 
 #: templates/base.html
@@ -1277,6 +1314,10 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
+#: (descriptors)
+msgid "Name sets of administrators, such as a team."
+msgstr ""
+
 #: src/mailtemplates.rs
 msgid "Named like `acme.blog::welcome`: the owning module, two colons, the name."
 msgstr ""
@@ -1288,6 +1329,14 @@ msgstr ""
 #: src/list.rs
 #: templates/mail_templates.html
 msgid "New"
+msgstr ""
+
+#: (descriptors)
+msgid "New accounts join"
+msgstr ""
+
+#: (descriptors)
+msgid "New accounts join this group"
 msgstr ""
 
 #: templates/users_new.html
@@ -1326,6 +1375,10 @@ msgstr ""
 msgid "No entry is scheduled."
 msgstr ""
 
+#: src/field.rs
+msgid "No file"
+msgstr ""
+
 #: src/mailtemplates.rs
 msgid "No file registers this code, so there is nothing to reset to."
 msgstr ""
@@ -1333,6 +1386,10 @@ msgstr ""
 #: templates/media.html
 #: templates/media_pick.html
 msgid "No files here yet."
+msgstr ""
+
+#: (descriptors)
+msgid "No groups yet. A group names people who belong together, such as a team."
 msgstr ""
 
 #: templates/import/index.html
@@ -1663,6 +1720,7 @@ msgstr ""
 msgid "Rename folder"
 msgstr ""
 
+#: src/field.rs
 #: src/medialib/field.rs
 msgid "Replace"
 msgstr ""
@@ -2242,12 +2300,20 @@ msgstr ""
 msgid "The file is larger than {limit} MB."
 msgstr ""
 
+#: src/field.rs
+msgid "The file is larger than {size}."
+msgstr ""
+
 #: src/medialib/mod.rs
 msgid "The file is private: it serves only at signed links."
 msgstr ""
 
 #: src/medialib/mod.rs
 msgid "The file is public."
+msgstr ""
+
+#: src/field.rs
+msgid "The file must be one of {types}."
 msgstr ""
 
 #: templates/import/index.html
@@ -2330,6 +2396,10 @@ msgstr ""
 
 #: src/error.rs
 msgid "The server hit an unexpected error. It has been logged."
+msgstr ""
+
+#: src/field.rs
+msgid "The stored file does not open under the application key."
 msgstr ""
 
 #: (descriptors)
@@ -2444,6 +2514,10 @@ msgstr ""
 
 #: templates/list.html
 msgid "Trash"
+msgstr ""
+
+#: (descriptors)
+msgid "Turning this on for a new group also adds every existing account."
 msgstr ""
 
 #: templates/media_file.html
@@ -2704,6 +2778,10 @@ msgstr ""
 
 #: templates/jobs.html
 msgid "mode"
+msgstr ""
+
+#: src/field.rs
+msgid "not saved yet"
 msgstr ""
 
 #: templates/media_file.html

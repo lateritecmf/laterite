@@ -1,0 +1,7 @@
+.lat-sealedfile{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;min-height:var(--control-h)}
+.lat-sealedfile__state{min-width:0;font-size:var(--fs-13);color:var(--text-body);overflow-wrap:anywhere}
+.lat-sealedfile__name{font-weight:var(--fw-semibold)}
+.lat-sealedfile__meta{font-size:var(--fs-12);color:var(--text-muted);font-family:var(--font-mono)}
+.lat-sealedfile__none{color:var(--text-muted)}
+.lat-sealedfile__pick{position:relative;cursor:pointer}
+.lat-sealedfile__pick:focus-within{box-shadow:var(--ring-focus)}

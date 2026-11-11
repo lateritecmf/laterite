@@ -195,7 +195,32 @@ fields:
   api_token: { type: sensitive }
 ```
 
-A secret sealed under the [application key](../services/crypt.md) before it is stored and shown as a mask. Reveal shows the stored value and writes `<entity>.reveal` to the audit log; a blank or the mask submitted back leaves the value as it is. The column is text; `lat crypt rotate` re-seals it after a key rotation. No keys of its own.
+A secret sealed under the [application key](../services/crypt.md) before it is stored and shown as a mask. Reveal shows the stored value and writes `<entity>.reveal` to the audit log; a blank or the mask submitted back leaves the value as it is. The column is text; `lat crypt rotate` re-seals it after a key rotation.
+
+```yaml
+fields:
+  service_key:
+    type: sensitive
+    file: true
+    accept: [.json, .p12]
+    max_size: 16kb
+```
+
+Key | Default | Description
+--- | --- | ---
+`file` | `false` | The secret is an uploaded file, sealed in the same text column.
+`accept` | any | The extensions an upload may have.
+`max_size` | `64kb` | The largest upload, in bytes or as `16kb`, `1mb`. At most `512kb`.
+
+A sealed file shows its name, size and fingerprint, has no Reveal, and is replaced by choosing another.
+
+```rust
+use laterite_core::SealedFile;
+
+let sealed = record.get("service_key").and_then(|v| v.to_text()).unwrap_or_default();
+let key = SealedFile::open(&crypt, "service_key", &sealed)?;
+let json: serde_json::Value = serde_json::from_slice(&key.bytes)?;
+```
 
 ## id
 

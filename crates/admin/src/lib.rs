@@ -3452,6 +3452,24 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
             },
         ),
         (
+            "fields/sealed-file.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fields/sealed-file.js"
+                )),
+            },
+        ),
+        (
+            "fields/sealed-file.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fields/sealed-file.css"
+                )),
+            },
+        ),
+        (
             "mark.svg",
             AdminAsset {
                 mime: "image/svg+xml",

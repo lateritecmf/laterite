@@ -24,6 +24,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A repeater of one field is compact: a line a row, each with add and remove, always one line; `prompt` names Add and `expanded` opens list rows.
 - A repeater's Add and Remove switch off at `max_items` and `min_items`, and `min_items` rows show from the start.
 - `JobError::release(wait, reason)` puts a job back without spending the attempt, and `JobCx::crypt()` opens sealed values.
+- A `sensitive` field takes `file: true` (with `accept`, `max_size`): an uploaded key sealed in the column, read back with `laterite_core::SealedFile`. `FieldType::to_control_for` gives a type the field's name.
 
 ### Fixed
 

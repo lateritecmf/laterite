@@ -37,6 +37,7 @@ impl laterite_core::Migration for Vaults {
                 )
                 .col(ColumnDef::new(Alias::new("name")).text().not_null())
                 .col(ColumnDef::new(Alias::new("api_token")).text())
+                .col(ColumnDef::new(Alias::new("service_key")).text())
                 .to_owned(),
         )
         .await
@@ -73,6 +74,11 @@ fn app(db: &Db) -> Router {
         vec![
             FormField::text("name", "Name"),
             FormField::of("api_token", "API token", "sensitive"),
+            FormField::of("service_key", "Service key", "sensitive").options(serde_json::json!({
+                "file": true,
+                "accept": ["json", ".P12"],
+                "max_size": "1kb",
+            })),
         ],
     ))
     .permission("acme.manage_vaults");
@@ -144,11 +150,19 @@ async fn post(app: &Router, path: &str, session: &str, body: &str) -> StatusCode
     app.clone().oneshot(req).await.unwrap().status()
 }
 
+async fn stored_key(db: &Db) -> String {
+    stored(db, "service_key").await
+}
+
 async fn stored_token(db: &Db) -> String {
+    stored(db, "api_token").await
+}
+
+async fn stored(db: &Db, column: &str) -> String {
     let (sql, values) = build(
         db.backend,
         Query::select()
-            .column(Alias::new("api_token"))
+            .column(Alias::new(column))
             .from(Alias::new("vaults"))
             .to_owned(),
     );
@@ -156,7 +170,7 @@ async fn stored_token(db: &Db) -> String {
         .fetch_one(&db.pool)
         .await
         .unwrap();
-    row.get_text_opt("api_token")
+    row.get_text_opt(column)
         .unwrap()
         .unwrap_or_else(|| "<NULL>".to_string())
 }
@@ -262,4 +276,113 @@ fn urlencoding(text: &str) -> String {
         .map(|b| format!("%{b:02X}"))
         .collect::<Vec<_>>()
         .join("")
+}
+
+/// The body of a form post carrying `bytes` as the file `name`.
+fn upload(name: &str, bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    let doc = serde_json::json!({
+        "name": name,
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    });
+    format!("name=Mail&service_key={}", urlencoding(&doc.to_string()))
+}
+
+#[tokio::test]
+async fn a_sealed_file_is_stored_described_kept_and_never_revealed() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let root = session(&db).await;
+    let key = br#"{"private_key":"hunter2"}"#;
+
+    assert_eq!(
+        post(
+            &app,
+            "/admin/vaults/new",
+            &root,
+            &upload("C:\\keys\\acme.json", key)
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    let sealed = stored_key(&db).await;
+    assert!(!sealed.contains("hunter2") && !sealed.is_empty());
+    let file = laterite_core::SealedFile::open(&crypt(), "service_key", &sealed).unwrap();
+    assert_eq!(
+        (file.name.as_str(), file.bytes.as_slice()),
+        ("acme.json", &key[..])
+    );
+
+    // The edit form names the file, its size and fingerprint, and carries the
+    // mask in place of the contents.
+    let (status, html) = get(&app, "/admin/vaults/1/edit", &root).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("data-lat-widget=\"sealed-file\""), "{html}");
+    assert!(
+        html.contains("fields/sealed-file"),
+        "the widget's script: {html}"
+    );
+    assert!(
+        html.contains("acme.json") && html.contains(&file.fingerprint()),
+        "{html}"
+    );
+    assert!(html.contains("accept=\".json,.p12\""), "{html}");
+    assert!(
+        !html.contains("hunter2") && !html.contains(&sealed),
+        "{html}"
+    );
+
+    // No Reveal for a file.
+    let (status, _) = get(&app, "/admin/vaults/1/reveal/service_key", &root).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // The mask back keeps the file; one too large or of another type is refused.
+    let keep = format!(
+        "name=Mail&service_key={}",
+        urlencoding(laterite_core::crypt::MASK)
+    );
+    assert_eq!(
+        post(&app, "/admin/vaults/1/edit", &root, &keep).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(stored_key(&db).await, sealed);
+    assert_ne!(
+        post(
+            &app,
+            "/admin/vaults/1/edit",
+            &root,
+            &upload("big.json", &[b'x'; 1025])
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert_ne!(
+        post(
+            &app,
+            "/admin/vaults/1/edit",
+            &root,
+            &upload("acme.pem", key)
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(stored_key(&db).await, sealed);
+
+    // A new file replaces it.
+    assert_eq!(
+        post(
+            &app,
+            "/admin/vaults/1/edit",
+            &root,
+            &upload("next.p12", &[0, 1, 2, 255])
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    let file =
+        laterite_core::SealedFile::open(&crypt(), "service_key", &stored_key(&db).await).unwrap();
+    assert_eq!(
+        (file.name.as_str(), file.bytes),
+        ("next.p12", vec![0, 1, 2, 255])
+    );
 }

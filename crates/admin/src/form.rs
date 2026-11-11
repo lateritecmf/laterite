@@ -1864,12 +1864,11 @@ pub(crate) async fn reveal(
     field: &str,
     user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
-    if !form
-        .config
-        .fields
-        .iter()
-        .any(|f| f.name == field && f.field_type == "sensitive")
-    {
+    if !form.config.fields.iter().any(|f| {
+        f.name == field
+            && f.field_type == "sensitive"
+            && !crate::field::SensitiveField::is_file(&f.options)
+    }) {
         return crate::AdminError::NotFound.into_response();
     }
     // The column as stored, not as the control shows it (`load_values` masks it).
@@ -2049,9 +2048,10 @@ pub(crate) async fn load_values(
                 } else {
                     row.get_text_opt(f.name.as_str()).ok().flatten()
                 };
-                let value = prepared
-                    .field_type
-                    .to_control(stored.as_deref(), &prepared.opts);
+                let value =
+                    prepared
+                        .field_type
+                        .to_control_for(&f.name, stored.as_deref(), &prepared.opts);
                 (f.name.clone(), value)
             })
             .collect(),
@@ -2607,14 +2607,16 @@ pub(crate) fn value_views(
                             FieldValue::Json(serde_json::Value::Array(rows.clone()))
                         }
                         Some(serde_json::Value::String(text)) => {
-                            FieldValue::Text(ft.to_control(Some(text), &opts))
+                            FieldValue::Text(ft.to_control_for(&f.name, Some(text), &opts))
                         }
                         Some(serde_json::Value::Null) | None => {
-                            FieldValue::Text(ft.to_control(None, &opts))
+                            FieldValue::Text(ft.to_control_for(&f.name, None, &opts))
                         }
-                        Some(other) => {
-                            FieldValue::Text(ft.to_control(Some(&other.to_string()), &opts))
-                        }
+                        Some(other) => FieldValue::Text(ft.to_control_for(
+                            &f.name,
+                            Some(&other.to_string()),
+                            &opts,
+                        )),
                     };
                     let cx = FieldCx {
                         name: &f.name,

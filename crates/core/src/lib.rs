@@ -45,7 +45,7 @@ pub mod validation;
 pub use cache::Cache;
 pub use capabilities::CapabilitySet;
 pub use command::{Command, CommandCx, CommandError, CommandReg};
-pub use crypt::{Crypt, CryptError, MasterKey};
+pub use crypt::{Crypt, CryptError, MasterKey, SealedFile};
 pub use db::Db;
 pub use error::{CoreError, CoreResult};
 pub use events::{Event, EventCx, EventError, EventListenerReg, Events, Listener};

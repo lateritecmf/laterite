@@ -271,6 +271,16 @@ pub trait FieldType: Send + Sync + 'static {
         stored.unwrap_or_default().to_string()
     }
 
+    /// [`to_control`](FieldType::to_control) for a type whose presentation
+    /// depends on which field it is (a sealed value opens under its field's
+    /// name). The form calls this one.
+    ///
+    /// Default: [`to_control`](FieldType::to_control), ignoring the name.
+    fn to_control_for(&self, name: &str, stored: Option<&str>, opts: &ResolvedOptions) -> String {
+        let _ = name;
+        self.to_control(stored, opts)
+    }
+
     /// What a field of several controls submitted, as the one value its control
     /// is rebuilt from.
     ///
@@ -2902,10 +2912,95 @@ struct SensitiveTmpl<'a> {
     failed: &'a str,
 }
 
+#[derive(Template)]
+#[template(path = "fields/sensitive_file.html")]
+struct SensitiveFileTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    file_name: &'a str,
+    meta: &'a str,
+    accept: &'a str,
+    max: usize,
+    words: &'a SealedFileWords,
+}
+
+/// The localized strings the sealed file control shows.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct SealedFileWords {
+    none: String,
+    stored: String,
+    choose: String,
+    replace: String,
+    pending: String,
+    too_large: String,
+    wrong_type: String,
+    unreadable: String,
+}
+
+/// The largest sealed file a field may allow: a form submission carries the
+/// file inside its body, which has its own ceiling.
+pub const SEALED_FILE_LIMIT: usize = 512 * 1024;
+
+/// A sealed file's size limit when the field states none.
+pub const SEALED_FILE_DEFAULT: usize = 64 * 1024;
+
+/// A `sensitive` field's typed options.
+#[derive(Debug, Default)]
+pub(crate) struct SensitiveOptions {
+    file: bool,
+    /// Lowercase extensions with their dot (`.json`); empty accepts any.
+    accept: Vec<String>,
+    max_size: usize,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct SensitiveRaw {
+    #[serde(default)]
+    file: bool,
+    #[serde(default)]
+    accept: Vec<String>,
+    #[serde(default)]
+    max_size: Option<serde_json::Value>,
+}
+
+/// A size as a number of bytes or text with a unit (`64kb`, `1 MB`), binary.
+fn parse_size(value: &serde_json::Value) -> Option<usize> {
+    if let Some(n) = value.as_u64() {
+        return usize::try_from(n).ok();
+    }
+    let text = value.as_str()?.trim().to_ascii_lowercase();
+    let digits = text.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == ' ');
+    let unit = text[digits.len()..].trim();
+    let n: usize = digits.trim().parse().ok()?;
+    let scale = match unit {
+        "" | "b" => 1,
+        "kb" | "kib" | "k" => 1024,
+        "mb" | "mib" | "m" => 1024 * 1024,
+        _ => return None,
+    };
+    n.checked_mul(scale)
+}
+
+/// A byte count as a person reads it.
+fn human_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
 /// A secret kept sealed at rest (an API token, a key): stored encrypted under
 /// the application key, shown as a mask, revealed on request and recorded in
 /// the audit log when it is. A blank or the mask submitted back leaves the
 /// stored value as it is. Declared as `{ type: sensitive }`.
+///
+/// With `file: true` the secret is an uploaded file (a JSON or P12 key),
+/// sealed in the same column as a [`SealedFile`](laterite_core::SealedFile),
+/// shown as its name, size and fingerprint, and replaced, never revealed.
 pub(crate) struct SensitiveField {
     crypt: Arc<laterite_core::Crypt>,
 }
@@ -2929,6 +3024,40 @@ impl SensitiveField {
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok())
     }
+
+    /// Whether a field's raw options make it a sealed file, which has no Reveal.
+    pub(crate) fn is_file(raw: &serde_json::Value) -> bool {
+        raw.get("file").and_then(serde_json::Value::as_bool) == Some(true)
+    }
+
+    /// A submitted upload (`{"name", "data"}`, the data base64) as a file that
+    /// fits the field's limits.
+    fn upload(text: &str, opts: &SensitiveOptions) -> Result<laterite_core::SealedFile, String> {
+        let doc: serde_json::Value =
+            serde_json::from_str(text).map_err(|_| "the upload is malformed".to_string())?;
+        let file = laterite_core::SealedFile::from_base64(
+            doc["name"].as_str().unwrap_or_default(),
+            doc["data"].as_str().unwrap_or_default(),
+        )
+        .ok_or_else(|| "the upload is malformed".to_string())?;
+        if file.name.is_empty() || file.bytes.is_empty() {
+            return Err("the file is empty".to_string());
+        }
+        if file.bytes.len() > opts.max_size {
+            return Err(format!(
+                "the file is larger than {}",
+                human_bytes(opts.max_size)
+            ));
+        }
+        let lower = file.name.to_ascii_lowercase();
+        if !opts.accept.is_empty() && !opts.accept.iter().any(|ext| lower.ends_with(ext)) {
+            return Err(format!(
+                "the file must be one of {}",
+                opts.accept.join(", ")
+            ));
+        }
+        Ok(file)
+    }
 }
 
 impl FieldType for SensitiveField {
@@ -2936,18 +3065,71 @@ impl FieldType for SensitiveField {
         "sensitive"
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        keys(&[])
+        keys(&["file", "accept", "max_size"])
+    }
+
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let parsed: SensitiveRaw = if raw.is_object() {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        } else {
+            SensitiveRaw::default()
+        };
+        if !parsed.file && (!parsed.accept.is_empty() || parsed.max_size.is_some()) {
+            return Err(OptionsError(
+                "`accept` and `max_size` apply to a field with `file: true`".to_string(),
+            ));
+        }
+        let max_size = match &parsed.max_size {
+            None => SEALED_FILE_DEFAULT,
+            Some(value) => parse_size(value).ok_or_else(|| {
+                OptionsError("`max_size` is a number of bytes or text like `64kb`".to_string())
+            })?,
+        };
+        if max_size == 0 || max_size > SEALED_FILE_LIMIT {
+            return Err(OptionsError(format!(
+                "`max_size` is between 1 byte and {}",
+                human_bytes(SEALED_FILE_LIMIT)
+            )));
+        }
+        let accept = parsed
+            .accept
+            .iter()
+            .map(|ext| {
+                let ext = ext.trim().to_ascii_lowercase();
+                if ext.starts_with('.') {
+                    ext
+                } else {
+                    format!(".{ext}")
+                }
+            })
+            .collect();
+        Ok(ResolvedOptions::new(SensitiveOptions {
+            file: parsed.file,
+            accept,
+            max_size,
+        }))
     }
 
     fn to_attr(
         &self,
         field: &SubmittedField<'_>,
-        _opts: &ResolvedOptions,
+        opts: &ResolvedOptions,
         _mode: Mode,
     ) -> Result<Option<AttrValue>, String> {
+        let file = opts.get::<SensitiveOptions>().filter(|o| o.file);
         match field.value().map(str::trim).unwrap_or_default() {
             // Absent, blank or the mask: the stored value stays.
             "" | laterite_core::crypt::MASK => Ok(None),
+            upload if file.is_some() => {
+                let file = Self::upload(upload, file.unwrap_or(&SensitiveOptions::default()))?;
+                file.seal(&self.crypt, field.name())
+                    .map(|sealed| Some(AttrValue::Text(sealed)))
+                    .map_err(|e| e.to_string())
+            }
             plain => self
                 .crypt
                 .encrypt(
@@ -2968,17 +3150,126 @@ impl FieldType for SensitiveField {
         }
     }
 
+    /// A stored file as its name, size and fingerprint; a stored text as the
+    /// mask.
+    fn to_control_for(&self, name: &str, stored: Option<&str>, opts: &ResolvedOptions) -> String {
+        let sealed = stored.unwrap_or_default();
+        if sealed.is_empty() || !opts.get::<SensitiveOptions>().is_some_and(|o| o.file) {
+            return self.to_control(stored, opts);
+        }
+        match laterite_core::SealedFile::open(&self.crypt, name, sealed) {
+            Ok(file) => serde_json::json!({
+                "name": file.name,
+                "size": file.bytes.len(),
+                "fingerprint": file.fingerprint(),
+            })
+            .to_string(),
+            Err(_) => serde_json::json!({ "unreadable": true }).to_string(),
+        }
+    }
+
     fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
         let mut vm = scalar_vm("sensitive", cx);
+        let t = |text: laterite_core::Text| cx.i18n.t(&text);
+        let Some(opts) = cx.opts.get::<SensitiveOptions>().filter(|o| o.file) else {
+            vm.data = serde_json::json!({
+                "has_value": cx.value.as_text() == laterite_core::crypt::MASK,
+                "reveal": t(laterite_core::t!("Reveal")),
+                "failed": t(laterite_core::t!("Could not reveal the value.")),
+            });
+            return vm;
+        };
+        let words = SealedFileWords {
+            none: t(laterite_core::t!("No file")),
+            stored: t(laterite_core::t!("A file is stored")),
+            choose: t(laterite_core::t!("Choose file")),
+            replace: t(laterite_core::t!("Replace")),
+            pending: t(laterite_core::t!("not saved yet")),
+            too_large: cx.i18n.t(&laterite_core::t!(
+                "The file is larger than {size}.",
+                size = human_bytes(opts.max_size)
+            )),
+            wrong_type: cx.i18n.t(&laterite_core::t!(
+                "The file must be one of {types}.",
+                types = opts.accept.join(", ")
+            )),
+            unreadable: t(laterite_core::t!(
+                "The stored file does not open under the application key."
+            )),
+        };
+        // What the control shows is one of: nothing, the mask (stored, coming
+        // back from a refused save), a stored file's description, or an upload
+        // the browser sent that is not saved yet.
+        let shown = cx.value.as_text();
+        let doc: serde_json::Value = serde_json::from_str(shown).unwrap_or_default();
+        let (file_name, meta, value) = if shown.is_empty() {
+            (String::new(), String::new(), String::new())
+        } else if doc["unreadable"] == true {
+            (
+                words.unreadable.clone(),
+                String::new(),
+                laterite_core::crypt::MASK.to_string(),
+            )
+        } else if let Some(data) = doc["data"].as_str() {
+            (
+                doc["name"].as_str().unwrap_or_default().to_string(),
+                format!("{} · {}", human_bytes(data.len() / 4 * 3), words.pending),
+                shown.to_string(),
+            )
+        } else if let Some(name) = doc["name"].as_str() {
+            let size = usize::try_from(doc["size"].as_u64().unwrap_or_default()).unwrap_or(0);
+            (
+                name.to_string(),
+                format!(
+                    "{} · {}",
+                    human_bytes(size),
+                    doc["fingerprint"].as_str().unwrap_or_default()
+                ),
+                laterite_core::crypt::MASK.to_string(),
+            )
+        } else {
+            (
+                words.stored.clone(),
+                String::new(),
+                laterite_core::crypt::MASK.to_string(),
+            )
+        };
+        vm.value = FieldValue::Text(value);
         vm.data = serde_json::json!({
-            "has_value": cx.value.as_text() == laterite_core::crypt::MASK,
-            "reveal": cx.i18n.t(&laterite_core::t!("Reveal")),
-            "failed": cx.i18n.t(&laterite_core::t!("Could not reveal the value.")),
+            "file": true,
+            "file_name": file_name,
+            "meta": meta,
+            "accept": opts.accept.join(","),
+            "max": opts.max_size,
+            "words": words,
         });
         vm
     }
 
+    fn assets(&self, opts: &ResolvedOptions) -> Vec<&'static str> {
+        if opts.get::<SensitiveOptions>().is_some_and(|o| o.file) {
+            vec!["fields/sealed-file.js", "fields/sealed-file.css"]
+        } else {
+            Vec::new()
+        }
+    }
+
     fn render_default(&self, vm: &FieldVm) -> Markup {
+        if vm.data["file"] == true {
+            let words: SealedFileWords =
+                serde_json::from_value(vm.data["words"].clone()).unwrap_or_default();
+            return Markup::from_template(&SensitiveFileTmpl {
+                name: &vm.name,
+                id: &vm.id,
+                value: vm.value.as_text(),
+                file_name: vm.data["file_name"].as_str().unwrap_or_default(),
+                meta: vm.data["meta"].as_str().unwrap_or_default(),
+                accept: vm.data["accept"].as_str().unwrap_or_default(),
+                max: usize::try_from(vm.data["max"].as_u64().unwrap_or_default()).unwrap_or(0),
+                words: &words,
+            })
+            .unwrap_or_default();
+        }
         let has_value = vm.data["has_value"].as_bool().unwrap_or(false);
         let reveal = vm.data["reveal"].as_str().unwrap_or("Reveal");
         let failed = vm.data["failed"].as_str().unwrap_or_default();
@@ -4147,6 +4438,31 @@ mod save_contract_tests {
 
     fn none() -> ResolvedOptions {
         ResolvedOptions::none()
+    }
+
+    #[test]
+    fn a_sealed_file_states_limits_that_hold() {
+        let f = SensitiveField::new(Arc::new(laterite_core::Crypt::ephemeral()));
+        let types = FieldRegistry::default();
+        let resolve = |raw: serde_json::Value| f.resolve_options(&raw, &types);
+        let opts =
+            resolve(serde_json::json!({ "file": true, "accept": ["JSON", ".p12"] })).unwrap();
+        let opts = opts.get::<SensitiveOptions>().unwrap();
+        assert_eq!(opts.accept, [".json", ".p12"]);
+        assert_eq!(opts.max_size, SEALED_FILE_DEFAULT);
+        for (text, bytes) in [("64kb", 65536), ("1 MB", 1024 * 1024), ("900", 900)] {
+            assert_eq!(parse_size(&serde_json::json!(text)), Some(bytes), "{text}");
+        }
+        assert_eq!(parse_size(&serde_json::json!(2048)), Some(2048));
+        for bad in [
+            serde_json::json!({ "accept": [".json"] }),
+            serde_json::json!({ "max_size": 10 }),
+            serde_json::json!({ "file": true, "max_size": "1mb" }),
+            serde_json::json!({ "file": true, "max_size": "lots" }),
+            serde_json::json!({ "file": true, "max_size": 0 }),
+        ] {
+            assert!(resolve(bad.clone()).is_err(), "{bad}");
+        }
     }
 
     #[test]
