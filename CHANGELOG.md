@@ -20,9 +20,12 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Fifteen brand icons (`instagram`, `whatsapp`, `x-twitter`, ...) drawn solid, and `IconReg::solid` for a plugin's own.
 - A `media` field's tile opens its file in a new tab.
 - `settings::category` names the standard settings headings (`WEBSITE`, `USERS`, `MAIL`, `LOGS`, `SYSTEM`), so a plugin's item joins one.
+- A repeater of one field is compact: a line a row, each with add and remove, always one line; `prompt` names Add and `expanded` opens list rows.
+- A repeater's Add and Remove switch off at `max_items` and `min_items`, and `min_items` rows show from the start.
 
 ### Fixed
 
+- A repeater field with no `label` shows its name, as at the top level.
 - Applying the list setup returns to the list; it led to a missing page under a doubled admin path.
 - Saving an existing record no longer fails when its form has a `section` field.
 - A `section` field's `trigger` now shows and hides the heading.

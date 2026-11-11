@@ -6,7 +6,11 @@
    opens one at a time, which is what a row of several fields needs: four
    columns side by side is a table nobody can read. `details` carries the open
    state, so the collapse works before any script runs. The move and duplicate
-   controls need the script and start hidden. #}
+   controls need the script and start hidden.
+
+   A row of one field is compact: a line a row, its label stated once by the
+   field above, and on each line a control to add the next and one to remove
+   it. A compact list always shows a line to type into. #}
 {% macro tools() %}
 <span class="lat-repeater__tools">
   {% if data.reorder %}
@@ -16,8 +20,22 @@
   {% if data.duplicate %}
   <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__duplicate" type="button" aria-label="{{ data.text.duplicate }}" data-lat-tooltip="{{ data.text.duplicate }}" hidden></button>
   {% endif %}
-  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-repeater__remove" type="button">{{ data.text.remove }}</button>
+  <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__remove" type="button" aria-label="{{ data.text.remove }}" data-lat-tooltip="{{ data.text.remove }}"></button>
 </span>
+{% endmacro %}
+{% macro compact_row(row) %}
+<div class="lat-repeater__row lat-repeater__row--compact">
+  {% for cell in row %}
+  <div class="lat-field">
+    <span class="lat-visually-hidden">{{ cell.label }}</span>
+    {{ cell.control|safe }}
+  </div>
+  {% endfor %}
+  <span class="lat-repeater__tools">
+    <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__insert" type="button" aria-label="{{ data.text.add_another }}" data-lat-tooltip="{{ data.text.add_another }}"></button>
+    <button class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__remove" type="button" aria-label="{{ data.text.remove }}" data-lat-tooltip="{{ data.text.remove }}"></button>
+  </span>
+</div>
 {% endmacro %}
 {% macro cells(row) %}
 {% for cell in row %}
@@ -28,11 +46,13 @@
 </div>
 {% endfor %}
 {% endmacro %}
-<div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}" data-lat-widget="repeater" data-lat-enter-scope="rows"{% if !data.reorder %} data-lat-reorder="off"{% endif %}{% if !data.duplicate %} data-lat-duplicate="off"{% endif %}>
+<div class="lat-repeater{% if data.list %} lat-repeater--list{% endif %}{% if data.compact %} lat-repeater--compact{% endif %}"{% if data.min > 0 %} data-lat-min="{{ data.min }}"{% endif %}{% if let Some(max) = data.max %} data-lat-max="{{ max }}"{% endif %} data-lat-widget="repeater" data-lat-enter-scope="rows"{% if !data.reorder %} data-lat-reorder="off"{% endif %}{% if !data.duplicate %} data-lat-duplicate="off"{% endif %}>
   <div class="lat-repeater__rows{% if !data.rows.is_empty() %} lat-repeater__rows--filled{% endif %}">
     {% for row in data.rows %}
-    {% if data.list %}
-    <details class="lat-repeater__row">
+    {% if data.compact %}
+    {% call compact_row(row) %}
+    {% else if data.list %}
+    <details class="lat-repeater__row"{% if data.expanded %} open{% endif %}>
       <summary class="lat-repeater__summary">
         <span class="lat-repeater__title">{% let text = data.summaries[loop.index0].clone() %}{% if text.is_empty() %}<span class="lat-repeater__untitled">{{ data.text.untitled }}</span>{% else %}{{ text }}{% endif %}</span>
         {% call tools() %}
@@ -53,7 +73,9 @@
      form-associated, so the placeholder index never reaches the server. A
      cloned list row is added open, since the operator just asked for it. #}
   <template class="lat-repeater__blank">
-    {% if data.list %}
+    {% if data.compact %}
+    {% call compact_row(data.blank) %}
+    {% else if data.list %}
     <details class="lat-repeater__row" open>
       <summary class="lat-repeater__summary">
         <span class="lat-repeater__title"><span class="lat-repeater__untitled">{{ data.text.untitled }}</span></span>
@@ -70,5 +92,5 @@
     </div>
     {% endif %}
   </template>
-  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button" data-lat-summary-index="{{ data.summary_index }}">+ {{ data.text.add }}</button>
+  <button class="lat-btn lat-btn--secondary lat-btn--sm lat-repeater__add" type="button" data-lat-summary-index="{{ data.summary_index }}"{% if data.compact %} hidden{% endif %}>+ {{ data.text.add }}</button>
 </div>

@@ -89,6 +89,10 @@ msgstr ""
 msgid "Add"
 msgstr ""
 
+#: src/field.rs
+msgid "Add another"
+msgstr ""
+
 #: (descriptors)
 msgid "Address"
 msgstr ""

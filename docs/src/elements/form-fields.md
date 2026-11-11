@@ -236,12 +236,27 @@ fields:
 
 Key | Default | Description
 --- | --- | ---
-`fields` | | The row's fields, a map like the form's. Required.
-`min_items`, `max_items` | none | How many rows the field needs and allows.
-`display` | `auto` | `auto`, `inline`, `list`. `auto`: past 3 fields a row, rows collapse to the line naming them.
+`fields` | | The row's fields, a map like the form's. Required. A field with no `label` shows its name.
+`min_items` | `0` | The fewest rows: this many show from the start, and Remove is off at this count.
+`max_items` | none | The most rows: Add, the row's add and Duplicate are off at this count.
+`display` | `auto` | `auto`, `inline`, `list`. `auto`: one field a row is compact; past 3 fields a row, rows collapse to the line naming them.
 `summary_field` | the first field | Which field names a collapsed row.
+`expanded` | `false` | List rows show open.
+`prompt` | `Add` | The Add button's label.
 `reorder` | `true` | Each row moves up and down.
 `duplicate` | `true` | Each row copies into a new one beneath it.
+
+A row of one field is compact: one line a row, each with add and remove,
+and always at least one line.
+
+```yaml
+fields:
+  aliases:
+    type: repeater
+    max_items: 5
+    fields:
+      name: { placeholder: "Another name" }
+```
 
 ## media
 

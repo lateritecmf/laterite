@@ -1,0 +1,27 @@
+entity: backend_roles
+path: /limits
+title: Limits
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Limit
+  fields:
+    code: { rules: [required] }
+    name:
+      label: Aliases
+      type: repeater
+      max_items: 3
+      fields:
+        alias_name: { placeholder: Another name }
+    description:
+      label: Stops
+      type: repeater
+      display: list
+      min_items: 2
+      expanded: true
+      prompt: Add stop
+      fields:
+        place: {}
+        arrival: {}

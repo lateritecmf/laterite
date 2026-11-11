@@ -425,12 +425,22 @@ pub(crate) struct RepeaterOptions {
     reorder: bool,
     /// A row can be copied into a new one beneath it.
     duplicate: bool,
+    /// The Add button's label, when not "Add".
+    prompt: Option<String>,
+    /// List rows open when the form does, rather than collapsed.
+    expanded: bool,
 }
 
 /// Past this many fields a row, a repeater with no stated `display` is a list.
 pub const REPEATER_LIST_PAST: usize = 3;
 
 impl RepeaterOptions {
+    /// A row of one field reads as a list of values: one line a row, a field
+    /// always showing, and a control on each line to add the next.
+    fn compact(&self) -> bool {
+        self.rows.len() == 1 && self.display != Some(RepeaterDisplay::List)
+    }
+
     fn list(&self) -> bool {
         match self.display {
             Some(RepeaterDisplay::List) => true,
@@ -505,6 +515,10 @@ struct RepeaterOptionsRaw {
     reorder: bool,
     #[serde(default = "on")]
     duplicate: bool,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    expanded: bool,
 }
 
 /// Refuses a key the type does not read, naming the ones it does.
@@ -567,6 +581,10 @@ where
                 let mut field: crate::form::FormField =
                     serde_json::from_value(entry).map_err(serde::de::Error::custom)?;
                 field.set_key(name);
+                // A label left out reads as the name, as at the top level.
+                if field.label.source().is_empty() {
+                    field.label = crate::descriptor::humanize(&field.name);
+                }
                 Ok(field)
             })
             .collect(),
@@ -602,6 +620,8 @@ impl FieldType for RepeaterField {
             "summary_field",
             "reorder",
             "duplicate",
+            "prompt",
+            "expanded",
         ])
     }
 
@@ -612,6 +632,14 @@ impl FieldType for RepeaterField {
     ) -> Result<ResolvedOptions, OptionsError> {
         let parsed: RepeaterOptionsRaw =
             serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?;
+        if let Some(max) = parsed.max_items {
+            if max == 0 || parsed.min_items > max {
+                return Err(OptionsError(format!(
+                    "max_items {max} must be at least 1 and at least min_items {}",
+                    parsed.min_items
+                )));
+            }
+        }
         let mut rows = Vec::new();
         for field in parsed.fields {
             if field.field_type == "repeater" {
@@ -640,6 +668,8 @@ impl FieldType for RepeaterField {
             summary_field: parsed.summary_field,
             reorder: parsed.reorder,
             duplicate: parsed.duplicate,
+            prompt: parsed.prompt.filter(|p| !p.trim().is_empty()),
+            expanded: parsed.expanded,
         }))
     }
 
@@ -664,7 +694,7 @@ impl FieldType for RepeaterField {
                     .and_then(|name| o.rows.iter().position(|sub| &sub.field.name == name))
             })
             .unwrap_or(0);
-        let summaries = stored
+        let mut summaries: Vec<String> = stored
             .iter()
             .map(|row| {
                 opts.and_then(|o| o.rows.get(summary_index))
@@ -673,26 +703,47 @@ impl FieldType for RepeaterField {
                     .unwrap_or_default()
             })
             .collect();
+        let compact = opts.is_some_and(RepeaterOptions::compact);
+        let mut rows: Vec<Vec<RepeaterCell>> = opts
+            .map(|o| {
+                stored
+                    .iter()
+                    .enumerate()
+                    .map(|(index, row)| render_row(o, cx, &index.to_string(), Some(row)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // The rows a list needs show from the start: `min_items` of them, and
+        // a compact list always one to type into. Left empty, a row is
+        // dropped on save like any blank row.
+        if let Some(o) = opts {
+            let floor = o.min_items.max(usize::from(compact));
+            while rows.len() < floor {
+                let index = rows.len().to_string();
+                rows.push(render_row(o, cx, &index, None));
+                summaries.push(String::new());
+            }
+        }
         let data = RepeaterData {
-            rows: opts
-                .map(|o| {
-                    stored
-                        .iter()
-                        .enumerate()
-                        .map(|(index, row)| render_row(o, cx, &index.to_string(), Some(row)))
-                        .collect()
-                })
-                .unwrap_or_default(),
+            rows,
             blank: opts
                 .map(|o| render_row(o, cx, Self::BLANK, None))
                 .unwrap_or_default(),
             list: opts.is_some_and(RepeaterOptions::list),
+            compact,
+            min: opts.map_or(0, |o| o.min_items),
+            max: opts.and_then(|o| o.max_items),
+            expanded: opts.is_some_and(|o| o.expanded),
             summary_index,
             summaries,
             reorder: opts.is_none_or(|o| o.reorder),
             duplicate: opts.is_none_or(|o| o.duplicate),
             text: RepeaterText {
-                add: cx.i18n.t(&laterite_core::t!("Add")),
+                add: match opts.and_then(|o| o.prompt.clone()) {
+                    Some(prompt) => cx.i18n.t(&laterite_core::Text::dynamic(prompt)),
+                    None => cx.i18n.t(&laterite_core::t!("Add")),
+                },
+                add_another: cx.i18n.t(&laterite_core::t!("Add another")),
                 remove: cx.i18n.t(&laterite_core::t!("Remove")),
                 duplicate: cx.i18n.t(&laterite_core::t!("Duplicate")),
                 up: cx.i18n.t(&laterite_core::t!("Move up")),
@@ -905,6 +956,18 @@ struct RepeaterData {
     blank: Vec<RepeaterCell>,
     /// True when rows collapse to a summary line.
     list: bool,
+    /// True when a row is one field: a line a row, each with add and remove.
+    #[serde(default)]
+    compact: bool,
+    /// The fewest rows allowed: Remove is off at this count.
+    #[serde(default)]
+    min: usize,
+    /// The most rows allowed, when capped: Add is off at this count.
+    #[serde(default)]
+    max: Option<usize>,
+    /// List rows render open.
+    #[serde(default)]
+    expanded: bool,
     /// Index of the cell whose value names a collapsed row.
     summary_index: usize,
     /// Each row's summary text, parallel to `rows`. Empty when a row's naming
@@ -925,6 +988,7 @@ struct RepeaterData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RepeaterText {
     add: String,
+    add_another: String,
     remove: String,
     duplicate: String,
     up: String,
@@ -3305,6 +3369,21 @@ mod tests {
             &cx("body", &value, &opts),
         );
         assert!(markup.as_str().contains("<textarea"));
+    }
+
+    #[test]
+    fn repeater_limits_that_cannot_hold_stop_the_boot() {
+        let types = builtin_registry();
+        let resolve = |extra: serde_json::Value| {
+            let mut raw = serde_json::json!({ "fields": { "a": {} } });
+            raw.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            RepeaterField.resolve_options(&raw, &types)
+        };
+        assert!(resolve(serde_json::json!({ "min_items": 3, "max_items": 2 })).is_err());
+        assert!(resolve(serde_json::json!({ "max_items": 0 })).is_err());
+        assert!(resolve(serde_json::json!({ "min_items": 2, "max_items": 2 })).is_ok());
     }
 
     #[test]

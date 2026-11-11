@@ -112,7 +112,61 @@ async fn the_display_follows_the_row_and_the_controls_are_offered() {
     // their labels in words.
     assert!(html.contains(r#"class="lat-btn lat-btn--ghost lat-btn--sm lat-btn--icon lat-repeater__up" type="button" aria-label="Move up""#));
     assert!(html.contains(r#"aria-label="Duplicate""#));
-    assert!(html.contains(">Remove<") && html.contains("+ Add<"));
+    assert!(html.contains(r#"aria-label="Remove""#) && html.contains("+ Add<"));
+}
+
+/// A one-field row is compact and always offers a line; the limits reach the
+/// page, `min_items` rows show from the start, and `prompt` names Add.
+#[tokio::test]
+async fn compact_rows_limits_and_prompt_reach_the_page() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db,
+        Contributions {
+            resources: vec![resource!("tests/descriptors/repeater_limits.yaml")],
+            permissions: vec![Permission::new(
+                "acme.manage_posts",
+                t!("Manage posts"),
+                t!("Acme"),
+            )],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/limits/new")
+                .header("cookie", format!("laterite_session={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+
+    let aliases = repeater(&html, "name");
+    assert!(aliases.contains("lat-repeater--compact"), "{aliases}");
+    assert!(aliases.contains(r#"data-lat-max="3""#), "{aliases}");
+    // One line to type into before any is saved, labelled by its name.
+    assert!(html.contains(r#"name="name[0][alias_name]""#));
+    assert!(html.contains("Alias name"));
+    assert!(html.contains(r#"aria-label="Add another""#));
+
+    let stops = repeater(&html, "description");
+    assert!(stops.contains(r#"data-lat-min="2""#), "{stops}");
+    assert!(html.contains(r#"name="description[0][place]""#));
+    assert!(html.contains(r#"name="description[1][place]""#));
+    assert!(!html.contains(r#"name="description[2][place]""#));
+    assert!(html.contains(r#"<details class="lat-repeater__row" open>"#));
+    assert!(html.contains("+ Add stop<"));
 }
 
 #[test]
@@ -133,6 +187,7 @@ fn the_keys_are_checked_when_the_file_is_read() {
     };
     assert!(message.contains("unknown key `showReorder`"), "{message}");
     assert!(message.contains("reorder"), "{message}");
+    assert!(descriptor::from_yaml(&file("prompt: Add step, expanded: true"), "x.yaml").is_ok());
 }
 
 /// A descriptor form shows a repeater's stored rows on edit, and keeps the

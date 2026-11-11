@@ -1308,6 +1308,11 @@ window.lat.widget('repeater', function (root) {
   if (!rows || !blank || !add) return;
   var reorder = root.getAttribute('data-lat-reorder') !== 'off';
   var duplicate = root.getAttribute('data-lat-duplicate') !== 'off';
+  var compact = root.classList.contains('lat-repeater--compact');
+  var max = parseInt(root.getAttribute('data-lat-max'), 10) || 0;
+  // The fewest rows: `min_items`, and a compact list always keeps one line.
+  var min = Math.max(parseInt(root.getAttribute('data-lat-min'), 10) || 0, compact ? 1 : 0);
+  function full() { return max > 0 && all().length >= max; }
   // The placeholder a row with no name shows, as the server wrote it.
   var untitled = blank.content.querySelector('.lat-repeater__untitled');
   untitled = untitled ? untitled.textContent : 'Untitled';
@@ -1328,7 +1333,16 @@ window.lat.widget('repeater', function (root) {
       var down = row.querySelector('.lat-repeater__down');
       if (up) up.disabled = index === 0;
       if (down) down.disabled = index === list.length - 1;
+      // At the limits the controls switch off: no adding past `max_items`, no
+      // removing below `min_items`.
+      var insert = row.querySelector('.lat-repeater__insert');
+      if (insert) insert.disabled = max > 0 && list.length >= max;
+      var copy = row.querySelector('.lat-repeater__duplicate');
+      if (copy) copy.disabled = max > 0 && list.length >= max;
+      var remove = row.querySelector('.lat-repeater__remove');
+      if (remove) remove.disabled = list.length <= min;
     });
+    add.disabled = max > 0 && list.length >= max;
   }
 
   // The line that names a collapsed row, kept current as the operator types.
@@ -1368,6 +1382,7 @@ window.lat.widget('repeater', function (root) {
   }
 
   function addRow() {
+    if (full()) return null;
     if (!window.lat.emit(root, 'repeater:before-add', { count: all().length }, true)) return null;
     var added = fresh(null);
     // A details row is added open, so focus lands where the operator is looking.
@@ -1378,14 +1393,33 @@ window.lat.widget('repeater', function (root) {
     return added;
   }
 
+  // A new line beneath `row`, focused, in a compact list.
+  function insertAfter(row) {
+    var list = all();
+    if (full()) return null;
+    if (!window.lat.emit(root, 'repeater:before-add', { count: list.length }, true)) return null;
+    var added = fresh(row);
+    var first = added.querySelector('[name]');
+    if (first) first.focus();
+    window.lat.emit(root, 'repeater:added', { row: added, index: all().indexOf(added), count: all().length });
+    return added;
+  }
+
   function removeRow(row) {
     var index = all().indexOf(row);
     if (index < 0) return false;
+    if (all().length <= min) return false;
     if (!window.lat.emit(root, 'repeater:before-remove', { row: row, index: index, count: all().length }, true)) {
       return false;
     }
+    // Focus moves to the line that takes its place, so the keyboard stays put.
+    var next = row.nextElementSibling || row.previousElementSibling;
     row.remove();
     renumber();
+    if (compact && next) {
+      var control = next.querySelector('[name]');
+      if (control) control.focus();
+    }
     window.lat.emit(root, 'repeater:removed', { index: index, count: all().length });
     return true;
   }
@@ -1429,7 +1463,7 @@ window.lat.widget('repeater', function (root) {
   function duplicateRow(index) {
     var list = all();
     var source = list[index];
-    if (!source) return null;
+    if (!source || full()) return null;
     if (!window.lat.emit(root, 'repeater:before-add', { count: list.length }, true)) return null;
     var row = fresh(source);
     copyValues(source, row);
@@ -1456,6 +1490,7 @@ window.lat.widget('repeater', function (root) {
     if (!row || !rows.contains(row)) return;
     var index = all().indexOf(row);
     if (button.classList.contains('lat-repeater__remove')) removeRow(row);
+    else if (button.classList.contains('lat-repeater__insert')) insertAfter(row);
     else if (reorder && button.classList.contains('lat-repeater__up')) moveRow(index, index - 1);
     else if (reorder && button.classList.contains('lat-repeater__down')) moveRow(index, index + 1);
     else if (duplicate && button.classList.contains('lat-repeater__duplicate')) duplicateRow(index);
@@ -1741,6 +1776,9 @@ window.lat.widget('copy', function (btn) {
   // A repeater: the next field in the row, or a new row from the last one.
   function withinRows(el, scope) {
     var row = el.closest('.lat-repeater__row');
+    // A compact line: Enter adds the next line beneath it.
+    var insert = row && row.querySelector('.lat-repeater__insert');
+    if (insert) { if (!insert.disabled) insert.click(); return; }
     if (row && focusNext(el, row)) return;
     var add = scope.querySelector(':scope > .lat-repeater__add');
     if (add) add.click();

@@ -591,6 +591,22 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-repeater__up:disabled,.lat-repeater__down:disabled{opacity:.3;cursor:default}
 .lat-repeater--list .lat-repeater__tools{opacity:0;transition:opacity .12s}
 .lat-repeater__summary:hover .lat-repeater__tools,.lat-repeater__tools:focus-within{opacity:1}
+/* Every row control is an icon of one size, its name in the tooltip. A
+   disabled one fades without the filled box a disabled button carries. */
+.lat-repeater{--icon-plus:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E")}
+.lat-repeater__remove,.lat-repeater__insert{width:28px;padding:0;justify-content:center}
+.lat-repeater__remove::before,.lat-repeater__insert::before{content:"";width:14px;height:14px;background:currentColor;-webkit-mask:var(--icon-clear) center/contain no-repeat;mask:var(--icon-clear) center/contain no-repeat}
+.lat-repeater__insert::before{-webkit-mask-image:var(--icon-plus);mask-image:var(--icon-plus)}
+.lat-repeater__remove:hover{color:var(--danger)}
+.lat-repeater__tools .lat-btn:disabled{background:transparent;border-color:transparent;color:inherit;opacity:.3;cursor:default}
+/* Inline rows: the controls sit level with the inputs, not the labels. */
+.lat-repeater__row > .lat-repeater__tools{align-self:flex-end;height:var(--control-h)}
+/* Compact: a line a row, no card, the controls beside the input. */
+.lat-repeater--compact .lat-repeater__rows{gap:8px}
+.lat-repeater--compact .lat-repeater__row{flex-wrap:nowrap;align-items:center;padding:0;background:none;border:0;border-radius:0}
+.lat-repeater--compact .lat-repeater__row > .lat-repeater__tools{align-self:center;height:auto}
+.lat-repeater--compact .lat-repeater__row .lat-field{flex:1 1 auto;min-width:0}
+.lat-repeater--compact .lat-repeater__tools .lat-btn{width:var(--control-h);height:var(--control-h)}
 
 /* A small disclosure menu (export formats), and toolbar button icons. */
 .lat-menu{position:relative}
