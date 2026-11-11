@@ -7,8 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
+
 ### Fixed
 
+- A `sensitive` field is masked by its style, so a browser's password manager no longer treats a form holding one as a sign-in.
 - A `sensitive` field's Reveal is an eye icon, works on a settings screen (audited as `settings.reveal`), and typing into a stored value replaces it whole.
 - A settings screen loads the scripts and styles its field types declare.
 - A switch sits beside its label, and keeps its shape on a phone.

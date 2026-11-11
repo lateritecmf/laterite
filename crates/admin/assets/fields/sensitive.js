@@ -1,3 +1,7 @@
+// The box is a text input masked by its style, never a password input: a
+// password input makes a browser's password manager treat the form as a
+// sign-in, offer saved usernames on its other fields and ask to save the
+// secret.
 // Sensitive: a sealed secret, always shown masked. The eye shows and hides
 // what the box holds: a stored value is fetched from `reveal/<field>` beside
 // the form's own URL the first time; a value just typed is shown as it is.
@@ -12,7 +16,7 @@ window.lat.widget('sensitive', function (root) {
   var shown = false;
   function show(on) {
     shown = on;
-    input.type = on ? 'text' : 'password';
+    root.classList.toggle('is-shown', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
   function revealUrl() {

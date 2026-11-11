@@ -285,6 +285,8 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-reveal__btn::before,.lat-sensitive__btn::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:var(--icon-eye) center/contain no-repeat;mask:var(--icon-eye) center/contain no-repeat}
 .lat-reveal__btn[aria-pressed="true"]::before,.lat-sensitive__btn[aria-pressed="true"]::before{-webkit-mask-image:var(--icon-eye-off);mask-image:var(--icon-eye-off)}
 .lat-sensitive__btn.is-busy{opacity:.5;pointer-events:none}
+.lat-sensitive .lat-input{-webkit-text-security:disc}
+.lat-sensitive.is-shown .lat-input{-webkit-text-security:none}
 .lat-input--lg{height:var(--control-h-lg)}
 .lat-input-group{display:flex;align-items:stretch}
 .lat-input-group .lat-input{flex:1;width:auto;min-width:0;border-radius:0}

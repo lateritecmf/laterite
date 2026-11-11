@@ -2576,6 +2576,27 @@ impl ValueForm {
         crate::html::Markup::from_template(&template).unwrap_or_default()
     }
 
+    /// The asset keys the fields' types declare, for the page that shows the
+    /// form: pass them to [`PageHead::assets`](crate::PageHead::assets), or a
+    /// type whose widget ships apart from the shared script stays inert.
+    pub fn assets(&self) -> Vec<&'static str> {
+        let mut keys: Vec<&'static str> = Vec::new();
+        for field in &self.fields {
+            let Some(ft) = self.types.get(&field.field_type) else {
+                continue;
+            };
+            let Ok(opts) = ft.resolve_options(&field.options, &self.types) else {
+                continue;
+            };
+            for key in ft.assets(&opts) {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+        }
+        keys
+    }
+
     /// A submission as the stored object: every declared key, each value
     /// through its field type. A type that refuses its input refuses the whole.
     pub fn collect(&self, data: &HashMap<String, String>) -> Result<serde_json::Value, Text> {

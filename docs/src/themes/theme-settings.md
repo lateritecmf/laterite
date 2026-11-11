@@ -43,4 +43,8 @@ A module's own screen renders and collects such a form through the route context
 let form = ctx.value_form(&fields, "acme")?;
 let markup = form.render(&values, &shell);
 let saved = form.collect(&data)?;
+let page = shell.page_with(PageHead::new(title).assets(&form.assets()), markup);
 ```
+
+`form.assets()` lists the scripts and styles the fields' types declare; pass
+them to the page head.
