@@ -47,6 +47,22 @@ pub struct DatabaseQueue {
 }
 
 impl DatabaseQueue {
+    /// Whether a job with `key` is waiting or running.
+    async fn holds(&self, key: &str) -> CoreResult<bool> {
+        let (sql, values) = build(
+            self.db.backend,
+            Query::select()
+                .expr(Expr::col(Jobs::Id).count())
+                .from(Jobs::Table)
+                .and_where(Expr::col(Jobs::UniqueKey).eq(key))
+                .to_owned(),
+        );
+        let row = bind_values(sqlx::query(&sql), values)
+            .fetch_one(&self.db.pool)
+            .await?;
+        Ok(row.try_get::<i64, _>(0)? > 0)
+    }
+
     /// Returns a queue driver storing jobs in the `jobs` and `failed_jobs` tables
     /// of `db`.
     pub fn new(db: Db) -> Self {
@@ -117,18 +133,7 @@ impl QueueDriver for DatabaseQueue {
         unique_key: Option<&str>,
     ) -> CoreResult<Option<i64>> {
         if let Some(key) = unique_key {
-            let (sql, values) = build(
-                self.db.backend,
-                Query::select()
-                    .expr(Expr::col(Jobs::Id).count())
-                    .from(Jobs::Table)
-                    .and_where(Expr::col(Jobs::UniqueKey).eq(key))
-                    .to_owned(),
-            );
-            let row = bind_values(sqlx::query(&sql), values)
-                .fetch_one(&self.db.pool)
-                .await?;
-            if row.try_get::<i64, _>(0)? > 0 {
+            if self.holds(key).await? {
                 return Ok(None);
             }
         }
@@ -155,8 +160,14 @@ impl QueueDriver for DatabaseQueue {
                 time_text(Utc::now()).into(),
             ])
             .to_owned();
-        let id = insert_returning_id(&self.db, stmt, Jobs::Id).await?;
-        Ok(Some(id))
+        match insert_returning_id(&self.db, stmt, Jobs::Id).await {
+            Ok(id) => Ok(Some(id)),
+            Err(e) => match unique_key {
+                // The unique index refused a key another push stored first.
+                Some(key) if self.holds(key).await? => Ok(None),
+                _ => Err(e.into()),
+            },
+        }
     }
 
     async fn claim(
@@ -171,24 +182,32 @@ impl QueueDriver for DatabaseQueue {
         for _ in 0..5 {
             let now = time_text(Utc::now());
             let stale_before = time_text(Utc::now() - stale);
-            let (sql, values) = build(
-                self.db.backend,
-                Query::select()
-                    .column(Jobs::Id)
-                    .from(Jobs::Table)
-                    .and_where(Expr::col(Jobs::Queue).is_in(queues.iter().cloned()))
-                    .and_where(Self::due(&now, &stale_before))
-                    .order_by(Jobs::Id, Order::Asc)
-                    .limit(1)
-                    .to_owned(),
-            );
-            let row = bind_values(sqlx::query(&sql), values)
-                .fetch_optional(&self.db.pool)
-                .await?;
-            let Some(row) = row else {
+            // The queues in the order given: a job waiting on the first is
+            // taken before any on the next, oldest first within one queue.
+            let mut found = None;
+            for queue in queues {
+                let (sql, values) = build(
+                    self.db.backend,
+                    Query::select()
+                        .column(Jobs::Id)
+                        .from(Jobs::Table)
+                        .and_where(Expr::col(Jobs::Queue).eq(queue.as_str()))
+                        .and_where(Self::due(&now, &stale_before))
+                        .order_by(Jobs::Id, Order::Asc)
+                        .limit(1)
+                        .to_owned(),
+                );
+                if let Some(row) = bind_values(sqlx::query(&sql), values)
+                    .fetch_optional(&self.db.pool)
+                    .await?
+                {
+                    found = Some(row.try_get::<i64, _>("id")?);
+                    break;
+                }
+            }
+            let Some(id) = found else {
                 return Ok(None);
             };
-            let id = row.try_get::<i64, _>("id")?;
             let (sql, values) = build(
                 self.db.backend,
                 Query::update()
@@ -219,6 +238,25 @@ impl QueueDriver for DatabaseQueue {
                 .value(Jobs::ReservedBy, Option::<String>::None)
                 .value(Jobs::AvailableAt, time_text(available_at))
                 .and_where(Expr::col(Jobs::Id).eq(id))
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&self.db.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn postpone(&self, id: i64, available_at: DateTime<Utc>) -> CoreResult<()> {
+        let (sql, values) = build(
+            self.db.backend,
+            Query::update()
+                .table(Jobs::Table)
+                .value(Jobs::ReservedAt, Option::<String>::None)
+                .value(Jobs::ReservedBy, Option::<String>::None)
+                .value(Jobs::AvailableAt, time_text(available_at))
+                .value(Jobs::Attempts, Expr::col(Jobs::Attempts).sub(1))
+                .and_where(Expr::col(Jobs::Id).eq(id))
+                .and_where(Expr::col(Jobs::Attempts).gt(0))
                 .to_owned(),
         );
         bind_values(sqlx::query(&sql), values)

@@ -6,4 +6,5 @@
 crate::migration_set! {
     module_id: "laterite.queue",
     m0001_create_jobs,
+    m0002_add_jobs_unique_key_index,
 }

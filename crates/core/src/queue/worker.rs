@@ -173,6 +173,24 @@ impl Worker {
                 Outcome::Done
             }
             Err(JobError::Fail(message)) => self.fail(&job, &message).await,
+            Err(JobError::Release { reason, after }) => {
+                let due =
+                    Utc::now() + chrono::Duration::from_std(after).unwrap_or(chrono::Duration::MAX);
+                if let Err(e) = self.queue.driver().postpone(job.id, due).await {
+                    tracing::error!(job = job.id, error = %e, "job could not be put back");
+                }
+                tracing::info!(
+                    job = job.id,
+                    name = %job.name,
+                    wait = after.as_secs(),
+                    reason = %reason,
+                    "job put back"
+                );
+                Outcome::Released {
+                    attempt: job.attempts.saturating_sub(1),
+                    retry_in: after,
+                }
+            }
             Err(JobError::Retry(message)) => {
                 let now = Utc::now();
                 let window_passed = meta.retry_until.is_some_and(|until| now >= until);

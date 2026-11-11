@@ -830,6 +830,8 @@ impl Bootstrap {
         let origin = config::base_url(config.app.url.as_deref(), &config.server.listen);
         let secret = signing_key(&db, config.backend.secret.as_deref()).await?;
         let crypt = crypt_from_config(&config, &secret)?;
+        let crypt = std::sync::Arc::new(crypt);
+        queue.set_crypt(crypt.clone());
 
         // Mail: the templates every module registered, seeded into their
         // tables; the transport from `[mail]` under the saved Mail settings.
@@ -871,7 +873,7 @@ impl Bootstrap {
             order: config.backend.order.clone(),
             menu: config.backend.menu.clone(),
             secret,
-            crypt: Some(std::sync::Arc::new(crypt)),
+            crypt: Some(crypt),
             cache: Some(cache.clone()),
             queue: Some(queue.clone()),
             schedule: Some(schedule.clone()),

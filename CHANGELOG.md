@@ -9,6 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Breaking
 
+- `JobCx::queue()` returns the queue, to push from a job; the queue's name is `queue_name()`. `Queue::push_named` takes a unique key, and `JobError` gained `Release`.
 - `CellCx` is non-exhaustive and is built with `CellCx::new`; it now carries the column's `options`, the row (`field`), the icon set (`icon`) and the admin mount (`base`).
 - `IconReg` is non-exhaustive and `Icon` gains `solid`.
 
@@ -22,9 +23,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `settings::category` names the standard settings headings (`WEBSITE`, `USERS`, `MAIL`, `LOGS`, `SYSTEM`), so a plugin's item joins one.
 - A repeater of one field is compact: a line a row, each with add and remove, always one line; `prompt` names Add and `expanded` opens list rows.
 - A repeater's Add and Remove switch off at `max_items` and `min_items`, and `min_items` rows show from the start.
+- `JobError::release(wait, reason)` puts a job back without spending the attempt, and `JobCx::crypt()` opens sealed values.
 
 ### Fixed
 
+- The database queue takes queues in the order given, a scheduled job keeps its unique key, and two pushes at once no longer both store a unique job.
 - A repeater field with no `label` shows its name, as at the top level.
 - Applying the list setup returns to the list; it led to a missing page under a doubled admin path.
 - Saving an existing record no longer fails when its form has a `section` field.

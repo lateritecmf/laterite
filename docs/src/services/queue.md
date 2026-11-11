@@ -69,15 +69,37 @@ Method | Default | Meaning
 `backoff(attempt)` | 10 s, doubling | The wait after attempt `attempt` failed.
 `timeout()` | 60 s | The longest one attempt may run; `None` for no limit.
 `retry_until()` | `None` | Keep retrying until this moment, whatever `tries` says.
-`unique_key()` | `None` | A push while a job with this key waits is dropped.
+`unique_key()` | `None` | A push while a job with this key waits or runs is dropped, scheduled pushes included.
 
 Return | Effect
 --- | ---
 `Ok(())` | The job is removed.
 `Err(JobError::retry(message))` | Released for the next attempt after the backoff, or failed on the last one.
 `Err(JobError::fail(message))` | Failed at once, whatever tries remain.
+`Err(JobError::release(wait, reason))` | Back after `wait` on the same attempt: a rate limit or a Retry-After.
 
-`JobCx` gives a job `db()`, `events()`, `cache()`, `parameters()`, its `attempt()` and `queue()`.
+```rust
+async fn run(&self, cx: &JobCx) -> Result<(), JobError> {
+    let token = cx.crypt().and_then(|c| c.decrypt(FIELD_PURPOSE, b"api_token", &sealed).ok());
+    match acme::api::fetch(token).await {
+        Err(acme::api::Error::Limited { retry_after }) => Err(JobError::release(retry_after, "rate limited")),
+        Err(e) => Err(JobError::retry(e)),
+        Ok(page) => {
+            cx.queue().push(&StorePage { page }).await?;
+            Ok(())
+        }
+    }
+}
+```
+
+Method | Returns
+--- | ---
+`db()`, `events()`, `cache()`, `parameters()` | The application's services.
+`queue()` | The queue, to push further jobs.
+`crypt()` | The application's crypt, `None` on a queue built without one.
+`attempt()` | Which attempt this is, from 1.
+`queue_name()` | The queue the job was taken from.
+`id()` | The job's row id, `None` inline.
 
 ## Configure the queue
 
@@ -101,7 +123,7 @@ Key | Description
 `queue.prefix` | The prefix of every Redis key. Default `laterite`.
 `queue.mode` | `worker` runs the workers in the application process; `external` leaves them to `queue work`; `inline` runs a job as it is pushed.
 `queue.workers` | How many workers the process runs in `worker` mode. Default `2`.
-`queue.queues` | The queues a worker takes from, in priority order. Default `["default"]`.
+`queue.queues` | The queues a worker takes from, in priority order: a job waiting on an earlier queue is taken first. Default `["default"]`.
 `queue.retry_after_seconds` | After this long a claimed job counts as abandoned and is claimed again. Longer than any job's timeout. Default `90`.
 `queue.poll_seconds` | How long an idle worker waits before looking again. Default `1`.
 

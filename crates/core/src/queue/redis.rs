@@ -223,6 +223,19 @@ impl QueueDriver for RedisQueue {
         Ok(())
     }
 
+    async fn postpone(&self, id: i64, available_at: DateTime<Utc>) -> CoreResult<()> {
+        self.release(id, available_at).await?;
+        let mut conn = self.conn.clone();
+        let _: i64 = redis::cmd("HINCRBY")
+            .arg(self.key(&format!("job:{id}")))
+            .arg("attempts")
+            .arg(-1)
+            .query_async(&mut conn)
+            .await
+            .map_err(io)?;
+        Ok(())
+    }
+
     async fn delete(&self, id: i64) -> CoreResult<()> {
         if let Some(job) = self.read(id).await? {
             self.remove(&job).await?;

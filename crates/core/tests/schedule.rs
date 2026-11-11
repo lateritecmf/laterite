@@ -36,6 +36,9 @@ impl Job for Digest {
     async fn run(&self, _cx: &JobCx) -> Result<(), JobError> {
         Ok(())
     }
+    fn unique_key(&self) -> Option<String> {
+        Some("digest".into())
+    }
 }
 
 fn services(db: &laterite_core::Db, cache: Cache) -> Services {
@@ -176,7 +179,8 @@ async fn a_job_entry_pushes_onto_the_queue_and_run_now_ignores_the_clock() {
     let counts = queue.counts().await.unwrap();
     assert_eq!(counts[0].pending, 1);
     assert!(schedule.run_now("acme.test::digest").await.unwrap());
-    assert_eq!(queue.counts().await.unwrap()[0].pending, 2);
+    // The job's unique key holds back a second copy while the first waits.
+    assert_eq!(queue.counts().await.unwrap()[0].pending, 1);
     assert!(schedule.run_now("acme.test::nobody").await.is_err());
 }
 

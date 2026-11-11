@@ -107,6 +107,48 @@ impl Job for Nightly {
     }
 }
 
+/// Asks to wait once (a rate limit), then finishes; records each attempt.
+#[derive(Debug, Serialize, Deserialize)]
+struct Patient;
+
+#[async_trait]
+impl Job for Patient {
+    const NAME: &'static str = "acme.test::patient";
+    async fn run(&self, cx: &JobCx) -> Result<(), JobError> {
+        let seen: Option<String> = cx.parameters().get("acme.test::patient.attempts").await?;
+        let seen = seen.unwrap_or_default();
+        cx.parameters()
+            .set(
+                "acme.test::patient.attempts",
+                &format!("{seen}{}", cx.attempt()),
+            )
+            .await?;
+        if seen.is_empty() {
+            return Err(JobError::release(Duration::ZERO, "rate limited"));
+        }
+        Ok(())
+    }
+}
+
+/// Pushes another job from inside its own run.
+#[derive(Debug, Serialize, Deserialize)]
+struct Spawner;
+
+#[async_trait]
+impl Job for Spawner {
+    const NAME: &'static str = "acme.test::spawner";
+    async fn run(&self, cx: &JobCx) -> Result<(), JobError> {
+        cx.queue()
+            .push(&Greet {
+                name: "Spawned".into(),
+            })
+            .await
+            .map_err(JobError::fail)?;
+        assert_eq!(cx.queue_name(), "default");
+        Ok(())
+    }
+}
+
 /// Never registered.
 #[derive(Debug, Serialize, Deserialize)]
 struct Stranger;
@@ -127,6 +169,8 @@ fn jobs() -> Vec<JobReg> {
     registry.add_job::<Hopeless>();
     registry.add_job::<Slow>();
     registry.add_job::<Nightly>();
+    registry.add_job::<Patient>();
+    registry.add_job::<Spawner>();
     registry.take::<JobReg>()
 }
 
@@ -323,4 +367,82 @@ async fn a_worker_stops_when_told() {
             .unwrap();
     }
     let _ = Arc::new(());
+}
+
+#[tokio::test]
+async fn queues_are_taken_in_the_order_given() {
+    let (db, _guard) = test_db().await;
+    let queue = database_queue(&db);
+    // `low` is pushed first, but `default` comes first in the worker's list.
+    queue.push(&Nightly).await.unwrap();
+    queue
+        .push(&Greet {
+            name: "First".into(),
+        })
+        .await
+        .unwrap();
+    queue
+        .work(WorkOptions::default().once(true), stop())
+        .await
+        .unwrap();
+    let last: Option<String> = laterite_core::parameters::get(&db, "acme.test::greeted.last")
+        .await
+        .unwrap();
+    assert_eq!(last.as_deref(), Some("First"));
+    let counts = queue.counts().await.unwrap();
+    assert_eq!(counts.len(), 1);
+    assert_eq!(counts[0].queue, "low");
+}
+
+#[tokio::test]
+async fn a_released_job_runs_again_on_the_same_attempt() {
+    let (db, _guard) = test_db().await;
+    let queue = database_queue(&db);
+    queue.push(&Patient).await.unwrap();
+    queue
+        .work(WorkOptions::default().stop_when_empty(true), stop())
+        .await
+        .unwrap();
+    let attempts: Option<String> =
+        laterite_core::parameters::get(&db, "acme.test::patient.attempts")
+            .await
+            .unwrap();
+    // Waiting is not a failure: both runs were attempt 1.
+    assert_eq!(attempts.as_deref(), Some("11"));
+    assert!(queue.failed().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_job_pushes_another() {
+    let (db, _guard) = test_db().await;
+    let queue = database_queue(&db);
+    queue.push(&Spawner).await.unwrap();
+    queue
+        .work(WorkOptions::default().stop_when_empty(true), stop())
+        .await
+        .unwrap();
+    let last: Option<String> = laterite_core::parameters::get(&db, "acme.test::greeted.last")
+        .await
+        .unwrap();
+    assert_eq!(last.as_deref(), Some("Spawned"));
+}
+
+#[tokio::test]
+async fn simultaneous_unique_pushes_store_one_job() {
+    let (db, _guard) = test_db().await;
+    let queue = database_queue(&db);
+    let pushes: Vec<_> = (0..8)
+        .map(|_| {
+            let queue = queue.clone();
+            tokio::spawn(async move { queue.push(&Nightly).await.unwrap() })
+        })
+        .collect();
+    let mut queued = 0;
+    for push in pushes {
+        if matches!(push.await.unwrap(), Pushed::Queued(_)) {
+            queued += 1;
+        }
+    }
+    assert_eq!(queued, 1);
+    assert_eq!(queue.counts().await.unwrap()[0].pending, 1);
 }

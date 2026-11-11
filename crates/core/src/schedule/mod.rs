@@ -112,6 +112,7 @@ enum Action {
         name: &'static str,
         payload: serde_json::Value,
         queue: String,
+        unique_key: Option<String>,
     },
     /// Declared with neither `.run` nor `.job`; refused at boot.
     None,
@@ -203,6 +204,7 @@ impl ScheduleEntry {
             name: T::NAME,
             payload,
             queue: job.queue(),
+            unique_key: job.unique_key(),
         };
         self
     }
@@ -521,11 +523,12 @@ impl Schedule {
                 name,
                 payload,
                 queue,
+                unique_key,
             } => self
                 .inner
                 .cx
                 .queue
-                .push_named(name, payload, queue)
+                .push_named(name, payload, queue, unique_key.as_deref())
                 .await
                 .map(|_| ()),
             Action::None => Ok(()),

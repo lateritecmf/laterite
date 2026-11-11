@@ -84,6 +84,14 @@ pub enum JobError {
     Retry(String),
     /// Move to the failed list now, whatever tries remain.
     Fail(String),
+    /// Put back for `after` without spending the attempt: a rate limit or an
+    /// upstream's Retry-After, not a failure.
+    Release {
+        /// Why the job waits.
+        reason: String,
+        /// How long it waits.
+        after: Duration,
+    },
 }
 
 impl JobError {
@@ -97,10 +105,20 @@ impl JobError {
         Self::Fail(message.to_string())
     }
 
+    /// A wait, not a failure: the job runs again after `after` and the attempt
+    /// it was on is not counted.
+    pub fn release(after: Duration, reason: impl std::fmt::Display) -> Self {
+        Self::Release {
+            reason: reason.to_string(),
+            after,
+        }
+    }
+
     /// Returns the failure message, whichever variant carries it.
     pub fn message(&self) -> &str {
         match self {
             Self::Retry(m) | Self::Fail(m) => m,
+            Self::Release { reason, .. } => reason,
         }
     }
 }
@@ -134,7 +152,9 @@ pub struct JobCx {
     parameters: Parameters,
     id: Option<i64>,
     attempt: u32,
-    queue: String,
+    queue_name: String,
+    queue: Queue,
+    crypt: Option<std::sync::Arc<crate::Crypt>>,
 }
 
 impl JobCx {
@@ -163,8 +183,17 @@ impl JobCx {
         self.attempt
     }
     /// Returns the name of the queue the job was taken from.
-    pub fn queue(&self) -> &str {
+    pub fn queue_name(&self) -> &str {
+        &self.queue_name
+    }
+    /// Returns the queue, to push further jobs from this one.
+    pub fn queue(&self) -> &Queue {
         &self.queue
+    }
+    /// Returns the application's crypt, to open a sealed value; `None` on a
+    /// queue built without one (a test's inline queue).
+    pub fn crypt(&self) -> Option<&crate::Crypt> {
+        self.crypt.as_deref()
     }
 }
 
@@ -404,6 +433,11 @@ pub trait QueueDriver: Send + Sync {
     ) -> CoreResult<Option<Queued>>;
     /// Puts a claimed job back, due at `available_at`.
     async fn release(&self, id: i64, available_at: DateTime<Utc>) -> CoreResult<()>;
+    /// Puts a claimed job back for `available_at` and refunds the attempt its
+    /// claim counted. A store that cannot refund releases it as usual.
+    async fn postpone(&self, id: i64, available_at: DateTime<Utc>) -> CoreResult<()> {
+        self.release(id, available_at).await
+    }
     /// Removes a finished job.
     async fn delete(&self, id: i64) -> CoreResult<()>;
     /// Moves a job to the failed list; returns the failed row's id.
@@ -475,6 +509,8 @@ struct Inner {
     workers: usize,
     /// Pushes wake an idle worker in this process.
     wake: tokio::sync::Notify,
+    /// The application's crypt, handed to every job.
+    crypt: std::sync::OnceLock<std::sync::Arc<crate::Crypt>>,
 }
 
 /// The queue handle. Cheap to clone: every clone is the same queue.
@@ -557,6 +593,7 @@ impl Queue {
                 poll: options.poll,
                 workers: options.workers,
                 wake: tokio::sync::Notify::new(),
+                crypt: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -693,13 +730,21 @@ impl Queue {
         }
     }
 
+    /// Hands every job the application's crypt (`JobCx::crypt`). The first
+    /// call wins; the application's bootstrap makes it.
+    pub fn set_crypt(&self, crypt: std::sync::Arc<crate::Crypt>) {
+        let _ = self.inner.crypt.set(crypt);
+    }
+
     /// Pushes a job by its registered name with a payload already encoded,
-    /// due now: what a schedule entry does. Refused when no job has the name.
+    /// due now: what a schedule entry does. Refused when no job has the name;
+    /// [`Pushed::Duplicate`] while a job with `unique_key` waits or runs.
     pub async fn push_named(
         &self,
         name: &str,
         payload: &serde_json::Value,
         queue: &str,
+        unique_key: Option<&str>,
     ) -> CoreResult<Pushed> {
         let Some(reg) = self.job(name) else {
             return Err(CoreError::Validation(format!(
@@ -716,7 +761,7 @@ impl Queue {
         let stored = self
             .inner
             .driver
-            .push(queue, name, payload, Utc::now(), None)
+            .push(queue, name, payload, Utc::now(), unique_key)
             .await?;
         match stored {
             Some(id) => {
@@ -736,7 +781,9 @@ impl Queue {
             parameters: s.parameters.clone(),
             id,
             attempt,
-            queue: queue.to_string(),
+            queue_name: queue.to_string(),
+            queue: self.clone(),
+            crypt: self.inner.crypt.get().cloned(),
         }
     }
 
