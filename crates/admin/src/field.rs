@@ -3250,7 +3250,7 @@ impl FieldType for SensitiveField {
         if opts.get::<SensitiveOptions>().is_some_and(|o| o.file) {
             vec!["fields/sealed-file.js", "fields/sealed-file.css"]
         } else {
-            Vec::new()
+            vec!["fields/sensitive.js"]
         }
     }
 

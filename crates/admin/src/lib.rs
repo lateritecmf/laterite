@@ -2951,6 +2951,27 @@ pub fn router(
                 },
             ),
         );
+        // The Reveal button of a sensitive field on this screen.
+        if item.fields.iter().any(|f| f.field_type == "sensitive") {
+            let reveal_code = item.code.clone();
+            protected = protected.route(
+                &format!("{path}/reveal/{{field}}"),
+                get(
+                    move |State(state): State<AdminState>,
+                          Extension(user): Extension<AuthenticatedUser>,
+                          Path(field): Path<String>| {
+                        let code = reveal_code.clone();
+                        async move {
+                            let items = visible_settings(&state.settings, &user.permissions);
+                            match items.iter().find(|i| i.code == code && i.link.is_none()) {
+                                Some(item) => settings::reveal(&state, item, &field, &user).await,
+                                None => not_found(),
+                            }
+                        }
+                    },
+                ),
+            );
+        }
     }
 
     let app = protected
@@ -3534,6 +3555,13 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
                 bytes: std::borrow::Cow::Borrowed(include_bytes!(
                     "../assets/fields/ref-picker.css"
                 )),
+            },
+        ),
+        (
+            "fields/sensitive.js",
+            AdminAsset {
+                mime: "text/javascript; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/fields/sensitive.js")),
             },
         ),
         (

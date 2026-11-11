@@ -169,6 +169,33 @@ async fn settings_save_switch_the_transport_and_the_test_message_reaches_the_ope
         "Acme Mail <hello@acme.example>"
     );
 
+    // The form loads the field's own script, and its Reveal answers with the
+    // stored value and leaves an audit entry; another field has no Reveal.
+    let (_, html) = get(&app, "/admin/settings/laterite/mail", &root).await;
+    assert!(html.contains("fields/sensitive"), "{html}");
+    assert!(!html.contains("hunter2"), "{html}");
+    let (status, plain) = get(
+        &app,
+        "/admin/settings/laterite/mail/reveal/smtp_password",
+        &root,
+    )
+    .await;
+    assert_eq!((status, plain.as_str()), (StatusCode::OK, "hunter2"));
+    let (status, _) = get(
+        &app,
+        "/admin/settings/laterite/mail/reveal/smtp_host",
+        &root,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = get(
+        &app,
+        "/admin/settings/laterite/mail/reveal/smtp_password",
+        "",
+    )
+    .await;
+    assert!(status.is_redirection(), "signed out: {status}");
+
     // Saving again with the mask keeps the sealed password.
     assert_eq!(
         post(

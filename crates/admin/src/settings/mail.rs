@@ -79,8 +79,7 @@ pub fn settings_item() -> SettingsItem {
                 vec![("", "Configured"), ("starttls", "STARTTLS"), ("tls", "TLS"), ("none", "None")],
             ),
             FormField::text("smtp_username", t!("SMTP username")),
-            FormField::of("smtp_password", t!("SMTP password"), "sensitive")
-                .options(serde_json::json!({ "reveal": false })),
+            FormField::of("smtp_password", t!("SMTP password"), "sensitive"),
             FormField::text("to_override", t!("Send everything to")).help(t!(
                 "While set, every message goes to this address instead of its recipients. For development."
             )),

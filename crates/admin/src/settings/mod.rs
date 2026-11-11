@@ -414,14 +414,94 @@ pub(crate) async fn edit_form(
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
     prefill_from_config(item, &mut stored, &state.app_name);
-    render(build(
+    render(with_assets(
+        build(
+            item,
+            &state.field_types,
+            state.overrides.as_ref(),
+            None,
+            &stored,
+            &shell,
+        ),
+        state,
         item,
-        &state.field_types,
-        state.overrides.as_ref(),
-        None,
-        &stored,
-        &shell,
     ))
+}
+
+/// The page with the scripts and styles its fields' types declare, as a
+/// record's form loads them: a type whose widget ships apart from the shared
+/// script works on a settings screen too.
+fn with_assets(
+    mut page: SettingsFormTemplate,
+    state: &AdminState,
+    item: &SettingsItem,
+) -> SettingsFormTemplate {
+    let keys: Vec<&str> = item
+        .fields
+        .iter()
+        .filter_map(|f| {
+            let ft = state.field_types.get(&f.field_type)?;
+            let opts = ft.resolve_options(&f.options, &state.field_types).ok()?;
+            Some(ft.assets(&opts))
+        })
+        .flatten()
+        .collect();
+    page.shell.assets =
+        crate::page_assets(&keys, &page.shell.base, &state.assets, &state.asset_urls);
+    page
+}
+
+/// `GET <item>/reveal/<field>`: the stored value of a sensitive settings field,
+/// opened, as plain text for the field's Reveal button. Recorded in the audit
+/// log as `settings.reveal` with the item's code as the target and the field as
+/// the detail. A sealed file, or a field that is not sensitive, is not found.
+pub(crate) async fn reveal(
+    state: &AdminState,
+    item: &SettingsItem,
+    field: &str,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Response {
+    let sensitive = item.fields.iter().any(|f| {
+        f.name == field
+            && f.field_type == "sensitive"
+            && !crate::field::SensitiveField::is_file(&f.options)
+    });
+    if !sensitive {
+        return crate::AdminError::NotFound.into_response();
+    }
+    let stored = stored_value(state, item, user).await.flatten();
+    let sealed = stored
+        .as_ref()
+        .and_then(|value| value.get(field))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let Some(plain) = crate::field::SensitiveField::open(&state.crypt, field, sealed) else {
+        return crate::AdminError::Internal(anyhow::anyhow!(
+            "the value does not open under the application key"
+        ))
+        .into_response();
+    };
+    crate::audit::record(
+        state,
+        user,
+        "settings.reveal",
+        Some("settings"),
+        Some(&item.code),
+        None,
+        Some(field),
+    )
+    .await;
+    (
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        plain,
+    )
+        .into_response()
 }
 
 /// Persists submitted values as the item's JSON object, then returns to the index.
@@ -453,13 +533,17 @@ pub(crate) async fn update(
                 .await
                 .flatten()
                 .unwrap_or(Value::Null);
-            return render(build(
+            return render(with_assets(
+                build(
+                    item,
+                    &state.field_types,
+                    state.overrides.as_ref(),
+                    Some(message),
+                    &stored,
+                    &shell,
+                ),
+                state,
                 item,
-                &state.field_types,
-                state.overrides.as_ref(),
-                Some(message),
-                &stored,
-                &shell,
             ));
         }
     };

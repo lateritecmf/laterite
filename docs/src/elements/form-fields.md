@@ -195,7 +195,7 @@ fields:
   api_token: { type: sensitive }
 ```
 
-A secret sealed under the [application key](../services/crypt.md) before it is stored and shown as a mask. Reveal shows the stored value and writes `<entity>.reveal` to the audit log; a blank or the mask submitted back leaves the value as it is. The column is text; `lat crypt rotate` re-seals it after a key rotation.
+A secret sealed under the [application key](../services/crypt.md) before it is stored and shown as a mask. The eye shows the stored value and writes `<entity>.reveal` to the audit log (`settings.reveal` on a settings screen); typing replaces the value whole, and a blank or the mask submitted back leaves it as it is. The column is text; `lat crypt rotate` re-seals it after a key rotation.
 
 ```yaml
 fields:

@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Fixed
+
+- A `sensitive` field's Reveal is an eye icon, works on a settings screen (audited as `settings.reveal`), and typing into a stored value replaces it whole.
+- A settings screen loads the scripts and styles its field types declare.
+- A switch sits beside its label, and keeps its shape on a phone.
+- A masked box shows dots in Safari, which drew boxes for a character the admin's font lacks.
+
 ## [0.11.0] - 2026-11-11
 
 ### Breaking
