@@ -25,7 +25,7 @@ SQLite | `sqlite://storage/database.db?mode=rwc` | `sqlite`
 
 ```toml
 [dependencies]
-lateritecmf = { version = "0.10", features = ["postgres"] }
+lateritecmf = { version = "0.11", features = ["postgres"] }
 ```
 
 ## Keep the URL out of version control

@@ -33,8 +33,8 @@ Path | Holds
 
 ```toml
 [dependencies]
-lateritecmf = { version = "0.10", features = ["postgres"] }
-laterite-core = "0.10"
+lateritecmf = { version = "0.11", features = ["postgres"] }
+laterite-core = "0.11"
 plugins-manifest = { path = "plugins-manifest" }
 ```
 

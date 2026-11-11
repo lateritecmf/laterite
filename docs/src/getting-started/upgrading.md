@@ -11,7 +11,7 @@ before bumping.
 Bump | Before 1.0
 --- | ---
 Patch, `0.9.19` to `0.9.20` | Additive or a fix. No code changes.
-Minor, `0.9` to `0.10` | May break. The section lists what moved.
+Minor, `0.10` to `0.11` | May break. The section lists what moved.
 
 ## Bump the requirements
 
@@ -20,16 +20,16 @@ Every `laterite-*` and `lateritecmf` requirement moves together.
 ```toml
 # Cargo.toml
 [workspace.dependencies]
-lateritecmf = { version = "0.10", features = ["postgres"] }
-laterite-core = "0.10"
-laterite-admin = "0.10"
+lateritecmf = { version = "0.11", features = ["postgres"] }
+laterite-core = "0.11"
+laterite-admin = "0.11"
 ```
 
 ```toml
 # plugins/<folder>/Cargo.toml, for each plugin the application owns
 [dependencies]
-laterite-core = "0.10"
-laterite-admin = "0.10"
+laterite-core = "0.11"
+laterite-admin = "0.11"
 ```
 
 Crate | Description

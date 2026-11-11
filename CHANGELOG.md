@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-11
+
 ### Breaking
 
 - `JobCx::queue()` returns the queue, to push from a job; the queue's name is `queue_name()`. `Queue::push_named` takes a unique key, and `JobError` gained `Release`.
@@ -29,7 +31,6 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
-- A private file opens inside the admin at `/admin/media-files/<id>/<name>`, for a signed-in account that may browse the library or see a record the file is attached to. The admin no longer hands out signed links, which opened without a session for an hour.
 - The database queue takes queues in the order given, a scheduled job keeps its unique key, and two pushes at once no longer both store a unique job.
 - A repeater field with no `label` shows its name, as at the top level.
 - Applying the list setup returns to the list; it led to a missing page under a doubled admin path.
@@ -44,6 +45,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Settings are grouped under Website, Users, Mail, Logs and System, with labels in title case (Mail Configuration, Admin Branding, Maintenance Mode).
 - List filters are compact `Label: value` pills set close together, so more of them fit on one row.
 - The admin sidebar fits its titles between `--sidebar-min` (new, 200px) and `--sidebar-w` (now 280px); a longer title ends in an ellipsis.
+
+### Security
+
+- A private file opens inside the admin at `/admin/media-files/<id>/<name>`, for a signed-in account that may browse the library or see a record the file is attached to. The admin no longer hands out signed links, which opened without a session for an hour.
 
 ## [0.10.1] - 2026-11-10
 
