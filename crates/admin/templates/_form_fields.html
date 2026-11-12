@@ -1,6 +1,6 @@
 <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-lat-widget="form"{% if refused %} data-lat-refused{% endif %}{% if leave_off %} data-lat-confirm-leave="off"{% endif %}{% if !focus.is_empty() %} data-lat-focus="{{ focus }}"{% endif %}{% if enter_off %} data-lat-enter="off"{% endif %}>
   {% include "_csrf.html" %}
-  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}</div>{% endif %}
+  {% if let Some(message) = error %}<div class="lat-alert">{{ message }}{% if let Some(detail) = shell.error_detail() %}<details class="lat-alert__detail"><summary>{{ shell.t("Show details") }}</summary><pre>{{ detail }}</pre></details>{% endif %}</div>{% endif %}
   {% if read_only %}<p class="lat-note">{{ shell.t("You can view this record but not change it.") }}</p><fieldset class="lat-fieldset" disabled>{% endif %}
   <div class="lat-fields">
   {% for field in fields %}

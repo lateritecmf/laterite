@@ -233,6 +233,10 @@ msgstr ""
 msgid "Belongs in"
 msgstr ""
 
+#: src/form.rs
+msgid "Belongs to"
+msgstr ""
+
 #: src/settings/mail.rs
 #: (descriptors)
 msgid "Blank fields keep the values from the configuration file. Save, then send a test message to yourself."
@@ -1456,6 +1460,10 @@ msgstr ""
 msgid "Not imported"
 msgstr ""
 
+#: src/form.rs
+msgid "Not linked"
+msgstr ""
+
 #: templates/preferences.html
 #: templates/users_form.html
 msgid "Not recorded"
@@ -2028,6 +2036,10 @@ msgstr ""
 
 #: src/settings/mod.rs
 msgid "Settings saved."
+msgstr ""
+
+#: templates/_form_fields.html
+msgid "Show details"
 msgstr ""
 
 #: src/field.rs

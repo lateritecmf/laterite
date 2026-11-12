@@ -396,6 +396,8 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 
 /* Alerts */
 .lat-alert{background:var(--danger-subtle);color:var(--danger-700);padding:10px 12px;border-radius:var(--radius-md);font-size:var(--fs-13);margin-bottom:16px}
+.lat-linked{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-8px 0 16px;font-size:var(--fs-13)}.lat-linked span{color:var(--text-muted)}.lat-linked b{font-weight:var(--fw-medium)}
+.lat-alert__detail{margin-top:8px;font-size:var(--fs-12)}.lat-alert__detail summary{cursor:pointer}.lat-alert__detail pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono)}
 .lat-alert--ok{background:var(--success-subtle);color:var(--success)}
 .lat-flashes{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:10px;width:min(520px,calc(100vw - 32px));pointer-events:none}
 .lat-flash{pointer-events:auto;position:relative;display:flex;align-items:center;gap:10px;padding:12px 40px 12px 14px;border-radius:var(--radius-card);border-left:4px solid var(--bone-400);background:var(--ferro-800);color:var(--bone-100);font-size:var(--fs-13);line-height:1.4;box-shadow:var(--shadow-lg);animation:lat-flash-in .18s var(--ease-standard)}

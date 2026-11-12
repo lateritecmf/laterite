@@ -257,6 +257,8 @@ fn settings_paths(
 
 #[derive(Clone)]
 pub(crate) struct AdminState {
+    /// Where each entity's records are edited, for a link to one.
+    pub(crate) entity_links: Arc<HashMap<String, EntityLink>>,
     auth: AuthService,
     db: Db,
     /// The parameters store behind its per-process cache.
@@ -362,6 +364,7 @@ impl AdminState {
     #[cfg(test)]
     pub(crate) fn new(auth: AuthService, db: Db) -> Self {
         Self {
+            entity_links: Arc::new(HashMap::new()),
             scopes: Arc::new(HashMap::new()),
             auth,
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
@@ -631,6 +634,12 @@ pub(crate) fn random_key() -> Vec<u8> {
 /// strings and [`Shell::csrf_token`] arms a form it builds by hand.
 #[derive(Clone)]
 pub struct Shell {
+    /// Whether this request may read an error's technical detail: a superuser,
+    /// or anyone while `app.debug` is on.
+    pub(crate) sees_detail: bool,
+    /// The technical detail of the error this page reports, when it has one
+    /// and the request may read it.
+    pub(crate) error_detail: Option<String>,
     /// The admin mount path (e.g. `/admin`), so shared chrome (asset links, the
     /// brand link, sign-out and preferences) builds URLs under the configured
     /// panel path rather than a hardcoded `/admin`.
@@ -858,6 +867,8 @@ impl Shell {
             });
         }
         Shell {
+            sees_detail: user.user.is_superuser || laterite_core::config::debug(),
+            error_detail: None,
             asset_urls,
             icon_set,
             sprite_url,
@@ -924,6 +935,18 @@ impl Shell {
                 format!("{}/assets/{key}", self.base)
             }
         }
+    }
+
+    /// The same shell carrying an error's technical detail, kept only when
+    /// this request may read it.
+    pub(crate) fn with_error_detail(mut self, detail: &str) -> Self {
+        self.error_detail = self.sees_detail.then(|| detail.to_string());
+        self
+    }
+
+    /// The technical detail of the error this page reports, for the template.
+    pub fn error_detail(&self) -> Option<&str> {
+        self.error_detail.as_deref()
     }
 
     /// Localizes a source string in this request's locale, falling back to the
@@ -1054,6 +1077,8 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn test() -> Self {
         Shell {
+            sees_detail: false,
+            error_detail: None,
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             icon_set: Arc::new(laterite_core::icons::IconSet::new()),
             sprite_url: Arc::from("/admin/assets/icons.svg"),
@@ -2497,6 +2522,7 @@ pub fn router(
         route_map
     };
     let state = AdminState {
+        entity_links: Arc::new(entity_links(&resources)),
         scopes: Arc::new(scopes),
         route_map: Arc::new(route_map),
         registry_summary: Arc::new(registry_summary),
@@ -3260,6 +3286,39 @@ pub(crate) fn rebase_resource(base: &str, resource: &mut Resource) {
             form.base_path = base.to_string();
         }
     }
+}
+
+/// Where an entity's records are edited and what names one.
+#[derive(Clone, Debug)]
+pub(crate) struct EntityLink {
+    /// The resource's title, in the singular where the form has one.
+    pub(crate) title: Text,
+    /// The form's path under the admin; a record is at `{base_path}/{id}/edit`.
+    pub(crate) base_path: String,
+    /// The column that names a record: the list's first.
+    pub(crate) label: Option<String>,
+    /// The entity's id column.
+    pub(crate) id_field: String,
+    /// The permission that shows the resource.
+    pub(crate) permission: Option<String>,
+}
+
+/// The first resource with a form for each entity.
+fn entity_links(resources: &[Resource]) -> HashMap<String, EntityLink> {
+    let mut links = HashMap::new();
+    for resource in resources {
+        let Some(form) = &resource.form else { continue };
+        links
+            .entry(form.entity.clone())
+            .or_insert_with(|| EntityLink {
+                title: form.title.clone(),
+                base_path: form.base_path.clone(),
+                label: resource.list.columns.first().map(|c| c.field.clone()),
+                id_field: form.id_field.clone(),
+                permission: resource.permission.clone(),
+            });
+    }
+    links
 }
 
 fn prefix_resource(admin_path: &str, resource: &mut Resource) {
@@ -4102,7 +4161,7 @@ fn mount_resource(
                                 sections.push(section);
                             }
                         }
-                        form::edit_form(&state, &pf, id, shell, sections).await
+                        form::edit_form(&state, &pf, id, shell, sections, &user.permissions).await
                     }
                 },
             )
@@ -4175,9 +4234,10 @@ fn mount_resource(
             get(
                 move |state: State<AdminState>,
                       shell: Extension<Shell>,
+                      user: Extension<AuthenticatedUser>,
                       ids: Path<(String, String)>| {
                     let r = r_edit.clone();
-                    async move { relation::edit_form(state, shell, ids, r).await }
+                    async move { relation::edit_form(state, shell, user, ids, r).await }
                 },
             )
             .post(
@@ -6440,6 +6500,7 @@ mod tests {
 
     fn write_form() -> form::FormConfig {
         form::FormConfig {
+            linked_record: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -6804,6 +6865,7 @@ mod tests {
     async fn brand_setting_overrides_config_and_blank_falls_back() {
         let (db, _guard) = laterite_core::testing::connect_test(&[settings::migrations()]).await;
         let state = AdminState {
+            entity_links: Arc::new(HashMap::new()),
             scopes: Arc::new(HashMap::new()),
             auth: AuthService::new(db.clone(), laterite_auth::AuthConfig::default()),
             db: db.clone(),

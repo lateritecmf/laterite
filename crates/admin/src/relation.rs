@@ -854,6 +854,7 @@ pub(crate) async fn create(
 pub(crate) async fn edit_form(
     State(state): State<AdminState>,
     Extension(shell): Extension<Shell>,
+    Extension(user): Extension<AuthenticatedUser>,
     Path((parent_id, child_id)): Path<(String, String)>,
     rel: Arc<PreparedRelation>,
 ) -> Response {
@@ -868,6 +869,7 @@ pub(crate) async fn edit_form(
         child_id,
         shell,
         Vec::new(),
+        &user.permissions,
     )
     .await
 }

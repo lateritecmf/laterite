@@ -10,6 +10,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Added
 
 - `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
+- `linked_record` on a form: a record that belongs to one of any resource (the columns `{morph}_type` and `{morph}_id`) links its owner above the form.
+- A failed save shows the database's own message under Show details, to a superuser and while `app.debug` is on.
 - `laterite_admin::chart`: line, bar and stacked-bar charts over a `Period` read from the query, with a period bar, a legend that hides series and a row of figures. See the Charts guide page.
 
 ### Fixed

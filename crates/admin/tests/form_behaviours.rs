@@ -284,6 +284,11 @@ async fn a_save_the_database_refuses_answers_htmx_with_the_form_alone() {
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body = text(resp).await;
     assert!(body.contains("already used by another record"), "{body}");
+    // A superuser may open the database's own words.
+    assert!(
+        body.contains("<summary>Show details</summary>") && body.contains("backend_roles"),
+        "{body}"
+    );
     assert!(
         !body.contains("<html") && !body.contains("lat-nav"),
         "{body}"

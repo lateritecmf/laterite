@@ -416,6 +416,7 @@ impl Default for FormConfig {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         }
     }
@@ -838,6 +839,9 @@ pub struct FormConfig {
     /// actions on it: Reset, Duplicate, Publish.
     #[serde(default)]
     pub actions: Vec<FormAction>,
+    /// The record of any resource this one belongs to, linked above the form.
+    #[serde(default)]
+    pub linked_record: Option<LinkedRecord>,
     /// Where a save and a cancel return to, when it is not the list under
     /// `base_path`: a related record's form returns to its parent. Set by the
     /// router, never by a descriptor.
@@ -873,6 +877,7 @@ impl FormConfig {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         }
     }
@@ -935,6 +940,10 @@ impl FormConfig {
                 .all(|(c, s)| valid_ident(c) && s.list().iter().all(|n| valid_ident(n)))
             && self.encrypt.iter().all(|c| valid_ident(c))
             && self
+                .linked_record
+                .as_ref()
+                .is_none_or(|l| valid_ident(&l.morph))
+            && self
                 .related
                 .iter()
                 .all(|(n, r)| valid_ident(n) && r.idents_valid())
@@ -944,6 +953,160 @@ impl FormConfig {
                     .is_none_or(|name| self.related.contains_key(name))
             })
     }
+}
+
+/// The record a form's record belongs to, when that record may be of any
+/// resource: a pair of columns named `{morph}_type` (the owner's entity) and
+/// `{morph}_id` (its id). An edit page links the owner above the form, by the
+/// first column of the owner resource's list.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct LinkedRecord {
+    /// The name `n` of the pair of columns `n_type` and `n_id`.
+    pub morph: String,
+    /// What the link is called. Default "Belongs to".
+    pub label: Option<Text>,
+    /// What stands in for the link when the columns are empty. Default
+    /// "Not linked".
+    pub empty: Option<Text>,
+}
+
+impl LinkedRecord {
+    /// A link to the record named by the columns `{morph}_type` and `{morph}_id`.
+    pub fn morph(morph: impl Into<String>) -> Self {
+        Self {
+            morph: morph.into(),
+            label: None,
+            empty: None,
+        }
+    }
+
+    /// Sets what the link is called.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Sets what stands in for the link when the record belongs to nothing.
+    pub fn empty(mut self, empty: impl Into<Text>) -> Self {
+        self.empty = Some(empty.into());
+        self
+    }
+}
+
+impl FormConfig {
+    /// Links the record this one belongs to above the form: see
+    /// [`LinkedRecord`].
+    pub fn linked_record(mut self, linked: LinkedRecord) -> Self {
+        self.linked_record = Some(linked);
+        self
+    }
+}
+
+/// The linked record as the page shows it.
+pub(crate) struct LinkedView {
+    label: String,
+    text: String,
+    href: Option<String>,
+}
+
+/// Reads the record `id` belongs to and where it is edited. The link is left
+/// off for an owner whose resource `permissions` cannot see, and for an entity
+/// no resource shows.
+async fn linked_view(
+    state: &AdminState,
+    form: &FormConfig,
+    id: &str,
+    permissions: &laterite_auth::PermissionSet,
+    shell: &crate::Shell,
+) -> Option<LinkedView> {
+    let linked = form.linked_record.as_ref()?;
+    let cast = || Alias::new(text_cast(state.db.backend));
+    let (sql, values) = to_sql(
+        state.db.backend,
+        Query::select()
+            .expr_as(
+                Expr::col(Alias::new(format!("{}_type", linked.morph))).cast_as(cast()),
+                Alias::new("lat_type"),
+            )
+            .expr_as(
+                Expr::col(Alias::new(format!("{}_id", linked.morph))).cast_as(cast()),
+                Alias::new("lat_id"),
+            )
+            .from(Alias::new(&form.entity))
+            .and_where(Expr::col(Alias::new(&form.id_field)).cast_as(cast()).eq(id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&state.db.pool)
+        .await
+        .ok()??;
+    let text_of = |name: &str| {
+        laterite_core::AnyRowExt::get_text_opt(&row, name)
+            .ok()
+            .flatten()
+            .filter(|v| !v.is_empty())
+    };
+    let label = shell.tt(&linked.label.clone().unwrap_or_else(|| t!("Belongs to")));
+    let (Some(owner_type), Some(owner_id)) = (text_of("lat_type"), text_of("lat_id")) else {
+        return Some(LinkedView {
+            label,
+            text: shell.tt(&linked.empty.clone().unwrap_or_else(|| t!("Not linked"))),
+            href: None,
+        });
+    };
+    let fallback = format!("{owner_type} #{owner_id}");
+    let target = state.entity_links.get(&owner_type).filter(|t| {
+        t.permission
+            .as_deref()
+            .is_none_or(|p| permissions.allows(p))
+    });
+    let Some(target) = target else {
+        return Some(LinkedView {
+            label,
+            text: fallback,
+            href: None,
+        });
+    };
+    let name = match target.label.as_deref() {
+        Some(column)
+            if valid_ident(column) && valid_ident(&owner_type) && valid_ident(&target.id_field) =>
+        {
+            let (sql, values) = to_sql(
+                state.db.backend,
+                Query::select()
+                    .expr_as(
+                        Expr::col(Alias::new(column)).cast_as(cast()),
+                        Alias::new("lat_label"),
+                    )
+                    .from(Alias::new(&owner_type))
+                    .and_where(
+                        Expr::col(Alias::new(&target.id_field))
+                            .cast_as(cast())
+                            .eq(owner_id.as_str()),
+                    )
+                    .to_owned(),
+            );
+            bind_values(sqlx::query(&sql), values)
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| {
+                    laterite_core::AnyRowExt::get_text_opt(&row, "lat_label")
+                        .ok()
+                        .flatten()
+                })
+                .filter(|v| !v.is_empty())
+        }
+        _ => None,
+    };
+    Some(LinkedView {
+        label,
+        text: format!("{}: {}", shell.tt(&target.title), name.unwrap_or(fallback)),
+        href: Some(format!("{}/{}/edit", target.base_path, owner_id)),
+    })
 }
 
 /// A one-to-one record a form edits beside its own.
@@ -1816,7 +1979,7 @@ pub(crate) async fn create(
                 Some(failed_message(&msg)),
                 &data,
                 &ErrorBag::default(),
-                &shell,
+                &shell.clone().with_error_detail(&msg),
             )
         }
     }
@@ -1829,6 +1992,7 @@ pub(crate) async fn edit_form(
     id: String,
     shell: crate::Shell,
     sections: Vec<RelationSection>,
+    permissions: &laterite_auth::PermissionSet,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
@@ -1850,6 +2014,7 @@ pub(crate) async fn edit_form(
         &shell,
     );
     page.sections = sections;
+    page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
     render(page)
 }
 
@@ -2117,7 +2282,7 @@ pub(crate) async fn update(
                 Some(failed_message(&msg)),
                 &data,
                 &ErrorBag::default(),
-                &shell,
+                &shell.clone().with_error_detail(&msg),
             )
         }
     }
@@ -2197,8 +2362,8 @@ fn invalid_response(
 }
 
 /// What a form says when the database refused the save: that a value is taken
-/// when a unique column refused it, and the database's own words after it while
-/// `app.debug` is on.
+/// when a unique column refused it. The database's own words travel beside it,
+/// for whoever may read them (see `Shell::with_error_detail`).
 fn failed_message(error: &str) -> Text {
     let taken = [
         "UNIQUE constraint failed",
@@ -2207,15 +2372,10 @@ fn failed_message(error: &str) -> Text {
     ]
     .iter()
     .any(|sign| error.contains(sign));
-    let message = if taken {
+    if taken {
         t!("Could not save: a value here is already used by another record.")
     } else {
         t!("Could not save. Check the values and try again.")
-    };
-    if laterite_core::config::debug() {
-        Text::dynamic(format!("{message} ({error})", message = message.source()))
-    } else {
-        message
     }
 }
 
@@ -2350,6 +2510,7 @@ fn build(
         actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
         read_only,
         sections: Vec::new(),
+        linked: None,
         pending: Vec::new(),
         enter_off: form.config.enter == EnterPolicy::Off,
         refused,
@@ -2495,6 +2656,8 @@ struct FormTemplate {
     /// The operator may look but not save.
     read_only: bool,
     /// The related records, one section each, on an edit page.
+    /// The record this one belongs to, linked above the form.
+    linked: Option<LinkedView>,
     sections: Vec<RelationSection>,
     /// The relations a create page cannot show yet, by section title.
     pending: Vec<String>,
@@ -2804,6 +2967,7 @@ mod tests {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         };
         PreparedForm::prepare(
@@ -2863,6 +3027,7 @@ mod tests {
                 encrypt: Vec::new(),
                 related: Default::default(),
                 actions: Vec::new(),
+                linked_record: None,
                 done_path: None,
             },
             &crate::field::builtin_registry(),
@@ -3151,6 +3316,7 @@ mod tests {
                 encrypt: Vec::new(),
                 related: Default::default(),
                 actions: Vec::new(),
+                linked_record: None,
                 done_path: None,
             },
             &st.field_types,
@@ -3204,6 +3370,7 @@ mod tests {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -3239,6 +3406,7 @@ mod tests {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -3324,6 +3492,7 @@ mod tests {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         }
     }
@@ -3427,6 +3596,7 @@ mod timestamp_tests {
             encrypt: Vec::new(),
             related: Default::default(),
             actions: Vec::new(),
+            linked_record: None,
             done_path: None,
         }
     }
@@ -3525,6 +3695,7 @@ mod htmx_tests {
                 encrypt: Vec::new(),
                 related: Default::default(),
                 actions: Vec::new(),
+                linked_record: None,
                 done_path: None,
             },
             &st.field_types,

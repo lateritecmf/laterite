@@ -1,0 +1,11 @@
+entity: comments
+path: /comments
+title: comments
+permission: acme.manage
+list:
+  columns:
+    body: {}
+form:
+  linked_record: { morph: commentable, label: Written on }
+  fields:
+    body: { rules: [required] }

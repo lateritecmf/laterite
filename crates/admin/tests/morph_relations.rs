@@ -110,6 +110,7 @@ fn app(db: &Db) -> Router {
             resources: vec![
                 resource!("tests/descriptors/morph_notes.yaml"),
                 resource!("tests/descriptors/morph_tasks.yaml"),
+                resource!("tests/descriptors/morph_comments.yaml"),
             ],
             permissions: vec![Permission::new("acme.manage", t!("Manage"), t!("Acme"))],
             picker_sources: vec![PickerSourceReg::new(
@@ -304,4 +305,35 @@ async fn trashing_a_parent_trashes_only_its_own_kind_of_child() {
     let rows = comments(&db).await;
     assert!(rows[0].2, "the note's comment went with it");
     assert!(!rows[1].2, "the task's comment stayed");
+}
+
+#[tokio::test]
+async fn a_form_links_the_record_its_own_belongs_to() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = session(&db).await;
+    exec(&db, "INSERT INTO notes (title) VALUES ('Launch')").await;
+    exec(
+        &db,
+        "INSERT INTO comments (commentable_id, commentable_type, body) VALUES \
+         (1, 'notes', 'On the note'), (9, 'ghosts', 'On nothing shown')",
+    )
+    .await;
+
+    // The owner is linked by its resource's title and its list's first column.
+    let (status, page) = send(&app, "GET", "/admin/comments/1/edit", &session, "").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(r#"<span>Written on</span><a href="/admin/notes/1/edit">notes: Launch</a>"#),
+        "{page}"
+    );
+    // An owner no resource shows is named, never linked.
+    let (_, page) = send(&app, "GET", "/admin/comments/2/edit", &session, "").await;
+    assert!(
+        page.contains("<span>Written on</span><b>ghosts #9</b>"),
+        "{page}"
+    );
+    // A form with no linked record shows none.
+    let (_, page) = send(&app, "GET", "/admin/notes/1/edit", &session, "").await;
+    assert!(!page.contains("lat-linked"), "{page}");
 }

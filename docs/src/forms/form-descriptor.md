@@ -126,6 +126,7 @@ Key | On | Values | Default
 `related` | A field | a name under the form's `related` | None: the field is stored on that record
 `persist` | The form | a persister name | The built-in insert and update. See [Persisters](../database/persisters.md)
 `actions` | The form | a list of `label`, `action` (a path under the admin root, `{id}` for the record), `method` (`post` or `get`), `confirm`, `permission` (hides the button without the grant) | None. Shown beside Save on an existing record; `post` submits the form to `action`, `get` links to it
+`linked_record` | The form | `morph` (the name `n` of the columns `n_type` and `n_id`), `label`, `empty` | None. Links the owning record above an edit form, named by its resource's title and its list's first column; `empty` ("Not linked") shows when the columns are empty
 `enter` | A field | `submit`, `off`, `next` | The form's
 
 A `max_length` rule also sets the control's `maxlength`.
