@@ -30,6 +30,9 @@ pub struct FieldFormat {
     /// Stores the name lowercased.
     #[serde(default)]
     pub lowercase: bool,
+    /// Stores the name alone, `acme`, for a column that holds the name.
+    #[serde(default)]
+    pub name_only: bool,
 }
 
 impl FieldFormat {
@@ -40,6 +43,7 @@ impl FieldFormat {
             prefix: String::new(),
             pattern: None,
             lowercase: false,
+            name_only: false,
         }
     }
 
@@ -58,6 +62,12 @@ impl FieldFormat {
     /// Stores the name lowercased.
     pub fn lowercase(mut self) -> Self {
         self.lowercase = true;
+        self
+    }
+
+    /// Stores the name alone, `acme`.
+    pub fn name_only(mut self) -> Self {
+        self.name_only = true;
         self
     }
 
@@ -147,13 +157,14 @@ impl FieldFormat {
         Some(name)
     }
 
-    /// `value` in the one shape it is stored in, `{base}{name}`; empty stays
-    /// empty. The message says what was expected when `value` is not one.
+    /// `value` in the one shape it is stored in, `{base}{name}` or the name
+    /// alone; empty stays empty. The message says what was expected when `value` is not one.
     pub fn normalize(&self, value: &str) -> Result<String, Text> {
         if value.trim().is_empty() {
             return Ok(String::new());
         }
         match self.name_in(value) {
+            Some(name) if self.name_only => Ok(name),
             Some(name) => Ok(format!("{}{name}", self.base)),
             None => Err(t!(
                 "Must be a link on {host}, or the name on its own.",
@@ -182,6 +193,17 @@ impl FieldFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_only_format_stores_the_name() {
+        let f = social().name_only();
+        assert_eq!(
+            f.normalize("https://social.acme/Acme.Band/").unwrap(),
+            "acme.band"
+        );
+        assert_eq!(f.normalize("@acme").unwrap(), "acme");
+        assert!(f.normalize("other.acme/acme").is_err());
+    }
 
     fn social() -> FieldFormat {
         FieldFormat::new("https://www.social.acme/")

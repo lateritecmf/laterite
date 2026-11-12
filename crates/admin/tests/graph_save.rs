@@ -38,6 +38,9 @@ impl Migration for CreateTables {
                 .table(Alias::new("addresses"))
                 .col(id())
                 .col(ColumnDef::new(Alias::new("city")).text().not_null())
+                .col(ColumnDef::new(Alias::new("site")).text().null())
+                .col(ColumnDef::new(Alias::new("created_at")).text().null())
+                .col(ColumnDef::new(Alias::new("updated_at")).text().null())
                 .to_owned(),
         )
         .await?;
@@ -86,7 +89,10 @@ fn app(db: &Db) -> Router {
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
         Contributions {
-            resources: vec![resource!("tests/descriptors/graph_authors.yaml")],
+            resources: vec![
+                resource!("tests/descriptors/graph_authors.yaml"),
+                resource!("tests/descriptors/graph_writers.yaml"),
+            ],
             permissions: vec![Permission::new(
                 "acme.manage_authors",
                 t!("Manage authors"),
@@ -256,4 +262,91 @@ async fn a_related_write_that_fails_rolls_the_record_back() {
         "nothing half-saved"
     );
     assert!(rows(&db, "profiles", "bio").await.is_empty());
+}
+
+#[tokio::test]
+async fn a_list_reads_and_searches_a_column_of_a_related_record() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = session(&db).await;
+    for body in [
+        "name=Ada&bio=Mathematician&city=London",
+        "name=Grace&bio=Admiral&city=Arlington",
+    ] {
+        let (status, page) = send(&app, "POST", "/admin/authors/new", &session, body).await;
+        assert!(status.is_redirection(), "{status}: {page}");
+    }
+    let (_, list) = send(&app, "GET", "/admin/writers", &session, "").await;
+    for shown in ["London", "Arlington", "Mathematician", "Admiral"] {
+        assert!(list.contains(shown), "{shown} missing: {list}");
+    }
+    // Through a belongs-to record, then through a has-one.
+    let (_, list) = send(&app, "GET", "/admin/writers?q=arling", &session, "").await;
+    assert!(list.contains("Grace") && !list.contains("Ada"), "{list}");
+    let (_, list) = send(&app, "GET", "/admin/writers?q=mathem", &session, "").await;
+    assert!(list.contains("Ada") && !list.contains("Grace"), "{list}");
+    let (_, list) = send(
+        &app,
+        "GET",
+        "/admin/writers?q=&sort=city&dir=asc",
+        &session,
+        "",
+    )
+    .await;
+    assert!(
+        list.find("Grace").unwrap() < list.find("Ada").unwrap(),
+        "Arlington sorts before London"
+    );
+}
+
+#[tokio::test]
+async fn an_optional_related_record_is_made_only_from_something() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = session(&db).await;
+    let (status, page) = send(
+        &app,
+        "POST",
+        "/admin/writers/new",
+        &session,
+        "name=Ada&city=&site=",
+    )
+    .await;
+    assert!(status.is_redirection(), "{status}: {page}");
+    assert!(rows(&db, "addresses", "city").await.is_empty());
+
+    send(
+        &app,
+        "POST",
+        "/admin/writers/1/edit",
+        &session,
+        "name=Ada&city=London&site=https%3A%2F%2Fsocial.acme%2Fada%2F",
+    )
+    .await;
+    assert_eq!(
+        rows(&db, "addresses", "site").await[0].1,
+        "ada",
+        "a related field is stored in its format's shape"
+    );
+    assert_eq!(
+        rows(&db, "authors", "address_id").await,
+        [("1".to_string(), "1".to_string())]
+    );
+    assert!(
+        !rows(&db, "addresses", "created_at").await[0].1.is_empty(),
+        "stamped as it was made"
+    );
+    // Emptied, the record is let go and stays.
+    let (status, page) = send(
+        &app,
+        "POST",
+        "/admin/writers/1/edit",
+        &session,
+        "name=Ada&city=&site=",
+    )
+    .await;
+    assert!(status.is_redirection(), "{status}: {page}");
+    let (_, edit) = send(&app, "GET", "/admin/writers/1/edit", &session, "").await;
+    assert!(!edit.contains("London"), "{edit}");
+    assert_eq!(rows(&db, "addresses", "city").await.len(), 1);
 }

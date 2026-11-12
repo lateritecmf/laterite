@@ -115,6 +115,9 @@ pub struct ListColumn {
     /// The cell is the form field's control, saved on change: a column whose
     /// field is on the resource's form. Off by default.
     pub editable: bool,
+    /// The one-to-one record the column is read from, by its name under the
+    /// list's `related`; `None` reads the list's own table.
+    pub related: Option<String>,
 }
 
 impl ListColumn {
@@ -133,7 +136,15 @@ impl ListColumn {
             options: serde_json::Value::Null,
             labels: Vec::new(),
             editable: false,
+            related: None,
         }
+    }
+
+    /// Reads the column from the related record `name`, declared under the
+    /// list's `related`.
+    pub fn related(mut self, name: impl Into<String>) -> Self {
+        self.related = Some(name.into());
+        self
     }
 
     /// What each stored value reads as. A value not listed shows as stored.
@@ -806,6 +817,7 @@ impl<'de> Deserialize<'de> for ListColumn {
                         "searchable" => column.searchable = map.next_value()?,
                         "labels" => column.labels = map.next_value()?,
                         "editable" => column.editable = map.next_value()?,
+                        "related" => column.related = map.next_value()?,
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -838,6 +850,9 @@ impl Serialize for ListColumn {
         map.serialize_entry("searchable", &self.searchable)?;
         if !self.labels.is_empty() {
             map.serialize_entry("labels", &self.labels)?;
+        }
+        if let Some(related) = &self.related {
+            map.serialize_entry("related", related)?;
         }
         crate::keyed::serialize_theirs(&mut map, &self.options)?;
         map.end()
@@ -1320,7 +1335,28 @@ pub(crate) fn check(
             return Err(format!("protected names an invalid column `{column}`"));
         }
     }
+    for (name, related) in &config.related {
+        if !related.idents_valid() {
+            return Err(format!(
+                "related record `{name}` names an invalid identifier, or not exactly one of foreign_key and belongs_to"
+            ));
+        }
+    }
     for col in &config.columns {
+        if let Some(name) = &col.related {
+            if !config.related.contains_key(name) {
+                return Err(format!(
+                    "column `{}` names the related record `{name}`, which the list does not declare",
+                    col.field
+                ));
+            }
+            if col.editable {
+                return Err(format!(
+                    "column `{}` is read from a related record, so it cannot be editable",
+                    col.field
+                ));
+            }
+        }
         if column_types.get(&col.column_type).is_none() {
             return Err(format!(
                 "column `{}` uses unregistered type `{}`",
@@ -1600,6 +1636,16 @@ pub struct ListConfig {
     /// Whether the sort, search, filters and page an operator last used come
     /// back when they return to the list. Default `true`.
     pub remember: bool,
+    /// The one-to-one records a column can be read from, by name: a column
+    /// with `related: profile` shows that record's column of its own name.
+    pub related: std::collections::BTreeMap<String, crate::form::RelatedRecord>,
+    /// What goes to the trash with a record, by title, for the question asked
+    /// first.
+    #[serde(skip)]
+    pub(crate) trash_with: Vec<Text>,
+    /// What is deleted with a record, by title.
+    #[serde(skip)]
+    pub(crate) delete_with: Vec<Text>,
 }
 
 /// What clicking a list row does.
@@ -1737,6 +1783,12 @@ impl ListConfig {
         self
     }
 
+    /// Declares the one-to-one record `name`, for columns to read from.
+    pub fn related(mut self, name: impl Into<String>, record: crate::form::RelatedRecord) -> Self {
+        self.related.insert(name.into(), record);
+        self
+    }
+
     /// Whether the query an operator last used comes back when they return.
     /// Default `true`.
     pub fn remember(mut self, remember: bool) -> Self {
@@ -1780,6 +1832,9 @@ impl Default for ListConfig {
             no_records_message: None,
             row_click: RowClick::Open,
             remember: true,
+            related: std::collections::BTreeMap::new(),
+            trash_with: Vec::new(),
+            delete_with: Vec::new(),
         }
     }
 }
@@ -2050,12 +2105,74 @@ fn search_condition(config: &ListConfig, q: &str) -> Option<sea_query::Condition
     let mut any = sea_query::Condition::any();
     let mut matched = false;
     for column in config.columns.iter().filter(|c| c.is_searchable()) {
-        if let Some(cond) = profile.condition(&caps, &column.field, q) {
-            any = any.add(cond);
-            matched = true;
+        let Some(cond) = profile.condition(&caps, &column.field, q) else {
+            continue;
+        };
+        match related_of(config, column) {
+            // The rows whose related record matches.
+            Some(related) => {
+                let (own, theirs) = related_keys(config, related);
+                let mut sub = Query::select();
+                sub.column(Alias::new(theirs))
+                    .from(Alias::new(&related.entity))
+                    .cond_where(cond);
+                any = any
+                    .add(Expr::col((Alias::new(&config.entity), Alias::new(own))).in_subquery(sub));
+            }
+            None => any = any.add(cond),
         }
+        matched = true;
     }
     matched.then_some(any)
+}
+
+/// The related record a column is read from, when it names a declared one.
+fn related_of<'a>(
+    config: &'a ListConfig,
+    column: &ListColumn,
+) -> Option<&'a crate::form::RelatedRecord> {
+    column
+        .related
+        .as_ref()
+        .and_then(|name| config.related.get(name))
+}
+
+/// The pair of columns joining a list's row to a related record: the list's
+/// own, then the related table's.
+fn related_keys<'a>(
+    config: &'a ListConfig,
+    related: &'a crate::form::RelatedRecord,
+) -> (&'a str, &'a str) {
+    match (&related.belongs_to, &related.foreign_key) {
+        (Some(column), _) => (column.as_str(), related.id_field()),
+        (None, Some(foreign_key)) => (config.id_field.as_str(), foreign_key.as_str()),
+        (None, None) => (config.id_field.as_str(), related.id_field()),
+    }
+}
+
+/// What a column selects: its own value, or the related record's, as text.
+fn column_expr(config: &ListConfig, column: &ListColumn, backend: DbBackend) -> SimpleExpr {
+    let cast = Alias::new(text_cast(backend));
+    let Some(related) = related_of(config, column) else {
+        return Expr::col(Alias::new(&column.field)).cast_as(cast);
+    };
+    let (own, theirs) = related_keys(config, related);
+    let alias = Alias::new("lat_related");
+    SimpleExpr::SubQuery(
+        None,
+        Box::new(
+            Query::select()
+                .expr(Expr::col((alias.clone(), Alias::new(&column.field))).cast_as(cast))
+                .from_as(Alias::new(&related.entity), alias.clone())
+                .and_where(
+                    Expr::col((alias, Alias::new(theirs)))
+                        .equals((Alias::new(&config.entity), Alias::new(own))),
+                )
+                .limit(1)
+                .to_owned()
+                .into_sub_query_statement(),
+        ),
+    )
 }
 
 /// What narrows a list to one parent record's rows: a relation section sets
@@ -2204,6 +2321,7 @@ pub(crate) async fn query(
         || !valid_ident(req.order_by)
         || !valid_ident(&config.id_field)
         || !config.columns.iter().all(|c| valid_ident(&c.field))
+        || !config.related.values().all(|r| r.idents_valid())
         || !config.filters.iter().all(|f| valid_ident(&f.field))
         || !config.scope.iter().all(Scope::idents_valid)
     {
@@ -2221,7 +2339,7 @@ pub(crate) async fn query(
         let mut select = Query::select();
         for column in &config.columns {
             select.expr_as(
-                Expr::col(Alias::new(&column.field)).cast_as(Alias::new(text_cast(db.backend))),
+                column_expr(config, column, db.backend),
                 Alias::new(&column.field),
             );
         }
@@ -2714,6 +2832,24 @@ async fn build_page(
             // Localized before the literal moves `shell` in.
             let search_prompt = config.search.prompt.as_ref().map(|p| shell.tt(p));
             let no_records_message = config.no_records_message.as_ref().map(|m| shell.tt(m));
+            let confirm_trash = confirm(
+                &shell,
+                "Move the selected records to the trash?",
+                "These go to the trash with them: {names}.",
+                &config.trash_with,
+            );
+            let confirm_delete = confirm(
+                &shell,
+                "Delete the selected records? This cannot be undone.",
+                "These are deleted with them: {names}.",
+                &config.delete_with,
+            );
+            let confirm_purge = confirm(
+                &shell,
+                "Delete the selected records permanently? This cannot be undone.",
+                "These are deleted with them: {names}.",
+                &config.delete_with,
+            );
             let page_view = ListTemplate {
                 shell,
                 title,
@@ -2759,6 +2895,9 @@ async fn build_page(
                 reorder: reorder.filter(|_| !trashed),
                 tree,
                 crumbs,
+                confirm_trash,
+                confirm_delete,
+                confirm_purge,
                 trash: trash_capable.then(|| TrashView {
                     showing: trashed,
                     href: if trashed {
@@ -2771,6 +2910,25 @@ async fn build_page(
             Some(page_view)
         }
     }
+}
+
+/// The question a bulk delete asks first: `question`, then what goes with the
+/// records when anything does.
+fn confirm(
+    shell: &crate::Shell,
+    question: &'static str,
+    also: &'static str,
+    with: &[Text],
+) -> String {
+    let question = shell.t(question);
+    if with.is_empty() {
+        return question;
+    }
+    let names: Vec<String> = with.iter().map(|title| shell.tt(title)).collect();
+    format!(
+        "{question} {}",
+        shell.t(also).replace("{names}", &names.join(", "))
+    )
 }
 
 /// A per-row action posted with the row's id, for a list with no action bar of
@@ -3713,6 +3871,11 @@ struct ListTemplate {
     crumbs: Vec<Crumb>,
     /// The trash toggle, for an entity whose deletes move records to the trash.
     trash: Option<TrashView>,
+    /// The questions the bulk Delete buttons ask, naming what goes with the
+    /// records.
+    confirm_trash: String,
+    confirm_delete: String,
+    confirm_purge: String,
 }
 
 /// One rendered filter control.

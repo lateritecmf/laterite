@@ -36,7 +36,7 @@ impl Migration for CreateTables {
     }
 
     async fn up(&self, s: &mut Schema<'_>) -> CoreResult<()> {
-        for parent in ["notes", "tasks"] {
+        for parent in ["notes", "tasks", "memos"] {
             s.exec(
                 Table::create()
                     .table(Alias::new(parent))
@@ -111,6 +111,7 @@ fn app(db: &Db) -> Router {
                 resource!("tests/descriptors/morph_notes.yaml"),
                 resource!("tests/descriptors/morph_tasks.yaml"),
                 resource!("tests/descriptors/morph_comments.yaml"),
+                resource!("tests/descriptors/morph_memos.yaml"),
             ],
             permissions: vec![Permission::new("acme.manage", t!("Manage"), t!("Acme"))],
             picker_sources: vec![PickerSourceReg::new(
@@ -336,4 +337,47 @@ async fn a_form_links_the_record_its_own_belongs_to() {
     // A form with no linked record shows none.
     let (_, page) = send(&app, "GET", "/admin/notes/1/edit", &session, "").await;
     assert!(!page.contains("lat-linked"), "{page}");
+}
+
+#[tokio::test]
+async fn deleting_a_parent_deletes_its_own_kind_of_child() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = session(&db).await;
+    exec(&db, "INSERT INTO notes (title) VALUES ('Launch')").await;
+    exec(&db, "INSERT INTO memos (title) VALUES ('Minutes')").await;
+    exec(
+        &db,
+        "INSERT INTO comments (commentable_id, commentable_type, body) VALUES \
+         (1, 'notes', 'On the note'), (1, 'memos', 'On the memo')",
+    )
+    .await;
+
+    // The question names what goes with the records.
+    let (_, list) = send(&app, "GET", "/admin/memos", &session, "").await;
+    assert!(
+        list.contains("These are deleted with them: Comments."),
+        "{list}"
+    );
+    let (_, list) = send(&app, "GET", "/admin/notes", &session, "").await;
+    assert!(
+        list.contains("These go to the trash with them: Comments."),
+        "{list}"
+    );
+    // A relation with no section mounts nothing.
+    let (status, _) = send(&app, "GET", "/admin/memos/1/comments", &session, "").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = send(&app, "POST", "/admin/memos/delete", &session, "id=1").await;
+    assert!(status.is_redirection());
+    let rows = comments(&db).await;
+    assert_eq!(rows.len(), 1, "the memo's comment went with it");
+    assert_eq!(rows[0].0, "notes");
+
+    // A soft-deleting parent's rows go when it is deleted permanently.
+    send(&app, "POST", "/admin/notes/delete", &session, "id=1").await;
+    assert_eq!(comments(&db).await.len(), 1, "the trash keeps them");
+    let (status, _) = send(&app, "POST", "/admin/notes/purge", &session, "id=1").await;
+    assert!(status.is_redirection());
+    assert!(comments(&db).await.is_empty());
 }

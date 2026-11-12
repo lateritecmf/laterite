@@ -477,7 +477,7 @@ pub fn resource_routes(resource: &crate::Resource, admin_path: &str, owner: &str
         rows.push(row(&["GET", "POST"], "/new"));
         rows.push(row(&["GET"], "/{id}/reveal/{field}"));
         rows.push(row(&["GET", "POST"], "/{id}/edit"));
-        for rel in &resource.relations {
+        for rel in resource.relations.iter().filter(|r| r.section) {
             let name = &rel.name;
             let rel_permission = rel.permission.as_deref().or(permission);
             let rel_row = |methods: &[&str], suffix: &str| {

@@ -337,6 +337,12 @@ async fn delete_in(
     }
 
     persister.delete(&mut cx, id, &rec).await?;
+    for listener in listeners {
+        listener
+            .deleted(&mut cx, &rec)
+            .await
+            .map_err(DeleteError::Refused)?;
+    }
     Ok(rec)
 }
 

@@ -55,7 +55,9 @@ pub use i18n::{
 };
 pub use laterite_macros::Model;
 pub use laterite_macros::{t, tn, tp};
-pub use listeners::{Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps};
+pub use listeners::{
+    DeleteCascade, Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps,
+};
 pub use mail::Mail;
 pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
 /// The template engine of mail and themes, at the framework's version.

@@ -64,10 +64,8 @@ impl ValidationRule for DiffersFrom {
     }
 }
 
-Contributions {
-    validation_rules: vec![ValidationRuleReg::new("acme.differs_from", Arc::new(DiffersFrom))],
-    ..Default::default()
-}
+// In a module's `register`:
+registry.add(ValidationRuleReg::new("acme.differs_from", Arc::new(DiffersFrom)));
 ```
 
 ```yaml

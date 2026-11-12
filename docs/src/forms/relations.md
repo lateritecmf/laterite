@@ -146,6 +146,8 @@ form.related.insert("address".into(), RelatedRecord::belongs_to("addresses", "ad
 `foreign_key` | Has-one: the related table's column holding this record's id
 `belongs_to` | Belongs-to: this table's column holding the related record's id
 `id_field` | The related table's id column; default `id`
+`timestamps` | `true`: the related row's `created_at` and `updated_at` are stamped as it is written
+`optional` | Belongs-to, `true`: with every field of it empty no record is made, and one already there is let go (this record's column is cleared, the related row stays)
 
 Step of a save | Writes
 --- | ---
@@ -157,6 +159,36 @@ Step of a save | Writes
 All four run in one transaction: a failure in any of them saves none. A field
 with `related` cannot carry `unique`.
 
+## Delete related rows with their parent
+
+```yaml
+# descriptors/notes.yaml
+soft_delete: true
+relations:
+  comments:
+    title: Comments
+    entity: comments
+    morph: commentable
+    soft_delete: true
+    delete: true
+    section: false
+```
+
+```rust
+RelationConfig::has_many("comments", t!("Comment"), "comments", "note_id", list, form)
+    .delete()
+    .section(false)
+```
+
+Parent | `soft_delete` | `delete`
+--- | --- | ---
+Moved to the trash | Rows go to the trash with it |
+Restored | Rows that went with it come back |
+Deleted, or deleted permanently from the trash | | Rows are deleted in the same transaction
+
+The list's Delete asks first and names each relation by its `title`:
+"These are deleted with them: Comments." The rows' own listeners do not run.
+
 ## Set the keys
 
 Key | Default | Does
@@ -167,6 +199,8 @@ Key | Default | Does
 `foreign_key` | one of three | Has-many: the column on the related table holding the parent's id. Written by the framework from the URL; a field of that name in `form` is kept hidden.
 `morph` | one of three | Polymorphic has-many: `name` for the `name_id` and `name_type` columns.
 `soft_delete` | `false` | Has-many: rows go to the trash with the parent and come back with it. See [Soft Delete](../database/soft-delete.md).
+`delete` | `false` | Has-many: rows are deleted with the parent. See [Delete related rows with their parent](#delete-related-rows-with-their-parent).
+`section` | `true` | `false` gives the relation no section and no pages; `soft_delete` and `delete` still apply, and `list` and `form` are not needed.
 `pivot` | one of three | Many-to-many: the table joining the two, keys below.
 `list` | required | The section's list: the same keys as a resource's `list`. Its columns are the related table's.
 `form` | required for has-many | Has-many: the related record's form. Many-to-many: the fields kept on the pivot row, asked for on Attach; empty gives the section no Edit.

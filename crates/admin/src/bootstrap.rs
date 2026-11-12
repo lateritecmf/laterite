@@ -748,6 +748,7 @@ impl Bootstrap {
         let persisters = contributions.take::<crate::persist::PersisterReg>();
         let mut listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
+        let validation_rules = contributions.take::<laterite_core::validation::ValidationRuleReg>();
         // A sourced resource's folder is read into its table before anything
         // serves, and its listener keeps the folder in step from here on.
         let root = project_root(&self.config_dir);
@@ -930,7 +931,7 @@ impl Bootstrap {
                 persisters,
                 listeners,
                 query_hooks: Vec::new(),
-                validation_rules: Vec::new(),
+                validation_rules,
                 field_types,
                 column_types,
                 icons,

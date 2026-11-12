@@ -35,6 +35,7 @@ list:
 Key | Default | Description
 --- | --- | ---
 `columns` | | The columns, keyed by field name, in order. Required.
+`related` | none | One-to-one records a column can be read from, by name.
 `title` | the resource's | The screen title.
 `order_by`, `order_dir` | `id`, `desc` | The first sort; `asc` or `desc`.
 `per_page` | `25` | Rows a page.
@@ -93,6 +94,37 @@ Key | Default | Description
 `searchable` | text columns | Whether the search box looks in this column.
 `labels` | none | What a stored value reads as: `[{ value: login_success, label: Signed in }]`. A value not listed shows as stored.
 `editable` | `false` | The cell is the form field's control, saved on change. The field must be on the resource's form.
+`related` | none | The record under the list's `related` the column is read from.
+
+## Show a column of a related record
+
+```yaml
+# descriptors/authors.yaml
+list:
+  related:
+    profile: { entity: profiles, foreign_key: author_id }
+    address: { entity: addresses, belongs_to: address_id }
+  columns:
+    name: {}
+    city: { related: address }
+    bio: { related: profile, sortable: false }
+```
+
+```rust
+ListConfig::new(
+    "authors",
+    t!("Authors"),
+    vec![
+        ListColumn::new("name", t!("Name")),
+        ListColumn::new("city", t!("City")).related("address"),
+    ],
+)
+.related("address", RelatedRecord::belongs_to("addresses", "address_id"));
+```
+
+The key is the related table's column. The column sorts, searches and exports
+as the list's own do. `related` takes the keys of a form's
+[`related`](../forms/relations.md#edit-a-one-to-one-record-in-the-form).
 
 A key the framework does not know is refused with its line; `lat doctor`
 names it without a build.

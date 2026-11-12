@@ -34,20 +34,20 @@
     </button>
     <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
             form="lat-list-actions" formaction="{{ path }}/purge" data-lat-widget="bulk-delete" disabled
-            data-lat-confirm='{{ shell.t("Delete the selected records permanently? This cannot be undone.") }}'>
+            data-lat-confirm='{{ confirm_purge }}'>
       {{ shell.t("Delete permanently") }}
     </button>
     {% else %}
     <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
             form="lat-list-actions" data-lat-widget="bulk-delete" disabled
-            data-lat-confirm='{{ shell.t("Move the selected records to the trash?") }}'>
+            data-lat-confirm='{{ confirm_trash }}'>
       {{ shell.t("Delete") }}
     </button>
     {% endif %}
     {% else %}
     <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit"
             form="lat-list-actions" data-lat-widget="bulk-delete" disabled
-            data-lat-confirm='{{ shell.t("Delete the selected records? This cannot be undone.") }}'>
+            data-lat-confirm='{{ confirm_delete }}'>
       {{ shell.t("Delete") }}
     </button>
     {% endif %}

@@ -27,6 +27,7 @@ Key | Default | Description
 `prefix` | none | Shown before the name, and accepted before it when typed.
 `pattern` | any | A regular expression the whole name must match.
 `lowercase` | `false` | Stores the name lowercased.
+`name_only` | `false` | Stores the name alone, `acme`, in place of the address.
 
 ## What the form accepts
 

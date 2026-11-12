@@ -70,6 +70,13 @@ pub struct RelationConfig {
     /// back with it. The related table needs a `deleted_at` column.
     #[serde(default)]
     pub soft_delete: bool,
+    /// A has-many relation's rows are deleted with their parent, in the same
+    /// transaction. On a soft-deleting parent that is its permanent delete.
+    #[serde(default)]
+    pub delete: bool,
+    /// Whether the relation has a section on the parent's edit page. `false`
+    /// keeps `soft_delete` and `delete` and mounts nothing. Default `true`.
+    pub section: bool,
 }
 
 /// The table joining a many-to-many relation's two sides, one row per
@@ -132,6 +139,18 @@ impl Default for PivotConfig {
 }
 
 impl RelationConfig {
+    /// Deletes the relation's rows with their parent.
+    pub fn delete(mut self) -> Self {
+        self.delete = true;
+        self
+    }
+
+    /// Sets whether the relation has a section on the parent's edit page.
+    pub fn section(mut self, section: bool) -> Self {
+        self.section = section;
+        self
+    }
+
     /// Makes a has-many relation polymorphic: rows match on `{name}_id` and on
     /// `{name}_type` holding the parent's entity, in place of a foreign key.
     pub fn morph(mut self, name: impl Into<String>) -> Self {
@@ -163,6 +182,8 @@ impl RelationConfig {
             form,
             permission: None,
             soft_delete: false,
+            delete: false,
+            section: true,
         }
     }
 
@@ -190,6 +211,8 @@ impl RelationConfig {
             form: FormConfig::default(),
             permission: None,
             soft_delete: false,
+            delete: false,
+            section: true,
         }
     }
 
@@ -226,6 +249,8 @@ impl Default for RelationConfig {
             form: FormConfig::default(),
             permission: None,
             soft_delete: false,
+            delete: false,
+            section: true,
         }
     }
 }

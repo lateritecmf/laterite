@@ -593,6 +593,14 @@ pub trait ModelListener: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs once the row is removed, inside the same transaction. Returning a
+    /// message rolls the delete back. This is where rows that pointed at the
+    /// record go with it, when the record also pointed at them.
+    async fn deleted(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        let _ = (cx, rec);
+        Ok(())
+    }
+
     /// Runs after the delete commits, for side effects such as removing files
     /// the row owned. Not atomic with it, exactly as `after_save` is not: the
     /// row is already gone, so failing here cannot bring it back.

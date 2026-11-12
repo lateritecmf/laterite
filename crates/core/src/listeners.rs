@@ -431,6 +431,68 @@ impl ModelListener for SoftDeleteCascade {
     }
 }
 
+/// Deletes a record's related rows with it, in the delete's transaction.
+///
+/// Rows held by a foreign key go before the record, so a key that restricts
+/// does not refuse it; a polymorphic relation's rows go after it, so a record
+/// that points back at one of them is gone first. The rows are removed by one
+/// statement a table: their own listeners do not run, and what hangs off them
+/// goes by the database's foreign keys.
+pub struct DeleteCascade {
+    children: Vec<CascadeChild>,
+}
+
+impl DeleteCascade {
+    /// A cascade over `children`.
+    pub fn new(children: Vec<CascadeChild>) -> Self {
+        Self { children }
+    }
+
+    /// Deletes the rows of every child that is, or is not, polymorphic.
+    async fn sweep(&self, cx: &mut SaveCx<'_>, rec: &Record, morph: bool) -> Result<(), Text> {
+        let Some(id) = rec.id() else {
+            return Ok(());
+        };
+        for CascadeChild {
+            table,
+            foreign_key,
+            also,
+        } in self.children.iter().filter(|c| c.also.is_empty() != morph)
+        {
+            let backend = cx.backend();
+            let (sql, values) = {
+                let mut delete = Query::delete();
+                delete
+                    .from_table(Alias::new(table))
+                    .and_where(Expr::col(Alias::new(foreign_key)).eq(id));
+                for (column, value) in also {
+                    delete.and_where(Expr::col(Alias::new(column)).eq(value.as_str()));
+                }
+                build(backend, delete)
+            };
+            bind_values(sqlx::query(&sql), values)
+                .execute(cx.conn())
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, table = %table, "deleting the related records failed");
+                    Text::new("The related records could not be deleted with this one.")
+                })?;
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ModelListener for DeleteCascade {
+    async fn before_delete(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        self.sweep(cx, rec, false).await
+    }
+
+    async fn deleted(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        self.sweep(cx, rec, true).await
+    }
+}
+
 #[cfg(all(test, feature = "testing"))]
 mod tests {
     use super::*;

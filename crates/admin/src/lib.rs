@@ -2037,6 +2037,16 @@ pub fn router(
         // The list hides New and Delete from an operator without the grant.
         resource.list.create_permission = resource.permissions.create.clone();
         resource.list.delete_permission = resource.permissions.delete.clone();
+        let titles = |pick: fn(&relation::RelationConfig) -> bool| -> Vec<Text> {
+            resource
+                .relations
+                .iter()
+                .filter(|r| pick(r))
+                .map(|r| r.title.clone())
+                .collect()
+        };
+        resource.list.trash_with = titles(|r| r.soft_delete);
+        resource.list.delete_with = titles(|r| r.delete);
     }
     // A resource that may be imported into shows the way to its import pages. A
     // write path, so it is gated: the key's permission, else the resource's,
@@ -2274,31 +2284,42 @@ pub fn router(
                 soft.insert(resource.list.entity.clone());
             }
             let mut children = Vec::new();
+            let mut deleted = Vec::new();
             for relation in &resource.relations {
                 entities.push(relation.entity.clone());
+                let child = match (&relation.foreign_key, &relation.morph) {
+                    (Some(key), _) => Some((key.clone(), Vec::new())),
+                    (None, Some(morph)) => Some((
+                        format!("{morph}_id"),
+                        vec![(format!("{morph}_type"), resource.list.entity.clone())],
+                    )),
+                    (None, None) => None,
+                }
+                .map(|(foreign_key, also)| {
+                    laterite_core::listeners::CascadeChild {
+                        table: relation.entity.clone(),
+                        foreign_key,
+                        also,
+                    }
+                });
                 if relation.soft_delete {
                     soft.insert(relation.entity.clone());
-                    let child = match (&relation.foreign_key, &relation.morph) {
-                        (Some(key), _) => Some((key.clone(), Vec::new())),
-                        (None, Some(morph)) => Some((
-                            format!("{morph}_id"),
-                            vec![(format!("{morph}_type"), resource.list.entity.clone())],
-                        )),
-                        (None, None) => None,
-                    };
-                    if let Some((foreign_key, also)) = child {
-                        children.push(laterite_core::listeners::CascadeChild {
-                            table: relation.entity.clone(),
-                            foreign_key,
-                            also,
-                        });
-                    }
+                    children.extend(child.clone());
+                }
+                if relation.delete {
+                    deleted.extend(child);
                 }
             }
             if !children.is_empty() {
                 app_listeners.push(laterite_core::ModelListenerReg::for_entity(
                     resource.list.entity.clone(),
                     Arc::new(laterite_core::SoftDeleteCascade::new(children)),
+                ));
+            }
+            if !deleted.is_empty() {
+                app_listeners.push(laterite_core::ModelListenerReg::for_entity(
+                    resource.list.entity.clone(),
+                    Arc::new(laterite_core::DeleteCascade::new(deleted)),
                 ));
             }
         }
@@ -4062,14 +4083,14 @@ fn mount_resource(
 
     // Relations, each resolved once here: its child form prepared, its routes
     // under `{base}/{id}/{name}`, its section on the parent's edit page.
-    if !resource.relations.is_empty() && resource.form.is_none() {
+    if resource.relations.iter().any(|r| r.section) && resource.form.is_none() {
         panic!(
             "admin resource `{}` declares relations but has no form to show them on",
             resource.base_path
         );
     }
     let mut relations: Vec<Arc<relation::PreparedRelation>> = Vec::new();
-    for rel in &resource.relations {
+    for rel in resource.relations.iter().filter(|r| r.section) {
         let prepared = relation::PreparedRelation::prepare(
             resource,
             rel.clone(),

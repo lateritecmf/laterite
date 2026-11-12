@@ -12,6 +12,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
 - `linked_record` on a form: a record that belongs to one of any resource (the columns `{morph}_type` and `{morph}_id`) links its owner above the form.
 - A failed save shows the database's own message under Show details, to a superuser and while `app.debug` is on.
+- `delete: true` on a relation deletes its rows with their parent, and the list's Delete names what goes; `section: false` keeps a relation for its delete rules alone.
+- `ModelListener::deleted` runs in the delete's transaction once the row is gone.
+- A list column reads a related record's column: `related` on the list and on the column, as on a form. It sorts, searches and exports.
+- `optional: true` on a form's belongs-to `related` record makes none from empty fields, `timestamps: true` stamps it; `name_only` on a field format stores the name alone.
 - `laterite_admin::chart`: line, bar and stacked-bar charts over a `Period` read from the query, with a period bar, a legend that hides series and a row of figures. See the Charts guide page.
 
 ### Fixed
@@ -22,6 +26,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A settings screen loads the scripts and styles its field types declare.
 - A switch sits beside its label, and keeps its shape on a phone.
 - A masked box shows dots in Safari, which drew boxes for a character the admin's font lacks.
+- A validation rule a module registers (`registry.add(ValidationRuleReg::new(..))`) reaches its forms: `Bootstrap` passed none on.
+- A field with a `format` on a `related` record is stored in the format's shape: it was stored as typed.
 - A save the database refuses (a duplicate in a unique column with no `unique` rule) re-renders the form alone with its message: the whole page was drawn inside the form.
 
 ## [0.11.0] - 2026-11-11

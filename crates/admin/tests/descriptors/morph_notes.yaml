@@ -16,6 +16,7 @@ relations:
     entity: comments
     morph: commentable
     soft_delete: true
+    delete: true
     list:
       columns:
         body: {}

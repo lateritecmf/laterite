@@ -1122,6 +1122,13 @@ pub struct RelatedRecord {
     pub belongs_to: Option<String>,
     /// The related table's id column. Default `id`.
     pub id_field: Option<String>,
+    /// Belongs-to: with every field of it left empty no record is made, and
+    /// one already there is let go (this record's column is cleared; the
+    /// related row stays).
+    pub optional: bool,
+    /// Stamps the related row's `created_at` and `updated_at` as it is
+    /// written.
+    pub timestamps: bool,
 }
 
 impl RelatedRecord {
@@ -1143,11 +1150,23 @@ impl RelatedRecord {
         }
     }
 
-    fn id_field(&self) -> &str {
+    /// Stamps the related row's `created_at` and `updated_at`.
+    pub fn timestamps(mut self) -> Self {
+        self.timestamps = true;
+        self
+    }
+
+    /// Makes a belongs-to record optional: empty fields make no record.
+    pub fn optional(mut self) -> Self {
+        self.optional = true;
+        self
+    }
+
+    pub(crate) fn id_field(&self) -> &str {
         self.id_field.as_deref().unwrap_or("id")
     }
 
-    fn idents_valid(&self) -> bool {
+    pub(crate) fn idents_valid(&self) -> bool {
         valid_ident(&self.entity)
             && self.foreign_key.as_deref().is_none_or(valid_ident)
             && self.belongs_to.as_deref().is_none_or(valid_ident)
@@ -1479,7 +1498,19 @@ pub(crate) async fn write(
     actor: &Actor,
 ) -> Result<Record, SaveError> {
     let (mut rec, op) = prepare(db, form, data, id).await?;
-    let graph = Graph { form, data };
+    // The related records are written from the same stored shapes.
+    let mut stored = data.clone();
+    for field in &form.config.fields {
+        if let (Some(format), Some(value)) = (&field.format, data.get(&field.name)) {
+            if let Ok(shape) = format.normalize(value) {
+                stored.insert(field.name.clone(), shape);
+            }
+        }
+    }
+    let graph = Graph {
+        form,
+        data: &stored,
+    };
     persist::save(
         persist::SaveRequest {
             db,
@@ -1541,6 +1572,18 @@ async fn write_related(
 ) -> Result<i64, SaveError> {
     let backend = cx.backend();
     let fail = |e: sqlx::Error| SaveError::Failed(format!("{}: {e}", related.entity));
+    let mut stamped;
+    let rec = if related.timestamps {
+        let now = chrono::Utc::now();
+        stamped = rec.clone();
+        stamped.set(laterite_core::listeners::UPDATED_AT, now);
+        if id.is_none() {
+            stamped.set(laterite_core::listeners::CREATED_AT, now);
+        }
+        &stamped
+    } else {
+        rec
+    };
     match id {
         Some(id) => {
             let (sql, values) = {
@@ -1644,6 +1687,15 @@ impl persist::InTx for Graph<'_> {
                 }
                 None => None,
             };
+            let empty = child
+                .iter()
+                .all(|(_, value)| value.to_text().is_none_or(|text| text.trim().is_empty()));
+            if related.optional && empty {
+                if current.is_some() {
+                    rec.set(column.clone(), laterite_core::AttrValue::Null);
+                }
+                continue;
+            }
             let id = write_related(cx, related, &child, current).await?;
             rec.set(column.clone(), id);
         }

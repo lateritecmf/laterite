@@ -1,0 +1,14 @@
+entity: memos
+path: /memos
+title: memos
+permission: acme.manage
+list:
+  deletable: true
+  columns:
+    title: {}
+relations:
+  comments:
+    entity: comments
+    morph: commentable
+    delete: true
+    section: false

@@ -1,0 +1,20 @@
+entity: authors
+path: /writers
+title: Writers
+permission: acme.manage_authors
+list:
+  related:
+    profile: { entity: profiles, foreign_key: author_id }
+    address: { entity: addresses, belongs_to: address_id }
+  columns:
+    name: {}
+    city: { related: address }
+    bio: { related: profile }
+form:
+  title: Writer
+  related:
+    address: { entity: addresses, belongs_to: address_id, optional: true, timestamps: true }
+  fields:
+    name: { rules: [required] }
+    city: { related: address }
+    site: { related: address, format: { base: "https://social.acme/", prefix: "@", name_only: true } }
