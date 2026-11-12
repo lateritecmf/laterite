@@ -10,6 +10,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Added
 
 - `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
+- `laterite_admin::chart`: line, bar and stacked-bar charts over a `Period` read from the query, with a period bar, a legend that hides series and a row of figures. See the Charts guide page.
 
 ### Fixed
 

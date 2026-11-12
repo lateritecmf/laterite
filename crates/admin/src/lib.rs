@@ -19,6 +19,7 @@
 mod audit;
 pub mod bootstrap;
 mod bulk;
+pub mod chart;
 pub mod checklist;
 mod clientip;
 pub mod descriptor;
@@ -3555,6 +3556,13 @@ pub(crate) fn builtin_assets() -> AssetRegistry {
                 bytes: std::borrow::Cow::Borrowed(include_bytes!(
                     "../assets/fields/ref-picker.css"
                 )),
+            },
+        ),
+        (
+            "chart.css",
+            AdminAsset {
+                mime: "text/css; charset=utf-8",
+                bytes: std::borrow::Cow::Borrowed(include_bytes!("../assets/chart.css")),
             },
         ),
         (

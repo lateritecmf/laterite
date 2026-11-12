@@ -1,0 +1,57 @@
+/* Charts and the period bar (laterite_admin::chart). */
+:root{--chart-1:var(--accent);--chart-2:var(--ocean-500);--chart-3:var(--ochre-500);--chart-4:var(--green-500);--chart-5:var(--red-300);--chart-6:var(--ferro-400)}
+
+.lat-period{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px}
+.lat-period__presets{display:flex;flex-wrap:wrap;gap:4px}
+.lat-period__preset{display:inline-flex;align-items:center;height:var(--control-h-sm);padding:0 12px;border:1px solid var(--border-default);border-radius:var(--radius-pill);font-size:var(--fs-12);font-weight:var(--fw-medium);color:var(--text-muted);text-decoration:none;white-space:nowrap}
+.lat-period__preset:hover{background:var(--accent-quiet)}
+.lat-period__preset.is-on{border-color:var(--accent);background:var(--accent-subtle);color:var(--text-heading)}
+.lat-period__custom{display:flex;align-items:center;gap:8px;font-size:var(--fs-12);color:var(--text-muted)}
+.lat-period__custom .lat-input{width:auto;height:var(--control-h-sm);font-size:var(--fs-12)}
+
+.lat-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 16px}
+.lat-stat{display:flex;flex-direction:column;gap:4px;padding:14px var(--card-pad);border:1px solid var(--border-default);border-radius:var(--radius-card);background:var(--surface-raised)}
+.lat-stat span{font-size:var(--fs-12);color:var(--text-muted)}
+.lat-stat b{font-family:var(--font-display);font-size:var(--fs-24);font-weight:var(--fw-semibold);font-variant-numeric:tabular-nums}
+.lat-stat small{font-size:var(--fs-12);color:var(--text-muted)}
+
+.lat-chart{margin:0 0 24px;padding:var(--card-pad);border:1px solid var(--border-default);border-radius:var(--radius-card);background:var(--surface-raised)}
+.lat-chart__title{margin:0 0 12px;font-family:var(--font-display);font-size:var(--fs-16);font-weight:var(--fw-semibold)}
+.lat-chart__legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
+.lat-chart__chip{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:4px 12px;border:1px solid var(--border-default);border-radius:var(--radius-control);font-size:var(--fs-12);color:var(--text-muted);text-decoration:none;cursor:pointer}
+.lat-chart__chip:hover{background:var(--accent-quiet)}
+.lat-chart__chip i{width:10px;height:10px;border-radius:2px;flex:none}
+.lat-chart__chip b{font-size:var(--fs-14);font-weight:var(--fw-semibold);color:var(--text-heading);font-variant-numeric:tabular-nums}
+.lat-chart__chip.is-off{opacity:.5}
+.lat-chart__chip.is-off i{background:var(--border-strong)!important}
+.lat-chart__all{font-size:var(--fs-12);padding:8px}
+
+.lat-chart__body{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px}
+.lat-chart__y{display:flex;flex-direction:column;justify-content:space-between;height:220px;margin:-7px 0;font-size:var(--fs-11);line-height:14px;text-align:right;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.lat-chart__plot{position:relative;height:220px;border-bottom:1px solid var(--border-strong)}
+.lat-chart__plot svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.lat-chart__grid{stroke:var(--border-subtle);stroke-width:1;vector-effect:non-scaling-stroke}
+.lat-chart__line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.lat-chart__fill{opacity:.12}
+.lat-chart__cols{position:absolute;inset:0;display:grid}
+.lat-chart__col{position:relative;min-width:0}
+.lat-chart__col:hover{background:var(--accent-quiet)}
+.lat-chart__dot{position:absolute;left:50%;width:8px;height:8px;margin:0 0 -4px -4px;border-radius:50%;border:2px solid var(--surface-raised);box-sizing:content-box;display:none}
+.lat-chart__tip{position:absolute;z-index:5;top:8px;left:calc(50% + 10px);display:none;min-width:150px;padding:8px 10px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-raised);box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:var(--fs-12);white-space:nowrap;pointer-events:none}
+.lat-chart__col.is-right .lat-chart__tip{left:auto;right:calc(50% + 10px)}
+.lat-chart__col:hover .lat-chart__tip{display:block}
+.lat-chart__col:hover .lat-chart__dot{display:block}
+.lat-chart__tip strong{display:block;margin:0 0 4px}
+.lat-chart__tip span{display:flex;align-items:center;gap:6px;color:var(--text-muted)}
+.lat-chart__tip i{width:8px;height:8px;border-radius:2px;flex:none}
+.lat-chart__tip b{margin-left:auto;padding-left:12px;color:var(--text-heading);font-variant-numeric:tabular-nums}
+.lat-chart__empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;font-size:var(--fs-13);color:var(--text-muted);pointer-events:none}
+.lat-chart__x{grid-column:2;display:grid;margin-top:6px;font-size:var(--fs-11);color:var(--text-muted)}
+.lat-chart__x span{justify-self:center;width:0;display:flex;justify-content:center;white-space:nowrap}
+.lat-chart__x span:first-child{justify-content:flex-start}
+.lat-chart__data{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+@media (max-width:640px){
+  .lat-period__custom{flex-wrap:wrap}
+  .lat-chart__y,.lat-chart__plot{height:180px}
+}

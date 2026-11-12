@@ -29,6 +29,7 @@
 - [Branding](admin/branding.md)
 - [Skins](admin/skins.md)
 - [Dashboard Widgets](admin/widgets.md)
+- [Charts](admin/charts.md)
 - [Settings Models](admin/settings.md)
 - [Parameters](admin/parameters.md)
 - [Logs](admin/logs.md)
