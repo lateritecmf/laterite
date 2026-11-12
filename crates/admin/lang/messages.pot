@@ -479,6 +479,10 @@ msgstr ""
 msgid "Could not save. The code may already be in use."
 msgstr ""
 
+#: src/form.rs
+msgid "Could not save: a value here is already used by another record."
+msgstr ""
+
 #: src/import/run.rs
 msgid "Could not save: {reason}"
 msgstr ""

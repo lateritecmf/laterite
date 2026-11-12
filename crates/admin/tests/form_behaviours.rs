@@ -247,3 +247,45 @@ fn the_keys_are_checked_when_the_file_is_read() {
         "{message}"
     );
 }
+
+#[tokio::test]
+async fn a_save_the_database_refuses_answers_htmx_with_the_form_alone() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let taken = laterite_auth::store::create_role(&db, "desk", "Desk", &[])
+        .await
+        .unwrap();
+    let id = laterite_auth::store::create_role(&db, "floor", "Floor", &[])
+        .await
+        .unwrap();
+    assert_ne!(taken, id);
+
+    let edit = get(&db, &token, &format!("/admin/drafts/{id}/edit")).await;
+    let csrf = edit
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap();
+    // The code is unique in the table and the form has no rule for it.
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/admin/drafts/{id}/edit"))
+                .header("cookie", format!("laterite_session={token}"))
+                .header("sec-fetch-site", "same-origin")
+                .header("hx-request", "true")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}&code=desk&name=1")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = text(resp).await;
+    assert!(body.contains("already used by another record"), "{body}");
+    assert!(
+        !body.contains("<html") && !body.contains("lat-nav"),
+        "{body}"
+    );
+}

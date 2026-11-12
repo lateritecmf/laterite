@@ -86,9 +86,21 @@ function latDismissFlash(btn) {
 // would post and appear to do nothing. A 422 is our "here is the form again,
 // with errors": let it swap, into the element that asked.
 document.addEventListener('htmx:beforeSwap', function (e) {
-  if (e.detail.xhr.status === 422) {
-    e.detail.shouldSwap = true;
-    e.detail.isError = false;
+  var d = e.detail;
+  if (d.xhr.status === 422) {
+    d.shouldSwap = true;
+    d.isError = false;
+  }
+  // A whole page never lands inside a part of one (a sign-in page after the
+  // session ended, an error page): it takes the window. A request that picks
+  // its part out of a page with hx-select is left alone.
+  var from = d.requestConfig && d.requestConfig.elt;
+  if (d.shouldSwap && d.target !== document.body && !(from && from.closest('[hx-select]')) &&
+      /^\s*<!doctype html/i.test(d.serverResponse || '')) {
+    d.shouldSwap = false;
+    document.open();
+    document.write(d.serverResponse);
+    document.close();
   }
 });
 

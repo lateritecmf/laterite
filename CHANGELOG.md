@@ -19,6 +19,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A settings screen loads the scripts and styles its field types declare.
 - A switch sits beside its label, and keeps its shape on a phone.
 - A masked box shows dots in Safari, which drew boxes for a character the admin's font lacks.
+- A save the database refuses (a duplicate in a unique column with no `unique` rule) re-renders the form alone with its message: the whole page was drawn inside the form.
 
 ## [0.11.0] - 2026-11-11
 

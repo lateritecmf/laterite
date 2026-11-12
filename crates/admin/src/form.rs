@@ -1807,15 +1807,17 @@ pub(crate) async fn create(
         }
         Err(SaveError::Failed(msg)) => {
             tracing::error!(error = %msg, "admin create failed");
-            render(build(
+            // The same shape as a refusal, so an HTMX submit swaps the form alone.
+            invalid_response(
+                htmx,
                 state,
                 form,
                 &action,
-                Some(t!("Could not save. Check the values and try again.")),
+                Some(failed_message(&msg)),
                 &data,
                 &ErrorBag::default(),
                 &shell,
-            ))
+            )
         }
     }
 }
@@ -2106,15 +2108,17 @@ pub(crate) async fn update(
         }
         Err(SaveError::Failed(msg)) => {
             tracing::error!(error = %msg, "admin update failed");
-            render(build(
+            // The same shape as a refusal, so an HTMX submit swaps the form alone.
+            invalid_response(
+                htmx,
                 state,
                 form,
                 &action,
-                Some(t!("Could not save. Check the values and try again.")),
+                Some(failed_message(&msg)),
                 &data,
                 &ErrorBag::default(),
                 &shell,
-            ))
+            )
         }
     }
 }
@@ -2190,6 +2194,29 @@ fn invalid_response(
         render(page)
     };
     (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+}
+
+/// What a form says when the database refused the save: that a value is taken
+/// when a unique column refused it, and the database's own words after it while
+/// `app.debug` is on.
+fn failed_message(error: &str) -> Text {
+    let taken = [
+        "UNIQUE constraint failed",
+        "duplicate key value",
+        "Duplicate entry",
+    ]
+    .iter()
+    .any(|sign| error.contains(sign));
+    let message = if taken {
+        t!("Could not save: a value here is already used by another record.")
+    } else {
+        t!("Could not save. Check the values and try again.")
+    };
+    if laterite_core::config::debug() {
+        Text::dynamic(format!("{message} ({error})", message = message.source()))
+    } else {
+        message
+    }
 }
 
 /// Where to send the browser after a successful save. HTMX will not follow a
@@ -3338,9 +3365,9 @@ mod tests {
             &axum::http::HeaderMap::new(),
         )
         .await;
-        // The persister failed, so the form re-renders (200) and its in-tx insert
-        // rolled back: no row landed.
-        assert_eq!(resp.status(), StatusCode::OK);
+        // The persister failed, so the form re-renders as a refusal (422) and
+        // its in-tx insert rolled back: no row landed.
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(count(&db).await, 0);
     }
 
