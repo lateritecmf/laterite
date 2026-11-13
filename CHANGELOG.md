@@ -20,6 +20,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `optional: true` on a form's belongs-to `related` record makes none from empty fields, `timestamps: true` stamps it; `name_only` on a field format stores the name alone.
 - `public: true` on a `media` field: the picker does not take a private file, a save refuses one, and Media keeps a file the field holds from being made private. Admin Branding's images are public fields.
 - A settings screen's `media` fields link their files to the setting, and the file page names the screen and field that use a file.
+- The Settings landing page shows the brand logo, faint, in its empty area.
 - `laterite_admin::chart`: line, bar and stacked-bar charts over a `Period` read from the query, with a period bar, a legend that hides series and a row of figures. See the Charts guide page.
 
 ### Fixed
