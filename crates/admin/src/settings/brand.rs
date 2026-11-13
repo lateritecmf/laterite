@@ -79,7 +79,10 @@ pub(crate) fn settings_item() -> SettingsItem {
             ),
             FormField::of("logo", "Logo", "media")
                 .options(serde_json::json!({ "mode": "image", "public": true }))
-                .help("Shown in the top bar and on the sign-in page in place of the mark."),
+                .help("Shown on the sign-in page and the Settings page in place of the mark, and in the top bar unless a navigation logo is set."),
+            FormField::of("nav_logo", "Navigation logo", "media")
+                .options(serde_json::json!({ "mode": "image", "public": true }))
+                .help("Shown small in the top bar and the drawer; a simple mark reads best. Blank uses the logo."),
             FormField::of("favicon", "Browser icon", "media")
                 .options(serde_json::json!({ "mode": "image", "public": true }))
                 .help("The tab icon; a square PNG or SVG."),
@@ -203,6 +206,22 @@ async fn media_url(db: &Db, id: &str) -> Option<String> {
     (record.disk != crate::medialib::PRIVATE_DISK).then(|| crate::medialib::file_url(&record))
 }
 
+/// The record id of the navigation logo, which the settings form stores
+/// beside the fields of [`BrandSetting`].
+async fn nav_logo_id(db: &Db) -> Option<i64> {
+    let saved = super::store::get(db, BrandSetting::CODE).await.ok()??;
+    match saved.get("nav_logo")? {
+        serde_json::Value::Number(id) => id.as_i64(),
+        serde_json::Value::String(id) => id.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// The navigation logo's public URL, when one is set and its file is public.
+pub(crate) async fn nav_logo_url(db: &Db) -> Option<String> {
+    media_url(db, &nav_logo_id(db).await?.to_string()).await
+}
+
 /// Links the images the saved setting names to it, so the Media screens name
 /// Admin Branding as their user from the first boot on. A setting saved from
 /// its screen writes the same links.
@@ -210,10 +229,12 @@ pub(crate) async fn link_images(db: &Db) {
     let Ok(setting) = super::store::load::<BrandSetting>(db).await else {
         return;
     };
+    let nav_logo = nav_logo_id(db).await.map(|id| id.to_string());
     for (field, id) in [
-        ("logo", &setting.logo),
-        ("favicon", &setting.favicon),
-        ("login_background", &setting.login_background),
+        ("logo", setting.logo.as_str()),
+        ("nav_logo", nav_logo.as_deref().unwrap_or_default()),
+        ("favicon", setting.favicon.as_str()),
+        ("login_background", setting.login_background.as_str()),
     ] {
         let ids: Vec<i64> = id.trim().parse().into_iter().collect();
         let owner = laterite_media::Owner {

@@ -439,6 +439,19 @@ impl AdminState {
         })
     }
 
+    /// The navigation logo's address, kept in the cache beside the brand.
+    async fn nav_logo(&self) -> Option<String> {
+        self.cache
+            .remember(
+                NAV_LOGO_CACHE_KEY,
+                BRAND_TTL,
+                &[settings::NAMESPACE],
+                || async { Ok(settings::brand::nav_logo_url(&self.db).await) },
+            )
+            .await
+            .unwrap_or_default()
+    }
+
     /// The settings store, writing through the cache.
     pub(crate) fn settings_store(&self) -> settings::Settings {
         settings::Settings::new(self.db.clone(), self.cache.clone())
@@ -447,6 +460,7 @@ impl AdminState {
 
 /// Where the resolved brand sits in the cache.
 const BRAND_CACHE_KEY: &str = "laterite.backend::brand";
+const NAV_LOGO_CACHE_KEY: &str = "laterite.backend::brand.nav_logo";
 /// How long a resolved brand is kept with no setting saved.
 const BRAND_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
@@ -650,6 +664,9 @@ pub struct Shell {
     brand: String,
     /// The rest of the brand a page shows: mark, icon, stylesheet, mode.
     brand_look: Arc<settings::brand::Brand>,
+    /// The image the top bar and drawer show, when Admin Branding sets one
+    /// apart from the logo.
+    nav_logo: Option<String>,
     skin: Arc<skin::Active>,
     nav: Vec<NavView>,
     full_name: String,
@@ -876,6 +893,7 @@ impl Shell {
             base: base.to_string(),
             brand: brand.name.clone(),
             brand_look: brand,
+            nav_logo: None,
             skin,
             nav,
             crumbs,
@@ -988,6 +1006,11 @@ impl Shell {
     pub fn brand_logo(&self) -> Option<&str> {
         self.brand_look.logo_url.as_deref()
     }
+    /// The image the top bar and drawer show: the navigation logo, else the
+    /// logo, when either is set.
+    pub fn brand_nav_logo(&self) -> Option<&str> {
+        self.nav_logo.as_deref().or_else(|| self.brand_logo())
+    }
     /// The brand's browser icon from the library, when one is set.
     pub fn brand_favicon(&self) -> Option<&str> {
         self.brand_look.favicon_url.as_deref()
@@ -1086,6 +1109,7 @@ impl Shell {
             base: "/admin".to_string(),
             brand: "Laterite".to_string(),
             brand_look: Arc::new(settings::brand::Brand::of_name("Laterite")),
+            nav_logo: None,
             skin: Arc::new(skin::Active::default()),
             nav: Vec::new(),
             full_name: "Test Operator".to_string(),
@@ -4749,6 +4773,7 @@ async fn require_auth(
         state.sprite_url.clone(),
         resolved.expires_at,
     );
+    shell.nav_logo = state.nav_logo().await;
     shell.tabs = tabs;
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);

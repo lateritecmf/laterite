@@ -14,8 +14,7 @@
   </div>
 </div>
 <div class="lat-settings-choose">
-  {% if let Some(logo) = shell.brand_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}
-  <p>{{ shell.t("Choose a section from the list to configure it.") }}</p>
+  {% if let Some(logo) = shell.brand_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.svg") }}" alt="">{% endif %}
 </div>
 {% endif %}
 {% endblock %}

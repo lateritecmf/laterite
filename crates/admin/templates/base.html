@@ -30,7 +30,7 @@
   <header class="lat-topnav">
     <button class="lat-topnav__burger" type="button" data-lat-drawer aria-controls="lat-menu" aria-expanded="false" aria-label='{{ shell.t("Menu") }}'>&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
-      {% if let Some(logo) = shell.brand_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}
+      {% if let Some(logo) = shell.brand_nav_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}
       <span class="lat-topnav__wordmark">{{ shell.brand }}</span>
     </a>
     <div class="lat-topnav__rail" data-lat-widget="topnav-scroll">
@@ -63,7 +63,7 @@
   <div class="lat-drawer" id="lat-menu">
     <div class="lat-drawer__backdrop" data-lat-drawer></div>
     <nav class="lat-drawer__panel">
-      <div class="lat-drawer__brand">{% if let Some(logo) = shell.brand_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}<span>{{ shell.brand }}</span></div>
+      <div class="lat-drawer__brand">{% if let Some(logo) = shell.brand_nav_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}<span>{{ shell.brand }}</span></div>
       {% for item in shell.nav %}<a class="lat-drawer__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
       {% if item.active %}{% include "_drawer_section.html" %}{% endif %}{% endfor %}
       {% if !shell.sidebar_anchored() %}{% include "_drawer_section.html" %}{% endif %}

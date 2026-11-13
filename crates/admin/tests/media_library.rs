@@ -1077,12 +1077,36 @@ async fn a_file_shown_publicly_stays_public_and_a_private_one_is_refused() {
         "{html}"
     );
 
+    // A navigation logo takes the top bar and leaves the logo to the pages
+    // that show it large.
+    upload(&app, &root, &[], &[("nav.png", &png(3))]).await;
+    let nav = newest().await;
+    post(
+        &app,
+        "/admin/settings/branding",
+        &root,
+        &format!("app_name=Acme&logo={}&nav_logo={}", logo.id, nav.id),
+    )
+    .await;
+    let (_, html, _) = get(&app, "/admin/settings", Some(&root)).await;
+    let bar = &html[html.find("lat-topnav").unwrap()..html.find("lat-settings-choose").unwrap()];
+    assert!(
+        bar.contains(&format!("/storage/media/{}/nav.png", nav.hash)),
+        "{bar}"
+    );
+    assert!(!bar.contains(&format!("/storage/media/{}/logo.png", logo.hash)));
+    let empty = &html[html.find("lat-settings-choose").unwrap()..];
+    assert!(
+        empty.contains(&format!("/storage/media/{}/logo.png", logo.hash)),
+        "{empty}"
+    );
+
     // A private file is refused as the logo, and the saved one stays.
     let (status, _) = post(
         &app,
         "/admin/settings/branding",
         &root,
-        &format!("app_name=Acme&logo={}", draft.id),
+        &format!("app_name=Acme&logo={}&nav_logo={}", draft.id, nav.id),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "the form comes back");
