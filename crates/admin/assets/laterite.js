@@ -1888,6 +1888,11 @@ window.lat.widget('copy', function (btn) {
     };
   });
 
+  // A form that discards the page's record (its Delete) has already asked.
+  document.addEventListener('submit', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-lat-discards')) leaving = true;
+  });
+
   // Closing the tab, reloading and the back button: only the browser can ask.
   window.addEventListener('beforeunload', function (e) {
     if (leaving || !changed()) return;

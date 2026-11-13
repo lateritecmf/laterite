@@ -186,8 +186,24 @@ Moved to the trash | Rows go to the trash with it |
 Restored | Rows that went with it come back |
 Deleted, or deleted permanently from the trash | | Rows are deleted in the same transaction
 
-The list's Delete asks first and names each relation by its `title`:
-"These are deleted with them: Comments." The rows' own listeners do not run.
+A deleted row's own `delete` relations, declared on a resource over its
+entity, go with it:
+
+```yaml
+# descriptors/comments.yaml
+entity: comments
+relations:
+  reactions:
+    title: Reactions
+    entity: reactions
+    foreign_key: comment_id
+    delete: true
+    section: false
+```
+
+Delete asks first and names each relation by its `title`:
+"These are deleted with them: Comments, Reactions." The rows' own listeners do
+not run.
 
 ## Set the keys
 

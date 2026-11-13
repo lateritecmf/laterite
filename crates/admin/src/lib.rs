@@ -2032,21 +2032,26 @@ pub fn router(
     // Descriptor paths are authored relative to the admin root; resolve them to
     // full paths under the configured mount so routes, the menu, and every link
     // built from them agree.
+    let reach = delete_index(resources.iter().chain(app_resources.iter()));
     for resource in resources.iter_mut().chain(app_resources.iter_mut()) {
         prefix_resource(&admin_path, resource);
         // The list hides New and Delete from an operator without the grant.
         resource.list.create_permission = resource.permissions.create.clone();
         resource.list.delete_permission = resource.permissions.delete.clone();
-        let titles = |pick: fn(&relation::RelationConfig) -> bool| -> Vec<Text> {
-            resource
-                .relations
-                .iter()
-                .filter(|r| pick(r))
-                .map(|r| r.title.clone())
-                .collect()
-        };
-        resource.list.trash_with = titles(|r| r.soft_delete);
-        resource.list.delete_with = titles(|r| r.delete);
+        resource.list.trash_with = resource
+            .relations
+            .iter()
+            .filter(|r| r.soft_delete)
+            .map(|r| r.title.clone())
+            .collect();
+        // Everything a delete reaches, named once each.
+        let mut names: Vec<Text> = Vec::new();
+        for (title, _) in delete_reach(&reach, &resource.list.entity) {
+            if !names.contains(&title) {
+                names.push(title);
+            }
+        }
+        resource.list.delete_with = names;
     }
     // A resource that may be imported into shows the way to its import pages. A
     // write path, so it is gated: the key's permission, else the resource's,
@@ -2284,30 +2289,11 @@ pub fn router(
                 soft.insert(resource.list.entity.clone());
             }
             let mut children = Vec::new();
-            let mut deleted = Vec::new();
             for relation in &resource.relations {
                 entities.push(relation.entity.clone());
-                let child = match (&relation.foreign_key, &relation.morph) {
-                    (Some(key), _) => Some((key.clone(), Vec::new())),
-                    (None, Some(morph)) => Some((
-                        format!("{morph}_id"),
-                        vec![(format!("{morph}_type"), resource.list.entity.clone())],
-                    )),
-                    (None, None) => None,
-                }
-                .map(|(foreign_key, also)| {
-                    laterite_core::listeners::CascadeChild {
-                        table: relation.entity.clone(),
-                        foreign_key,
-                        also,
-                    }
-                });
                 if relation.soft_delete {
                     soft.insert(relation.entity.clone());
-                    children.extend(child.clone());
-                }
-                if relation.delete {
-                    deleted.extend(child);
+                    children.extend(cascade_child(&resource.list.entity, relation));
                 }
             }
             if !children.is_empty() {
@@ -2316,12 +2302,21 @@ pub fn router(
                     Arc::new(laterite_core::SoftDeleteCascade::new(children)),
                 ));
             }
-            if !deleted.is_empty() {
-                app_listeners.push(laterite_core::ModelListenerReg::for_entity(
-                    resource.list.entity.clone(),
-                    Arc::new(laterite_core::DeleteCascade::new(deleted)),
-                ));
-            }
+        }
+        // One delete cascade an entity, over what every resource on it
+        // declares and what those records take with them in turn.
+        let reach = delete_index(resources.iter());
+        let mut parents: Vec<&String> = reach.keys().collect();
+        parents.sort();
+        for entity in parents {
+            let cascade = delete_reach(&reach, entity).into_iter().fold(
+                laterite_core::DeleteCascade::new(Vec::new()),
+                |cascade, (_, path)| cascade.nested(path),
+            );
+            app_listeners.push(laterite_core::ModelListenerReg::for_entity(
+                entity.clone(),
+                Arc::new(cascade),
+            ));
         }
         for entity in entities {
             if scopes.contains_key(&entity) {
@@ -3342,6 +3337,87 @@ fn entity_links(resources: &[Resource]) -> HashMap<String, EntityLink> {
     links
 }
 
+/// The related rows a relation's cascade reaches: held by its foreign key, or
+/// by a polymorphic pair naming `parent`. A many-to-many relation has none.
+fn cascade_child(
+    parent: &str,
+    relation: &relation::RelationConfig,
+) -> Option<laterite_core::listeners::CascadeChild> {
+    let (foreign_key, also) = match (&relation.foreign_key, &relation.morph) {
+        (Some(key), _) => (key.clone(), Vec::new()),
+        (None, Some(morph)) => (
+            format!("{morph}_id"),
+            vec![(format!("{morph}_type"), parent.to_string())],
+        ),
+        (None, None) => return None,
+    };
+    Some(laterite_core::listeners::CascadeChild {
+        table: relation.entity.clone(),
+        foreign_key,
+        also,
+    })
+}
+
+/// Each entity's relations marked `delete`, by the entity that owns them: a
+/// relation's title and the rows it reaches.
+type DeleteIndex = HashMap<String, Vec<(Text, laterite_core::listeners::CascadeChild)>>;
+
+fn delete_index<'a>(resources: impl Iterator<Item = &'a Resource>) -> DeleteIndex {
+    let mut index = DeleteIndex::new();
+    for resource in resources {
+        for relation in resource.relations.iter().filter(|r| r.delete) {
+            let Some(child) = cascade_child(&resource.list.entity, relation) else {
+                continue;
+            };
+            let links = index.entry(resource.list.entity.clone()).or_default();
+            // Two resources on one entity may declare the same relation.
+            if !links.iter().any(|(_, known)| {
+                known.table == child.table && known.foreign_key == child.foreign_key
+            }) {
+                links.push((relation.title.clone(), child));
+            }
+        }
+    }
+    index
+}
+
+/// Everything a delete of an `entity` record takes with it: its own `delete`
+/// relations, then theirs in turn, each as its title and the chain of tables
+/// reaching it. An entity already on a chain is not entered again.
+fn delete_reach(
+    index: &DeleteIndex,
+    entity: &str,
+) -> Vec<(Text, Vec<laterite_core::listeners::CascadeChild>)> {
+    fn walk(
+        index: &DeleteIndex,
+        entity: &str,
+        path: &mut Vec<laterite_core::listeners::CascadeChild>,
+        seen: &mut Vec<String>,
+        out: &mut Vec<(Text, Vec<laterite_core::listeners::CascadeChild>)>,
+    ) {
+        for (title, child) in index.get(entity).into_iter().flatten() {
+            if seen.contains(&child.table) {
+                continue;
+            }
+            path.push(child.clone());
+            out.push((title.clone(), path.clone()));
+            seen.push(child.table.clone());
+            walk(index, &child.table, path, seen, out);
+            seen.pop();
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(
+        index,
+        entity,
+        &mut Vec::new(),
+        &mut vec![entity.to_string()],
+        &mut out,
+    );
+    out
+}
+
 fn prefix_resource(admin_path: &str, resource: &mut Resource) {
     resource.base_path = format!("{admin_path}{}", resource.base_path);
     if let Some(edit_base) = &mut resource.list.edit_base {
@@ -4166,6 +4242,20 @@ fn mount_resource(
 
         let (edit_pf, update_pf) = (prepared.clone(), prepared.clone());
         let relations_for_edit = relations.clone();
+        // The edit page offers the Delete its list does.
+        let delete_offer = resource.list.deletable.then(|| {
+            Arc::new(form::DeleteOffer {
+                action: format!("{base}/delete"),
+                permission: resource.list.delete_permission.clone(),
+                protected: resource.list.protected.clone(),
+                soft: resource.soft_delete,
+                with: if resource.soft_delete {
+                    resource.list.trash_with.clone()
+                } else {
+                    resource.list.delete_with.clone()
+                },
+            })
+        });
         router = router.route(
             &format!("{base}/{{id}}/edit"),
             get(
@@ -4175,6 +4265,7 @@ fn mount_resource(
                       Path(id): Path<String>| {
                     let pf = edit_pf.clone();
                     let relations = relations_for_edit.clone();
+                    let delete_offer = delete_offer.clone();
                     async move {
                         let mut sections = Vec::new();
                         for rel in relations.iter() {
@@ -4182,7 +4273,16 @@ fn mount_resource(
                                 sections.push(section);
                             }
                         }
-                        form::edit_form(&state, &pf, id, shell, sections, &user.permissions).await
+                        form::edit_form(
+                            &state,
+                            &pf,
+                            id,
+                            shell,
+                            sections,
+                            &user.permissions,
+                            delete_offer.as_deref(),
+                        )
+                        .await
                     }
                 },
             )

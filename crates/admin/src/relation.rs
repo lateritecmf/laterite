@@ -72,6 +72,7 @@ pub struct RelationConfig {
     pub soft_delete: bool,
     /// A has-many relation's rows are deleted with their parent, in the same
     /// transaction. On a soft-deleting parent that is its permanent delete.
+    /// What a resource over the related entity marks `delete` goes with them.
     #[serde(default)]
     pub delete: bool,
     /// Whether the relation has a section on the parent's edit page. `false`
@@ -895,6 +896,7 @@ pub(crate) async fn edit_form(
         shell,
         Vec::new(),
         &user.permissions,
+        None,
     )
     .await
 }

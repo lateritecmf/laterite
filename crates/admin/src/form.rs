@@ -2045,6 +2045,7 @@ pub(crate) async fn edit_form(
     shell: crate::Shell,
     sections: Vec<RelationSection>,
     permissions: &laterite_auth::PermissionSet,
+    delete: Option<&DeleteOffer>,
 ) -> Response {
     if !form.config.idents_valid() {
         return render_error();
@@ -2067,7 +2068,104 @@ pub(crate) async fn edit_form(
     );
     page.sections = sections;
     page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
+    if let Some(offer) = delete {
+        page.delete = offer
+            .view(state, &form.config, &id, permissions, &shell)
+            .await;
+    }
     render(page)
+}
+
+/// The Delete an edit page offers: what the resource's list allows on a row.
+#[derive(Clone)]
+pub(crate) struct DeleteOffer {
+    /// Where the list's Delete posts.
+    pub(crate) action: String,
+    /// The grant a delete asks for beside the resource's.
+    pub(crate) permission: Option<String>,
+    /// The list's `protected` column.
+    pub(crate) protected: Option<String>,
+    /// Delete moves the record to the trash.
+    pub(crate) soft: bool,
+    /// The relations that go with the record, by title.
+    pub(crate) with: Vec<Text>,
+}
+
+impl DeleteOffer {
+    /// The button for record `id`: none without the grant, or on a row the
+    /// list protects.
+    async fn view(
+        &self,
+        state: &AdminState,
+        form: &FormConfig,
+        id: &str,
+        permissions: &laterite_auth::PermissionSet,
+        shell: &crate::Shell,
+    ) -> Option<DeleteView> {
+        if self
+            .permission
+            .as_deref()
+            .is_some_and(|p| !permissions.allows(p))
+        {
+            return None;
+        }
+        if let Some(column) = &self.protected {
+            let backend = state.db.backend;
+            let (sql, values) = {
+                let mut select = Query::select();
+                select
+                    .expr_as(
+                        Expr::col(Alias::new(column)).cast_as(Alias::new(text_cast(backend))),
+                        Alias::new("lat_protected"),
+                    )
+                    .from(Alias::new(&form.entity))
+                    .and_where(
+                        Expr::expr(
+                            Expr::col(Alias::new(&form.id_field))
+                                .cast_as(Alias::new(text_cast(backend))),
+                        )
+                        .eq(id),
+                    );
+                to_sql(backend, select)
+            };
+            // A row that cannot be read is not offered for deleting.
+            let row = bind_values(sqlx::query(&sql), values)
+                .fetch_optional(&state.db.pool)
+                .await
+                .ok()??;
+            let marked = row.get_text_opt("lat_protected").ok().flatten();
+            if marked.is_some_and(|text| crate::list::truthy(&text)) {
+                return None;
+            }
+        }
+        let confirm = if self.soft {
+            crate::list::confirm(
+                shell,
+                "Move this record to the trash?",
+                "These go to the trash with it: {names}.",
+                &self.with,
+            )
+        } else {
+            crate::list::confirm(
+                shell,
+                "Delete this record? This cannot be undone.",
+                "These are deleted with it: {names}.",
+                &self.with,
+            )
+        };
+        Some(DeleteView {
+            action: self.action.clone(),
+            id: id.to_string(),
+            confirm,
+        })
+    }
+}
+
+/// The edit page's Delete button.
+struct DeleteView {
+    action: String,
+    id: String,
+    confirm: String,
 }
 
 /// The stored record `id` as control values: each column back through its
@@ -2562,6 +2660,7 @@ fn build(
         actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
         read_only,
         sections: Vec::new(),
+        delete: None,
         linked: None,
         pending: Vec::new(),
         enter_off: form.config.enter == EnterPolicy::Off,
@@ -2711,6 +2810,8 @@ struct FormTemplate {
     /// The record this one belongs to, linked above the form.
     linked: Option<LinkedView>,
     sections: Vec<RelationSection>,
+    /// The record's Delete, on an edit page whose list offers one.
+    delete: Option<DeleteView>,
     /// The relations a create page cannot show yet, by section title.
     pending: Vec<String>,
     /// Enter never submits this form.

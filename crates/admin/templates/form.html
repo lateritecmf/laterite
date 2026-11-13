@@ -2,7 +2,13 @@
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
-<div class="lat-toolbar"><h1>{{ title }}</h1></div>
+<div class="lat-toolbar"><h1>{{ title }}</h1>{% if let Some(d) = delete %}
+  <form class="lat-toolbar__actions" method="post" action="{{ d.action }}" data-lat-discards>
+    {% include "_csrf.html" %}
+    <input type="hidden" name="id" value="{{ d.id }}">
+    <button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" data-lat-confirm="{{ d.confirm }}">{{ shell.t("Delete") }}</button>
+  </form>
+{% endif %}</div>
 {% if let Some(l) = linked %}<p class="lat-linked"><span>{{ l.label }}</span>{% if let Some(href) = l.href %}<a href="{{ href }}">{{ l.text }}</a>{% else %}<b>{{ l.text }}</b>{% endif %}</p>{% endif %}
 <div class="lat-card lat-card--form">
   {% include "_form_fields.html" %}

@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - `linked_record` on a form: a record that belongs to one of any resource (the columns `{morph}_type` and `{morph}_id`) links its owner above the form.
 - A failed save shows the database's own message under Show details, to a superuser and while `app.debug` is on.
 - `delete: true` on a relation deletes its rows with their parent, and the list's Delete names what goes; `section: false` keeps a relation for its delete rules alone.
+- A `delete` relation's rows take their own `delete` relations with them (`DeleteCascade::nested`), and Delete names those too.
+- A record's edit page offers Delete when its list is `deletable`.
 - `ModelListener::deleted` runs in the delete's transaction once the row is gone.
 - A list column reads a related record's column: `related` on the list and on the column, as on a form. It sorts, searches and exports.
 - `optional: true` on a form's belongs-to `related` record makes none from empty fields, `timestamps: true` stamps it; `name_only` on a field format stores the name alone.

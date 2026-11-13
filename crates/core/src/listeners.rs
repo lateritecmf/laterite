@@ -435,37 +435,69 @@ impl ModelListener for SoftDeleteCascade {
 ///
 /// Rows held by a foreign key go before the record, so a key that restricts
 /// does not refuse it; a polymorphic relation's rows go after it, so a record
-/// that points back at one of them is gone first. The rows are removed by one
-/// statement a table: their own listeners do not run, and what hangs off them
-/// goes by the database's foreign keys.
+/// that points back at one of them is gone first. Rows reached through
+/// another relation ([`nested`](Self::nested)) go before the rows that hold
+/// them. The rows are removed by one statement a table: their own listeners
+/// do not run.
 pub struct DeleteCascade {
-    children: Vec<CascadeChild>,
+    /// Each chain of tables from the record down to the rows to delete, the
+    /// longest first.
+    paths: Vec<Vec<CascadeChild>>,
 }
 
 impl DeleteCascade {
     /// A cascade over `children`.
     pub fn new(children: Vec<CascadeChild>) -> Self {
-        Self { children }
+        Self {
+            paths: children.into_iter().map(|child| vec![child]).collect(),
+        }
     }
 
-    /// Deletes the rows of every child that is, or is not, polymorphic.
+    /// Also deletes the rows at the end of `path`: a chain of relations from
+    /// the record's own child down to them, each link's `foreign_key` holding
+    /// the `id` of the link before it. An empty path adds nothing.
+    pub fn nested(mut self, path: Vec<CascadeChild>) -> Self {
+        if !path.is_empty() {
+            self.paths.push(path);
+            self.paths.sort_by_key(|p| std::cmp::Reverse(p.len()));
+        }
+        self
+    }
+
+    /// Deletes the rows of every path whose first link is, or is not,
+    /// polymorphic.
     async fn sweep(&self, cx: &mut SaveCx<'_>, rec: &Record, morph: bool) -> Result<(), Text> {
         let Some(id) = rec.id() else {
             return Ok(());
         };
-        for CascadeChild {
-            table,
-            foreign_key,
-            also,
-        } in self.children.iter().filter(|c| c.also.is_empty() != morph)
+        for path in self
+            .paths
+            .iter()
+            .filter(|p| p.first().is_some_and(|c| c.also.is_empty() != morph))
         {
+            let Some((last, above)) = path.split_last() else {
+                continue;
+            };
             let backend = cx.backend();
             let (sql, values) = {
+                // The ids of each link's rows, selected by the link before it.
+                let mut holders: Option<sea_query::SelectStatement> = None;
+                for link in above {
+                    let mut select = Query::select();
+                    select
+                        .column(Alias::new("id"))
+                        .from(Alias::new(&link.table))
+                        .and_where(held(link, holders.take(), id));
+                    for (column, value) in &link.also {
+                        select.and_where(Expr::col(Alias::new(column)).eq(value.as_str()));
+                    }
+                    holders = Some(select);
+                }
                 let mut delete = Query::delete();
                 delete
-                    .from_table(Alias::new(table))
-                    .and_where(Expr::col(Alias::new(foreign_key)).eq(id));
-                for (column, value) in also {
+                    .from_table(Alias::new(&last.table))
+                    .and_where(held(last, holders, id));
+                for (column, value) in &last.also {
                     delete.and_where(Expr::col(Alias::new(column)).eq(value.as_str()));
                 }
                 build(backend, delete)
@@ -474,11 +506,25 @@ impl DeleteCascade {
                 .execute(cx.conn())
                 .await
                 .map_err(|e| {
-                    tracing::error!(error = %e, table = %table, "deleting the related records failed");
+                    tracing::error!(error = %e, table = %last.table, "deleting the related records failed");
                     Text::new("The related records could not be deleted with this one.")
                 })?;
         }
         Ok(())
+    }
+}
+
+/// The condition naming `link`'s rows: held by the record itself, or by the
+/// rows `holders` selects.
+fn held(
+    link: &CascadeChild,
+    holders: Option<sea_query::SelectStatement>,
+    id: i64,
+) -> sea_query::SimpleExpr {
+    let key = Expr::col(Alias::new(&link.foreign_key));
+    match holders {
+        Some(select) => key.in_subquery(select),
+        None => key.eq(id),
     }
 }
 

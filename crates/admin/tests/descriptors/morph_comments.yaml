@@ -9,3 +9,9 @@ form:
   linked_record: { morph: commentable, label: Written on }
   fields:
     body: { rules: [required] }
+relations:
+  reactions:
+    entity: reactions
+    foreign_key: comment_id
+    delete: true
+    section: false

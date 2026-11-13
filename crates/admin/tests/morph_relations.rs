@@ -64,6 +64,19 @@ impl Migration for CreateTables {
         .await?;
         s.exec(
             Table::create()
+                .table(Alias::new("reactions"))
+                .col(id())
+                .col(
+                    ColumnDef::new(Alias::new("comment_id"))
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(key_col(Alias::new("kind")).not_null())
+                .to_owned(),
+        )
+        .await?;
+        s.exec(
+            Table::create()
                 .table(Alias::new("tags"))
                 .col(id())
                 .col(ColumnDef::new(Alias::new("name")).text().not_null())
@@ -182,6 +195,25 @@ async fn exec(db: &Db, sql: &str) {
 }
 
 /// `(commentable_type, body, trashed)` for every comment, in id order.
+/// The comment each remaining reaction is on.
+async fn reactions(db: &Db) -> Vec<i64> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(Alias::new("comment_id"))
+            .from(Alias::new("reactions"))
+            .order_by(Alias::new("id"), Order::Asc)
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get_int("comment_id").unwrap())
+        .collect()
+}
+
 async fn comments(db: &Db) -> Vec<(String, String, bool)> {
     let (sql, values) = build(
         db.backend,
@@ -353,16 +385,29 @@ async fn deleting_a_parent_deletes_its_own_kind_of_child() {
     )
     .await;
 
-    // The question names what goes with the records.
+    exec(
+        &db,
+        "INSERT INTO reactions (comment_id, kind) VALUES (1, 'like'), (2, 'like'), (2, 'star')",
+    )
+    .await;
+
+    // The question names what goes with the records, and what goes with that.
     let (_, list) = send(&app, "GET", "/admin/memos", &session, "").await;
     assert!(
-        list.contains("These are deleted with them: Comments."),
+        list.contains("These are deleted with them: Comments, Reactions."),
         "{list}"
     );
     let (_, list) = send(&app, "GET", "/admin/notes", &session, "").await;
     assert!(
         list.contains("These go to the trash with them: Comments."),
         "{list}"
+    );
+    // A record's own page offers the Delete its list does.
+    let (_, page) = send(&app, "GET", "/admin/notes/1/edit", &session, "").await;
+    assert!(page.contains(r#"action="/admin/notes/delete""#), "{page}");
+    assert!(
+        page.contains("Move this record to the trash? These go to the trash with it: Comments."),
+        "{page}"
     );
     // A relation with no section mounts nothing.
     let (status, _) = send(&app, "GET", "/admin/memos/1/comments", &session, "").await;
@@ -373,6 +418,7 @@ async fn deleting_a_parent_deletes_its_own_kind_of_child() {
     let rows = comments(&db).await;
     assert_eq!(rows.len(), 1, "the memo's comment went with it");
     assert_eq!(rows[0].0, "notes");
+    assert_eq!(reactions(&db).await, [1], "and that comment's reactions");
 
     // A soft-deleting parent's rows go when it is deleted permanently.
     send(&app, "POST", "/admin/notes/delete", &session, "id=1").await;
@@ -380,4 +426,5 @@ async fn deleting_a_parent_deletes_its_own_kind_of_child() {
     let (status, _) = send(&app, "POST", "/admin/notes/purge", &session, "id=1").await;
     assert!(status.is_redirection());
     assert!(comments(&db).await.is_empty());
+    assert!(reactions(&db).await.is_empty());
 }

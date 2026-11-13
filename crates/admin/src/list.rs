@@ -2456,7 +2456,7 @@ const PROTECTED_ALIAS: &str = "lat_protected";
 
 /// Whether a boolean column's text form is true, across the backends: `1` from
 /// SQLite and MySQL, `true` or `t` from Postgres.
-fn truthy(text: &str) -> bool {
+pub(crate) fn truthy(text: &str) -> bool {
     matches!(text.trim(), "1" | "true" | "t" | "TRUE")
 }
 
@@ -2912,9 +2912,9 @@ async fn build_page(
     }
 }
 
-/// The question a bulk delete asks first: `question`, then what goes with the
+/// The question a delete asks first: `question`, then what goes with the
 /// records when anything does.
-fn confirm(
+pub(crate) fn confirm(
     shell: &crate::Shell,
     question: &'static str,
     also: &'static str,
