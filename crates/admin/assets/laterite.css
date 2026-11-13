@@ -116,7 +116,9 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 @layer components{
 /* App shell */
 .lat-app{min-height:100vh;display:flex;flex-direction:column;background:var(--surface-page)}
-.lat-body{flex:1;display:flex;min-height:0}
+/* Grows with the page: a zero basis leaves it a viewport tall in WebKit, and
+   the sidebar with it, while the content runs on below. */
+.lat-body{flex:1 0 auto;display:flex}
 .lat-main{flex:1;min-width:0;overflow-y:auto;scrollbar-gutter:stable}
 .lat-page{padding:var(--page-gutter)}
 
