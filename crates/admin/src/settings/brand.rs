@@ -21,10 +21,10 @@ pub struct BrandSetting {
     #[serde(default)]
     pub app_name: String,
     /// A library image shown in place of the framework's mark (its record id).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "id_text")]
     pub logo: String,
     /// A library image used as the browser tab icon (its record id).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "id_text")]
     pub favicon: String,
     /// The accent colour as `#rrggbb`; blank keeps the palette's own.
     #[serde(default)]
@@ -39,7 +39,7 @@ pub struct BrandSetting {
     #[serde(default)]
     pub login_tagline: String,
     /// A library image behind the hero panel (its record id).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "id_text")]
     pub login_background: String,
     /// Whether the hero panel shows beside the form on wide screens.
     #[serde(default = "yes")]
@@ -51,6 +51,16 @@ pub struct BrandSetting {
 
 fn yes() -> bool {
     true
+}
+
+/// A media field's stored record id as text: a media field stores a number,
+/// a hand-written value may be text.
+fn id_text<'de, D: serde::Deserializer<'de>>(de: D) -> Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(de)? {
+        serde_json::Value::String(text) => text,
+        serde_json::Value::Number(id) => id.to_string(),
+        _ => String::new(),
+    })
 }
 
 impl SettingsModel for BrandSetting {
@@ -185,11 +195,27 @@ impl Brand {
 }
 
 /// A library file's public URL from the id a media field stored, or nothing
-/// when the field is blank or the file is gone.
+/// when the field is blank, the file is gone, or it is private: the sign-in
+/// page shows these to people who are not signed in.
 async fn media_url(db: &Db, id: &str) -> Option<String> {
     let id: i64 = id.trim().parse().ok()?;
     let record = laterite_media::record::find(db, id).await.ok().flatten()?;
-    Some(crate::medialib::file_url(&record))
+    (record.disk != crate::medialib::PRIVATE_DISK).then(|| crate::medialib::file_url(&record))
+}
+
+/// Whether an image the setting names is private, and so shown nowhere.
+pub(crate) async fn names_a_private_image(db: &Db, setting: &BrandSetting) -> bool {
+    for id in [&setting.logo, &setting.favicon, &setting.login_background] {
+        let Ok(id) = id.trim().parse::<i64>() else {
+            continue;
+        };
+        if let Ok(Some(record)) = laterite_media::record::find(db, id).await {
+            if record.disk == crate::medialib::PRIVATE_DISK {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// The variables an accent colour sets, for both modes: the colour, its
@@ -233,6 +259,17 @@ pub(crate) fn clean_css(css: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picked_image_is_read_as_the_media_field_stores_it() {
+        // A media field stores the record id as a number.
+        let saved: BrandSetting =
+            serde_json::from_str(r#"{"app_name":"Acme","logo":25,"favicon":"7"}"#).unwrap();
+        assert_eq!(saved.app_name, "Acme");
+        assert_eq!(saved.logo, "25");
+        assert_eq!(saved.favicon, "7");
+        assert_eq!(saved.login_background, "");
+    }
 
     #[test]
     fn an_accent_sets_the_variables_and_rejects_anything_but_a_hex() {

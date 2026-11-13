@@ -1927,6 +1927,26 @@ window.lat.widget('copy', function (btn) {
   });
 })();
 
+// Colour: a colour control cannot be empty, so one that opened with no value
+// is sent empty until a colour is picked in it.
+(function () {
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el && el.type === 'color') el.setAttribute('data-lat-picked', '');
+  });
+  document.addEventListener('submit', function (e) {
+    if (!e.target.querySelectorAll) return;
+    e.target.querySelectorAll('input[type="color"]').forEach(function (el) {
+      if (el.getAttribute('value') || el.hasAttribute('data-lat-picked')) return;
+      el.type = 'text';
+      el.value = '';
+      el.hidden = true;
+      // The submission is read by now; a form that stays gets its control back.
+      setTimeout(function () { el.hidden = false; el.type = 'color'; }, 0);
+    });
+  }, true);
+})();
+
 // Counter: a field a rule limits shows how much of the limit is used. With
 // `data-lat-counter="auto"` it appears once four fifths are used, which is when
 // the limit starts to matter; with `on` it is always there.

@@ -218,3 +218,38 @@ async fn brand_setting_overrides_the_configured_name() {
     assert!(html.contains("Override Co"), "the setting overrides config");
     assert!(!html.contains("Acme Blog"), "the config name is overridden");
 }
+
+#[tokio::test]
+async fn a_logo_shows_when_its_file_is_public() {
+    let (db, _guard) = test_db().await;
+    let file = |disk: &str, hash: &str| laterite_media::record::NewMedia {
+        disk: disk.to_string(),
+        hash: hash.to_string(),
+        size: 1,
+        content_type: "image/png".to_string(),
+        original_name: "logo.png".to_string(),
+        in_library: true,
+        created_by: None,
+    };
+    let open = laterite_media::record::create(&db, file("public", "aa11"))
+        .await
+        .unwrap();
+    let closed = laterite_media::record::create(&db, file("private", "bb22"))
+        .await
+        .unwrap();
+    // A media field stores the record id as a number.
+    let store = |logo: i64| serde_json::json!({ "app_name": "Acme", "logo": logo });
+
+    laterite_admin::settings::set(&db, "laterite.brand", &store(open))
+        .await
+        .unwrap();
+    let (_, html) = get(app(db.clone(), "Acme"), "/admin/setup").await;
+    assert!(html.contains("/storage/media/aa11/logo.png"), "{html}");
+
+    // A private file reaches nobody on the sign-in page: the mark stays.
+    laterite_admin::settings::set(&db, "laterite.brand", &store(closed))
+        .await
+        .unwrap();
+    let (_, html) = get(app(db, "Acme"), "/admin/setup").await;
+    assert!(!html.contains("/storage/media/"), "{html}");
+}

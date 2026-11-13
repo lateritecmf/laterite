@@ -562,6 +562,17 @@ pub(crate) async fn update(
                     serde_json::from_value(value.clone()).unwrap_or_default();
                 state.mail.templates().set_brand_css(&brand.css()).await;
             }
+            // A private image cannot reach the sign-in page, so it is said.
+            if item.code == brand::BrandSetting::CODE {
+                let setting: brand::BrandSetting =
+                    serde_json::from_value(value.clone()).unwrap_or_default();
+                if brand::names_a_private_image(&state.db, &setting).await {
+                    session.push_flash(
+                        crate::session::FlashLevel::Error,
+                        t!("An image chosen here is private, so it is not shown. Make it public in Media."),
+                    );
+                }
+            }
             // The mail transport follows its settings at once.
             if item.code == mail::MailSetting::CODE {
                 let setting: mail::MailSetting =
@@ -787,6 +798,8 @@ fn prefill_from_config(item: &SettingsItem, stored: &mut Value, app_name: &str) 
         if blank {
             map.insert("app_name".to_string(), Value::String(app_name.to_string()));
         }
+        // On until it is saved off, as the sign-in page reads it.
+        map.entry("login_hero").or_insert(Value::Bool(true));
     }
 }
 
@@ -1052,6 +1065,10 @@ mod tests {
         let mut unset = Value::Object(Map::new());
         prefill_from_config(&brand, &mut unset, "Configured Name");
         assert_eq!(unset["app_name"], serde_json::json!("Configured Name"));
+        assert_eq!(unset["login_hero"], serde_json::json!(true));
+        let mut off = serde_json::json!({ "login_hero": false });
+        prefill_from_config(&brand, &mut off, "Configured Name");
+        assert_eq!(off["login_hero"], serde_json::json!(false));
         // Already set: the stored value is left untouched.
         let mut set = serde_json::json!({ "app_name": "Acme" });
         prefill_from_config(&brand, &mut set, "Configured Name");

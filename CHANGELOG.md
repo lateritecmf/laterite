@@ -30,6 +30,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A masked box shows dots in Safari, which drew boxes for a character the admin's font lacks.
 - A validation rule a module registers (`registry.add(ValidationRuleReg::new(..))`) reaches its forms: `Bootstrap` passed none on.
 - A field with a `format` on a `related` record is stored in the format's shape: it was stored as typed.
+- An image picked on Admin Branding is shown: its stored id was misread, which dropped the whole brand setting. A private image is named on save.
+- A colour field left unset saves empty, where it saved `#000000`; the sign-in panel switch opens on until it is saved off.
 - A save the database refuses (a duplicate in a unique column with no `unique` rule) re-renders the form alone with its message: the whole page was drawn inside the form.
 
 ## [0.11.0] - 2026-11-11
