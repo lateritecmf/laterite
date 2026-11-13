@@ -707,6 +707,9 @@ struct PickQuery {
     q: Option<String>,
     /// `image` narrows to images; anything else offers every file.
     mode: Option<String>,
+    /// `1` when the field shows its file publicly: a private file is listed
+    /// and cannot be chosen.
+    public: Option<String>,
     page: Option<u64>,
 }
 
@@ -718,6 +721,8 @@ struct PickFile {
     thumb: String,
     url: String,
     is_image: bool,
+    /// The file is on the private disk.
+    private: bool,
 }
 
 #[derive(Template)]
@@ -726,6 +731,8 @@ struct PickTemplate {
     shell: Shell,
     pick_url: String,
     mode: String,
+    /// A private file cannot be chosen.
+    public_only: bool,
     q: String,
     folder: Option<i64>,
     crumbs: Vec<CrumbView>,
@@ -742,7 +749,14 @@ struct PickTemplate {
     upload_hint: String,
 }
 
-fn pick_href(base: &str, folder: Option<i64>, q: &str, mode: &str, page: u64) -> String {
+fn pick_href(
+    base: &str,
+    folder: Option<i64>,
+    q: &str,
+    mode: &str,
+    public_only: bool,
+    page: u64,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(f) = folder {
         parts.push(format!("folder={f}"));
@@ -752,6 +766,9 @@ fn pick_href(base: &str, folder: Option<i64>, q: &str, mode: &str, page: u64) ->
     }
     if !mode.is_empty() {
         parts.push(format!("mode={mode}"));
+    }
+    if public_only {
+        parts.push("public=1".to_string());
     }
     if page > 1 {
         parts.push(format!("page={page}"));
@@ -773,6 +790,7 @@ async fn pick(
     let db = ctx.db();
     let q = query.q.unwrap_or_default().trim().to_string();
     let mode = query.mode.unwrap_or_default();
+    let public_only = query.public.as_deref() == Some("1");
     let page = query.page.unwrap_or(1).max(1);
     let folder_id = query.folder;
     let pick_url = ctx.url("pick");
@@ -782,7 +800,7 @@ async fn pick(
     }
     .into_iter()
     .map(|f| CrumbView {
-        href: pick_href(&pick_url, Some(f.id), "", &mode, 1),
+        href: pick_href(&pick_url, Some(f.id), "", &mode, public_only, 1),
         name: f.name,
     })
     .collect();
@@ -792,7 +810,7 @@ async fn pick(
             .unwrap_or_default()
             .into_iter()
             .map(|f| FolderView {
-                href: pick_href(&pick_url, Some(f.id), "", &mode, 1),
+                href: pick_href(&pick_url, Some(f.id), "", &mode, public_only, 1),
                 name: f.name,
                 active: false,
             })
@@ -830,12 +848,14 @@ async fn pick(
             thumb: admin_url_for(&app, r, Some(preset::THUMB)),
             url: admin_url(&app, r),
             is_image: r.kind() == Kind::Image && r.content_type != "image/svg+xml",
+            private: matches!(app.disks.by_name.get(&r.disk), Some((_, true))),
         })
         .collect();
     match Markup::from_template(&PickTemplate {
         shell: shell.clone(),
         pick_url,
         mode,
+        public_only,
         q,
         folder: folder_id,
         crumbs,
@@ -1903,6 +1923,11 @@ struct UserView {
     owner_type: String,
     owner_id: String,
     field: String,
+    /// The screen and field as their forms title them, when one declares
+    /// the field.
+    named: Option<(String, String)>,
+    /// The field shows the file to people who are not signed in.
+    public: bool,
 }
 
 struct FolderChoice {
@@ -1961,10 +1986,15 @@ async fn file(
         .await
         .unwrap_or_default()
         .into_iter()
-        .map(|l| UserView {
-            owner_type: l.owner_type,
-            owner_id: l.owner_id,
-            field: l.field,
+        .map(|l| {
+            let declared = ctx.media_use(&l.owner_type, &l.field);
+            UserView {
+                named: declared.map(|u| (shell.tt(&u.screen), shell.tt(&u.field))),
+                public: declared.is_some_and(|u| u.public),
+                owner_type: l.owner_type,
+                owner_id: l.owner_id,
+                field: l.field,
+            }
         })
         .collect();
     let folders: Vec<FolderChoice> = folder::all(ctx.db())
@@ -2426,6 +2456,26 @@ async fn set_protection(
     if r.disk == target {
         return Redirect::to(&here).into_response();
     }
+    let users = link::users_of(ctx.db(), id).await.unwrap_or_default();
+    if protect {
+        // A file some screen shows to people who are not signed in stays
+        // public until that screen holds another.
+        let shown = users
+            .iter()
+            .filter_map(|l| ctx.media_use(&l.owner_type, &l.field))
+            .find(|u| u.public);
+        if let Some(shown) = shown {
+            session.push_flash(
+                FlashLevel::Error,
+                t!(
+                    "{screen} shows this file to people who are not signed in ({field}). Choose another file there first.",
+                    screen = shown.screen.clone(),
+                    field = shown.field.clone()
+                ),
+            );
+            return Redirect::to(&here).into_response();
+        }
+    }
     let (Some((from, _)), Some((to, _))) = (
         app.disks.by_name.get(&r.disk),
         app.disks.by_name.get(target),
@@ -2448,6 +2498,7 @@ async fn set_protection(
     let _ = variant::delete_for(ctx.db(), id).await;
     match record::set_disk(ctx.db(), id, target).await {
         Ok(last) => {
+            forget_settings_of(ctx, &users).await;
             for v in &variants {
                 let _ = from.delete(&v.path).await;
             }
@@ -2486,6 +2537,19 @@ async fn set_protection(
     Redirect::to(&here).into_response()
 }
 
+/// Drops what is cached of the settings when one of them holds a file whose
+/// address just changed, so no screen keeps the old address.
+async fn forget_settings_of(ctx: &RouteCtx, users: &[link::Link]) {
+    if users
+        .iter()
+        .any(|l| ctx.settings_path(&l.owner_type).is_some())
+    {
+        if let Err(e) = ctx.cache().bump(crate::settings::NAMESPACE).await {
+            tracing::warn!(error = %e, "the settings cache was not dropped");
+        }
+    }
+}
+
 async fn delete_file(
     State(app): App,
     Extension(session): Extension<SessionHandle>,
@@ -2521,6 +2585,7 @@ async fn delete_file(
     let _ = variant::delete_for(ctx.db(), id).await;
     match record::delete(ctx.db(), id).await {
         Ok(last) => {
+            forget_settings_of(ctx, &users).await;
             if last {
                 if let Some((driver, _)) = app.disks.by_name.get(&r.disk) {
                     for v in &variants {

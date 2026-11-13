@@ -8,16 +8,18 @@ fields:
   cover_id: { type: media, label: Cover, mode: image }
   gallery: { type: media, label: Gallery, max: 6 }
   fonts: { type: media, label: Fonts, mode: font, max: 0 }
+  logo_id: { type: media, label: Logo, mode: image, public: true }
 ```
 
 Option | Default | Meaning
 --- | --- | ---
 `mode` | `file` | `image` offers images alone and shows thumbnails; `font` offers font files alone.
 `max` | `1` | How many files the field holds: `1` stores one id in a bigint column; any other number stores a JSON list in a text column, `0` meaning no limit.
+`public` | `false` | The file is shown to people who are not signed in: the picker marks a private file and does not take it, a save refuses one, and a file the field holds cannot be made private.
 
-A save links the picked files to the record under the field's name. The file
-page lists the records that use a file, and deleting such a file needs
-`media.delete_linked`.
+A save links the picked files to the record under the field's name; a
+settings screen links them to its code. The file page lists the screens and
+fields that use a file, and deleting such a file needs `media.delete_linked`.
 
 Event | Detail
 --- | ---

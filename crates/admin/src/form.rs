@@ -1818,6 +1818,15 @@ async fn prepare(
         &mut bag,
     )
     .await;
+    // A field shown to people who are not signed in takes no private file.
+    for (field, prepared) in form.config.fields.iter().zip(&form.fields) {
+        let submitted = data.get(&field.name).map(String::as_str);
+        if let Some(name) =
+            crate::medialib::field::private_pick(db, &prepared.opts, submitted).await
+        {
+            bag.add(&field.name, crate::medialib::field::private_refusal(&name));
+        }
+    }
     if !bag.is_empty() {
         return Err(SaveError::Invalid(bag));
     }

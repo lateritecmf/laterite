@@ -1008,3 +1008,87 @@ async fn a_private_upload_has_no_public_address_and_can_be_made_public() {
     let (status, _, _) = get(&app, &bare, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "private again");
 }
+
+#[tokio::test]
+async fn a_file_shown_publicly_stays_public_and_a_private_one_is_refused() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let newest = || async {
+        let listed = laterite_media::library::list(
+            &db,
+            &laterite_media::library::Listing {
+                per_page: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        listed.items.into_iter().max_by_key(|r| r.id).unwrap()
+    };
+
+    upload(&app, &root, &[], &[("logo.png", &png(1))]).await;
+    let logo = newest().await;
+    upload(&app, &root, &[("private", "1")], &[("draft.png", &png(2))]).await;
+    let draft = newest().await;
+    assert_eq!(draft.disk, "private");
+
+    // The picker of a public field lists the private file and will not take it.
+    let (_, html, _) = get(&app, "/admin/media/pick?mode=image&public=1", Some(&root)).await;
+    let tile = |id: i64| {
+        let at = html.find(&format!(r#"data-id="{id}""#)).unwrap();
+        let end = at + html[at..].find('>').unwrap();
+        html[at..end].to_string()
+    };
+    assert!(tile(draft.id).contains(" disabled"), "{}", tile(draft.id));
+    assert!(!tile(logo.id).contains(" disabled"), "{}", tile(logo.id));
+    let (_, html, _) = get(&app, "/admin/media/pick?mode=image", Some(&root)).await;
+    assert!(!html.contains(" disabled>"), "any other field takes it");
+    assert!(html.contains("lat-media-card__lock"), "and it is marked");
+
+    // Saved as the logo, the public file names Admin Branding as its user
+    // and cannot be made private.
+    let (status, _) = post(
+        &app,
+        "/admin/settings/branding",
+        &root,
+        &format!("app_name=Acme&logo={}", logo.id),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, html, _) = get(&app, &format!("/admin/media/{}", logo.id), Some(&root)).await;
+    assert!(html.contains("Admin Branding"), "{html}");
+    assert!(html.contains("Shown publicly"), "{html}");
+    post(
+        &app,
+        &format!("/admin/media/{}/make-private", logo.id),
+        &root,
+        "",
+    )
+    .await;
+    assert_eq!(
+        record::find(&db, logo.id).await.unwrap().unwrap().disk,
+        "public"
+    );
+    let (_, html, _) = get(&app, &format!("/admin/media/{}", logo.id), Some(&root)).await;
+    assert!(
+        html.contains("shows this file to people who are not signed in"),
+        "{html}"
+    );
+
+    // A private file is refused as the logo, and the saved one stays.
+    let (status, _) = post(
+        &app,
+        "/admin/settings/branding",
+        &root,
+        &format!("app_name=Acme&logo={}", draft.id),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the form comes back");
+    let saved = laterite_admin::settings::get(&db, "laterite.brand")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved["logo"], logo.id);
+}

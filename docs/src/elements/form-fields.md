@@ -295,5 +295,6 @@ Key | Default | Description
 --- | --- | ---
 `mode` | `file` | `image` offers images alone and shows thumbnails.
 `max` | `1` | How many files the field holds; `0` is no limit.
+`public` | `false` | The file is shown to people who are not signed in, so a private file is refused.
 
 The columns it writes and the links it keeps: [Media Field](../media/field.md).

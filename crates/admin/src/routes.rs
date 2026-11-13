@@ -46,7 +46,24 @@ pub struct RouteCtx {
     forms: Forms,
     settings_paths: Arc<HashMap<String, String>>,
     entity_access: Arc<EntityAccess>,
+    media_uses: Arc<MediaUses>,
 }
+
+/// A `media` field some screen declares: what the Media screens call it, and
+/// whether its file is shown to people who are not signed in.
+#[derive(Debug, Clone)]
+pub(crate) struct MediaUse {
+    /// The screen's title, such as a resource's or a settings screen's.
+    pub screen: laterite_core::Text,
+    /// The field's label.
+    pub field: laterite_core::Text,
+    /// The field declares `public: true`.
+    pub public: bool,
+}
+
+/// Every declared `media` field, by the entity (or settings code) and the
+/// field name its links carry.
+pub(crate) type MediaUses = HashMap<(String, String), MediaUse>;
 
 /// For each entity a resource or a relation shows, the permissions that let
 /// an operator see its records: holding any one is enough, and `None` among
@@ -96,7 +113,20 @@ impl RouteCtx {
             forms,
             settings_paths,
             entity_access: Arc::default(),
+            media_uses: Arc::default(),
         }
+    }
+
+    /// The context knowing every declared `media` field.
+    pub(crate) fn with_media_uses(mut self, uses: Arc<MediaUses>) -> Self {
+        self.media_uses = uses;
+        self
+    }
+
+    /// The declared `media` field a link's owner and field name, if any.
+    pub(crate) fn media_use(&self, owner_type: &str, field: &str) -> Option<&MediaUse> {
+        self.media_uses
+            .get(&(owner_type.to_string(), field.to_string()))
     }
 
     /// The context knowing which permissions show each entity's records.

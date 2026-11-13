@@ -2730,6 +2730,35 @@ pub fn router(
         }
         Arc::new(access)
     };
+    // Every declared media field, so the Media screens name who uses a file
+    // and keep one shown publicly from being made private.
+    let media_uses: Arc<routes::MediaUses> = {
+        let mut uses = routes::MediaUses::new();
+        let mut note = |entity: &str, screen: &Text, fields: &[form::FormField]| {
+            for field in fields.iter().filter(|f| f.field_type == "media") {
+                uses.insert(
+                    (entity.to_string(), field.name.clone()),
+                    routes::MediaUse {
+                        screen: screen.clone(),
+                        field: field.label.clone(),
+                        public: medialib::field::declares_public(&field.options),
+                    },
+                );
+            }
+        };
+        for resource in &resources {
+            if let Some(form) = &resource.form {
+                note(&form.entity, &resource.nav_label, &form.fields);
+            }
+            for relation in &resource.relations {
+                note(&relation.entity, &relation.title, &relation.form.fields);
+            }
+        }
+        for item in state.settings.iter() {
+            note(&item.code, &item.label, &item.fields);
+        }
+        Arc::new(uses)
+    };
     for reg in &app_screens {
         let base = format!("{admin_path}{}", reg.base_path);
         let ctx = routes::RouteCtx::new(
@@ -2752,7 +2781,8 @@ pub fn router(
             forms.clone(),
             settings_paths(&state.settings, &admin_path),
         )
-        .with_entity_access(entity_access.clone());
+        .with_entity_access(entity_access.clone())
+        .with_media_uses(media_uses.clone());
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,

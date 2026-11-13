@@ -547,6 +547,21 @@ pub(crate) async fn update(
             ));
         }
     };
+    // A field shown to people who are not signed in takes no private file.
+    if let Some(message) = private_pick(state, item, &data).await {
+        return render(with_assets(
+            build(
+                item,
+                &state.field_types,
+                state.overrides.as_ref(),
+                Some(message),
+                &value,
+                &shell,
+            ),
+            state,
+            item,
+        ));
+    }
     let written = if item.per_operator {
         store::set_for(&state.db, user.user.id, &item.code, &value)
             .await
@@ -562,17 +577,7 @@ pub(crate) async fn update(
                     serde_json::from_value(value.clone()).unwrap_or_default();
                 state.mail.templates().set_brand_css(&brand.css()).await;
             }
-            // A private image cannot reach the sign-in page, so it is said.
-            if item.code == brand::BrandSetting::CODE {
-                let setting: brand::BrandSetting =
-                    serde_json::from_value(value.clone()).unwrap_or_default();
-                if brand::names_a_private_image(&state.db, &setting).await {
-                    session.push_flash(
-                        crate::session::FlashLevel::Error,
-                        t!("An image chosen here is private, so it is not shown. Make it public in Media."),
-                    );
-                }
-            }
+            link_media(state, item, &value, user).await;
             // The mail transport follows its settings at once.
             if item.code == mail::MailSetting::CODE {
                 let setting: mail::MailSetting =
@@ -624,6 +629,65 @@ pub(crate) async fn update(
             &value,
             &shell,
         )),
+    }
+}
+
+/// What a public media field says when it was given a private file.
+async fn private_pick(
+    state: &AdminState,
+    item: &SettingsItem,
+    data: &HashMap<String, String>,
+) -> Option<Text> {
+    for field in &item.fields {
+        let Some(field_type) = state.field_types.get(&field.field_type) else {
+            continue;
+        };
+        let Ok(opts) = field_type.resolve_options(&field.options, &state.field_types) else {
+            continue;
+        };
+        let submitted = data.get(&field.name).map(String::as_str);
+        if let Some(name) = crate::medialib::field::private_pick(&state.db, &opts, submitted).await
+        {
+            return Some(crate::medialib::field::private_refusal(&name));
+        }
+    }
+    None
+}
+
+/// The id a settings value's links carry: the deployment's value has one
+/// owner, an operator's own is theirs.
+fn link_owner(item: &SettingsItem, user: &laterite_auth::AuthenticatedUser) -> String {
+    if item.per_operator {
+        user.user.id.to_string()
+    } else {
+        "0".to_string()
+    }
+}
+
+/// Links the files a saved settings value holds to the setting, so the Media
+/// screens name it as their user. A failure is logged and never fails the save.
+async fn link_media(
+    state: &AdminState,
+    item: &SettingsItem,
+    value: &Value,
+    user: &laterite_auth::AuthenticatedUser,
+) {
+    let owner_id = link_owner(item, user);
+    for field in item.fields.iter().filter(|f| f.field_type == "media") {
+        let ids: Vec<i64> = match value.get(&field.name) {
+            Some(Value::Number(id)) => id.as_i64().into_iter().collect(),
+            Some(Value::String(id)) => id.trim().parse().into_iter().collect(),
+            Some(Value::Array(ids)) => ids.iter().filter_map(Value::as_i64).collect(),
+            _ => Vec::new(),
+        };
+        let owner = laterite_media::Owner {
+            owner_type: &item.code,
+            owner_id: &owner_id,
+            field: &field.name,
+        };
+        if let Err(e) = laterite_media::link::set(&state.db, owner, &ids).await {
+            tracing::warn!(error = %e, setting = %item.code, "a setting's media links were not written");
+        }
     }
 }
 

@@ -78,10 +78,10 @@ pub(crate) fn settings_item() -> SettingsItem {
                 "Shown as the admin brand. Clearing it falls back to the configured application name.",
             ),
             FormField::of("logo", "Logo", "media")
-                .options(serde_json::json!({ "mode": "image" }))
-                .help("Shown in the top bar and on the sign-in page in place of the mark. Keep it on a public disk."),
+                .options(serde_json::json!({ "mode": "image", "public": true }))
+                .help("Shown in the top bar and on the sign-in page in place of the mark."),
             FormField::of("favicon", "Browser icon", "media")
-                .options(serde_json::json!({ "mode": "image" }))
+                .options(serde_json::json!({ "mode": "image", "public": true }))
                 .help("The tab icon; a square PNG or SVG."),
             FormField::of("accent", "Accent colour", "text")
                 .options(serde_json::json!({ "input": "color" }))
@@ -101,7 +101,7 @@ pub(crate) fn settings_item() -> SettingsItem {
             FormField::text("login_tagline", "Sign-in tagline")
                 .help("The line on the panel beside the form."),
             FormField::of("login_background", "Sign-in background", "media")
-                .options(serde_json::json!({ "mode": "image" }))
+                .options(serde_json::json!({ "mode": "image", "public": true }))
                 .help("An image behind the panel beside the form."),
             FormField::switch("login_hero", "Show the panel beside the sign-in form"),
             FormField::of("custom_css", "Custom stylesheet", "codeeditor")
@@ -203,19 +203,28 @@ async fn media_url(db: &Db, id: &str) -> Option<String> {
     (record.disk != crate::medialib::PRIVATE_DISK).then(|| crate::medialib::file_url(&record))
 }
 
-/// Whether an image the setting names is private, and so shown nowhere.
-pub(crate) async fn names_a_private_image(db: &Db, setting: &BrandSetting) -> bool {
-    for id in [&setting.logo, &setting.favicon, &setting.login_background] {
-        let Ok(id) = id.trim().parse::<i64>() else {
-            continue;
+/// Links the images the saved setting names to it, so the Media screens name
+/// Admin Branding as their user from the first boot on. A setting saved from
+/// its screen writes the same links.
+pub(crate) async fn link_images(db: &Db) {
+    let Ok(setting) = super::store::load::<BrandSetting>(db).await else {
+        return;
+    };
+    for (field, id) in [
+        ("logo", &setting.logo),
+        ("favicon", &setting.favicon),
+        ("login_background", &setting.login_background),
+    ] {
+        let ids: Vec<i64> = id.trim().parse().into_iter().collect();
+        let owner = laterite_media::Owner {
+            owner_type: BrandSetting::CODE,
+            owner_id: "0",
+            field,
         };
-        if let Ok(Some(record)) = laterite_media::record::find(db, id).await {
-            if record.disk == crate::medialib::PRIVATE_DISK {
-                return true;
-            }
+        if let Err(e) = laterite_media::link::set(db, owner, &ids).await {
+            tracing::warn!(error = %e, field, "a brand image's link was not written");
         }
     }
-    false
 }
 
 /// The variables an accent colour sets, for both modes: the colour, its

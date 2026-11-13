@@ -1132,7 +1132,10 @@ window.lat.widget('media-field', function (root) {
 
   pickBtn.addEventListener('click', function () {
     var mode = root.getAttribute('data-mode');
-    picker.open(root.getAttribute('data-pick') + (mode && mode !== 'file' ? '?mode=' + mode : ''));
+    var ask = [];
+    if (mode && mode !== 'file') ask.push('mode=' + mode);
+    if (root.getAttribute('data-public')) ask.push('public=1');
+    picker.open(root.getAttribute('data-pick') + (ask.length ? '?' + ask.join('&') : ''));
   });
   if (clearBtn) {
     clearBtn.addEventListener('click', function () { draw([]); write([]); });

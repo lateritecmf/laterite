@@ -883,6 +883,7 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-pick{min-height:320px}
 .lat-pick .lat-media-grid{max-height:56vh;overflow:auto}
 .lat-pick__file{appearance:none;font:inherit;text-align:left;cursor:pointer}
+.lat-pick__file:disabled{cursor:not-allowed;opacity:.5}
 .lat-pick__file[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-subtle)}
 .lat-pick__upload{padding:12px 16px;border-bottom:1px solid var(--border-subtle);background:var(--surface-toolbar)}
 .lat-pick .lat-pane__bar{flex-wrap:wrap;gap:8px}

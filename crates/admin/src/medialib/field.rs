@@ -32,6 +32,43 @@ struct MediaOptions {
     /// other number stores a JSON list, `0` meaning no limit.
     #[serde(default = "one")]
     max: u32,
+    /// The file is shown to people who are not signed in: a private file is
+    /// refused, and a file held here cannot be made private.
+    #[serde(default)]
+    public: bool,
+}
+
+/// Whether a `media` field's options declare `public: true`.
+pub(crate) fn declares_public(options: &serde_json::Value) -> bool {
+    options.get("public").and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// The first private file among those a public `media` field was given, by
+/// name; `None` when the field is not public or every file is.
+pub(crate) async fn private_pick(
+    db: &laterite_core::Db,
+    opts: &ResolvedOptions,
+    submitted: Option<&str>,
+) -> Option<String> {
+    if !opts.get::<MediaResolved>().is_some_and(|r| r.public) {
+        return None;
+    }
+    for id in ids_in(submitted?) {
+        if let Ok(Some(record)) = laterite_media::record::find(db, id).await {
+            if record.disk == super::PRIVATE_DISK {
+                return Some(record.display_name().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// What a public field says of a private file.
+pub(crate) fn private_refusal(name: &str) -> laterite_core::Text {
+    laterite_core::t!(
+        "{name} is private, and this field is shown to people who are not signed in. Make the file public in Media, or choose another.",
+        name = name.to_string()
+    )
 }
 
 fn one() -> u32 {
@@ -42,6 +79,7 @@ fn one() -> u32 {
 pub(crate) struct MediaResolved {
     mode: MediaMode,
     max: u32,
+    public: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -50,6 +88,8 @@ struct MediaData {
     resolve_url: String,
     mode: MediaMode,
     max: u32,
+    #[serde(default)]
+    public: bool,
     /// The widget's words, in the operator's locale.
     select: String,
     replace: String,
@@ -68,11 +108,13 @@ struct MediaTmpl<'a> {
     resolve_url: &'a str,
     mode: &'a str,
     max: u32,
+    public: bool,
     multiple: bool,
     words: &'a MediaData,
 }
 
-/// The `media` field type. Options: `mode: image | font | file` and `max`.
+/// The `media` field type. Options: `mode: image | font | file`, `max` and
+/// `public`.
 pub struct MediaField;
 
 /// The ids in a control's value: `"3,7"` or a stored JSON list `[3, 7]`.
@@ -93,7 +135,11 @@ impl FieldType for MediaField {
     }
 
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
-        Some(vec!["mode".to_string(), "max".to_string()])
+        Some(vec![
+            "mode".to_string(),
+            "max".to_string(),
+            "public".to_string(),
+        ])
     }
 
     fn resolve_options(
@@ -109,6 +155,7 @@ impl FieldType for MediaField {
         Ok(ResolvedOptions::new(MediaResolved {
             mode: opts.mode,
             max: opts.max,
+            public: opts.public,
         }))
     }
 
@@ -119,6 +166,7 @@ impl FieldType for MediaField {
             resolve_url: format!("{}/media-files/resolve", cx.base),
             mode: resolved.map(|r| r.mode).unwrap_or_default(),
             max: resolved.map(|r| r.max).unwrap_or(1),
+            public: resolved.is_some_and(|r| r.public),
             select: cx.i18n.t(&laterite_core::t!("Select")),
             replace: cx.i18n.t(&laterite_core::t!("Replace")),
             clear: cx.i18n.t(&laterite_core::t!("Clear")),
@@ -155,6 +203,7 @@ impl FieldType for MediaField {
                 MediaMode::File => "file",
             },
             max: data.max,
+            public: data.public,
             multiple: data.max != 1,
             words: &data,
         })

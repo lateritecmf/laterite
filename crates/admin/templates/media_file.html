@@ -58,7 +58,7 @@
       <div class="lat-pane__body"><p class="lat-help" style="margin:0">{{ shell.t("No record links to this file.") }}</p></div>
       {% else %}
       <table class="lat-table"><tbody>
-        {% for u in users %}<tr><td>{{ u.owner_type }}</td><td>{{ u.owner_id }}</td><td>{{ u.field }}</td></tr>{% endfor %}
+        {% for u in users %}<tr>{% if let Some((screen, field)) = u.named %}<td>{{ screen }}</td><td>{{ field }}</td><td>{% if u.public %}<span class="lat-badge">{{ shell.t("Shown publicly") }}</span>{% endif %}</td>{% else %}<td>{{ u.owner_type }}</td><td>{{ u.owner_id }}</td><td>{{ u.field }}</td>{% endif %}</tr>{% endfor %}
       </tbody></table>
       {% endif %}
     </div>
