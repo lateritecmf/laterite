@@ -928,7 +928,7 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 @media (max-width:768px),(pointer:coarse){.lat-checklist__parent{width:18px;height:18px}}
 .lat-settings-inline{display:none}
 .lat-settings-choose{display:flex;align-items:center;justify-content:center;min-height:65vh}
-.lat-settings-choose img{height:min(38vh,320px);width:auto;max-width:60%;object-fit:contain;opacity:.45;filter:grayscale(1)}
+.lat-settings-choose img{height:min(38vh,320px);width:auto;max-width:60%;object-fit:contain;opacity:.85}
 @media (max-width:992px){.lat-settings-inline{display:block}.lat-settings-inline+p,.lat-settings-choose{display:none}}
 .lat-settings-inline .lat-card{padding:0;overflow:hidden}
 .lat-settings-inline__group{padding:10px 16px 4px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-subtle)}
