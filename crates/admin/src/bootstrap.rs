@@ -972,6 +972,7 @@ impl Bootstrap {
         }
 
         check_commands(&static_site.plugin_defined)?;
+        crate::ability::check(&static_site.plugin_defined).map_err(anyhow::Error::msg)?;
         let admin_path = normalize_path(&config.backend.path);
         Ok(Prepared {
             app,

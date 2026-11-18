@@ -121,6 +121,8 @@ pub(crate) enum BackendAuditLog {
     TargetLabel,
     /// Optional JSON describing the change.
     Detail,
+    /// What acted for the operator, null when they acted themselves.
+    Channel,
     CreatedAt,
 }
 

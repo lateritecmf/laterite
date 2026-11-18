@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Abilities: a module declares an act by name with `add_ability` (a typed input, a permission, an effect), and `RouteCtx::abilities` lists, previews and runs them as the signed-in person.
+- `Actor::through(channel)` marks a write made for a person by something else; the Audit Log shows it under Through (`AuditEntry::channel`, `AuditRecord::channel`).
 - `board`: a dashboard any screen hosts. `Board` lays `Kind`s of widget on a twenty-column grid, each fetched after the page, with an edit mode (move, resize, add, remove, configure) saved per person or for everyone.
 - `Kind::properties_for`, `reload_on` and `check` for settings that depend on one another and are checked before they are kept; `Board::view_permission` guards a board's routes.
 - Boards are edited on a phone and from the keyboard: Move earlier and Move later on each widget, and the edit bar at every width. A chart drops every other date when it is narrow.

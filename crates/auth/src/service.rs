@@ -362,6 +362,8 @@ pub struct AuditEntry<'a> {
     pub target_label: Option<&'a str>,
     /// Optional JSON describing the change.
     pub detail: Option<&'a str>,
+    /// What acted for the operator, `None` when they acted themselves.
+    pub channel: Option<&'a str>,
 }
 
 impl<'a> AuditEntry<'a> {
@@ -375,6 +377,7 @@ impl<'a> AuditEntry<'a> {
             target_id: None,
             target_label: None,
             detail: None,
+            channel: actor.channel(),
         }
     }
 
@@ -389,6 +392,13 @@ impl<'a> AuditEntry<'a> {
     /// JSON describing the change.
     pub fn detail(mut self, detail: &'a str) -> Self {
         self.detail = Some(detail);
+        self
+    }
+
+    /// What acted for the operator (`acme.assistant`). [`new`](Self::new)
+    /// already takes it from an actor that carries one.
+    pub fn channel(mut self, channel: &'a str) -> Self {
+        self.channel = Some(channel);
         self
     }
 }
@@ -1186,17 +1196,7 @@ impl AuthService {
     /// this after a successful change, so actions that affect privileges or data
     /// are recorded. Self-service preference changes are not audited.
     pub async fn record_audit(&self, entry: AuditEntry<'_>) -> Result<(), AuthError> {
-        store::insert_audit_log(
-            &self.db,
-            entry.actor_user_id,
-            entry.actor_username,
-            entry.action,
-            entry.target_type,
-            entry.target_id,
-            entry.target_label,
-            entry.detail,
-        )
-        .await
+        store::insert_audit_entry(&self.db, &entry).await
     }
 
     /// The most recent audit entries, newest first, for the admin audit view.
@@ -1740,6 +1740,7 @@ mod tests {
             target_id: Some("42"),
             target_label: Some("Editors"),
             detail: Some(r#"{"added":["a.b"]}"#),
+            channel: None,
         })
         .await
         .unwrap();
@@ -1751,6 +1752,7 @@ mod tests {
             target_id: Some("acme.widgets"),
             target_label: None,
             detail: None,
+            channel: None,
         })
         .await
         .unwrap();

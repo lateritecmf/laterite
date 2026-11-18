@@ -15,6 +15,7 @@ list:
   columns:
     created_at:     { label: When, type: datetime }
     actor_username: { label: Operator }
+    channel:        { label: Through }
     action:         { label: Action }
     target_type:    { label: Target }
     target_id:      { label: Target ID }

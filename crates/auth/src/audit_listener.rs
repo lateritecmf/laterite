@@ -15,17 +15,14 @@ pub struct AuditListener;
 impl AuditListener {
     async fn write(&self, cx: &SavedCx<'_>, rec: &Record, verb: &str) -> Result<(), AuthError> {
         let target_id = rec.id().map(|id| id.to_string());
-        store::insert_audit_log(
-            cx.db(),
-            cx.actor().user_id(),
-            cx.actor().label(),
-            &format!("backend.{}.{verb}", rec.entity()),
-            Some(rec.entity()),
-            target_id.as_deref(),
-            None,
-            None,
-        )
-        .await
+        let action = format!("backend.{}.{verb}", rec.entity());
+        let mut entry = crate::AuditEntry::new(cx.actor(), &action);
+        if let Some(id) = target_id.as_deref() {
+            entry = entry.target(rec.entity(), id, None);
+        } else {
+            entry.target_type = Some(rec.entity());
+        }
+        store::insert_audit_entry(cx.db(), &entry).await
     }
 }
 
@@ -119,5 +116,23 @@ mod tests {
         // No foreign key to a user, and the process names itself in the trail.
         assert_eq!(entries[0].actor_user_id, None);
         assert_eq!(entries[0].actor_username, "seed");
+        assert_eq!(entries[0].channel, None);
+    }
+
+    #[tokio::test]
+    async fn a_write_made_for_someone_names_the_channel_beside_them() {
+        let (db, _guard) = test_db().await;
+        let id = operator(&db).await;
+        let actor = Actor::user(id, "root").through("acme.assistant");
+        let rec = laterite_core::Record::with_id("widgets", 7);
+
+        AuditListener
+            .after_save(&SavedCx::new(&db, &actor), &rec, Op::Create)
+            .await;
+
+        let entries = store::recent_audit(&db, 10).await.unwrap();
+        assert_eq!(entries[0].actor_user_id, Some(id));
+        assert_eq!(entries[0].actor_username, "root");
+        assert_eq!(entries[0].channel.as_deref(), Some("acme.assistant"));
     }
 }

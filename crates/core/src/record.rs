@@ -419,9 +419,44 @@ pub enum Actor {
         /// Name of the process (`seed`, `job:purge-sessions`).
         process: String,
     },
+    /// A signed-in user acting through something that works on their behalf:
+    /// an assistant, an outside agent, an import. The write is theirs, made
+    /// with their permissions, and the trail names the channel beside them.
+    Delegated {
+        /// Id of the user's row.
+        id: i64,
+        /// Username, snapshotted for the trail.
+        username: String,
+        /// What acted for them, dot-keyed with its module first
+        /// (`acme.assistant`).
+        channel: String,
+    },
 }
 
 impl Actor {
+    /// The same person acting through `channel` (`acme.assistant`). A process
+    /// stays a process: it has nobody to act for.
+    pub fn through(self, channel: impl Into<String>) -> Self {
+        match self {
+            Actor::User { id, username } | Actor::Delegated { id, username, .. } => {
+                Actor::Delegated {
+                    id,
+                    username,
+                    channel: channel.into(),
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// What acted for the user, `None` when they acted themselves.
+    pub fn channel(&self) -> Option<&str> {
+        match self {
+            Actor::Delegated { channel, .. } => Some(channel),
+            _ => None,
+        }
+    }
+
     /// Returns the actor for the signed-in user `id` named `username`.
     pub fn user(id: i64, username: impl Into<String>) -> Self {
         Actor::User {
@@ -440,7 +475,7 @@ impl Actor {
     /// The user to attribute a row to, `None` when no person is behind the write.
     pub fn user_id(&self) -> Option<i64> {
         match self {
-            Actor::User { id, .. } => Some(*id),
+            Actor::User { id, .. } | Actor::Delegated { id, .. } => Some(*id),
             _ => None,
         }
     }
@@ -448,7 +483,7 @@ impl Actor {
     /// The text a trail snapshots: the username, or the process name.
     pub fn label(&self) -> &str {
         match self {
-            Actor::User { username, .. } => username,
+            Actor::User { username, .. } | Actor::Delegated { username, .. } => username,
             Actor::System { process } => process,
         }
     }

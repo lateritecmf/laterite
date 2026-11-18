@@ -836,6 +836,7 @@ pub(crate) async fn change_password(
         Some(&target),
         Some(&username),
         None,
+        None,
     );
     bind_values(sqlx::query(&sql), values)
         .execute(&mut *tx)
@@ -1085,8 +1086,33 @@ pub struct AuditRecord {
     pub target_label: Option<String>,
     /// Optional JSON describing the change.
     pub detail: Option<String>,
+    /// What acted for the user (`acme.assistant`), `None` when they acted
+    /// themselves.
+    pub channel: Option<String>,
     /// When the entry was written (UTC).
     pub created_at: DateTime<Utc>,
+}
+
+/// Appends `entry` to the append-only audit log.
+pub(crate) async fn insert_audit_entry(
+    db: &Db,
+    entry: &crate::service::AuditEntry<'_>,
+) -> Result<(), AuthError> {
+    let (sql, values) = insert_audit_log_query(
+        db.backend,
+        entry.actor_user_id,
+        entry.actor_username,
+        entry.action,
+        entry.target_type,
+        entry.target_id,
+        entry.target_label,
+        entry.detail,
+        entry.channel,
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
 }
 
 /// Appends one entry to the append-only audit log.
@@ -1110,6 +1136,7 @@ pub async fn insert_audit_log(
         target_id,
         target_label,
         detail,
+        None,
     );
     bind_values(sqlx::query(&sql), values)
         .execute(&db.pool)
@@ -1127,6 +1154,7 @@ fn insert_audit_log_query(
     target_id: Option<&str>,
     target_label: Option<&str>,
     detail: Option<&str>,
+    channel: Option<&str>,
 ) -> (String, sea_query::Values) {
     build(
         backend,
@@ -1140,6 +1168,7 @@ fn insert_audit_log_query(
                 BackendAuditLog::TargetId,
                 BackendAuditLog::TargetLabel,
                 BackendAuditLog::Detail,
+                BackendAuditLog::Channel,
                 BackendAuditLog::CreatedAt,
             ])
             .values_panic([
@@ -1150,6 +1179,7 @@ fn insert_audit_log_query(
                 target_id.map(str::to_string).into(),
                 target_label.map(str::to_string).into(),
                 detail.map(str::to_string).into(),
+                channel.map(str::to_string).into(),
                 now_ts().into(),
             ])
             .to_owned(),
@@ -1170,6 +1200,7 @@ pub async fn recent_audit(db: &Db, limit: u64) -> Result<Vec<AuditRecord>, AuthE
                 BackendAuditLog::TargetId,
                 BackendAuditLog::TargetLabel,
                 BackendAuditLog::Detail,
+                BackendAuditLog::Channel,
                 BackendAuditLog::CreatedAt,
             ])
             .from(BackendAuditLog::Table)
@@ -1192,6 +1223,7 @@ fn audit_from_row(row: &AnyRow) -> Result<AuditRecord, AuthError> {
         target_id: row.get_text_opt("target_id")?,
         target_label: row.get_text_opt("target_label")?,
         detail: row.get_text_opt("detail")?,
+        channel: row.get_text_opt("channel")?,
         created_at: parse_ts(&row.get_text("created_at")?)?,
     })
 }

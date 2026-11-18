@@ -38,6 +38,10 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# Abilities: the input schema a typed input declares, and the check a call's
+# input passes before anything runs.
+schemars = "1.2"
+jsonschema = { version = "0.61", default-features = false }
 tower-http = { version = "0.7.1", features = ["catch-panic", "set-header"] }
 
 [features]

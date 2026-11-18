@@ -16,6 +16,7 @@
 
 #![warn(missing_docs)]
 
+pub mod ability;
 mod audit;
 pub mod board;
 pub mod bootstrap;
@@ -74,6 +75,7 @@ mod widgets;
 /// different type from `Router`, and the diagnostic for that is famously unhelpful.
 /// Re-exported so this crate's manifest is the only place the version is chosen.
 pub use axum;
+pub use schemars;
 
 pub use bootstrap::{
     crypt_from_config, legacy_key_material, AppConfig, Bootstrap, BootstrapCtx, DEFAULT_ENV_PREFIX,
@@ -135,6 +137,9 @@ pub trait AdminRegistry {
     fn add_snippet_source(&mut self, source: std::sync::Arc<dyn editor::SnippetSource>);
     /// Adds a dashboard widget. See [`widget::Widget`].
     fn add_widget(&mut self, widget: widget::WidgetReg);
+    /// Declares something this module can do, callable by name. See
+    /// [`ability::Ability`].
+    fn add_ability(&mut self, ability: ability::Ability);
     /// Adds a skin, selectable by `backend.skin`. See [`skin::Skin`].
     fn add_skin(&mut self, skin: skin::Skin);
     /// Serves a file under the admin's assets at `key` (`acme/dense.css`): a
@@ -179,6 +184,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_widget(&mut self, widget: widget::WidgetReg) {
         self.add(widget);
+    }
+    fn add_ability(&mut self, ability: ability::Ability) {
+        self.add(ability);
     }
     fn add_skin(&mut self, skin: skin::Skin) {
         self.add(skin);
@@ -6675,6 +6683,7 @@ mod tests {
             [
                 "created_at",
                 "actor_username",
+                "channel",
                 "action",
                 "target_type",
                 "target_id",

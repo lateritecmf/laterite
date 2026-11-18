@@ -32,4 +32,5 @@ laterite_core::migration_set! {
     m0019_add_backend_user_must_change_password,
     m0020_create_backend_groups,
     m0021_create_backend_user_groups,
+    m0022_add_backend_audit_channel,
 }

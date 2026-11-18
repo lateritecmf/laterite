@@ -71,6 +71,7 @@
 - [Installing Plugins](plugins/installing.md)
 - [Resource Features and Hooks](plugins/resource-hooks.md)
 - [Console Commands](plugins/console-commands.md)
+- [Abilities](plugins/abilities.md)
 
 # Screens and Routes
 

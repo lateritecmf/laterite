@@ -302,6 +302,12 @@ impl RouteCtx {
             .map(|form| FormHandle::new(self.db.clone(), self.cache.clone(), form.clone()))
     }
 
+    /// What this panel's modules declared can be done, to list for a person
+    /// and to run as them. See [`crate::ability::Abilities`].
+    pub fn abilities(&self) -> crate::ability::Abilities<'_> {
+        crate::ability::Abilities::new(self)
+    }
+
     /// The application's event bus, for a route that announces a fact:
     /// `ctx.events().emit(&Published { article_id }).await`. Clone it into the
     /// route's state.
