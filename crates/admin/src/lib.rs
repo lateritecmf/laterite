@@ -48,6 +48,7 @@ mod passwordlinks;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
+pub mod records;
 pub mod relation;
 pub(crate) mod requestlog;
 mod richtext;
@@ -1478,6 +1479,9 @@ pub struct Resource {
     pub source: Option<laterite_core::source::Source>,
     /// Whether a delete moves a record to the trash. See [`Resource::soft_delete`].
     pub soft_delete: bool,
+    /// What a caller of abilities may do with the records. See
+    /// [`Resource::abilities`].
+    pub abilities: records::RecordAbilities,
 }
 
 /// The grants a resource's writes ask for, each in addition to the resource's
@@ -1685,7 +1689,16 @@ impl Resource {
             menu: nav::Placement::default(),
             source: None,
             soft_delete: false,
+            abilities: records::RecordAbilities::default(),
         }
+    }
+
+    /// Sets what the record abilities (`backend.records.find` and the others)
+    /// may do with this resource's records. Unset, they find, read, and draft
+    /// a create or an update, each asking for what the screen asks for.
+    pub fn abilities(mut self, abilities: records::RecordAbilities) -> Self {
+        self.abilities = abilities;
+        self
     }
 
     /// Delete moves a record to the trash: `deleted_at` is set, the record
@@ -2235,6 +2248,8 @@ pub fn router(
             })
         })
         .collect();
+    let app_paths: std::collections::HashSet<String> =
+        app_resources.iter().map(|r| r.base_path.clone()).collect();
     resources.extend(app_resources);
 
     let app_name = if config.app_name.trim().is_empty() {
@@ -2669,6 +2684,32 @@ pub fn router(
         }
     }
     let forms: form::Forms = Arc::new(forms);
+    // What the record abilities reach: the modules' resources, never the
+    // framework's own (people, roles, the logs).
+    let record_kinds: Arc<Vec<records::RecordKind>> = Arc::new(
+        resources
+            .iter()
+            .filter(|r| app_paths.contains(&r.base_path))
+            .map(|r| {
+                let key = r
+                    .base_path
+                    .strip_prefix(admin_path.as_str())
+                    .unwrap_or(&r.base_path)
+                    .to_string();
+                records::RecordKind {
+                    form: forms.get(&key).cloned(),
+                    key,
+                    href: r.base_path.clone(),
+                    title: r.list.title.clone(),
+                    list: r.list.clone(),
+                    permission: r.permission.clone(),
+                    permissions: r.permissions.clone(),
+                    hooks: state.scopes_for(&r.list.entity).to_vec(),
+                    config: r.abilities.clone(),
+                }
+            })
+            .collect(),
+    );
 
     // The home dashboard: a board of the registered widgets, each person
     // arranging their own.
@@ -2860,7 +2901,8 @@ pub fn router(
             settings_paths(&state.settings, &admin_path),
         )
         .with_entity_access(entity_access.clone())
-        .with_media_uses(media_uses.clone());
+        .with_media_uses(media_uses.clone())
+        .with_records(record_kinds.clone());
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,
@@ -6171,6 +6213,7 @@ fn builtin_resources() -> Vec<Resource> {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         },
         Resource {
@@ -6187,6 +6230,7 @@ fn builtin_resources() -> Vec<Resource> {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         },
         resource!("descriptors/groups.yaml"),
@@ -6612,6 +6656,7 @@ mod tests {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         }
     }

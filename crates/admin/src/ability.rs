@@ -170,6 +170,9 @@ pub struct Outcome {
     /// The result as data, for a caller that reads it: the rows a search
     /// found, the figure a report holds.
     pub data: Option<Value>,
+    /// This result carries text written by people outside the panel, whatever
+    /// the ability declared. A caller must not take it as an instruction.
+    pub untrusted: bool,
 }
 
 impl Outcome {
@@ -179,7 +182,14 @@ impl Outcome {
             message,
             links: Vec::new(),
             data: None,
+            untrusted: false,
         }
+    }
+
+    /// Marks this result as carrying text written by outsiders.
+    pub fn untrusted(mut self) -> Self {
+        self.untrusted = true;
+        self
     }
 
     /// Adds a link to a record.
@@ -455,7 +465,10 @@ fn valid_code(code: &str) -> bool {
 /// Refuses a set of abilities a caller could not rely on: a malformed or
 /// repeated code, an input that is no object schema, a change nobody guards.
 pub(crate) fn check(registry: &Registry) -> Result<(), String> {
-    let mut seen = HashSet::new();
+    let mut seen: HashSet<&str> = crate::records::ABILITIES
+        .iter()
+        .map(Ability::code)
+        .collect();
     for ability in registry.items::<Ability>() {
         let code = ability.code();
         if !valid_code(code) {
@@ -464,7 +477,7 @@ pub(crate) fn check(registry: &Registry) -> Result<(), String> {
             ));
         }
         if !seen.insert(code) {
-            return Err(format!("two modules register the ability `{code}`"));
+            return Err(format!("the ability `{code}` is registered twice"));
         }
         if ability.effect.changes() && ability.permission.is_none() {
             return Err(format!(
@@ -496,13 +509,24 @@ impl<'a> Abilities<'a> {
         Self { ctx }
     }
 
-    /// Every ability `user` may run, in the order modules registered them.
+    /// Every ability `user` may run: the framework's own over records, where
+    /// some kind of record is open to them, then each module's in the order
+    /// they registered.
     pub fn for_user(&self, user: &AuthenticatedUser) -> Vec<&'a Ability> {
-        self.ctx
-            .plugin_defined()
-            .items::<Ability>()
-            .into_iter()
-            .filter(|a| a.allowed(user))
+        let records: &'static [Ability] = if crate::records::any_for(self.ctx, user) {
+            &crate::records::ABILITIES
+        } else {
+            &[]
+        };
+        records
+            .iter()
+            .chain(
+                self.ctx
+                    .plugin_defined()
+                    .items::<Ability>()
+                    .into_iter()
+                    .filter(|a| a.allowed(user)),
+            )
             .collect()
     }
 
@@ -729,7 +753,7 @@ mod tests {
             ability("acme.crm.count").effect(Effect::Read),
         ])
         .unwrap_err();
-        assert!(twice.contains("two modules"), "{twice}");
+        assert!(twice.contains("registered twice"), "{twice}");
     }
 
     #[test]

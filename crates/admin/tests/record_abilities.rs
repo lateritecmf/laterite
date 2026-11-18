@@ -1,0 +1,376 @@
+//! The abilities every resource gives: kinds, find, read, and a drafted
+//! create or update. Imports only the public API.
+
+use std::sync::{Arc, OnceLock};
+
+use axum::Router;
+use laterite_admin::ability::AbilityError;
+use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
+use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
+use laterite_auth::{
+    AuditListener, AuthConfig, AuthService, AuthenticatedUser, BackendUser, NewOperator,
+    PermissionSet,
+};
+use laterite_core::serde_json::json;
+use laterite_core::strata::*;
+use laterite_core::{t, CatalogStore, Db, MigrationSet, ModelListenerReg};
+use sea_query::Alias;
+
+struct CreatePosts;
+
+#[async_trait(?Send)]
+impl Migration for CreatePosts {
+    fn name(&self) -> &str {
+        "0001_create_posts"
+    }
+    async fn up(&self, s: &mut Schema<'_>) -> CoreResult<()> {
+        s.exec(
+            Table::create()
+                .table(Alias::new("posts"))
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(Alias::new("id"))
+                        .big_integer()
+                        .not_null()
+                        .auto_increment()
+                        .primary_key(),
+                )
+                .col(ColumnDef::new(Alias::new("code")).text().not_null())
+                .col(ColumnDef::new(Alias::new("name")).text().not_null())
+                .col(ColumnDef::new(Alias::new("internal")).text())
+                .to_owned(),
+        )
+        .await
+    }
+}
+
+struct Keeper(Arc<OnceLock<RouteCtx>>);
+
+impl Screen for Keeper {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let _ = self.0.set(ctx.clone());
+        Router::new()
+    }
+}
+
+async fn boot() -> (
+    RouteCtx,
+    AuthService,
+    i64,
+    laterite_core::testing::TestGuard,
+) {
+    let mut sets = laterite_admin::builtin_migrations();
+    sets.push(MigrationSet::new("acme.posts", vec![Box::new(CreatePosts)]));
+    let (db, guard): (Db, _) = laterite_core::testing::connect_test(&sets).await;
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    let id = auth
+        .create_superuser(NewOperator {
+            username: "asha",
+            email: "asha@acme.test",
+            first_name: "Asha",
+            last_name: None,
+            password: "correct horse 42",
+            timezone: None,
+        })
+        .await
+        .unwrap();
+    let kept = Arc::new(OnceLock::new());
+    let _ = router(
+        auth.clone(),
+        db,
+        Contributions {
+            resources: vec![
+                resource!("tests/descriptors/record_abilities.yaml"),
+                resource!("tests/descriptors/record_abilities_off.yaml"),
+            ],
+            permissions: vec![
+                Permission::new("acme.manage_posts", t!("Manage posts"), t!("Acme")),
+                Permission::new("acme.edit_posts", t!("Edit posts"), t!("Acme")),
+            ],
+            listeners: vec![ModelListenerReg::all(Arc::new(AuditListener))],
+            screens: vec![ScreenReg::new(
+                "/keeper",
+                "acme.manage_posts",
+                Arc::new(Keeper(kept.clone())),
+            )],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
+    let ctx = kept.get().expect("the screen mounted").clone();
+    (ctx, auth, id, guard)
+}
+
+fn person(id: i64, grants: &[&str]) -> AuthenticatedUser {
+    let now = chrono::Utc::now();
+    AuthenticatedUser {
+        user: BackendUser {
+            id,
+            username: "asha".to_string(),
+            email: "asha@acme.test".to_string(),
+            first_name: "Asha".to_string(),
+            last_name: None,
+            password_hash: String::new(),
+            is_superuser: false,
+            is_active: true,
+            timezone: None,
+            locale: None,
+            created_at: now,
+            updated_at: now,
+        },
+        permissions: PermissionSet::new(false, grants.iter().map(|g| String::from(*g))),
+    }
+}
+
+const EDITOR: [&str; 2] = ["acme.manage_posts", "acme.edit_posts"];
+
+async fn add(ctx: &RouteCtx, user: &AuthenticatedUser, code: &str, name: &str) -> i64 {
+    let outcome = ctx
+        .abilities()
+        .run(
+            user,
+            "backend.records.create",
+            json!({ "resource": "/posts", "values": { "code": code, "name": name } }),
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap();
+    outcome.data.unwrap()["id"].as_i64().unwrap()
+}
+
+#[tokio::test]
+async fn nobody_without_a_resource_is_offered_the_record_abilities() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    assert!(ctx.abilities().for_user(&person(id, &[])).is_empty());
+    let codes: Vec<&str> = ctx
+        .abilities()
+        .for_user(&person(id, &["acme.manage_posts"]))
+        .iter()
+        .map(|a| a.code())
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            "backend.records.kinds",
+            "backend.records.find",
+            "backend.records.read",
+            "backend.records.create",
+            "backend.records.update"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn kinds_lists_what_is_open_and_hides_what_the_resource_hides() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    let reader = person(id, &["acme.manage_posts"]);
+    let abilities = ctx.abilities();
+
+    let all = abilities
+        .run(&reader, "backend.records.kinds", json!({}), None)
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    // The resource that switched abilities off is not there.
+    assert_eq!(all.as_array().unwrap().len(), 1);
+    assert_eq!(all[0]["resource"], "/posts");
+    assert_eq!(
+        all[0]["describe"],
+        "Blog posts, each with a code and a name."
+    );
+    // Without the update grant the person may add and not change.
+    assert_eq!(all[0]["can"], json!(["find", "read", "create"]));
+
+    let one = abilities
+        .run(
+            &reader,
+            "backend.records.kinds",
+            json!({ "resource": "/posts" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    let names: Vec<&str> = one["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["code", "name"]);
+    assert_eq!(one["fields"][0]["required"], true);
+    assert_eq!(one["columns"], json!(["code", "name"]));
+
+    let sealed = abilities
+        .run(
+            &reader,
+            "backend.records.find",
+            json!({ "resource": "/sealed" }),
+            None,
+        )
+        .await;
+    assert!(matches!(sealed, Err(AbilityError::Invalid(_))));
+}
+
+#[tokio::test]
+async fn a_record_is_created_found_read_and_changed_as_the_person() {
+    let (ctx, auth, id, _guard) = boot().await;
+    let editor = person(id, &EDITOR);
+    let abilities = ctx.abilities();
+
+    let first = add(&ctx, &editor, "hello", "Hello world").await;
+    add(&ctx, &editor, "other", "Something else").await;
+
+    let found = abilities
+        .run(
+            &editor,
+            "backend.records.find",
+            json!({ "resource": "/posts", "search": "hello" }),
+            None,
+        )
+        .await
+        .unwrap();
+    let data = found.data.unwrap();
+    assert_eq!(data["total"], 1);
+    assert_eq!(data["rows"][0]["code"], "hello");
+    assert!(data["rows"][0].get("internal").is_none());
+    assert_eq!(found.links[0].href, format!("/admin/posts/{first}/edit"));
+
+    let changed = abilities
+        .run(
+            &editor,
+            "backend.records.update",
+            json!({ "resource": "/posts", "id": first, "values": { "name": "Hello again" } }),
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed.data.unwrap()["id"], first);
+
+    let read = abilities
+        .run(
+            &editor,
+            "backend.records.read",
+            json!({ "resource": "/posts", "id": first }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    // The field left out of the change kept its value.
+    assert_eq!(
+        read["values"],
+        json!({ "code": "hello", "name": "Hello again" })
+    );
+
+    // Each save is in the trail as the person, through the channel.
+    let entries = auth.recent_audit(20).await.unwrap();
+    let saves: Vec<&str> = entries
+        .iter()
+        .filter(|e| e.target_type.as_deref() == Some("posts"))
+        .map(|e| e.action.as_str())
+        .collect();
+    assert_eq!(
+        saves,
+        [
+            "backend.posts.update",
+            "backend.posts.create",
+            "backend.posts.create"
+        ]
+    );
+    assert!(entries
+        .iter()
+        .all(|e| e.actor_user_id == Some(id) && e.channel.as_deref() == Some("acme.assistant")));
+}
+
+#[tokio::test]
+async fn a_draft_is_checked_and_handed_back_with_nothing_written() {
+    let (ctx, auth, id, _guard) = boot().await;
+    let editor = person(id, &EDITOR);
+    let abilities = ctx.abilities();
+
+    let preview = abilities
+        .preview(
+            &editor,
+            "backend.records.create",
+            &json!({ "resource": "/posts", "values": { "code": "draft", "name": "A draft" } }),
+            None,
+        )
+        .await
+        .unwrap();
+    let draft = preview.draft.unwrap();
+    assert_eq!(draft.path, "/posts");
+    assert_eq!(draft.id, None);
+    assert_eq!(draft.values["name"], "A draft");
+
+    // The form's own rules answer, against the field.
+    let refused = abilities
+        .preview(
+            &editor,
+            "backend.records.create",
+            &json!({ "resource": "/posts", "values": { "code": "x".repeat(61) } }),
+            None,
+        )
+        .await;
+    let Err(AbilityError::Invalid(faults)) = refused else {
+        panic!("expected a refusal");
+    };
+    assert!(
+        faults.iter().any(|f| f.starts_with("values/code")),
+        "{faults:?}"
+    );
+    assert!(
+        faults.iter().any(|f| f.starts_with("values/name")),
+        "{faults:?}"
+    );
+
+    // A hidden field is never written.
+    let hidden = abilities
+        .run(
+            &editor,
+            "backend.records.create",
+            json!({ "resource": "/posts", "values": { "code": "a", "name": "b", "internal": "c" } }),
+            None,
+        )
+        .await;
+    let Err(AbilityError::Invalid(faults)) = hidden else {
+        panic!("expected a refusal");
+    };
+    assert_eq!(
+        faults,
+        ["values/internal: this kind of record has no such field"]
+    );
+    assert!(auth.recent_audit(10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_change_asks_for_the_resources_own_update_grant() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    let first = add(&ctx, &person(id, &EDITOR), "hello", "Hello world").await;
+
+    let reader = person(id, &["acme.manage_posts"]);
+    let refused = ctx
+        .abilities()
+        .run(
+            &reader,
+            "backend.records.update",
+            json!({ "resource": "/posts", "id": first, "values": { "name": "Mine now" } }),
+            None,
+        )
+        .await;
+    assert!(matches!(refused, Err(AbilityError::Refused(_))));
+    let missing = ctx
+        .abilities()
+        .run(
+            &person(id, &EDITOR),
+            "backend.records.read",
+            json!({ "resource": "/posts", "id": 999 }),
+            None,
+        )
+        .await;
+    assert!(matches!(missing, Err(AbilityError::Refused(_))));
+}

@@ -1,0 +1,21 @@
+entity: posts
+path: /posts
+title: Posts
+permission: acme.manage_posts
+permissions:
+  update: acme.edit_posts
+abilities:
+  describe: Blog posts, each with a code and a name.
+  hide: [internal]
+list:
+  creatable: true
+  columns:
+    code: {}
+    name: {}
+    internal: {}
+form:
+  title: Post
+  fields:
+    code: { rules: [required, { max_length: 60 }] }
+    name: { rules: [required] }
+    internal: {}

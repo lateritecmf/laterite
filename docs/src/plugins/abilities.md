@@ -141,6 +141,47 @@ Error | Cause
 
 A run with an effect other than `Read` writes an `ability.run` audit entry.
 
+## Offer a resource's records
+
+```yaml
+entity: posts
+path: /posts
+title: Posts
+permission: acme.posts.manage
+abilities:
+  describe: Blog posts. A post has a title, a body in markdown and a publish date.
+  update: false
+  hide: [internal_notes]
+```
+
+```rust
+use laterite_admin::records::RecordAbilities;
+
+Resource::new("/posts", "Posts", list)
+    .abilities(RecordAbilities::new().describe(t!("Blog posts.")).hide(["internal_notes"]));
+```
+
+Key | Sets | Default
+--- | --- | ---
+`abilities: false` | keeps the resource out of every record ability | offered
+`describe` | what the records are, for a caller choosing where to look | none
+`create` | a new record may be drafted | `true`, where the list is `creatable`
+`update` | a change may be drafted | `true`
+`hide` | fields and columns kept from a caller | none
+`untrusted` | the records carry text written by people outside the panel | `false`
+
+Ability | Input | Answers
+--- | --- | ---
+`backend.records.kinds` | `resource` (optional) | the kinds open to the person; one kind with its fields and columns
+`backend.records.find` | `resource`, `search`, `limit` | matching rows with their ids, 25 at most
+`backend.records.read` | `resource`, `id` | one record's field values
+`backend.records.create` | `resource`, `values` | `preview`: the filled form as a `Draft`; `run`: the new id
+`backend.records.update` | `resource`, `id`, `values` | `preview`: the changed form as a `Draft`; `run`: the id
+
+`resource` is the resource's `path`. Each ability asks for the resource's
+`permission`, and a create or an update for its `permissions.create` or
+`permissions.update`. `password` and `sensitive` fields are never read or set.
+
 ## Act for a person in your own writes
 
 ```rust

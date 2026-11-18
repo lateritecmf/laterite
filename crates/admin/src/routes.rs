@@ -47,6 +47,7 @@ pub struct RouteCtx {
     settings_paths: Arc<HashMap<String, String>>,
     entity_access: Arc<EntityAccess>,
     media_uses: Arc<MediaUses>,
+    records: Arc<Vec<crate::records::RecordKind>>,
 }
 
 /// A `media` field some screen declares: what the Media screens call it, and
@@ -114,6 +115,7 @@ impl RouteCtx {
             settings_paths,
             entity_access: Arc::default(),
             media_uses: Arc::default(),
+            records: Arc::default(),
         }
     }
 
@@ -121,6 +123,16 @@ impl RouteCtx {
     /// The auth service, for the framework's own widgets.
     pub(crate) fn auth_service(&self) -> &AuthService {
         &self.auth
+    }
+
+    /// The context knowing every resource the record abilities reach.
+    pub(crate) fn with_records(mut self, records: Arc<Vec<crate::records::RecordKind>>) -> Self {
+        self.records = records;
+        self
+    }
+
+    pub(crate) fn records(&self) -> &[crate::records::RecordKind] {
+        &self.records
     }
 
     pub(crate) fn with_media_uses(mut self, uses: Arc<MediaUses>) -> Self {

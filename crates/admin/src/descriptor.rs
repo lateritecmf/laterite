@@ -67,6 +67,9 @@ struct ResourceFile {
     /// The picker source the command palette finds records through.
     #[serde(default)]
     palette: Option<String>,
+    /// `false`, or a map of `RecordAbilities` keys.
+    #[serde(default)]
+    abilities: Option<crate::records::RecordAbilitiesKey>,
     /// Related records, keyed by relation name; see `RelationConfig`.
     #[serde(default, deserialize_with = "crate::keyed::deserialize")]
     relations: Vec<RelationConfig>,
@@ -219,6 +222,9 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     }
     if let Some(source) = file.palette {
         resource = resource.palette(source);
+    }
+    if let Some(abilities) = file.abilities {
+        resource = resource.abilities(abilities.into());
     }
     for mut relation in file.relations {
         check_type_keys(&relation.list, Some(&relation.form)).map_err(|message| {

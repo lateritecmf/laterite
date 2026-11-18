@@ -1,0 +1,8 @@
+entity: posts
+path: /sealed
+title: Sealed
+permission: acme.manage_posts
+abilities: false
+list:
+  columns:
+    code: {}
