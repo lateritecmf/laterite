@@ -942,11 +942,6 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-skip:focus{top:12px;outline:2px solid var(--text-on-accent);outline-offset:2px}
 .lat-main:focus{outline:none}
 /* Dashboard: a six-column grid of widgets, each a card with a heading band. */
-.lat-dash{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px;align-items:start}
-.lat-widget{grid-column:span 3;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-card);box-shadow:var(--shadow-card);overflow:hidden}
-.lat-widget--third{grid-column:span 2}
-.lat-widget--half{grid-column:span 3}
-.lat-widget--full{grid-column:span 6}
 .lat-widget__title{margin:0;padding:10px 16px;border-bottom:1px solid var(--border-subtle);background:var(--surface-toolbar);font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--text-muted)}
 .lat-widget__body{padding:16px}
 .lat-widget__name{margin:0 0 4px;font-family:var(--font-display);font-size:var(--fs-20);font-weight:var(--fw-semibold);color:var(--text-heading)}
@@ -969,15 +964,6 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-facts--stack>div{min-width:0}
 .lat-facts--stack dt{font-size:var(--fs-11);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-subtle)}
 .lat-facts--stack dd{margin:2px 0 0;color:var(--text-body)}
-.lat-dashlist{list-style:none;margin:0;padding:0;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden}
-.lat-dashlist__row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--border-subtle);background:var(--surface-card)}
-.lat-dashlist__row:first-child{border-top:0}
-.lat-dashlist__label{flex:1;min-width:0}
-.lat-dashlist__label span{display:block;font-size:var(--fs-12);color:var(--text-muted)}
-.lat-dashlist__size{width:auto;height:var(--control-h-sm);padding:0 28px 0 8px;font-size:var(--fs-12)}
-.lat-dashlist__move{display:inline-flex;gap:2px}
-.lat-dashlist__move .lat-btn{width:28px;padding:0}
-@media (max-width:900px){.lat-widget,.lat-widget--third,.lat-widget--half{grid-column:span 6}}
 @media (max-width:768px){.lat-activity__row{grid-template-columns:1fr;gap:2px}}
 /* Brand: a logo from the library sits where the mark does, scaled to the bar. */
 .lat-topnav__brand img,.lat-drawer__brand img{max-height:28px;width:auto}

@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `board`: a dashboard any screen hosts. `Board` lays `Kind`s of widget on a twenty-column grid, each fetched after the page, with an edit mode (move, resize, add, remove, configure) saved per person or for everyone.
+- The home dashboard is a board: Edit dashboard replaces Manage widgets, and each person's saved dashboard carries over.
 - `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
 - `linked_record` on a form: a record that belongs to one of any resource (the columns `{morph}_type` and `{morph}_id`) links its owner above the form.
 - A failed save shows the database's own message under Show details, to a superuser and while `app.debug` is on.

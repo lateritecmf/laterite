@@ -137,8 +137,8 @@ impl Widget for Activity {
             _ => 8,
         };
         let records = cx
-            .state
-            .auth
+            .ctx
+            .auth_service()
             .recent_audit(limit)
             .await
             .map_err(|e| e.to_string())?;
@@ -208,7 +208,7 @@ impl Widget for Status {
                 format!("Laterite {}", env!("CARGO_PKG_VERSION")),
             ),
             (cx.t(&t!("Database")), backend.to_string()),
-            (cx.t(&t!("Timezone")), cx.state.timezone.name().to_string()),
+            (cx.t(&t!("Timezone")), cx.timezone.to_string()),
         ];
         Markup::from_template(&StatusTmpl { facts }).map_err(|e| e.to_string())
     }

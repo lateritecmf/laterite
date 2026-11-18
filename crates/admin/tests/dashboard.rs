@@ -123,7 +123,7 @@ async fn text(res: axum::response::Response) -> String {
 }
 
 #[tokio::test]
-async fn the_dashboard_frames_every_widget_and_isolates_a_failure() {
+async fn the_dashboard_frames_every_widget_and_each_fetches_itself() {
     let (db, _guard) = test_db().await;
     let token = session(&db).await;
     let res = app(&db).oneshot(get("/admin", &token)).await.unwrap();
@@ -138,63 +138,145 @@ async fn the_dashboard_frames_every_widget_and_isolates_a_failure() {
         "acme.broken",
     ] {
         assert!(
-            html.contains(&format!(r#"data-widget="{code}""#)),
+            html.contains(&format!(r#"data-id="{code}""#)),
             "{code} missing"
         );
+        assert!(
+            html.contains(&format!(r#"hx-get="/admin/dashboard/widgets/{code}""#)),
+            "{code} does not fetch itself"
+        );
     }
-    assert!(html.contains("42 orders"));
-    assert!(html.contains("This widget could not be shown."));
-    assert!(!html.contains("the upstream is down"));
-    assert!(html.contains(r#"id="dashboard-manage""#));
-    // The contributed widget takes its own default width.
-    assert!(html.contains(r#"lat-widget lat-widget--third" data-widget="acme.sales""#));
+    // The page carries frames alone; a widget's content comes after.
+    assert!(!html.contains("42 orders"));
+    assert!(html.contains("Sales today"));
+    assert!(
+        html.contains("data-lat-board-start"),
+        "the viewer may arrange it"
+    );
+    // A third sits at 7 columns in a row of thirds, 10 beside a half.
+    let sales = &html[html.find(r#"data-id="acme.sales""#).unwrap()..];
+    assert!(
+        sales[..120].contains(r#"data-width="7""#) || sales[..120].contains(r#"data-width="10""#),
+        "{}",
+        &sales[..160]
+    );
+
+    let body = text(
+        app(&db)
+            .oneshot(get("/admin/dashboard/widgets/acme.sales", &token))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(body.trim(), "<p>42 orders</p>");
+    let broken = text(
+        app(&db)
+            .oneshot(get("/admin/dashboard/widgets/acme.broken", &token))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(broken.contains("This widget could not be shown."));
+    assert!(!broken.contains("the upstream is down"));
+    let res = app(&db)
+        .oneshot(get("/admin/dashboard/widgets/acme.nope", &token))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn an_operator_keeps_their_own_arrangement_until_they_reset_it() {
     let (db, _guard) = test_db().await;
     let token = session(&db).await;
+    // Sales first and full width, welcome under it; the rest are taken off.
+    // A width past a kind's bounds and a widget the board never had are dropped.
+    let layout = r#"[[{"id":"acme.sales","width":99},{"id":"nope","width":5}],[{"id":"backend.welcome","width":1}]]"#;
+    let body = format!(
+        "scope=mine&layout={}",
+        layout.replace('"', "%22").replace(' ', "+")
+    );
+    let res = app(&db)
+        .oneshot(post("/admin/dashboard/layout", &token, &body))
+        .await
+        .unwrap();
+    assert!(res.status().is_redirection());
+    let html = text(app(&db).oneshot(get("/admin", &token)).await.unwrap()).await;
+    let sales = html.find(r#"data-id="acme.sales""#).unwrap();
+    let welcome = html.find(r#"data-id="backend.welcome""#).unwrap();
+    assert!(sales < welcome, "the saved order puts sales first");
+    assert!(html[sales..sales + 120].contains(r#"data-width="20""#));
+    assert!(
+        html[welcome..welcome + 120].contains(r#"data-width="5""#),
+        "a width stays within the kind's bounds"
+    );
+    assert!(
+        !html.contains(r#"data-id="backend.status""#),
+        "removed widgets stay off"
+    );
+    assert!(
+        html.contains(r#"value="reset""#),
+        "their own layout can be dropped"
+    );
+
+    // Adding one back puts it on the board and returns to edit mode.
     let res = app(&db)
         .oneshot(post(
             "/admin/dashboard/layout",
             &token,
-            "widget=acme.sales&size%3Aacme.sales=full&widget=backend.welcome&widget=nope",
+            "add=backend.status",
         ))
         .await
         .unwrap();
-    assert!(res.status().is_redirection());
-    let html = text(app(&db).oneshot(get("/admin", &token)).await.unwrap()).await;
-    let sales = html.find(r#"data-widget="acme.sales""#).unwrap();
-    let welcome = html.find(r#"data-widget="backend.welcome""#).unwrap();
-    assert!(sales < welcome, "the saved order puts sales first");
-    assert!(html.contains(r#"lat-widget lat-widget--full" data-widget="acme.sales""#));
-    assert!(
-        !html.contains(r#"data-widget="backend.status""#),
-        "unticked widgets stay off"
-    );
-    let res = app(&db)
-        .oneshot(post("/admin/dashboard/layout/reset", &token, ""))
+    let to = res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(to.contains("edit=1"), "{to}");
+    let html = text(
+        app(&db)
+            .oneshot(get("/admin?edit=1", &token))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(html.contains(r#"data-lat-board-edit="1""#));
+    assert_eq!(html.matches(r#"data-kind-probe"#).count(), 0);
+    let status = app(&db)
+        .oneshot(get("/admin/dashboard/widgets/w1", &token))
         .await
         .unwrap();
-    assert!(res.status().is_redirection());
+    assert_eq!(status.status(), StatusCode::OK, "the added widget draws");
+    // Each kind of home widget sits on the board once.
+    app(&db)
+        .oneshot(post(
+            "/admin/dashboard/layout",
+            &token,
+            "add=backend.status",
+        ))
+        .await
+        .unwrap();
     let html = text(app(&db).oneshot(get("/admin", &token)).await.unwrap()).await;
-    assert!(html.contains(r#"data-widget="backend.status""#));
-}
+    assert!(!html.contains(r#"data-id="w2""#));
 
-#[tokio::test]
-async fn a_widget_fragment_serves_its_body_alone() {
-    let (db, _guard) = test_db().await;
-    let token = session(&db).await;
     let res = app(&db)
-        .oneshot(get("/admin/dashboard/widget/acme.sales?size=full", &token))
+        .oneshot(post("/admin/dashboard/layout", &token, "scope=reset"))
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-    let html = text(res).await;
-    assert_eq!(html.trim(), "<p>42 orders</p>");
+    assert!(res.status().is_redirection());
+    let html = text(app(&db).oneshot(get("/admin", &token)).await.unwrap()).await;
+    assert!(html.contains(r#"data-id="backend.status""#));
+    // Nobody may change what everyone sees on the home dashboard.
     let res = app(&db)
-        .oneshot(get("/admin/dashboard/widget/acme.nope", &token))
+        .oneshot(post(
+            "/admin/dashboard/layout",
+            &token,
+            "scope=shared&layout=[]",
+        ))
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }

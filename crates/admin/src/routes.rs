@@ -118,6 +118,11 @@ impl RouteCtx {
     }
 
     /// The context knowing every declared `media` field.
+    /// The auth service, for the framework's own widgets.
+    pub(crate) fn auth_service(&self) -> &AuthService {
+        &self.auth
+    }
+
     pub(crate) fn with_media_uses(mut self, uses: Arc<MediaUses>) -> Self {
         self.media_uses = uses;
         self

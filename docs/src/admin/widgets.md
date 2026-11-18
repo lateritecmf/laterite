@@ -1,7 +1,7 @@
 # Dashboard Widgets
 
-A dashboard widget is a card a module registers; each operator picks and sizes
-their own from Manage widgets.
+A dashboard widget is a card a module registers for the home dashboard, a
+[board](boards.md) each operator arranges for themselves.
 
 ## Write a widget
 
@@ -51,9 +51,9 @@ Method | Returns | Default
 --- | --- | ---
 `code` | `vendor.name`, unique across modules | required
 `label` | the heading, a `Text` | required
-`description` | a line under the label in Manage widgets | none
+`description` | a line under the label in Add widget | none
 `permission` | the permission an operator needs to see it | shown to every operator
-`size` | `Size::Third`, `Size::Half`, `Size::Full` | `Half`
+`size` | `Size::Third`, `Size::Half`, `Size::Full`: 7, 10 or 20 of the board's columns when first placed | `Half`
 `refresh` | seconds between fetches of the body | rendered once with the page
 `render` | the body as `Markup`; an `Err` shows a notice inside the frame | required
 

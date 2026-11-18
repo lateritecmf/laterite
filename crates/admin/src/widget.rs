@@ -7,14 +7,16 @@
 //! of markup for one operator; the dashboard frames it, and a widget that
 //! declares a refresh interval is fetched again on its own, without the page.
 
+use crate::board::{Board, BoardCx, Kind, Layout, Placement, COLUMNS};
 use crate::html::Markup;
 use laterite_auth::AuthenticatedUser;
 use laterite_core::arrange::{Arranged, Hierarchy, Policy, Position};
 use laterite_core::{Db, Text};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 
-/// How wide a widget sits in the dashboard's six-column grid.
+/// How wide a widget sits: a third, half or all of the dashboard's row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Size {
@@ -28,26 +30,12 @@ pub enum Size {
 }
 
 impl Size {
-    pub(crate) fn class(self) -> &'static str {
-        match self {
-            Self::Third => "lat-widget--third",
-            Self::Half => "lat-widget--half",
-            Self::Full => "lat-widget--full",
-        }
-    }
-    pub(crate) fn key(self) -> &'static str {
-        match self {
-            Self::Third => "third",
-            Self::Half => "half",
-            Self::Full => "full",
-        }
-    }
-    pub(crate) fn parse(key: &str) -> Option<Self> {
-        match key {
-            "third" => Some(Self::Third),
-            "half" => Some(Self::Half),
-            "full" => Some(Self::Full),
-            _ => None,
+    /// The size a width of the board's twenty columns reads as.
+    pub(crate) fn of_width(width: u8) -> Self {
+        match width {
+            0..=8 => Self::Third,
+            9..=14 => Self::Half,
+            _ => Self::Full,
         }
     }
 }
@@ -55,7 +43,9 @@ impl Size {
 /// What a widget renders from: the request's operator and shell, the
 /// database, and the size the operator chose for it.
 pub struct WidgetCx<'a> {
-    pub(crate) state: &'a crate::AdminState,
+    pub(crate) ctx: &'a crate::routes::RouteCtx,
+    /// The deployment's display timezone, by name.
+    pub(crate) timezone: &'a str,
     /// The request's page shell: translator, icons and admin path.
     pub shell: &'a crate::Shell,
     /// The signed-in user the dashboard is rendered for.
@@ -67,7 +57,7 @@ pub struct WidgetCx<'a> {
 impl WidgetCx<'_> {
     /// Returns the application's database handle.
     pub fn db(&self) -> &Db {
-        &self.state.db
+        self.ctx.db()
     }
     /// The admin's mount path, for a link into the panel.
     pub fn base(&self) -> &str {
@@ -161,26 +151,198 @@ pub(crate) fn hierarchy() -> Hierarchy {
         .operator_adjustable()
 }
 
-/// The preference holding an operator's own dashboard.
-pub(crate) const PREFERENCE: &str = "dashboard.layout";
+/// The preference an operator's dashboard was kept under before boards.
+pub(crate) const LEGACY_PREFERENCE: &str = "dashboard.layout";
+/// The home dashboard's board.
+pub(crate) const HOME: &str = "home";
 
-/// An operator's dashboard: which widgets, in what order, at what size.
+/// A registered widget as a kind the home board places.
+struct Home {
+    reg: WidgetReg,
+    timezone: String,
+}
+
+#[laterite_core::strata::async_trait]
+impl Kind for Home {
+    fn code(&self) -> &str {
+        self.reg.code()
+    }
+    fn label(&self) -> Text {
+        self.reg.widget.label()
+    }
+    fn description(&self) -> Option<Text> {
+        self.reg.widget.description()
+    }
+    fn permission(&self) -> Option<&str> {
+        self.reg.widget.permission()
+    }
+    fn default_width(&self) -> u8 {
+        match self.reg.widget.size() {
+            Size::Third => 7,
+            Size::Half => 10,
+            Size::Full => COLUMNS,
+        }
+    }
+    fn min_width(&self) -> u8 {
+        5
+    }
+    fn once(&self) -> bool {
+        true
+    }
+    fn title(&self, shell: &crate::Shell, _properties: &Value) -> Option<String> {
+        Some(shell.tt(&self.reg.widget.label()))
+    }
+    fn refresh(&self, _properties: &Value) -> Option<u32> {
+        self.reg.widget.refresh()
+    }
+    async fn render(&self, cx: &BoardCx<'_>, _properties: &Value) -> Result<Markup, String> {
+        let widget = WidgetCx {
+            ctx: cx.ctx,
+            timezone: &self.timezone,
+            shell: cx.shell,
+            user: cx.user,
+            size: Size::of_width(cx.width),
+        };
+        self.reg.widget.render(&widget).await.map_err(|e| {
+            tracing::warn!(widget = self.reg.code(), error = %e, "widget failed to render");
+            cx.shell.t("This widget could not be shown.")
+        })
+    }
+}
+
+/// Widths for a run of widgets, in rows: thirds sit three to a row, halves
+/// two, and a row's widths fill its twenty columns where they can.
+pub(crate) fn flow(sizes: &[Size]) -> Vec<Vec<u8>> {
+    let mut rows: Vec<Vec<Size>> = Vec::new();
+    let mut used = 0u8;
+    for size in sizes {
+        let sixths = match size {
+            Size::Third => 2,
+            Size::Half => 3,
+            Size::Full => 6,
+        };
+        if rows.is_empty() || used + sixths > 6 {
+            rows.push(Vec::new());
+            used = 0;
+        }
+        used += sixths;
+        if let Some(row) = rows.last_mut() {
+            row.push(*size);
+        }
+    }
+    rows.into_iter()
+        .map(|row| {
+            let thirds = row.iter().filter(|s| **s == Size::Third).count();
+            let mut third = 0;
+            row.iter()
+                .map(|size| match size {
+                    Size::Full => COLUMNS,
+                    Size::Half => 10,
+                    // Three thirds are 7, 7 and 6; beside a half, a third is 10.
+                    Size::Third if thirds == 1 && row.len() == 2 => 10,
+                    Size::Third => {
+                        third += 1;
+                        if third == 3 {
+                            6
+                        } else {
+                            7
+                        }
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// The home dashboard: every registered widget as a kind of its own, placed
+/// in the deployment's order at its own size, each person free to arrange
+/// theirs.
+pub(crate) fn home_board(
+    regs: &[WidgetReg],
+    deployment: Option<&[String]>,
+    timezone: &str,
+) -> Board {
+    let arranged = available(regs, deployment, &|_| true);
+    let sizes: Vec<Size> = arranged.iter().map(|r| r.widget.size()).collect();
+    let mut widgets = arranged.iter();
+    let rows = flow(&sizes)
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .filter_map(|width| {
+                    widgets
+                        .next()
+                        .map(|r| Placement::new(r.code(), r.code(), width))
+                })
+                .collect()
+        })
+        .collect();
+    let mut board = Board::new(HOME, Layout::rows(rows)).editing(crate::board::Editing::Personal);
+    for reg in regs {
+        board = board.with_kind(Arc::new(Home {
+            reg: reg.clone(),
+            timezone: timezone.to_string(),
+        }));
+    }
+    board
+}
+
+/// An operator's dashboard as it was kept before boards: which widgets, in
+/// what order, at what size.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct Layout {
-    pub widgets: Vec<Placed>,
+pub(crate) struct LegacyLayout {
+    pub widgets: Vec<LegacyPlaced>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct Placed {
+pub(crate) struct LegacyPlaced {
     pub code: String,
     #[serde(default)]
     pub size: Size,
 }
 
-impl Layout {
-    pub(crate) fn parse(json: &str) -> Option<Self> {
-        serde_json::from_str(json).ok()
+impl LegacyLayout {
+    /// The same choice as a board layout.
+    pub(crate) fn converted(&self) -> Layout {
+        let sizes: Vec<Size> = self.widgets.iter().map(|w| w.size).collect();
+        let mut widgets = self.widgets.iter();
+        Layout::rows(
+            flow(&sizes)
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .filter_map(|width| {
+                            widgets
+                                .next()
+                                .map(|w| Placement::new(w.code.clone(), w.code.clone(), width))
+                        })
+                        .collect()
+                })
+                .collect(),
+        )
     }
+}
+
+/// Carries an operator's dashboard from the old preference to the home
+/// board's, once: the old one is removed whether or not it could be read.
+pub(crate) async fn carry_legacy(db: &Db, user_id: i64) {
+    let Ok(Some(json)) =
+        laterite_auth::store::user_preference(db, user_id, LEGACY_PREFERENCE).await
+    else {
+        return;
+    };
+    if let Ok(old) = serde_json::from_str::<LegacyLayout>(&json) {
+        if let Ok(new) = serde_json::to_string(&old.converted()) {
+            let _ = laterite_auth::store::set_user_preference(
+                db,
+                user_id,
+                &format!("board.{HOME}"),
+                &new,
+            )
+            .await;
+        }
+    }
+    let _ = laterite_auth::store::clear_user_preference(db, user_id, LEGACY_PREFERENCE).await;
 }
 
 /// The widgets an operator may see, in the arranged order.
@@ -225,66 +387,6 @@ impl Arranged for Keyed<'_> {
     fn label(&self) -> &str {
         self.reg.label()
     }
-}
-
-/// The widgets the dashboard shows: the operator's layout where one is saved,
-/// restricted to what they may see, else every available widget at its own
-/// size.
-pub(crate) fn resolve<'a>(
-    layout: Option<&Layout>,
-    available: &[&'a WidgetReg],
-) -> Vec<(&'a WidgetReg, Size)> {
-    match layout {
-        Some(layout) => layout
-            .widgets
-            .iter()
-            .filter_map(|p| {
-                available
-                    .iter()
-                    .find(|r| r.code() == p.code)
-                    .map(|r| (*r, p.size))
-            })
-            .collect(),
-        None => available.iter().map(|r| (*r, r.widget.size())).collect(),
-    }
-}
-
-/// The frame around a widget's body: the heading, the size class, the refresh
-/// attributes, and the body or the notice a failed render leaves.
-pub(crate) fn frame(
-    reg: &WidgetReg,
-    size: Size,
-    base: &str,
-    label: &str,
-    body: Result<Markup, String>,
-    failed: &str,
-) -> String {
-    let code = crate::form::escape_attr(reg.code());
-    let refresh = reg
-        .widget
-        .refresh()
-        .map(|s| {
-            format!(
-                r#" hx-get="{base}/dashboard/widget/{code}?size={}" hx-trigger="every {s}s" hx-swap="innerHTML""#,
-                size.key()
-            )
-        })
-        .unwrap_or_default();
-    let inner = match body {
-        Ok(markup) => markup.into_string(),
-        Err(e) => {
-            tracing::warn!(widget = reg.code(), error = %e, "widget failed to render");
-            format!(
-                r#"<p class="lat-widget__failed">{}</p>"#,
-                crate::form::escape_attr(failed)
-            )
-        }
-    };
-    format!(
-        r#"<section class="lat-widget {}" data-widget="{code}" aria-labelledby="widget-{code}"><h2 class="lat-widget__title" id="widget-{code}">{}</h2><div class="lat-widget__body"{refresh}>{inner}</div></section>"#,
-        size.class(),
-        crate::form::escape_attr(label),
-    )
 }
 
 #[cfg(test)]
@@ -350,43 +452,45 @@ mod tests {
     }
 
     #[test]
-    fn a_layout_keeps_its_order_and_sizes_and_drops_what_it_may_not_show() {
-        let regs = regs();
-        let avail = available(&regs, None, &|_| false);
-        let layout = Layout::parse(
-            r#"{"widgets":[{"code":"backend.status","size":"full"},{"code":"acme.sales"},{"code":"gone"},{"code":"backend.welcome","size":"third"}]}"#,
-        )
-        .unwrap();
-        let shown = resolve(Some(&layout), &avail);
+    fn sizes_flow_into_rows_that_fill_twenty_columns() {
+        use Size::*;
         assert_eq!(
-            shown
-                .iter()
-                .map(|(r, s)| (r.code(), *s))
-                .collect::<Vec<_>>(),
-            vec![
-                ("backend.status", Size::Full),
-                ("backend.welcome", Size::Third)
-            ]
+            flow(&[Third, Third, Third, Third]),
+            vec![vec![7, 7, 6], vec![7]]
         );
-        let default = resolve(None, &avail);
-        assert_eq!(default[0].1, Size::Half);
-        assert_eq!(default[1].1, Size::Third);
+        assert_eq!(
+            flow(&[Half, Half, Full, Half, Third]),
+            vec![vec![10, 10], vec![20], vec![10, 10]]
+        );
+        assert_eq!(flow(&[Third, Half, Third]), vec![vec![10, 10], vec![7]]);
+        assert!(flow(&[Half, Third, Third, Full]).iter().all(|r| r
+            .iter()
+            .map(|w| u16::from(*w))
+            .sum::<u16>()
+            <= 20));
     }
 
     #[test]
-    fn a_failed_body_renders_a_notice_inside_the_frame() {
-        let regs = regs();
-        let html = frame(
-            &regs[1],
-            Size::Half,
-            "/admin",
-            "Welcome",
-            Err("boom".into()),
-            "This widget could not be shown.",
+    fn an_old_dashboard_becomes_a_board_layout_and_the_default_follows_the_order() {
+        let old: LegacyLayout = serde_json::from_str(
+            r#"{"widgets":[{"code":"backend.status","size":"full"},{"code":"acme.sales"},{"code":"backend.welcome","size":"third"}]}"#,
+        )
+        .unwrap();
+        let rows = old.converted().rows;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (rows[0][0].id.as_str(), rows[0][0].width),
+            ("backend.status", 20)
         );
-        assert!(html.contains("lat-widget--half"));
-        assert!(html.contains("This widget could not be shown."));
-        assert!(!html.contains("boom"));
-        assert!(!html.contains("hx-get"));
+        assert_eq!(
+            rows[1]
+                .iter()
+                .map(|p| (p.kind.as_str(), p.width))
+                .collect::<Vec<_>>(),
+            vec![("acme.sales", 10), ("backend.welcome", 10)]
+        );
+        assert_eq!(Size::of_width(7), Size::Third);
+        assert_eq!(Size::of_width(10), Size::Half);
+        assert_eq!(Size::of_width(20), Size::Full);
     }
 }
