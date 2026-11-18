@@ -46,9 +46,10 @@
 .lat-chart__tip i{width:8px;height:8px;border-radius:2px;flex:none}
 .lat-chart__tip b{margin-left:auto;padding-left:12px;color:var(--text-heading);font-variant-numeric:tabular-nums}
 .lat-chart__empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;font-size:var(--fs-13);color:var(--text-muted);pointer-events:none}
-.lat-chart__x{grid-column:2;display:grid;margin-top:6px;font-size:var(--fs-11);color:var(--text-muted)}
+.lat-chart__x{container-type:inline-size;grid-column:2;display:grid;margin-top:6px;font-size:var(--fs-11);color:var(--text-muted)}
 .lat-chart__x span{justify-self:center;width:0;display:flex;justify-content:center;white-space:nowrap}
 .lat-chart__x span:first-child{justify-content:flex-start}
+@container (max-width:420px){.lat-chart__x span.is-alt{visibility:hidden}}
 .lat-chart__data{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 @media (max-width:640px){

@@ -11,6 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - `board`: a dashboard any screen hosts. `Board` lays `Kind`s of widget on a twenty-column grid, each fetched after the page, with an edit mode (move, resize, add, remove, configure) saved per person or for everyone.
 - `Kind::properties_for`, `reload_on` and `check` for settings that depend on one another and are checked before they are kept; `Board::view_permission` guards a board's routes.
+- Boards are edited on a phone and from the keyboard: Move earlier and Move later on each widget, and the edit bar at every width. A chart drops every other date when it is narrow.
 - The home dashboard is a board: Edit dashboard replaces Manage widgets, and each person's saved dashboard carries over.
 - `ValueForm::assets` lists the asset keys a value form's field types declare, for `PageHead::assets`.
 - `linked_record` on a form: a record that belongs to one of any resource (the columns `{morph}_type` and `{morph}_id`) links its owner above the form.

@@ -622,7 +622,12 @@ impl Chart {
             .filter(|(i, _)| i % every == 0)
             .map(|(i, p)| {
                 format!(
-                    r#"<span style="grid-column:{}">{}</span>"#,
+                    r#"<span{} style="grid-column:{}">{}</span>"#,
+                    if (i / every) % 2 == 1 {
+                        r#" class="is-alt""#
+                    } else {
+                        ""
+                    },
                     i + 1,
                     escape_attr(&self.period.label(*p))
                 )

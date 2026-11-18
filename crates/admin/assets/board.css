@@ -37,6 +37,7 @@
 .lat-board__widget.is-refused{animation:lat-board-shake .4s}
 @keyframes lat-board-shake{20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
 #lat-board-configure .lat-dialog__body{overflow:auto;max-height:calc(100vh - 220px)}
-@media (max-width:1100px){.lat-board--packed{--lat-board-packed:0;grid-auto-rows:auto;grid-auto-flow:row}.lat-board__widget{grid-column:span max(10,var(--span,20))}.lat-board__bar{display:none}}
-@media (max-width:700px){.lat-board{grid-template-columns:minmax(0,1fr)}.lat-board__widget{grid-column:1/-1}}
+@media (max-width:1100px){.lat-board--packed{--lat-board-packed:0;grid-auto-rows:auto;grid-auto-flow:row}.lat-board__widget{grid-column:span max(10,var(--span,20))}.lat-board.is-editing .lat-board__widget[data-resize="1"] .lat-board__resize,.lat-board__hint{display:none}.lat-board__newrow{grid-row-end:auto}}
+@media (max-width:700px){.lat-board{grid-template-columns:minmax(0,1fr)}.lat-board__widget{grid-column:1/-1}.lat-board__bar{position:relative;justify-content:flex-start}.lat-board__add{position:static}.lat-board__add-menu{left:0;right:0;width:auto}.lat-board.is-editing .lat-board__newrow{display:none}}
+@media (hover:none),(max-width:700px){.lat-board.is-editing .lat-board__tools{display:flex;position:static;justify-content:flex-end;margin:0 0 8px}.lat-board__tool{width:36px;height:36px}}
 @media (prefers-reduced-motion:reduce){.lat-board__pending,.lat-board__widget.is-refused{animation:none}}

@@ -115,10 +115,34 @@
         })
         .catch(function () { /* the widget keeps its settings */ });
     }
+    // One place earlier or later in reading order: along its row, then into
+    // the next row when it fits there, else into a row of its own.
+    function step(el, by, button) {
+      var at = find(el.dataset.id); if (!at) return;
+      var row = rows[at.row], item = at.item, to = at.index + by, next = rows[at.row + by];
+      if (to >= 0 && to < row.length) {
+        row.splice(at.index, 1); row.splice(to, 0, item);
+      } else if (next && used(next) + item.width <= COLUMNS) {
+        row.splice(at.index, 1);
+        if (by < 0) next.push(item); else next.unshift(item);
+      } else if (row.length > 1) {
+        row.splice(at.index, 1);
+        rows.splice(at.row + (by < 0 ? 0 : 1), 0, [item]);
+      } else if (next) {
+        rows[at.row] = next; rows[at.row + by] = row;
+      } else { refuse(el); return; }
+      draw();
+      button.focus();
+      el.scrollIntoView({ block: "nearest" });
+    }
     function tools(el) {
       if (el.querySelector(".lat-board__tools")) return;
       var box = document.createElement("div");
       box.className = "lat-board__tools";
+      if (el.dataset.move === "1") {
+        box.appendChild(tool(bar.dataset.earlierLabel || "Move earlier", "↑", function (e) { step(el, -1, e.currentTarget); }));
+        box.appendChild(tool(bar.dataset.laterLabel || "Move later", "↓", function (e) { step(el, 1, e.currentTarget); }));
+      }
       if (el.dataset.configure === "1")
         box.appendChild(tool(bar.dataset.configureLabel || "Configure", "⚙", function () { configure(el.dataset.id); }));
       if (el.dataset.remove === "1")
@@ -126,7 +150,7 @@
           var at = find(el.dataset.id); if (!at) return;
           rows[at.row].splice(at.index, 1); el.remove(); draw();
         }));
-      if (box.children.length) el.appendChild(box);
+      if (box.children.length) el.insertBefore(box, el.firstChild);
       if (el.dataset.resize === "1") {
         var grip = document.createElement("div");
         grip.className = "lat-board__resize";
