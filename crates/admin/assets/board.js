@@ -88,17 +88,28 @@
       b.addEventListener("click", run);
       return b;
     }
-    function configure(id) {
+    function configure(id, values) {
       var url = base + "/configure/" + encodeURIComponent(id);
-      fetch(url, { credentials: "same-origin", headers: { "HX-Request": "true" } })
+      fetch(url + (values ? "?" + values : ""), { credentials: "same-origin", headers: { "HX-Request": "true" } })
         .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
         .then(function (html) {
           dialog.innerHTML = html;
           var form = dialog.querySelector("form");
           form.action = url + (form.dataset.carried || "");
           form.addEventListener("submit", function () { form.elements.layout.value = layout(); });
+          // A setting others depend on draws the form again with what it holds.
+          var reload = (form.dataset.reload || "").split(",").filter(Boolean);
+          form.addEventListener("change", function (e) {
+            if (reload.indexOf(e.target.name) < 0) return;
+            var held = [];
+            new FormData(form).forEach(function (value, name) {
+              if (name !== "_csrf" && name !== "layout" && typeof value === "string")
+                held.push("p." + encodeURIComponent(name) + "=" + encodeURIComponent(value));
+            });
+            configure(id, held.join("&"));
+          });
           if (window.htmx) window.htmx.process(dialog);
-          dialog.showModal();
+          if (!dialog.open) dialog.showModal();
           var first = dialog.querySelector(".lat-dialog__body input:not([type=hidden]), .lat-dialog__body select, .lat-dialog__body textarea");
           if (first) first.focus();
         })

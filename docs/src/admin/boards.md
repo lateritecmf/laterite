@@ -48,6 +48,7 @@ impl Screen for Sales {
 --- | --- | ---
 `new(key, layout)` | the key its layouts are kept under, and the widgets it starts with | required
 `editing(Editing)` | `Off`, `Personal`, `Shared` or `Both` | `Both`
+`view_permission(p)` | who may open it; its routes refuse anyone else | whoever reaches the screen
 `edit_permission(p)` | who arranges their own | whoever sees the board
 `share_permission(p)` | who changes the layout everyone sees | nobody
 `allow(Allow)` | which of moving, resizing, adding, removing and configuring edit mode offers | all
@@ -114,6 +115,9 @@ fn register(&self, registry: &mut laterite_core::Registry) {
 `once` | at most one on a board | `false`
 `bare` | drawn with no card around it | `false`
 `properties` | its settings as form fields; with none it has no Configure | none
+`properties_for(cx, current)` | the fields for a widget whose settings are `current`, where one setting decides another's choices | `properties()`
+`reload_on` | the settings whose change draws Configure again through `properties_for` | none
+`check(properties)` | `Err` with what to tell the person; nothing is saved | `Ok`
 `title` | the heading above it | none
 `refresh` | seconds between fetches | fetched once
 `render` | the content as `Markup`; an `Err` is shown in the widget's place | required

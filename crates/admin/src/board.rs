@@ -98,6 +98,22 @@ pub trait Kind: Send + Sync {
     fn properties(&self) -> Vec<FormField> {
         Vec::new()
     }
+    /// The settings fields for a widget whose settings are `current`, where
+    /// they depend on one another: the metrics a chosen source offers, say.
+    /// [`Kind::properties`] unless said.
+    fn properties_for(&self, _cx: &BoardCx<'_>, _current: &Value) -> Vec<FormField> {
+        self.properties()
+    }
+    /// The settings whose change draws the Configure form again through
+    /// [`Kind::properties_for`].
+    fn reload_on(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+    /// Whether settings a person entered can be kept; an error is shown to
+    /// them and nothing is saved.
+    fn check(&self, _properties: &Value) -> Result<(), String> {
+        Ok(())
+    }
     /// The heading above the widget, from its settings.
     fn title(&self, _shell: &Shell, _properties: &Value) -> Option<String> {
         None
@@ -270,6 +286,7 @@ struct Sent {
 pub struct Board {
     key: String,
     editing: Editing,
+    view_permission: Option<String>,
     edit_permission: Option<String>,
     share_permission: Option<String>,
     allow: Allow,
@@ -287,6 +304,7 @@ impl Board {
         Self {
             key: key.into(),
             editing: Editing::default(),
+            view_permission: None,
             edit_permission: None,
             share_permission: None,
             allow: Allow::default(),
@@ -301,6 +319,13 @@ impl Board {
     /// Who may arrange it. [`Editing::Both`] unless said.
     pub fn editing(mut self, editing: Editing) -> Self {
         self.editing = editing;
+        self
+    }
+
+    /// The permission needed to open the board; its routes refuse a request
+    /// without it. Without one, whoever reaches the hosting screen may.
+    pub fn view_permission(mut self, permission: impl Into<String>) -> Self {
+        self.view_permission = Some(permission.into());
         self
     }
 
@@ -364,8 +389,15 @@ impl Board {
         format!("laterite.admin::boards.{}", self.key)
     }
 
+    fn may_view(&self, shell: &Shell) -> bool {
+        self.view_permission
+            .as_deref()
+            .is_none_or(|p| shell.allows(p))
+    }
+
     fn may_edit_own(&self, shell: &Shell) -> bool {
-        matches!(self.editing, Editing::Personal | Editing::Both)
+        self.may_view(shell)
+            && matches!(self.editing, Editing::Personal | Editing::Both)
             && self
                 .edit_permission
                 .as_deref()
@@ -373,7 +405,8 @@ impl Board {
     }
 
     fn may_share(&self, shell: &Shell) -> bool {
-        matches!(self.editing, Editing::Shared | Editing::Both)
+        self.may_view(shell)
+            && matches!(self.editing, Editing::Shared | Editing::Both)
             && self
                 .share_permission
                 .as_deref()
@@ -697,6 +730,9 @@ impl Board {
         query: &HashMap<String, String>,
         id: &str,
     ) -> Response {
+        if !self.may_view(shell) {
+            return StatusCode::NOT_FOUND.into_response();
+        }
         let kinds = Kinds::of(ctx, &self.own);
         let (layout, _) = self.layout(ctx, user).await;
         let Some(placed) = layout.find(id) else {
@@ -948,7 +984,28 @@ impl Board {
         let Some(kind) = kinds.get(&placed.kind) else {
             return StatusCode::NOT_FOUND.into_response();
         };
-        let form = match ctx.value_form(&kind.properties(), "laterite.admin.board") {
+        // The form drawn again after a setting others depend on changed
+        // carries what is in it so far, each name under `p.`.
+        let mut current = placed.properties.clone();
+        if !current.is_object() {
+            current = Value::Object(Default::default());
+        }
+        if let Value::Object(map) = &mut current {
+            for (name, value) in query {
+                if let Some(name) = name.strip_prefix("p.") {
+                    map.insert(name.to_string(), Value::String(value.clone()));
+                }
+            }
+        }
+        let cx = BoardCx {
+            ctx,
+            shell,
+            user,
+            query,
+            width: placed.width,
+        };
+        let form = match ctx.value_form(&kind.properties_for(&cx, &current), "laterite.admin.board")
+        {
             Ok(form) => form,
             Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, shell.tt(&e)).into_response(),
         };
@@ -956,7 +1013,8 @@ impl Board {
             shell,
             carried: self.carried(query),
             title: shell.tt(&kind.label()),
-            fields: form.render(&placed.properties, shell).into_string(),
+            reload: kind.reload_on().join(","),
+            fields: form.render(&current, shell).into_string(),
         };
         let body = match Markup::from_template(&view) {
             Ok(markup) => markup.into_string(),
@@ -996,9 +1054,29 @@ impl Board {
         let Some(kind) = kinds.get(&placed.kind) else {
             return StatusCode::NOT_FOUND.into_response();
         };
+        let sent_values = Value::Object(
+            data.iter()
+                .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+                .collect(),
+        );
+        let cx = BoardCx {
+            ctx,
+            shell,
+            user,
+            query,
+            width: placed.width,
+        };
         let collected = ctx
-            .value_form(&kind.properties(), "laterite.admin.board")
+            .value_form(
+                &kind.properties_for(&cx, &sent_values),
+                "laterite.admin.board",
+            )
             .and_then(|form| form.collect(data));
+        let collected = collected.and_then(|properties| {
+            kind.check(&properties)
+                .map(|()| properties)
+                .map_err(Text::dynamic)
+        });
         match collected {
             Ok(properties) => {
                 placed.properties = properties;
@@ -1104,6 +1182,7 @@ struct SettingsTemplate<'a> {
     shell: &'a Shell,
     carried: String,
     title: String,
+    reload: String,
     fields: String,
 }
 
