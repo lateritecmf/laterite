@@ -110,8 +110,24 @@ msgstr ""
 msgid "Add another"
 msgstr ""
 
+#: templates/board/board.html
+msgid "Add widget"
+msgstr ""
+
+#: src/records.rs
+msgid "Added the record."
+msgstr ""
+
 #: (descriptors)
 msgid "Address"
+msgstr ""
+
+#: src/palette_do.rs
+msgid "Adds"
+msgstr ""
+
+#: src/records.rs
+msgid "Adds a record to {kind}."
 msgstr ""
 
 #: (descriptors)
@@ -126,6 +142,7 @@ msgstr ""
 msgid "Administrators"
 msgstr ""
 
+#: templates/palette/ability_done.html
 #: templates/set_password.html
 msgid "Again"
 msgstr ""
@@ -158,8 +175,14 @@ msgstr ""
 msgid "Application name"
 msgstr ""
 
+#: templates/board/board.html
+#: templates/board/settings.html
 #: templates/list.html
 msgid "Apply"
+msgstr ""
+
+#: templates/board/board.html
+msgid "Apply for everyone"
 msgstr ""
 
 #: (descriptors)
@@ -195,6 +218,7 @@ msgstr ""
 #: templates/import/match.html
 #: templates/mail_edit.html
 #: templates/mail_log_view.html
+#: templates/palette/ability_card.html
 #: templates/relation_section.html
 #: templates/roles_form.html
 msgid "Back"
@@ -303,7 +327,8 @@ msgstr ""
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
 #: templates/base.html
-#: templates/dashboard.html
+#: templates/board/board.html
+#: templates/board/settings.html
 #: templates/media.html
 #: templates/media_file.html
 #: templates/settings_form.html
@@ -318,6 +343,14 @@ msgstr ""
 
 #: src/users.rs
 msgid "Change your own password under Preferences."
+msgstr ""
+
+#: src/palette_do.rs
+msgid "Changes"
+msgstr ""
+
+#: src/records.rs
+msgid "Changes a record in {kind}."
 msgstr ""
 
 #: templates/import/match.html
@@ -344,10 +377,6 @@ msgstr ""
 msgid "Choose a password for"
 msgstr ""
 
-#: templates/settings_index.html
-msgid "Choose a section from the list to configure it."
-msgstr ""
-
 #: src/field.rs
 msgid "Choose file"
 msgstr ""
@@ -371,6 +400,7 @@ msgid "Client"
 msgstr ""
 
 #: templates/_dialog_head.html
+#: templates/board/settings.html
 #: templates/media.html
 msgid "Close"
 msgstr ""
@@ -412,6 +442,10 @@ msgstr ""
 msgid "Comma"
 msgstr ""
 
+#: templates/board/board.html
+msgid "Configure"
+msgstr ""
+
 #: templates/preferences.html
 msgid "Confirm new password"
 msgstr ""
@@ -420,6 +454,7 @@ msgstr ""
 msgid "Content background"
 msgstr ""
 
+#: src/palette_do.rs
 #: templates/import/index.html
 msgid "Continue"
 msgstr ""
@@ -542,16 +577,8 @@ msgstr ""
 msgid "Custom stylesheet"
 msgstr ""
 
-#: templates/dashboard.html
+#: src/lib.rs
 msgid "Dashboard"
-msgstr ""
-
-#: src/lib.rs
-msgid "Dashboard reset."
-msgstr ""
-
-#: src/lib.rs
-msgid "Dashboard saved."
 msgstr ""
 
 #: templates/setup.html
@@ -571,6 +598,7 @@ msgid "Deactivated"
 msgstr ""
 
 #: src/relation.rs
+#: templates/form.html
 #: templates/list.html
 #: templates/mail_edit.html
 #: templates/media_file_actions.html
@@ -587,14 +615,6 @@ msgstr ""
 
 #: templates/list.html
 msgid "Delete permanently"
-msgstr ""
-
-#: templates/list.html
-msgid "Delete the selected records permanently? This cannot be undone."
-msgstr ""
-
-#: templates/list.html
-msgid "Delete the selected records? This cannot be undone."
 msgstr ""
 
 #: templates/media.html
@@ -624,6 +644,10 @@ msgstr[1] ""
 msgid "Deleted."
 msgstr ""
 
+#: src/palette_do.rs
+msgid "Deletes"
+msgstr ""
+
 #: src/persist.rs
 msgid "Deleting this kind of record is not supported."
 msgstr ""
@@ -639,6 +663,7 @@ msgid "Description"
 msgstr ""
 
 #: templates/media_file.html
+#: templates/palette/ability_done.html
 msgid "Details"
 msgstr ""
 
@@ -676,12 +701,28 @@ msgstr ""
 msgid "Displayed records: {shown} of {total}"
 msgstr ""
 
+#: src/palette_do.rs
+msgid "Do"
+msgstr ""
+
+#: src/ability.rs
+msgid "Do it"
+msgstr ""
+
+#: src/ability.rs
+msgid "Done."
+msgstr ""
+
 #: templates/import/index.html
 msgid "Download a template with the right columns."
 msgstr ""
 
 #: templates/import/_run_status.html
 msgid "Download the refused rows"
+msgstr ""
+
+#: templates/board/board.html
+msgid "Drag a widget to move it, and its right edge to resize it."
 msgstr ""
 
 #: templates/preferences.html
@@ -696,6 +737,10 @@ msgstr ""
 msgid "Draw the area to keep first."
 msgstr ""
 
+#: templates/board/board.html
+msgid "Drop here for a new row"
+msgstr ""
+
 #: src/field.rs
 #: templates/_roles_form_fields.html
 msgid "Duplicate"
@@ -703,6 +748,10 @@ msgstr ""
 
 #: templates/_list_rows.html
 msgid "Edit"
+msgstr ""
+
+#: templates/board/board.html
+msgid "Edit dashboard"
 msgstr ""
 
 #: (descriptors)
@@ -916,16 +965,16 @@ msgstr ""
 msgid "Formatting"
 msgstr ""
 
+#: src/records.rs
+msgid "Found {n} of {total}."
+msgstr ""
+
 #: templates/media_file.html
 msgid "Free"
 msgstr ""
 
 #: templates/mail_templates.html
 msgid "From its file"
-msgstr ""
-
-#: templates/dashboard.html
-msgid "Full"
 msgstr ""
 
 #: src/medialib/mod.rs
@@ -963,10 +1012,6 @@ msgstr ""
 
 #: src/mailtemplates.rs
 msgid "HTML body"
-msgstr ""
-
-#: templates/dashboard.html
-msgid "Half"
 msgstr ""
 
 #: templates/media_file.html
@@ -1113,6 +1158,10 @@ msgstr ""
 msgid "List setup saved."
 msgstr ""
 
+#: templates/board/board.html
+msgid "Loading"
+msgstr ""
+
 #: (descriptors)
 msgid "Locked out"
 msgstr ""
@@ -1123,6 +1172,10 @@ msgstr ""
 
 #: (descriptors)
 msgid "Logs"
+msgstr ""
+
+#: src/palette_do.rs
+msgid "Looks up"
 msgstr ""
 
 #: (descriptors)
@@ -1219,10 +1272,6 @@ msgstr ""
 msgid "Manage scheduled tasks"
 msgstr ""
 
-#: templates/dashboard.html
-msgid "Manage widgets"
-msgstr ""
-
 #: src/mailtemplates.rs
 msgid "Markdown with template tags; `{{ partial(\"button\", url=link, body=\"Open\") }}` calls a partial."
 msgstr ""
@@ -1281,12 +1330,15 @@ msgstr ""
 
 #: src/field.rs
 #: templates/_list_rows.html
-#: templates/dashboard.html
 msgid "Move down"
 msgstr ""
 
-#: templates/list.html
-msgid "Move the selected records to the trash?"
+#: templates/board/board.html
+msgid "Move earlier"
+msgstr ""
+
+#: templates/board/board.html
+msgid "Move later"
 msgstr ""
 
 #: src/lib.rs
@@ -1299,7 +1351,6 @@ msgstr ""
 
 #: src/field.rs
 #: templates/_list_rows.html
-#: templates/dashboard.html
 msgid "Move up"
 msgstr ""
 
@@ -1340,6 +1391,10 @@ msgstr ""
 
 #: templates/preferences.html
 msgid "Navigation"
+msgstr ""
+
+#: (descriptors)
+msgid "Navigation logo"
 msgstr ""
 
 #: src/list.rs
@@ -1428,6 +1483,10 @@ msgstr ""
 msgid "No plugins installed."
 msgstr ""
 
+#: src/records.rs
+msgid "No record has that id."
+msgstr ""
+
 #: templates/media_file.html
 msgid "No record links to this file."
 msgstr ""
@@ -1446,10 +1505,6 @@ msgstr ""
 
 #: src/medialib/mod.rs
 msgid "No such folder."
-msgstr ""
-
-#: templates/dashboard.html
-msgid "No widgets are shown. Choose some under Manage widgets."
 msgstr ""
 
 #: src/error.rs
@@ -1477,8 +1532,13 @@ msgstr ""
 #: templates/base.html
 #: templates/media.html
 #: templates/media_pick.html
+#: templates/palette/abilities.html
 #: templates/palette.html
 msgid "Nothing matches."
+msgstr ""
+
+#: templates/board/board.html
+msgid "Nothing on this dashboard yet."
 msgstr ""
 
 #: src/widgets.rs
@@ -1661,7 +1721,12 @@ msgid "Previous"
 msgstr ""
 
 #: templates/media.html
+#: templates/media_pick.html
 msgid "Private"
+msgstr ""
+
+#: templates/media_pick.html
+msgid "Private: make it public in Media to use it here"
 msgstr ""
 
 #: templates/media.html
@@ -1700,6 +1765,10 @@ msgstr ""
 msgid "Recent imports"
 msgstr ""
 
+#: templates/palette/ability_card.html
+msgid "Records affected:"
+msgstr ""
+
 #: templates/media_file_actions.html
 msgid "Records still use this file. Delete it anyway?"
 msgstr ""
@@ -1719,6 +1788,7 @@ msgstr ""
 
 #: src/field.rs
 #: src/relation.rs
+#: templates/board/board.html
 msgid "Remove"
 msgstr ""
 
@@ -1769,12 +1839,12 @@ msgstr ""
 msgid "Reset this account's password? They will be signed out everywhere and given a temporary password to replace at their next sign-in."
 msgstr ""
 
-#: templates/dashboard.html
-msgid "Reset to default"
-msgstr ""
-
 #: templates/mail_edit.html
 msgid "Reset to the file"
+msgstr ""
+
+#: templates/board/board.html
+msgid "Reset to the shared layout"
 msgstr ""
 
 #: src/users.rs
@@ -1862,6 +1932,10 @@ msgstr ""
 msgid "Running"
 msgstr ""
 
+#: src/palette_do.rs
+msgid "Runs"
+msgstr ""
+
 #: (descriptors)
 msgid "SMTP host"
 msgstr ""
@@ -1884,7 +1958,6 @@ msgstr ""
 
 #: templates/_form_fields.html
 #: templates/_roles_form_fields.html
-#: templates/dashboard.html
 #: templates/mail_edit.html
 #: templates/media_file.html
 #: templates/preferences.html
@@ -1912,6 +1985,10 @@ msgstr ""
 #: src/settings/mail_brand.rs
 #: (descriptors)
 msgid "Save, then preview the test template to see the result."
+msgstr ""
+
+#: src/records.rs
+msgid "Saved the change."
 msgstr ""
 
 #: src/settings/mod.rs
@@ -2021,6 +2098,10 @@ msgstr ""
 msgid "Sender name"
 msgstr ""
 
+#: src/palette_do.rs
+msgid "Sends"
+msgstr ""
+
 #: templates/setup.html
 msgid "Set up"
 msgstr ""
@@ -2067,7 +2148,15 @@ msgid "Shown in"
 msgstr ""
 
 #: (descriptors)
-msgid "Shown in the top bar and on the sign-in page in place of the mark. Keep it on a public disk."
+msgid "Shown on the sign-in page and the Settings page in place of the mark, and in the top bar unless a navigation logo is set."
+msgstr ""
+
+#: templates/media_file.html
+msgid "Shown publicly"
+msgstr ""
+
+#: (descriptors)
+msgid "Shown small in the top bar and the drawer; a simple mark reads best. Blank uses the logo."
 msgstr ""
 
 #: templates/base.html
@@ -2137,6 +2226,14 @@ msgstr ""
 
 #: src/error.rs
 msgid "Something went wrong"
+msgstr ""
+
+#: src/palette_do.rs
+msgid "Something went wrong, and it may not have finished."
+msgstr ""
+
+#: src/palette_do.rs
+msgid "Something went wrong. Nothing was changed."
 msgstr ""
 
 #: templates/base.html
@@ -2247,6 +2344,10 @@ msgstr ""
 msgid "That is not an email address."
 msgstr ""
 
+#: src/palette_do.rs
+msgid "That is not something you can do here."
+msgstr ""
+
 #: src/export.rs
 msgid "That is too many records to export at once. Narrow the list and try again."
 msgstr ""
@@ -2282,10 +2383,6 @@ msgstr ""
 
 #: src/medialib/mod.rs
 msgid "The crop could not be stored."
-msgstr ""
-
-#: src/lib.rs
-msgid "The dashboard could not be saved."
 msgstr ""
 
 #: src/scheduled.rs
@@ -2361,8 +2458,16 @@ msgstr ""
 msgid "The image could not be read."
 msgstr ""
 
+#: src/records.rs
+msgid "The kinds of record."
+msgstr ""
+
 #: src/widgets.rs
 msgid "The latest changes from the audit log."
+msgstr ""
+
+#: src/board.rs
+msgid "The layout was saved for everyone."
 msgstr ""
 
 #: (descriptors)
@@ -2403,6 +2508,10 @@ msgstr ""
 
 #: src/jobs.rs
 msgid "The queue could not be changed."
+msgstr ""
+
+#: src/records.rs
+msgid "The record."
 msgstr ""
 
 #: src/import/run.rs
@@ -2455,8 +2564,8 @@ msgstr ""
 msgid "There is no such record."
 msgstr ""
 
-#: templates/dashboard.html
-msgid "Third"
+#: src/records.rs
+msgid "These records are listed, never opened."
 msgstr ""
 
 #: templates/users_form.html
@@ -2465,6 +2574,10 @@ msgstr ""
 
 #: src/lib.rs
 msgid "This account was deactivated."
+msgstr ""
+
+#: src/board.rs
+msgid "This dashboard already has that widget."
 msgstr ""
 
 #: templates/preferences.html
@@ -2512,15 +2625,11 @@ msgid "This user is a superuser and holds every permission, so there is nothing 
 msgstr ""
 
 #: src/lib.rs
-msgid "This widget could not be shown."
-msgstr ""
-
-#: src/lib.rs
 msgid "Those sessions could not be signed out."
 msgstr ""
 
-#: templates/dashboard.html
-msgid "Tick the widgets you want, set their width, and move them with the arrows. Only you see this dashboard."
+#: (descriptors)
+msgid "Through"
 msgstr ""
 
 #: templates/media_file.html
@@ -2685,6 +2794,10 @@ msgstr ""
 msgid "What an operator sees before choosing their own."
 msgstr ""
 
+#: src/palette_do.rs
+msgid "What do you want to do?"
+msgstr ""
+
 #: templates/developer_registries.html
 msgid "What every module contributed, by registry."
 msgstr ""
@@ -2720,8 +2833,8 @@ msgstr ""
 msgid "Whole image"
 msgstr ""
 
-#: templates/dashboard.html
-msgid "Width"
+#: src/board.rs
+msgid "Widgets"
 msgstr ""
 
 #: templates/import/_run_status.html
@@ -2764,12 +2877,28 @@ msgstr ""
 msgid "You have unsaved changes. Leave without saving?"
 msgstr ""
 
+#: src/records.rs
+msgid "You may not add these records."
+msgstr ""
+
+#: src/records.rs
+msgid "You may not change these records."
+msgstr ""
+
 #: src/lib.rs
 msgid "You were signed out from another device."
 msgstr ""
 
 #: src/lib.rs
 msgid "Your current password is not correct."
+msgstr ""
+
+#: src/board.rs
+msgid "Your layout was saved."
+msgstr ""
+
+#: src/board.rs
+msgid "Your own layout was removed."
 msgstr ""
 
 #: src/lib.rs
@@ -2820,6 +2949,10 @@ msgstr ""
 msgid "{field} must be matched to a column."
 msgstr ""
 
+#: src/medialib/field.rs
+msgid "{name} is private, and this field is shown to people who are not signed in. Make the file public in Media, or choose another."
+msgstr ""
+
 #: src/jobs.rs
 msgid "{n} failed job was dropped."
 msgid_plural "{n} failed jobs were dropped."
@@ -2842,4 +2975,8 @@ msgstr ""
 
 #: src/medialib/mod.rs
 msgid "{n} record(s) still use this file; deleting it needs the permission to delete linked media."
+msgstr ""
+
+#: src/medialib/mod.rs
+msgid "{screen} shows this file to people who are not signed in ({field}). Choose another file there first."
 msgstr ""

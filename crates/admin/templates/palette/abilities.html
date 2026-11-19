@@ -1,0 +1,3 @@
+{% if hits.is_empty() %}<p class="lat-palette__empty">{{ shell.t("Nothing matches.") }}</p>{% else %}<ul class="lat-palette__list" role="listbox">
+{% for hit in hits %}<li><a class="lat-palette__hit" role="option" href="{{ hit.href }}" hx-get="{{ hit.href }}" hx-target="closest .lat-palette__canvas" hx-swap="innerHTML"><span class="lat-palette__label">{{ hit.label }}</span><span class="lat-palette__hint">{{ hit.hint }}</span></a></li>
+{% endfor %}</ul>{% endif %}

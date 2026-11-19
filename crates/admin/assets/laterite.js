@@ -2492,6 +2492,11 @@ window.lat.widget('topnav-scroll', function (rail) {
 // there. The search button opens it, as does Ctrl+K (Cmd+K on a Mac); the
 // arrows move, Enter goes, Escape closes. Without scripting the button is a
 // link to the same finder as a page.
+//
+// It has modes beside the finder, fetched when it first opens. In a mode what
+// is typed is posted to the mode's URL and the markup that answers fills the
+// canvas under the box; an answer carrying data-palette-raise moves the
+// palette to the top of the screen and widens it.
 window.lat.widget('palette', function (button) {
   var url = button.getAttribute('data-palette-url');
   if (!url) return;
@@ -2502,17 +2507,35 @@ window.lat.widget('palette', function (button) {
   overlay.innerHTML =
     '<div class="lat-palette__backdrop" data-palette-close></div>' +
     '<div class="lat-palette__panel">' +
-    '<input class="lat-palette__input" type="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="' + (button.getAttribute('data-palette-placeholder') || 'Go to').replace(/"/g, '&quot;') + '">' +
+    '<div class="lat-palette__modes" role="tablist" hidden></div>' +
+    '<input class="lat-palette__input" type="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list">' +
     '<ul class="lat-palette__list" role="listbox"></ul>' +
+    '<div class="lat-palette__canvas" hidden></div>' +
     '</div>';
   document.body.appendChild(overlay);
   var input = overlay.querySelector('input');
   var list = overlay.querySelector('ul');
-  input.placeholder = button.getAttribute('data-palette-placeholder') || '';
+  var tabs = overlay.querySelector('.lat-palette__modes');
+  var canvas = overlay.querySelector('.lat-palette__canvas');
+  var finder = {
+    code: '',
+    label: button.getAttribute('aria-label') || 'Go to',
+    placeholder: button.getAttribute('data-palette-placeholder') || '',
+    url: null
+  };
+  var modes = [finder];
+  var mode = finder;
+  var loaded = false;
   var active = -1;
   var timer = null;
   var latest = 0;
-  function items() { return Array.prototype.slice.call(list.querySelectorAll('.lat-palette__hit')); }
+  function csrf() {
+    try { return JSON.parse(document.body.getAttribute('hx-headers') || '{}')['X-CSRF-Token'] || ''; } catch (e) { return ''; }
+  }
+  function items() {
+    var from = mode.url ? canvas : list;
+    return Array.prototype.slice.call(from.querySelectorAll('.lat-palette__hit'));
+  }
   function mark(index) {
     var all = items();
     if (!all.length) { active = -1; return; }
@@ -2555,14 +2578,92 @@ window.lat.widget('palette', function (button) {
     var seq = ++latest;
     fetch(url + '?q=' + encodeURIComponent(input.value), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { return r.json(); })
-      .then(function (data) { if (seq === latest) show(data.items || []); })
-      .catch(function () { if (seq === latest) show([]); });
+      .then(function (data) { if (seq === latest && !mode.url) show(data.items || []); })
+      .catch(function () { if (seq === latest && !mode.url) show([]); });
+  }
+  // What the canvas holds decides where the palette sits and what has focus.
+  function settle(focus) {
+    var raised = !!canvas.querySelector('[data-palette-raise]') || (!!mode.url && !mode.live && canvas.children.length > 0);
+    overlay.classList.toggle('is-raised', raised);
+    mark(0);
+    var wanted = focus && canvas.querySelector('[data-palette-focus]');
+    if (wanted) wanted.focus();
+  }
+  function ask() {
+    var seq = ++latest;
+    var asked = mode;
+    fetch(mode.url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'HX-Request': 'true', 'X-CSRF-Token': csrf(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'q=' + encodeURIComponent(input.value)
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        if (seq !== latest || asked !== mode) return;
+        canvas.innerHTML = html;
+        if (window.htmx) window.htmx.process(canvas);
+        settle(!mode.live);
+      })
+      .catch(function () {
+        if (seq !== latest || asked !== mode) return;
+        canvas.innerHTML = '';
+        var failed = document.createElement('p');
+        failed.className = 'lat-palette__empty';
+        failed.setAttribute('role', 'alert');
+        failed.textContent = document.body.getAttribute('data-lat-request-error') || '';
+        canvas.appendChild(failed);
+        settle(false);
+      });
+  }
+  function drawModes() {
+    tabs.hidden = modes.length < 2;
+    tabs.innerHTML = '';
+    modes.forEach(function (m) {
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'lat-palette__mode' + (m === mode ? ' is-active' : '');
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', m === mode ? 'true' : 'false');
+      tab.textContent = m.label;
+      tab.addEventListener('click', function () { setMode(m); input.focus(); });
+      tabs.appendChild(tab);
+    });
+  }
+  function setMode(next) {
+    mode = next;
+    latest++;
+    input.placeholder = mode.placeholder || '';
+    input.setAttribute('aria-label', mode.label);
+    canvas.innerHTML = '';
+    canvas.hidden = !mode.url;
+    list.hidden = !!mode.url;
+    overlay.classList.remove('is-raised');
+    active = -1;
+    drawModes();
+    if (!mode.url) search(); else if (mode.live) ask();
+  }
+  function loadModes() {
+    if (loaded) return;
+    loaded = true;
+    fetch(url + '/modes', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (found) {
+        (found || []).forEach(function (m) { modes.push(m); });
+        drawModes();
+        // A prefix typed before the modes arrived still switches.
+        var first = input.value.charAt(0);
+        var chosen = !mode.url && first && modes.filter(function (m) { return m.prefix === first; })[0];
+        if (chosen) { input.value = input.value.slice(1); setMode(chosen); }
+      })
+      .catch(function () {});
   }
   function open() {
     overlay.classList.add('is-open');
     input.value = '';
+    loadModes();
+    setMode(finder);
     input.focus();
-    search();
   }
   function close() {
     overlay.classList.remove('is-open');
@@ -2572,17 +2673,32 @@ window.lat.widget('palette', function (button) {
   overlay.addEventListener('click', function (e) {
     if (e.target.closest('[data-palette-close]')) close();
   });
+  canvas.addEventListener('htmx:afterSwap', function () { settle(true); });
   input.addEventListener('input', function () {
+    // A mode's prefix, typed first in the finder, switches to it.
+    if (!mode.url && input.value) {
+      var first = input.value.charAt(0);
+      var chosen = modes.filter(function (m) { return m.prefix === first; })[0];
+      if (chosen) { input.value = input.value.slice(1); setMode(chosen); return; }
+    }
+    if (mode.url && !mode.live) return;
     clearTimeout(timer);
-    timer = setTimeout(search, 150);
+    timer = setTimeout(mode.url ? ask : search, 150);
   });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowDown') { e.preventDefault(); mark(active + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); mark(active - 1); }
     else if (e.key === 'Enter') {
       var all = items();
-      if (active >= 0 && all[active]) { e.preventDefault(); window.location.href = all[active].href; }
-    } else if (e.key === 'Escape') { e.preventDefault(); close(); }
+      if (active >= 0 && all[active]) { e.preventDefault(); all[active].click(); }
+      else if (mode.url && !mode.live && input.value.trim()) { e.preventDefault(); ask(); }
+    } else if (e.key === 'Backspace' && mode.url && input.value === '') {
+      e.preventDefault();
+      setMode(finder);
+    }
+  });
+  overlay.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
   document.addEventListener('keydown', function (e) {
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'k' || e.key === 'K')) {

@@ -1,0 +1,27 @@
+<form class="lat-palette__card" data-palette-raise method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="closest .lat-palette__canvas" hx-swap="innerHTML">
+  <h2 class="lat-palette__title">{{ label }}</h2>
+  {% if !describe.is_empty() %}<p class="lat-note">{{ describe }}</p>{% endif %}
+  {% if !faults.is_empty() %}<ul class="lat-palette__faults" role="alert">{% for fault in faults %}<li>{{ fault }}</li>{% endfor %}</ul>{% endif %}
+  {% for field in fields %}
+  <label class="lat-field">
+    {% if field.spec.kind == "check" %}
+    <span class="lat-check lat-check--control"><input type="checkbox" name="in.{{ field.spec.name }}" value="1"{% if !field.value.is_empty() %} checked{% endif %}></span>
+    <span class="lat-field__label">{{ field.spec.label }}</span>
+    {% else %}
+    <span class="lat-field__label">{{ field.spec.label }}{% if field.spec.required %} <span aria-hidden="true">*</span>{% endif %}</span>
+    {% if field.spec.kind == "select" %}
+    <select class="lat-input lat-select" name="in.{{ field.spec.name }}"{% if field.spec.required %} required{% endif %}>
+      {% if !field.spec.required %}<option value=""></option>{% endif %}
+      {% for (value, words) in field.spec.options %}<option value="{{ value }}"{% if value == &field.value %} selected{% endif %}>{{ words }}</option>{% endfor %}
+    </select>
+    {% else if field.spec.kind == "number" %}
+    <input class="lat-input" type="number" name="in.{{ field.spec.name }}" value="{{ field.value }}"{% if !field.spec.whole %} step="any"{% endif %}{% if field.spec.required %} required{% endif %}{% if loop.first %} data-palette-focus{% endif %}>
+    {% else %}
+    <input class="lat-input" type="text" name="in.{{ field.spec.name }}" value="{{ field.value }}"{% if field.spec.required %} required{% endif %}{% if loop.first %} data-palette-focus{% endif %}>
+    {% endif %}
+    {% endif %}
+    {% if !field.spec.help.is_empty() %}<span class="lat-field__help">{{ field.spec.help }}</span>{% endif %}
+  </label>
+  {% endfor %}
+  <div class="lat-actions"><button class="lat-btn lat-btn--primary" type="submit">{{ go }}</button></div>
+</form>

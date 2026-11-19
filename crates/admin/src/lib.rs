@@ -43,7 +43,8 @@ mod maillog;
 mod mailtemplates;
 pub mod medialib;
 pub mod nav;
-pub(crate) mod palette;
+pub mod palette;
+mod palette_do;
 mod passwordlinks;
 pub mod persist;
 pub mod picker;
@@ -141,6 +142,8 @@ pub trait AdminRegistry {
     /// Declares something this module can do, callable by name. See
     /// [`ability::Ability`].
     fn add_ability(&mut self, ability: ability::Ability);
+    /// Adds a mode to the command palette. See [`palette::PaletteMode`].
+    fn add_palette_mode(&mut self, mode: palette::PaletteMode);
     /// Adds a skin, selectable by `backend.skin`. See [`skin::Skin`].
     fn add_skin(&mut self, skin: skin::Skin);
     /// Serves a file under the admin's assets at `key` (`acme/dense.css`): a
@@ -188,6 +191,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_ability(&mut self, ability: ability::Ability) {
         self.add(ability);
+    }
+    fn add_palette_mode(&mut self, mode: palette::PaletteMode) {
+        self.add(mode);
     }
     fn add_skin(&mut self, skin: skin::Skin) {
         self.add(skin);
@@ -3103,6 +3109,32 @@ pub fn router(
             &format!("{admin_path}/session"),
             get(session_status).post(session_renew),
         );
+
+    // The palette's modes and the framework's own, Do, which runs an ability.
+    {
+        let ctx = routes::RouteCtx::new(
+            state.db.clone(),
+            state.auth.clone(),
+            state.parameters.clone(),
+            state.queue.clone(),
+            state.schedule.clone(),
+            state.mail.clone(),
+            state.upload_extensions.clone(),
+            state.field_types.clone(),
+            state.overrides.clone(),
+            state.crypt.clone(),
+            &state.storage_dir,
+            &format!("{admin_path}/palette"),
+            &admin_path,
+            &state.origin,
+            state.plugin_defined.clone(),
+            state.auth.events().clone(),
+            forms.clone(),
+            settings_paths(&state.settings, &admin_path),
+        )
+        .with_records(record_kinds.clone());
+        protected = protected.merge(palette_do::routes(&admin_path, ctx));
+    }
 
     // A route per settings screen, at the path its module resolved to, rather
     // than one parameterised route keyed by storage code. The code is captured

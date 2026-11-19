@@ -1,0 +1,7 @@
+<div class="lat-palette__card" data-palette-raise>
+  <h2 class="lat-palette__title">{{ label }}</h2>
+  <p class="lat-palette__summary{% if !ok %} lat-palette__summary--refused{% endif %}" role="{% if ok %}status{% else %}alert{% endif %}">{{ message }}</p>
+  {% if !links.is_empty() %}<ul class="lat-palette__records">{% for link in links %}<li><a class="lat-palette__hit" href="{{ link.href }}"><span class="lat-palette__label">{{ link.label }}</span></a></li>{% endfor %}</ul>{% endif %}
+  {% if !data.is_empty() %}<details class="lat-palette__data"><summary>{{ shell.t("Details") }}</summary><pre>{{ data }}</pre></details>{% endif %}
+  <div class="lat-actions"><a class="lat-btn" href="{{ again }}" hx-get="{{ again }}" hx-target="closest .lat-palette__canvas" hx-swap="innerHTML"{% if links.is_empty() %} data-palette-focus{% endif %}>{{ shell.t("Again") }}</a></div>
+</div>

@@ -594,7 +594,11 @@ impl<'a> Abilities<'a> {
     ) -> Result<Preview, AbilityError> {
         let ability = self.checked(user, code, input)?;
         let cx = self.cx(user, channel);
-        ability.handler.preview(&cx, input).await
+        ability.handler.preview(&cx, input).await.inspect_err(|e| {
+            if let AbilityError::Failed(message) = e {
+                tracing::error!(ability = code, error = %message, "an ability's preview failed");
+            }
+        })
     }
 
     /// Runs `code` with `input` as `user`, and records it.

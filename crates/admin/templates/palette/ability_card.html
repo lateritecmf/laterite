@@ -1,0 +1,12 @@
+<form class="lat-palette__card" data-palette-raise method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="closest .lat-palette__canvas" hx-swap="innerHTML">
+  <h2 class="lat-palette__title">{{ label }}</h2>
+  {% if !summary.is_empty() %}<p class="lat-palette__summary">{{ summary }}</p>{% endif %}
+  {% if let Some(count) = count %}<p class="lat-note">{{ shell.t("Records affected:") }} {{ count }}</p>{% endif %}
+  {% if !records.is_empty() %}<ul class="lat-palette__records">{% for record in records %}<li><a href="{{ record.href }}">{{ record.label }}</a></li>{% endfor %}</ul>{% endif %}
+  {% if !draft.is_empty() %}<dl class="lat-palette__draft">{% for (name, value) in draft %}<dt>{{ name }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}
+  <input type="hidden" name="input" value="{{ input }}">
+  <div class="lat-actions">
+    <button class="lat-btn {% if danger %}lat-btn--danger{% else %}lat-btn--primary{% endif %}" type="submit" data-palette-focus>{{ go }}</button>
+    <a class="lat-btn" href="{{ back }}" hx-get="{{ back }}" hx-target="closest .lat-palette__canvas" hx-swap="innerHTML">{{ shell.t("Back") }}</a>
+  </div>
+</form>

@@ -15,6 +15,72 @@ use serde::{Deserialize, Serialize};
 
 use crate::{nav, render, AdminState, Shell};
 
+/// A second thing the command palette does, beside finding a page.
+///
+/// The palette shows a mode as a tab above its box. In a mode, what the
+/// person types is posted to `path` as the form field `q`, and the markup
+/// that comes back fills the panel under the box, where HTMX attributes work
+/// as on any page. An answer carrying `data-palette-raise` moves the palette
+/// to the top of the screen and widens it, for a form, a card or a result.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PaletteMode {
+    /// Dotted, the module's id first (`acme.assistant`).
+    pub code: String,
+    /// The tab's name.
+    pub label: Text,
+    /// The hint inside the empty box.
+    pub placeholder: Option<Text>,
+    /// A character that, typed first, switches to this mode.
+    pub prefix: Option<char>,
+    /// The permission a person needs to be offered the mode.
+    pub permission: Option<String>,
+    /// Where the palette posts, under the admin root (`/acme/assistant/ask`).
+    pub path: String,
+    /// Posts as the person types; otherwise when they press Enter.
+    pub live: bool,
+}
+
+impl PaletteMode {
+    /// A mode called `label` that posts what is typed to `path`, a path under
+    /// the admin root, when the person presses Enter.
+    pub fn new(code: impl Into<String>, label: Text, path: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            label,
+            placeholder: None,
+            prefix: None,
+            permission: None,
+            path: path.into(),
+            live: false,
+        }
+    }
+
+    /// The hint inside the empty box.
+    pub fn placeholder(mut self, text: Text) -> Self {
+        self.placeholder = Some(text);
+        self
+    }
+
+    /// A character that, typed first in the box, switches to this mode.
+    pub fn prefix(mut self, prefix: char) -> Self {
+        self.prefix = Some(prefix);
+        self
+    }
+
+    /// The permission a person needs to be offered the mode.
+    pub fn permission(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    /// Posts as the person types, for a mode that suggests.
+    pub fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+}
+
 /// A resource whose records the palette finds: its picker source, where a
 /// record's edit page lives, and what the operator must hold to see them.
 #[derive(Clone, Debug)]
