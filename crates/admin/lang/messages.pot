@@ -69,6 +69,10 @@ msgid "A role grants every permission it holds. A role granting more than you ho
 msgstr ""
 
 #: (descriptors)
+msgid "A rule here tightens what the panel allows, and loosens it no further than the panel does."
+msgstr ""
+
+#: (descriptors)
 msgid "A short name code refers to the group by, such as owners."
 msgstr ""
 
@@ -86,11 +90,19 @@ msgid "A test message went to {address} through {driver}."
 msgstr ""
 
 #: (descriptors)
+msgid "Abilities"
+msgstr ""
+
+#: (descriptors)
 msgid "Accent colour"
 msgstr ""
 
 #: (descriptors)
 msgid "Access Log"
+msgstr ""
+
+#: (descriptors)
+msgid "Acting for me"
 msgstr ""
 
 #: (descriptors)
@@ -387,6 +399,10 @@ msgstr ""
 
 #: src/medialib/field.rs
 msgid "Choose from the library"
+msgstr ""
+
+#: (descriptors)
+msgid "Choose how far an assistant goes in your name."
 msgstr ""
 
 #: src/medialib/field.rs
@@ -1917,6 +1933,10 @@ msgid "Rows read"
 msgstr ""
 
 #: (descriptors)
+msgid "Rules"
+msgstr ""
+
+#: (descriptors)
 msgid "Rules added to every admin page. Imports and scripts are removed."
 msgstr ""
 
@@ -2100,6 +2120,14 @@ msgstr ""
 
 #: src/palette_do.rs
 msgid "Sends"
+msgstr ""
+
+#: (descriptors)
+msgid "Set how far abilities go for a person"
+msgstr ""
+
+#: (descriptors)
+msgid "Set how far an assistant or an automation goes for a person."
 msgstr ""
 
 #: templates/setup.html
@@ -2835,6 +2863,10 @@ msgstr ""
 
 #: src/board.rs
 msgid "Widgets"
+msgstr ""
+
+#: (descriptors)
+msgid "With no rule, a lookup runs, an addition or a change asks first, and a delete or a send is not offered. The rule that names an ability most exactly decides."
 msgstr ""
 
 #: templates/import/_run_status.html

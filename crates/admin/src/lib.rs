@@ -1866,6 +1866,11 @@ fn builtin_permissions() -> Vec<Permission> {
         Permission::new("backend.manage_roles", "Manage roles", "Backend"),
         Permission::new("backend.manage_groups", "Manage groups", "Backend"),
         Permission::new("backend.manage_branding", "Manage branding", "Backend"),
+        Permission::new(
+            ability::POLICY_PERMISSION,
+            "Set how far abilities go for a person",
+            "Backend",
+        ),
         Permission::new(plugins::MANAGE_PERMISSION, "Manage plugins", "Backend"),
         Permission::new(jobs::PERMISSION, "Manage jobs", "Backend"),
         Permission::new(scheduled::PERMISSION, "Manage scheduled tasks", "Backend"),
@@ -1896,6 +1901,9 @@ pub fn descriptor_sources() -> Vec<String> {
     let mut out = Vec::new();
     out.extend(laterite_core::collect_sources(&builtin_resources()));
     out.extend(laterite_core::collect_sources(&builtin_settings()));
+    out.extend(laterite_core::collect_sources(&ability::policy_settings(
+        &[],
+    )));
     out.extend(laterite_core::collect_sources(&builtin_permissions()));
     out.sort();
     out.dedup();
@@ -2130,6 +2138,18 @@ pub fn router(
     }
 
     let mut settings = builtin_settings();
+    {
+        // The rules over abilities, where the panel has any to rule on.
+        let declared = plugin_defined.items::<ability::Ability>();
+        let mut named: Vec<&ability::Ability> = Vec::new();
+        if !resources.is_empty() {
+            named.extend(records::ABILITIES.iter());
+        }
+        named.extend(declared);
+        if !named.is_empty() {
+            settings.extend(ability::policy_settings(&named));
+        }
+    }
     settings.extend(app_settings);
     // The framework's own listeners run before the modules', so a contributed
     // one can see what they decided.

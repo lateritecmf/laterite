@@ -361,6 +361,72 @@ async fn a_read_runs_at_once_and_the_rest_is_refused() {
     assert!(auth.recent_audit(10).await.unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn the_rules_over_abilities_are_set_from_settings_and_preferences() {
+    use laterite_admin::ability::{Confirm, OwnPolicy, PanelPolicy};
+    use laterite_admin::settings::store as settings;
+
+    let (db, _guard, app) = setup().await;
+    let root = session(&db, "root", &[]).await;
+    let plain = session(&db, "plain", &["acme.other"]).await;
+
+    let (status, html) = send(&app, get("/admin/settings/backend/abilities", &root)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Add a lead (acme.crm.add_lead)"), "{html}");
+    assert!(html.contains("All of acme.crm"));
+    assert!(html.contains("Everything that deletes a record"));
+    assert!(html.contains("Run without asking"));
+    let (status, _) = send(&app, get("/admin/settings/backend/abilities", &plain)).await;
+    assert_ne!(
+        status,
+        StatusCode::OK,
+        "the panel's rules need their permission"
+    );
+
+    let body = format!(
+        "{}=acme.crm.add_lead&{}=auto",
+        urlencode("rules[0][what]"),
+        urlencode("rules[0][confirm]")
+    );
+    let (status, _) = send(
+        &app,
+        post("/admin/settings/backend/abilities", &root, &body),
+    )
+    .await;
+    assert!(status.is_redirection() || status.is_success(), "{status}");
+    let panel: PanelPolicy = settings::load(&db).await.unwrap();
+    assert_eq!(panel.rules.len(), 1);
+    assert_eq!(panel.rules[0].what, "acme.crm.add_lead");
+    assert_eq!(panel.rules[0].confirm, Confirm::Auto);
+
+    // Anyone signed in sets their own.
+    let path = "/admin/preferences/backend/my_abilities";
+    let (status, html) = send(&app, get(path, &plain)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Ask first"));
+    let body = format!(
+        "{}={}&{}=off",
+        urlencode("rules[0][what]"),
+        urlencode("effect:read"),
+        urlencode("rules[0][confirm]")
+    );
+    let (status, _) = send(&app, post(path, &plain, &body)).await;
+    assert!(status.is_redirection() || status.is_success(), "{status}");
+    let user = store_user(&db, "plain").await;
+    let own: OwnPolicy = settings::load_for(&db, user).await.unwrap();
+    assert_eq!(own.rules[0].what, "effect:read");
+    assert_eq!(own.rules[0].confirm, Confirm::Off);
+}
+
+/// The id of the operator called `name`.
+async fn store_user(db: &Db, name: &str) -> i64 {
+    store::find_user_by_username(db, name)
+        .await
+        .unwrap()
+        .unwrap()
+        .id
+}
+
 /// Percent-encodes a form value.
 fn urlencode(raw: &str) -> String {
     raw.bytes()

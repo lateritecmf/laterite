@@ -141,6 +141,69 @@ Error | Cause
 
 A run with an effect other than `Read` writes an `ability.run` audit entry.
 
+## Act for a person
+
+```rust
+use laterite_admin::ability::Confirm;
+
+let abilities = ctx.abilities();
+const CHANNEL: &str = "acme.assistant";
+
+for (ability, confirm) in abilities.offered(&user).await? {
+    println!("{} ({})", ability.code(), confirm.as_str());
+}
+
+match abilities.confirm(&user, "acme.crm.add_lead").await? {
+    Confirm::Auto => {
+        abilities.run(&user, "acme.crm.add_lead", input, Some(CHANNEL)).await?;
+    }
+    _ => {
+        let preview = abilities
+            .preview(&user, "acme.crm.add_lead", &input, Some(CHANNEL))
+            .await?;
+        // Show the preview; run once the person agrees.
+    }
+}
+```
+
+Answer | Means | Default for
+--- | --- | ---
+`Confirm::Auto` | run without asking | `Effect::Read`
+`Confirm::Ask` | show the preview, run when the person agrees | every other effect
+`Confirm::Off` | not offered: `confirm`, `preview` and `run` answer `AbilityError::Unknown` | `Effect::Delete`, `Effect::Send`
+
+A call with `channel` set to `None` is the person themself and is not asked.
+
+```rust
+use laterite_admin::ability::{Confirm, OwnPolicy, PanelPolicy, PolicyRule};
+use laterite_admin::settings::store;
+
+store::save(ctx.db(), &PanelPolicy {
+    rules: vec![
+        PolicyRule::new("effect:delete", Confirm::Ask),
+        PolicyRule::new("acme.crm", Confirm::Ask),
+        PolicyRule::new("acme.crm.add_lead", Confirm::Auto),
+    ],
+}).await?;
+
+store::save_for(ctx.db(), user.user.id, &OwnPolicy {
+    rules: vec![PolicyRule::new("acme.crm.add_lead", Confirm::Ask)],
+}).await?;
+```
+
+Rule | Covers | Wins over
+--- | --- | ---
+`acme.crm.add_lead` | that ability | every other rule
+`acme.crm` | every ability whose code starts `acme.crm.` | a shorter start, an effect
+`effect:create` | every ability with that effect | the default
+
+Set by | Where | Reach
+--- | --- | ---
+An administrator holding `backend.manage_abilities` | Settings, Abilities (`PanelPolicy`) | the furthest anyone goes
+Each person | Preferences, Acting for me (`OwnPolicy`) | tighter than the panel's rule, or as loose as it and no looser
+
+A run through a channel records its answer as `confirm` in the audit entry.
+
 ## Offer a resource's records
 
 ```yaml

@@ -19,6 +19,10 @@
 //! signed-in person, shows them only what their permissions allow, checks the
 //! input against the declared schema, runs the handler as them and writes the
 //! audit entry.
+//!
+//! How far something acting for a person may go is a [`Policy`]: each ability
+//! answers [`Confirm::Auto`], [`Confirm::Ask`] or [`Confirm::Off`], by its
+//! effect unless an administrator's rule or the person's own says otherwise.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -498,6 +502,236 @@ pub(crate) fn check(registry: &Registry) -> Result<(), String> {
     Ok(())
 }
 
+/// How far something acting for a person may go with one ability.
+///
+/// Ordered from the tightest to the loosest, so the tighter of two is their
+/// `min`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Confirm {
+    /// Not offered: the ability does not exist for anything acting for the
+    /// person.
+    Off,
+    /// Shown to the person first, with its preview, and run when they agree.
+    Ask,
+    /// Run without asking.
+    Auto,
+}
+
+impl Confirm {
+    /// The stable name, as a rule stores it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Ask => "ask",
+            Self::Auto => "auto",
+        }
+    }
+
+    /// What an ability answers when no rule names it: a read runs, a delete
+    /// and a send are not offered, every other change asks.
+    pub fn for_effect(effect: Effect) -> Self {
+        match effect {
+            Effect::Read => Self::Auto,
+            Effect::Delete | Effect::Send => Self::Off,
+            _ => Self::Ask,
+        }
+    }
+}
+
+/// One rule of a [`Policy`]: what it covers and how far that may go.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyRule {
+    /// An ability's code (`acme.crm.add_lead`), the start of one up to a dot
+    /// (`acme.crm`), or an effect as `effect:create`.
+    pub what: String,
+    /// How far what it covers may go.
+    pub confirm: Confirm,
+}
+
+impl PolicyRule {
+    /// A rule for `what`: a code, the start of one, or `effect:<name>`.
+    pub fn new(what: impl Into<String>, confirm: Confirm) -> Self {
+        Self {
+            what: what.into(),
+            confirm,
+        }
+    }
+}
+
+/// The rules an administrator sets for the whole panel, stored as the
+/// setting `backend.abilities`.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PanelPolicy {
+    /// The rules; the one that names an ability most exactly decides.
+    #[serde(default)]
+    pub rules: Vec<PolicyRule>,
+}
+
+impl crate::settings::SettingsModel for PanelPolicy {
+    const CODE: &'static str = POLICY_CODE;
+}
+
+/// The rules a person sets for themselves, stored among their preferences.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct OwnPolicy {
+    /// The rules; the one that names an ability most exactly decides.
+    #[serde(default)]
+    pub rules: Vec<PolicyRule>,
+}
+
+impl crate::settings::PreferencesModel for OwnPolicy {
+    const CODE: &'static str = OWN_POLICY_CODE;
+}
+
+/// The settings code of the panel's rules.
+pub const POLICY_CODE: &str = "backend.abilities";
+/// The preferences code of a person's own rules.
+pub const OWN_POLICY_CODE: &str = "backend.my_abilities";
+/// The permission to set the panel's rules.
+pub const POLICY_PERMISSION: &str = "backend.manage_abilities";
+
+/// The two pages that hold the rules: the panel's under Settings, and each
+/// person's own among their preferences. `abilities` are the ones a rule
+/// may name.
+pub(crate) fn policy_settings(abilities: &[&Ability]) -> Vec<crate::settings::SettingsItem> {
+    use crate::form::FormField;
+
+    let mut what: Vec<(String, String)> = [
+        ("read", "Everything that looks something up"),
+        ("create", "Everything that adds a record"),
+        ("update", "Everything that changes a record"),
+        ("delete", "Everything that deletes a record"),
+        ("send", "Everything that sends to someone outside"),
+        ("run", "Every other change"),
+    ]
+    .into_iter()
+    .map(|(effect, words)| (format!("effect:{effect}"), words.to_string()))
+    .collect();
+    let mut groups: Vec<&str> = abilities.iter().map(|a| a.group_code()).collect();
+    groups.sort_unstable();
+    groups.dedup();
+    what.extend(
+        groups
+            .into_iter()
+            .map(|group| (group.to_string(), format!("All of {group}"))),
+    );
+    what.extend(abilities.iter().map(|a| {
+        (
+            a.code().to_string(),
+            format!("{} ({})", a.label().source(), a.code()),
+        )
+    }));
+    let what: Vec<(&str, &str)> = what.iter().map(|(v, l)| (v.as_str(), l.as_str())).collect();
+    let rules = |help: &str| {
+        FormField::repeater(
+            "rules",
+            "Rules",
+            vec![
+                FormField::select("what", "For", what.clone()).required(),
+                FormField::select(
+                    "confirm",
+                    "Allow",
+                    vec![
+                        ("auto", "Run without asking"),
+                        ("ask", "Ask first"),
+                        ("off", "Not offered"),
+                    ],
+                )
+                .required(),
+            ],
+        )
+        .help(help.to_string())
+    };
+    vec![
+        crate::settings::SettingsItem::new(
+            POLICY_CODE,
+            "Abilities",
+            vec![rules(
+                "With no rule, a lookup runs, an addition or a change asks first, and a delete or a send is not offered. The rule that names an ability most exactly decides.",
+            )],
+        )
+        .description("Set how far an assistant or an automation goes for a person.")
+        .category(crate::settings::category::SYSTEM)
+        .slot(laterite_core::arrange::slot::SYSTEM)
+        .order(60)
+        .icon("sliders-horizontal")
+        .permission(POLICY_PERMISSION),
+        crate::settings::SettingsItem::new(
+            OWN_POLICY_CODE,
+            "Acting for me",
+            vec![rules(
+                "A rule here tightens what the panel allows, and loosens it no further than the panel does.",
+            )],
+        )
+        .description("Choose how far an assistant goes in your name.")
+        .icon("sliders-horizontal")
+        .per_operator(),
+    ]
+}
+
+/// How far something acting for one person may go, ability by ability.
+///
+/// The panel's rule for an ability, or its effect's default, is the furthest
+/// anyone goes. A person's own rule tightens that freely and loosens it only
+/// up to there.
+#[derive(Debug, Clone, Default)]
+pub struct Policy {
+    panel: Vec<PolicyRule>,
+    own: Vec<PolicyRule>,
+}
+
+impl Policy {
+    /// A policy from the panel's rules and one person's.
+    pub fn new(panel: Vec<PolicyRule>, own: Vec<PolicyRule>) -> Self {
+        Self { panel, own }
+    }
+
+    /// The furthest anyone may go with `ability`: the panel's rule, or the
+    /// default for its effect.
+    pub fn ceiling(&self, ability: &Ability) -> Confirm {
+        pick(&self.panel, ability).unwrap_or_else(|| Confirm::for_effect(ability.effect))
+    }
+
+    /// How far this person lets `ability` go.
+    pub fn confirm(&self, ability: &Ability) -> Confirm {
+        let ceiling = self.ceiling(ability);
+        pick(&self.own, ability).map_or(ceiling, |own| own.min(ceiling))
+    }
+}
+
+/// The rule that names `ability` most exactly: its code, then the longest
+/// start of its code, then its effect.
+fn pick(rules: &[PolicyRule], ability: &Ability) -> Option<Confirm> {
+    let code = ability.code.as_str();
+    let effect = format!("effect:{}", ability.effect.as_str());
+    rules
+        .iter()
+        .filter_map(|rule| {
+            let what = rule.what.trim();
+            let weight = if what == code {
+                usize::MAX
+            } else if code
+                .strip_prefix(what)
+                .is_some_and(|rest| rest.starts_with('.'))
+            {
+                what.len()
+            } else if what == effect {
+                0
+            } else {
+                return None;
+            };
+            Some((weight, rule.confirm))
+        })
+        // Among rules of one weight the tighter wins, so a repeated row
+        // never loosens.
+        .max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)))
+        .map(|(_, confirm)| confirm)
+}
+
 /// The abilities of this panel, as one person may use them. Reached through
 /// [`RouteCtx::abilities`].
 pub struct Abilities<'a> {
@@ -582,6 +816,67 @@ impl<'a> Abilities<'a> {
         scored.into_iter().take(limit).map(|(_, _, a)| a).collect()
     }
 
+    /// The policy for `user`: the panel's rules and their own.
+    ///
+    /// A rule that cannot be read fails the call: a caller that cannot learn
+    /// the policy runs nothing.
+    pub async fn policy(&self, user: &AuthenticatedUser) -> Result<Policy, AbilityError> {
+        let db = self.ctx.db();
+        let panel: PanelPolicy = crate::settings::store::load(db)
+            .await
+            .map_err(|e| AbilityError::Failed(format!("ability policy: {e}")))?;
+        let own: OwnPolicy = crate::settings::store::load_for(db, user.user.id)
+            .await
+            .map_err(|e| AbilityError::Failed(format!("ability policy: {e}")))?;
+        Ok(Policy::new(panel.rules, own.rules))
+    }
+
+    /// What something acting for `user` may use, each with how far it may
+    /// go: [`Abilities::for_user`] without what the policy turns off.
+    pub async fn offered(
+        &self,
+        user: &AuthenticatedUser,
+    ) -> Result<Vec<(&'a Ability, Confirm)>, AbilityError> {
+        let policy = self.policy(user).await?;
+        Ok(self
+            .for_user(user)
+            .into_iter()
+            .map(|ability| (ability, policy.confirm(ability)))
+            .filter(|(_, confirm)| *confirm != Confirm::Off)
+            .collect())
+    }
+
+    /// How far something acting for `user` may go with `code`. Ask before a
+    /// run: on [`Confirm::Ask`] show the person the preview and run when
+    /// they agree.
+    pub async fn confirm(
+        &self,
+        user: &AuthenticatedUser,
+        code: &str,
+    ) -> Result<Confirm, AbilityError> {
+        let ability = self
+            .get(user, code)
+            .ok_or_else(|| AbilityError::Unknown(code.to_string()))?;
+        match self.policy(user).await?.confirm(ability) {
+            Confirm::Off => Err(AbilityError::Unknown(code.to_string())),
+            confirm => Ok(confirm),
+        }
+    }
+
+    /// The policy's answer for a call through `channel`; a person acting
+    /// themselves is not asked.
+    async fn through(
+        &self,
+        user: &AuthenticatedUser,
+        code: &str,
+        channel: Option<&str>,
+    ) -> Result<Option<Confirm>, AbilityError> {
+        match channel {
+            Some(_) => self.confirm(user, code).await.map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// What running `code` with `input` would do, with nothing changed.
     /// `channel` names what is asking for the person (`acme.assistant`);
     /// `None` when they ask themselves.
@@ -593,6 +888,7 @@ impl<'a> Abilities<'a> {
         channel: Option<&str>,
     ) -> Result<Preview, AbilityError> {
         let ability = self.checked(user, code, input)?;
+        self.through(user, code, channel).await?;
         let cx = self.cx(user, channel);
         ability.handler.preview(&cx, input).await.inspect_err(|e| {
             if let AbilityError::Failed(message) = e {
@@ -604,7 +900,10 @@ impl<'a> Abilities<'a> {
     /// Runs `code` with `input` as `user`, and records it.
     ///
     /// The ability must be one `user` may run and `input` must fit its
-    /// schema; either failing runs nothing. `channel` names what is acting
+    /// schema; either failing runs nothing. Through a `channel`, an ability
+    /// the [`Policy`] turns off answers as one that does not exist; ask
+    /// [`Abilities::confirm`] first to learn whether to show the person
+    /// the preview. `channel` names what is acting
     /// for the person (`acme.assistant`), and reaches the audit entry and
     /// every record the handler saves through [`AbilityCx::actor`].
     ///
@@ -619,6 +918,7 @@ impl<'a> Abilities<'a> {
         channel: Option<&str>,
     ) -> Result<Outcome, AbilityError> {
         let ability = self.checked(user, code, &input)?;
+        let confirm = self.through(user, code, channel).await?;
         let cx = self.cx(user, channel);
         let logged = ability.effect.changes().then(|| redacted(ability, &input));
         let outcome = ability.handler.run(&cx, input).await.inspect_err(|e| {
@@ -627,12 +927,15 @@ impl<'a> Abilities<'a> {
             }
         })?;
         if let Some(input) = logged {
-            let detail = json!({
+            let mut detail = json!({
                 "effect": ability.effect.as_str(),
                 "input": input,
                 "result": outcome.message.source(),
-            })
-            .to_string();
+            });
+            if let Some(confirm) = confirm {
+                detail["confirm"] = json!(confirm.as_str());
+            }
+            let detail = detail.to_string();
             let entry = AuditEntry::new(cx.actor(), "ability.run")
                 .target("ability", code, Some(ability.label.source()))
                 .detail(&detail);
