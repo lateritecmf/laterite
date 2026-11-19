@@ -1277,33 +1277,6 @@ impl Board {
     }
 }
 
-/// A widget's setting as a control, with what it is set to.
-fn setting_control(field: &FormField, properties: &Value) -> crate::surface::Control {
-    let choices: Vec<String> = field
-        .options
-        .get("options")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|o| o.get("value").and_then(Value::as_str).map(str::to_string))
-        .collect();
-    let kind = match field.field_type.as_str() {
-        "select" | "radio" => "select",
-        "switch" | "checkbox" => "boolean",
-        "number" | "date" => field.field_type.as_str(),
-        _ => "text",
-    };
-    let mut control =
-        crate::surface::Control::new(field.name.clone(), field.label.clone(), kind).values(choices);
-    if let Some(help) = &field.help {
-        control = control.describe(help.clone());
-    }
-    match properties.get(&field.name) {
-        Some(value) if !value.is_null() => control.value(value.clone()),
-        _ => control,
-    }
-}
-
 #[laterite_core::strata::async_trait]
 impl crate::surface::Surface for BoardSurface {
     fn path(&self) -> &str {
@@ -1351,7 +1324,10 @@ impl crate::surface::Surface for BoardSurface {
                 query: &none,
             };
             for field in kind.controls(&read, &placed.properties) {
-                part = part.control(setting_control(&field, &placed.properties));
+                part = part.control(crate::surface::Control::of_field(
+                    &field,
+                    &placed.properties,
+                ));
             }
             if kind.reads() {
                 for control in self.board.carried_controls() {

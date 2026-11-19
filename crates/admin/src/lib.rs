@@ -2749,6 +2749,19 @@ pub fn router(
 
     // What screens say they have as they mount, read by the screen abilities.
     let mounted: routes::MountedSurfaces = Arc::default();
+    {
+        // Each settings page with fields of its own says what it holds.
+        let mut pages = mounted
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for item in state.settings.iter() {
+            let path = item.path(&admin_path);
+            let path = path.strip_prefix(admin_path.as_str()).unwrap_or(&path);
+            if let Some(surface) = surface::SettingsSurface::of(item, path.to_string()) {
+                pages.push(Arc::new(surface));
+            }
+        }
+    }
 
     // The home dashboard: a board of the registered widgets, each person
     // arranging their own.

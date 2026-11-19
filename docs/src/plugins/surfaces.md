@@ -180,3 +180,20 @@ each [filter](../lists/filters.md) by its key | that filter, with its `values` f
 ```json
 { "screen": "/posts", "act": "show", "set": { "status": "live", "views_min": 1000, "sort": "views", "dir": "desc" } }
 ```
+
+## Settings pages
+
+Every [settings page](../admin/settings.md) with fields is a surface at
+its page's path, behind the page's permission.
+
+Control | Is
+--- | ---
+each field by its name | the field, with its `value` as stored; a person's own for a per-person page
+
+Act | Answers
+--- | ---
+`show` | the page's address
+`read` | the stored values by field name
+
+A `password` or `sensitive` field is never named. A request that sets a
+control is refused: a setting is changed on its page.

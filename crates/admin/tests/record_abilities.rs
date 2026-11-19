@@ -502,14 +502,14 @@ async fn a_list_is_a_screen_described_and_driven_like_any_other() {
         .unwrap()
         .data
         .unwrap();
-    // The home dashboard, then the list.
+    // Their own preferences page, the home dashboard, then the list.
     let named: Vec<&str> = screens
         .as_array()
         .unwrap()
         .iter()
         .map(|s| s["screen"].as_str().unwrap())
         .collect();
-    assert_eq!(named, ["/", "/posts"]);
+    assert_eq!(named, ["/preferences/backend/my_abilities", "/", "/posts"]);
 
     let described = abilities
         .run(
@@ -574,4 +574,93 @@ async fn a_list_is_a_screen_described_and_driven_like_any_other() {
         };
         assert!(faults[0].starts_with(fault), "{faults:?}");
     }
+}
+
+#[tokio::test]
+async fn a_settings_page_says_what_it_holds_and_is_changed_only_on_its_page() {
+    use laterite_admin::ability::{Confirm, PanelPolicy, PolicyRule};
+
+    let (ctx, _auth, id, _guard) = boot().await;
+    let abilities = ctx.abilities();
+    laterite_admin::settings::store::save(
+        ctx.db(),
+        &PanelPolicy {
+            rules: vec![PolicyRule::new("effect:delete", Confirm::Ask)],
+        },
+    )
+    .await
+    .unwrap();
+    let page = "/settings/backend/abilities";
+
+    // Without the page's permission it is not a screen at all.
+    let outsider = person(id, &["acme.manage_posts"]);
+    let hidden = abilities
+        .run(
+            &outsider,
+            "backend.screens.describe",
+            json!({ "screen": page }),
+            None,
+        )
+        .await;
+    assert!(matches!(hidden, Err(AbilityError::Invalid(_))));
+
+    let admin = person(id, &["backend.manage_abilities"]);
+    let described = abilities
+        .run(
+            &admin,
+            "backend.screens.describe",
+            json!({ "screen": page }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(described["label"], "Abilities");
+    assert_eq!(described["controls"][0]["name"], "rules");
+    assert_eq!(
+        described["controls"][0]["value"][0]["what"],
+        "effect:delete"
+    );
+    assert_eq!(described["acts"], json!(["show", "read"]));
+
+    let read = abilities
+        .run(
+            &admin,
+            "backend.screens.act",
+            json!({ "screen": page, "act": "read" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(read["rules"][0]["confirm"], "ask");
+
+    let shown = abilities
+        .run(
+            &admin,
+            "backend.screens.act",
+            json!({ "screen": page, "act": "show" }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        shown.go.as_deref(),
+        Some("/admin/settings/backend/abilities")
+    );
+
+    let refused = abilities
+        .run(
+            &admin,
+            "backend.screens.act",
+            json!({ "screen": page, "act": "show", "set": { "rules": [] } }),
+            None,
+        )
+        .await;
+    let Err(AbilityError::Invalid(faults)) = refused else {
+        panic!("expected a refusal");
+    };
+    assert!(faults[0].starts_with("set: a setting is changed on its page"));
 }

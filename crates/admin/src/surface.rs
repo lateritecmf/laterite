@@ -69,6 +69,33 @@ impl Control {
         }
     }
 
+    /// A form field as a control: its name, label and help, the kind its
+    /// type takes, its choices, and what `values` holds for it.
+    pub fn of_field(field: &crate::form::FormField, values: &Value) -> Self {
+        let choices: Vec<String> = field
+            .options
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|o| o.get("value").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        let kind = match field.field_type.as_str() {
+            "select" | "radio" => "select",
+            "switch" | "checkbox" => "boolean",
+            "number" | "date" => field.field_type.as_str(),
+            _ => "text",
+        };
+        let mut control = Self::new(field.name.clone(), field.label.clone(), kind).values(choices);
+        if let Some(help) = &field.help {
+            control = control.describe(help.clone());
+        }
+        match values.get(&field.name) {
+            Some(value) if !value.is_null() => control.value(value.clone()),
+            _ => control,
+        }
+    }
+
     /// Says what the control narrows or changes.
     pub fn describe(mut self, text: impl Into<Text>) -> Self {
         self.describe = Some(text.into());
@@ -261,6 +288,96 @@ impl std::fmt::Debug for SurfaceReg {
         f.debug_struct("SurfaceReg")
             .field("path", &self.surface.path())
             .finish()
+    }
+}
+
+/// A settings page as a surface: its fields as controls with what they are
+/// set to, shown or read. Changing one is done on the page.
+pub(crate) struct SettingsSurface {
+    item: crate::settings::SettingsItem,
+    /// The page's path under the admin root.
+    path: String,
+}
+
+impl SettingsSurface {
+    /// The surface of `item`, whose page is at `path` under the admin root;
+    /// `None` for an entry that only links elsewhere or has no fields.
+    pub(crate) fn of(item: &crate::settings::SettingsItem, path: String) -> Option<Self> {
+        (item.link.is_none() && !item.fields.is_empty()).then(|| Self {
+            item: item.clone(),
+            path,
+        })
+    }
+
+    /// The fields a caller is told: none that holds a secret.
+    fn fields(&self) -> impl Iterator<Item = &crate::form::FormField> {
+        self.item.fields.iter().filter(|f| {
+            !f.hidden && !matches!(f.field_type.as_str(), "password" | "sensitive" | "section")
+        })
+    }
+
+    async fn stored(&self, cx: &AbilityCx<'_>) -> Result<Value, AbilityError> {
+        let db = cx.db();
+        let stored = if self.item.per_operator {
+            crate::settings::store::get_for(db, cx.user().user.id, &self.item.code)
+                .await
+                .map_err(|e| AbilityError::Failed(e.to_string()))?
+        } else {
+            crate::settings::store::get(db, &self.item.code)
+                .await
+                .map_err(|e| AbilityError::Failed(e.to_string()))?
+        };
+        Ok(stored.unwrap_or_else(|| json!({})))
+    }
+}
+
+#[async_trait]
+impl Surface for SettingsSurface {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn label(&self) -> Text {
+        self.item.label.clone()
+    }
+
+    fn describe(&self) -> Option<Text> {
+        Some(self.item.description.clone())
+    }
+
+    fn permission(&self) -> Option<&str> {
+        self.item.permission.as_deref()
+    }
+
+    async fn parts(&self, cx: &AbilityCx<'_>) -> Result<Part, AbilityError> {
+        let stored = self.stored(cx).await?;
+        let mut part = Part::new("settings", self.item.label.clone())
+            .describe(self.item.description.clone())
+            .act(SHOW)
+            .act(READ);
+        for field in self.fields() {
+            part = part.control(Control::of_field(field, &stored));
+        }
+        Ok(part)
+    }
+
+    async fn act(&self, cx: &AbilityCx<'_>, request: &Request) -> Result<Outcome, AbilityError> {
+        if !request.set.is_empty() {
+            return Err(AbilityError::invalid(
+                "set: a setting is changed on its page; show it to the person",
+            ));
+        }
+        let label = self.item.label.source().to_string();
+        if request.act == SHOW {
+            let href = format!("{}{}", cx.ctx().admin_path(), self.path);
+            return Ok(Outcome::new(t!("Opened {page}.", page = label)).go(href));
+        }
+        let stored = self.stored(cx).await?;
+        let shown: Map<String, Value> = self
+            .fields()
+            .filter_map(|f| stored.get(&f.name).map(|v| (f.name.clone(), v.clone())))
+            .collect();
+        Ok(Outcome::new(t!("What {page} is set to.", page = label)).data(Value::Object(shown)))
     }
 }
 
