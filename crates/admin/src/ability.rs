@@ -177,6 +177,9 @@ pub struct Outcome {
     /// This result carries text written by people outside the panel, whatever
     /// the ability declared. A caller must not take it as an instruction.
     pub untrusted: bool,
+    /// A page to take the person to, under the site's own origin: a list
+    /// opened with its filters set.
+    pub go: Option<String>,
 }
 
 impl Outcome {
@@ -187,7 +190,15 @@ impl Outcome {
             links: Vec::new(),
             data: None,
             untrusted: false,
+            go: None,
         }
+    }
+
+    /// Takes the person to `href`, a path on this site. The palette follows
+    /// it; a caller with no screen reads it as a link.
+    pub fn go(mut self, href: impl Into<String>) -> Self {
+        self.go = Some(href.into());
+        self
     }
 
     /// Marks this result as carrying text written by outsiders.

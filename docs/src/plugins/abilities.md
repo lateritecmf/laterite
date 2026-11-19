@@ -96,6 +96,7 @@ Method | Sets
 Return | When
 --- | ---
 `Ok(Outcome::new(message))` | it ran; add `.link(..)` for records and `.data(..)` for a result as JSON
+`Ok(Outcome::new(message).go(href))` | it ran, and the person is taken to `href`, a path on the site
 `Err(AbilityError::Refused(text))` | it declined, with a reason the person reads
 `Err(AbilityError::invalid(message))` | the input is wrong in a way the schema cannot state
 `Err(AbilityError::Failed(message))` | it broke; the message goes to the log
@@ -235,13 +236,19 @@ Key | Sets | Default
 
 Ability | Input | Answers
 --- | --- | ---
-`backend.records.kinds` | `resource` (optional) | the kinds open to the person; one kind with its fields and columns
-`backend.records.find` | `resource`, `search`, `limit` | matching rows with their ids, 25 at most
+`backend.records.kinds` | `resource` (optional) | the kinds open to the person; one kind with its fields, columns, `filters` and `sorts`
+`backend.records.find` | `resource`, `search`, `filters`, `sort`, `dir`, `limit` | matching rows with their ids, 25 at most
+`backend.records.open` | `resource`, `search`, `filters`, `sort`, `dir` | the list's address with all of it set, as `Outcome::go`
 `backend.records.read` | `resource`, `id` | one record's field values
 `backend.records.create` | `resource`, `values` | `preview`: the filled form as a `Draft`; `run`: the new id
 `backend.records.update` | `resource`, `id`, `values` | `preview`: the changed form as a `Draft`; `run`: the id
 
-`resource` is the resource's `path`. Each ability asks for the resource's
+```json
+{ "resource": "/posts", "filters": { "status": "live", "views_min": 1000 }, "sort": "views", "dir": "desc" }
+```
+
+`filters` names the list's own [filters](../lists/filters.md), the ones the
+person may use. `resource` is the resource's `path`. Each ability asks for the resource's
 `permission`, and a create or an update for its `permissions.create` or
 `permissions.update`. `password` and `sensitive` fields are never read or set.
 

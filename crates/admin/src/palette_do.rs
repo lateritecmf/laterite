@@ -306,6 +306,19 @@ struct DoneTemplate {
 }
 
 fn done(shell: Shell, state: &DoState, ability: &Ability, outcome: Outcome) -> Response {
+    // A result that names a page takes the person there. Only a path on this
+    // site is followed.
+    if let Some(go) = outcome.go.as_deref().filter(|go| {
+        go.starts_with('/') && !go.starts_with("//") && !go.contains(['\\', '\r', '\n'])
+    }) {
+        if let Ok(value) = axum::http::HeaderValue::from_str(go) {
+            return (
+                [(axum::http::HeaderName::from_static("hx-redirect"), value)],
+                (),
+            )
+                .into_response();
+        }
+    }
     render(DoneTemplate {
         label: shell.tt(ability.label()),
         ok: true,

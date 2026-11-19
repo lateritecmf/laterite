@@ -1590,6 +1590,10 @@ msgstr ""
 msgid "Open the audit log"
 msgstr ""
 
+#: src/records.rs
+msgid "Opened {kind}."
+msgstr ""
+
 #: (descriptors)
 msgid "Operator"
 msgstr ""

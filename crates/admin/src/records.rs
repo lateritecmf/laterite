@@ -235,9 +235,112 @@ impl RecordKind {
             })
             .collect();
         let columns: Vec<&str> = self.columns(user).map(|(_, c)| c.field.as_str()).collect();
+        let filters: Vec<Value> = crate::list::allowed_filters(&self.list, user)
+            .into_iter()
+            .map(|f| {
+                let mut filter = Map::new();
+                filter.insert("name".into(), json!(f.field));
+                filter.insert("label".into(), json!(f.label.source()));
+                filter.insert("type".into(), json!(f.filter_type));
+                match f.filter_type.as_str() {
+                    "boolean" => {
+                        filter.insert("values".into(), json!(["1", "0"]));
+                    }
+                    "select" => {
+                        let values: Vec<String> =
+                            f.choices().into_iter().map(|o| o.value).collect();
+                        filter.insert("values".into(), json!(values));
+                    }
+                    "number" => {
+                        filter.insert("match".into(), json!(f.matching()));
+                    }
+                    "date" => {
+                        filter.insert("format".into(), json!("YYYY-MM-DD"));
+                    }
+                    _ => {}
+                }
+                Value::Object(filter)
+            })
+            .collect();
+        let sorts: Vec<&str> = self
+            .columns(user)
+            .filter(|(_, c)| c.sortable)
+            .map(|(_, c)| c.field.as_str())
+            .collect();
         detail["fields"] = json!(fields);
         detail["columns"] = json!(columns);
+        detail["filters"] = json!(filters);
+        detail["sorts"] = json!(sorts);
         detail
+    }
+
+    /// The list's query parameters for what a caller asked: the search, the
+    /// filters by name and the order. A filter the list does not offer this
+    /// person, a value its type refuses and a column it does not sort by are
+    /// each named, so the caller can ask again.
+    fn asked(
+        &self,
+        user: &AuthenticatedUser,
+        input: &Value,
+    ) -> Result<Vec<(String, String)>, AbilityError> {
+        let mut params = Vec::new();
+        let search = text(input, "search").trim();
+        if !search.is_empty() {
+            params.push(("q".to_string(), search.to_string()));
+        }
+        let offered = crate::list::allowed_filters(&self.list, user);
+        let mut faults = Vec::new();
+        for (name, value) in input
+            .get("filters")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+        {
+            let value = match value {
+                Value::String(text) => text.trim().to_string(),
+                Value::Bool(yes) => if *yes { "1" } else { "0" }.to_string(),
+                Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            };
+            let Some(filter) = offered.iter().find(|f| f.field == *name) else {
+                faults.push(format!("filters/{name}: this kind has no such filter"));
+                continue;
+            };
+            let param = filter.param();
+            let one = HashMap::from([(param.clone(), value.clone())]);
+            let accepted = crate::list::resolve_filters(&self.list, &one)
+                .iter()
+                .any(|a| a.is_for(filter));
+            if !accepted {
+                faults.push(format!(
+                    "filters/{name}: `{value}` is not a value a {} filter takes",
+                    filter.filter_type
+                ));
+                continue;
+            }
+            params.push((param, value));
+        }
+        let sort = text(input, "sort");
+        if !sort.is_empty() {
+            if self
+                .columns(user)
+                .any(|(_, c)| c.field == sort && c.sortable)
+            {
+                params.push(("sort".to_string(), sort.to_string()));
+                let dir = match text(input, "dir") {
+                    "desc" => "desc",
+                    _ => "asc",
+                };
+                params.push(("dir".to_string(), dir.to_string()));
+            } else {
+                faults.push(format!("sort: this kind does not sort by `{sort}`"));
+            }
+        }
+        if faults.is_empty() {
+            Ok(params)
+        } else {
+            Err(AbilityError::Invalid(faults))
+        }
     }
 
     /// The list's columns a caller is shown, with their place in a row.
@@ -411,15 +514,28 @@ impl AbilityHandler for Find {
             .and_then(Value::as_i64)
             .unwrap_or(10)
             .clamp(1, MAX_ROWS);
+        let params: HashMap<String, String> = kind.asked(cx.user(), &input)?.into_iter().collect();
+        // Only what was asked narrows a find: a list's default filter is for
+        // the screen.
+        let mut unset = kind.list.clone();
+        for filter in &mut unset.filters {
+            filter.default_value = None;
+        }
+        let filters = crate::list::resolve_filters(&unset, &params);
+        let (order_by, order_dir) = crate::list::resolve_sort(
+            &kind.list,
+            params.get("sort").map(String::as_str),
+            params.get("dir").map(String::as_str),
+        );
         let page = crate::list::query(
             cx.db(),
             &kind.list,
             &ListQuery {
                 offset: 0,
-                order_by: &kind.list.order_by,
-                order_dir: kind.list.order_dir,
+                order_by: &order_by,
+                order_dir,
                 q: text(&input, "search").trim(),
-                filters: &[],
+                filters: &filters,
                 per_page: Some(limit),
                 children_of: None,
                 hooks: &kind.hooks,
@@ -457,6 +573,27 @@ impl AbilityHandler for Find {
         } else {
             outcome
         })
+    }
+}
+
+struct Open;
+
+#[async_trait]
+impl AbilityHandler for Open {
+    async fn run(&self, cx: &AbilityCx<'_>, input: Value) -> Result<Outcome, AbilityError> {
+        let kind = kind(cx, text(&input, "resource"))?;
+        let params = kind.asked(cx.user(), &input)?;
+        let mut href = kind.href.clone();
+        for (at, (name, value)) in params.iter().enumerate() {
+            href.push(if at == 0 { '?' } else { '&' });
+            href.push_str(&crate::list::urlencode(name));
+            href.push('=');
+            href.push_str(&crate::list::urlencode(value));
+        }
+        let title = kind.title.source().to_string();
+        Ok(Outcome::new(t!("Opened {kind}.", kind = title.clone()))
+            .link(Link::new(title, href.clone()))
+            .go(href))
     }
 }
 
@@ -578,6 +715,22 @@ impl AbilityHandler for Write {
     }
 }
 
+fn filters_property() -> Value {
+    json!({
+        "type": "object",
+        "description": "The kind's filters by name, as backend.records.kinds lists them, each with the value to narrow by.",
+        "additionalProperties": { "type": ["string", "number", "boolean"] }
+    })
+}
+
+fn sort_property() -> Value {
+    json!({ "type": "string", "description": "A column the kind sorts by, from its `sorts`." })
+}
+
+fn dir_property() -> Value {
+    json!({ "type": "string", "enum": ["asc", "desc"] })
+}
+
 fn resource_property() -> Value {
     json!({
         "type": "string",
@@ -624,7 +777,27 @@ pub(crate) static ABILITIES: LazyLock<Vec<Ability>> = LazyLock::new(|| {
                 "properties": {
                     "resource": resource_property(),
                     "search": { "type": "string", "description": "Words to match. Leave out for the first rows." },
+                    "filters": filters_property(),
+                    "sort": sort_property(),
+                    "dir": dir_property(),
                     "limit": { "type": "integer", "minimum": 1, "maximum": MAX_ROWS }
+                },
+                "required": ["resource"],
+                "additionalProperties": false
+            }))
+            .effect(Effect::Read),
+        Ability::new("backend.records.open", t!("Open a list"), Arc::new(Open))
+            .describe(t!(
+                "Takes the person to one kind's list with a search, filters and an order set, for them to look through. Use it when they ask to see or show records."
+            ))
+            .input_schema(json!({
+                "type": "object",
+                "properties": {
+                    "resource": resource_property(),
+                    "search": { "type": "string", "description": "Words to match." },
+                    "filters": filters_property(),
+                    "sort": sort_property(),
+                    "dir": dir_property()
                 },
                 "required": ["resource"],
                 "additionalProperties": false

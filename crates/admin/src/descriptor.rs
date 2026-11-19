@@ -130,8 +130,9 @@ fn check_type_keys(list: &ListConfig, form: Option<&FormConfig>) -> Result<(), S
     }
     for filter in &list.filters {
         let declared: Option<&[&str]> = match filter.filter_type.as_str() {
-            "select" => Some(&["options"]),
-            "boolean" | "text" | "number" | "date" => Some(&[]),
+            "select" => Some(&["options", "column", "related"]),
+            "number" => Some(&["column", "related", "match"]),
+            "boolean" | "text" | "date" => Some(&["column", "related"]),
             _ => None,
         };
         if let Some(keys) = declared {
@@ -139,6 +140,21 @@ fn check_type_keys(list: &ListConfig, form: Option<&FormConfig>) -> Result<(), S
             crate::field::check_option_keys(&filter.options, &keys).map_err(|e| {
                 format!("filter `{}` (`{}`): {e}", filter.field, filter.filter_type)
             })?;
+        }
+        if !matches!(filter.matching(), "equals" | "at_least" | "at_most") {
+            return Err(format!(
+                "filter `{}`: `match` is `equals`, `at_least` or `at_most`, not `{}`",
+                filter.field,
+                filter.matching()
+            ));
+        }
+        if let Some(name) = filter.related_name() {
+            if !list.related.contains_key(name) {
+                return Err(format!(
+                    "filter `{}`: the list declares no related record `{name}`",
+                    filter.field
+                ));
+            }
         }
     }
     if let Some(form) = form {

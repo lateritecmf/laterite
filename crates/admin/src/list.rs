@@ -1030,6 +1030,61 @@ impl ListFilter {
         self
     }
 
+    /// Compares `column` in place of the column named like the filter, so
+    /// two filters can narrow one column (`views_min`, `views_max`). In a
+    /// file: `column: views`.
+    pub fn column(mut self, column: &str) -> Self {
+        self.set("column", column);
+        self
+    }
+
+    /// A `number` filter keeps rows at or above the value typed. In a file:
+    /// `match: at_least`.
+    pub fn at_least(mut self) -> Self {
+        self.set("match", "at_least");
+        self
+    }
+
+    /// A `number` filter keeps rows at or below the value typed. In a file:
+    /// `match: at_most`.
+    pub fn at_most(mut self) -> Self {
+        self.set("match", "at_most");
+        self
+    }
+
+    /// Compares a column of the related record `name`, one the list declares
+    /// under `related`. In a file: `related: author`.
+    pub fn related(mut self, name: &str) -> Self {
+        self.set("related", name);
+        self
+    }
+
+    fn set(&mut self, key: &str, value: &str) {
+        if !self.options.is_object() {
+            self.options = serde_json::json!({});
+        }
+        self.options[key] = serde_json::Value::String(value.to_string());
+    }
+
+    fn option(&self, key: &str) -> Option<&str> {
+        self.options.get(key).and_then(|v| v.as_str())
+    }
+
+    /// The column the filter compares: its `column`, or its own name.
+    pub fn target_column(&self) -> &str {
+        self.option("column").unwrap_or(&self.field)
+    }
+
+    /// How a `number` filter compares: `equals`, `at_least` or `at_most`.
+    pub fn matching(&self) -> &str {
+        self.option("match").unwrap_or("equals")
+    }
+
+    /// The related record whose column the filter compares, when it names one.
+    pub fn related_name(&self) -> Option<&str> {
+        self.option("related")
+    }
+
     pub(crate) fn param(&self) -> String {
         format!("f_{}", self.field)
     }
@@ -1985,6 +2040,13 @@ pub(crate) struct ActiveFilter<'a> {
     matcher: FilterMatch,
 }
 
+impl ActiveFilter<'_> {
+    /// Whether this is `filter`, accepted.
+    pub(crate) fn is_for(&self, filter: &ListFilter) -> bool {
+        self.filter.field == filter.field
+    }
+}
+
 /// How an accepted filter value matches its column.
 pub(crate) enum FilterMatch {
     /// Exactly this value.
@@ -1993,6 +2055,10 @@ pub(crate) enum FilterMatch {
     Contains(String),
     /// Anything starting with this, for a day against a stored timestamp.
     StartsWith(String),
+    /// This number or more.
+    AtLeast(i64),
+    /// This number or less.
+    AtMost(i64),
 }
 
 /// How one filter matches for a submitted value, or `None` when the value is
@@ -2015,10 +2081,11 @@ fn filter_match(filter: &ListFilter, raw: &str) -> Option<FilterMatch> {
             .any(|o| o.value == raw)
             .then(|| FilterMatch::Equals(raw.into())),
         "text" => Some(FilterMatch::Contains(raw.to_string())),
-        "number" => raw
-            .parse::<i64>()
-            .ok()
-            .map(|n| FilterMatch::Equals(n.into())),
+        "number" => raw.parse::<i64>().ok().map(|n| match filter.matching() {
+            "at_least" => FilterMatch::AtLeast(n),
+            "at_most" => FilterMatch::AtMost(n),
+            _ => FilterMatch::Equals(n.into()),
+        }),
         // A day, matched as a prefix so a date column and a stored timestamp
         // both answer. The shape is checked here, so the pattern that reaches
         // the query has nothing in it to escape.
@@ -2070,24 +2137,51 @@ pub(crate) fn resolve_filters<'a>(
 }
 
 /// The filters ANDed together, or `None` when none are active.
-fn filter_condition(active: &[ActiveFilter<'_>]) -> Option<sea_query::Condition> {
+fn filter_condition(
+    config: &ListConfig,
+    active: &[ActiveFilter<'_>],
+) -> Option<sea_query::Condition> {
     if active.is_empty() {
         return None;
     }
+    use sea_query::IntoCondition;
+
     let caps = laterite_core::capabilities::CapabilitySet::default();
     let mut all = sea_query::Condition::all();
     for f in active {
-        let col = Expr::col(Alias::new(&f.filter.field));
-        all = match &f.matcher {
-            FilterMatch::Equals(value) => all.add(col.eq(value.clone())),
+        let column = f.filter.target_column();
+        let col = Expr::col(Alias::new(column));
+        let cond: sea_query::Condition = match &f.matcher {
+            FilterMatch::Equals(value) => col.eq(value.clone()).into_condition(),
             // A term that folds away to nothing narrows nothing.
             FilterMatch::Contains(term) => {
-                match SearchProfile::new().condition(&caps, &f.filter.field, term) {
-                    Some(cond) => all.add(cond),
-                    None => all,
+                match SearchProfile::new().condition(&caps, column, term) {
+                    Some(cond) => cond,
+                    None => continue,
                 }
             }
-            FilterMatch::StartsWith(prefix) => all.add(col.like(format!("{prefix}%"))),
+            FilterMatch::StartsWith(prefix) => col.like(format!("{prefix}%")).into_condition(),
+            FilterMatch::AtLeast(n) => col.gte(*n).into_condition(),
+            FilterMatch::AtMost(n) => col.lte(*n).into_condition(),
+        };
+        // A filter naming a related record the list does not declare narrows
+        // to nothing, so a misspelt name is seen at once.
+        all = match f.filter.related_name() {
+            None => all.add(cond),
+            Some(name) => match config.related.get(name) {
+                // The rows whose related record matches.
+                Some(related) => {
+                    let (own, theirs) = related_keys(config, related);
+                    let mut sub = Query::select();
+                    sub.column(Alias::new(theirs))
+                        .from(Alias::new(&related.entity))
+                        .cond_where(cond);
+                    all.add(
+                        Expr::col((Alias::new(&config.entity), Alias::new(own))).in_subquery(sub),
+                    )
+                }
+                None => all.add(Expr::cust("1 = 0")),
+            },
         };
     }
     Some(all)
@@ -2394,7 +2488,7 @@ pub(crate) async fn query(
         if let Some(cond) = search_condition(config, req.q) {
             select.cond_where(cond);
         }
-        if let Some(cond) = filter_condition(req.filters) {
+        if let Some(cond) = filter_condition(config, req.filters) {
             select.cond_where(cond);
         }
         if let Some(scope) = &config.scope {
@@ -2416,7 +2510,7 @@ pub(crate) async fn query(
         if let Some(cond) = search_condition(config, req.q) {
             count.cond_where(cond);
         }
-        if let Some(cond) = filter_condition(req.filters) {
+        if let Some(cond) = filter_condition(config, req.filters) {
             count.cond_where(cond);
         }
         if let Some(scope) = &config.scope {
@@ -3955,7 +4049,7 @@ fn filter_views(
 }
 
 /// Percent-encodes a query-string value.
-fn urlencode(value: &str) -> String {
+pub(crate) fn urlencode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
         match byte {

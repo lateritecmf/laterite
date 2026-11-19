@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - Every module resource is reachable through five abilities (`backend.records.kinds`, `find`, `read`, `create`, `update`); `abilities:` on a resource describes it, hides fields or turns it off.
 - Palette modes: `add_palette_mode` adds a tab to the command palette that posts what is typed to a module's route. The built-in Do mode (`>`) runs an ability by name through its input, preview and result.
 - An ability policy: `Abilities::offered` and `confirm` say how far a channel may go (`Confirm::Auto`, `Ask`, `Off`). An administrator sets rules under Settings, Abilities, and each person tightens them under Preferences.
+- A list filter compares another `column`, a `related` record's column, and a number `at_least` or `at_most` (`match`).
+- `backend.records.kinds` lists a kind's filters and sorts, `backend.records.find` takes them, and `backend.records.open` answers the list's address with them set. `Outcome::go` takes the person to a page, and the palette follows it.
 - `Actor::through(channel)` marks a write made for a person by something else; the Audit Log shows it under Through (`AuditEntry::channel`, `AuditRecord::channel`).
 - `board`: a dashboard any screen hosts. `Board` lays `Kind`s of widget on a twenty-column grid, each fetched after the page, with an edit mode (move, resize, add, remove, configure) saved per person or for everyone.
 - `Kind::properties_for`, `reload_on` and `check` for settings that depend on one another and are checked before they are kept; `Board::view_permission` guards a board's routes.

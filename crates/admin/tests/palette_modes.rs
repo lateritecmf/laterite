@@ -58,6 +58,15 @@ impl AbilityHandler for CountHandler {
     }
 }
 
+struct OpenHandler;
+
+#[async_trait]
+impl AbilityHandler for OpenHandler {
+    async fn run(&self, _cx: &AbilityCx<'_>, _input: Value) -> Result<Outcome, AbilityError> {
+        Ok(Outcome::new(t!("Opened the leads.")).go("/admin/acme/leads?f_stage=new"))
+    }
+}
+
 async fn setup() -> (Db, laterite_core::testing::TestGuard, Router) {
     let (db, guard) =
         laterite_core::testing::connect_test(&laterite_admin::builtin_migrations()).await;
@@ -79,6 +88,14 @@ async fn setup() -> (Db, laterite_core::testing::TestGuard, Router) {
             "acme.crm.count_leads",
             t!("Count the leads"),
             Arc::new(CountHandler),
+        )
+        .effect(Effect::Read),
+    );
+    registry.add_ability(
+        Ability::new(
+            "acme.crm.open_leads",
+            t!("Open the new leads"),
+            Arc::new(OpenHandler),
         )
         .effect(Effect::Read),
     );
@@ -329,6 +346,17 @@ async fn a_read_runs_at_once_and_the_rest_is_refused() {
     let (status, html) = send(&app, get("/admin/palette/do/acme.crm.count_leads", &plain)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("There are 3 leads."));
+
+    // A result that names a page sends the palette there.
+    let response = app
+        .clone()
+        .oneshot(get("/admin/palette/do/acme.crm.open_leads", &plain))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.headers().get("hx-redirect").unwrap(),
+        "/admin/acme/leads?f_stage=new"
+    );
 
     // Without the permission the ability does not exist, to see or to run.
     let base = "/admin/palette/do/acme.crm.add_lead";

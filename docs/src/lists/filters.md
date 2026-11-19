@@ -23,6 +23,24 @@ Key | Default | Description
 
 A key written bare (`author:`) is a text filter with every default.
 
+## Narrow by a range or a related record
+
+```yaml
+list:
+  related:
+    author: { entity: authors, belongs_to: author_id }
+  filters:
+    views_min:   { label: Views at least, type: number, column: views, match: at_least }
+    views_max:   { label: Views at most, type: number, column: views, match: at_most }
+    author_city: { label: Author's city, type: text, column: city, related: author }
+```
+
+Key | Default | Description
+--- | --- | ---
+`column` | the filter's key | The column compared, so two filters narrow one column.
+`match` | `equals` | On a `number` filter: `equals`, `at_least` or `at_most`.
+`related` | none | A record under the list's `related`; the filter compares its column.
+
 ## Pick a scope type
 
 Type | The value reaches the query as
@@ -55,6 +73,14 @@ Constructor | Type
 `ListFilter::number(field, label)` | `number`
 `ListFilter::date(field, label)` | `date`
 `ListFilter::of(field, label, type)` | Any declared type, with no options.
+
+Method | Sets
+--- | ---
+`.column(name)` | `column`
+`.at_least()`, `.at_most()` | `match`
+`.related(name)` | `related`
+`.default_value(value)` | `default_value`
+`.require(permission)` | `permission`
 
 ## Carry a filter in a URL
 

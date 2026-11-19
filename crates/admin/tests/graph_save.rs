@@ -39,6 +39,7 @@ impl Migration for CreateTables {
                 .col(id())
                 .col(ColumnDef::new(Alias::new("city")).text().not_null())
                 .col(ColumnDef::new(Alias::new("site")).text().null())
+                .col(ColumnDef::new(Alias::new("floor")).big_integer().null())
                 .col(ColumnDef::new(Alias::new("created_at")).text().null())
                 .col(ColumnDef::new(Alias::new("updated_at")).text().null())
                 .to_owned(),
@@ -297,6 +298,53 @@ async fn a_list_reads_and_searches_a_column_of_a_related_record() {
         list.find("Grace").unwrap() < list.find("Ada").unwrap(),
         "Arlington sorts before London"
     );
+}
+
+#[tokio::test]
+async fn a_filter_narrows_by_a_related_column_and_by_a_range() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = session(&db).await;
+    for body in [
+        "name=Ada&bio=Mathematician&city=London",
+        "name=Grace&bio=Admiral&city=Arlington",
+    ] {
+        let (status, page) = send(&app, "POST", "/admin/authors/new", &session, body).await;
+        assert!(status.is_redirection(), "{status}: {page}");
+    }
+    for (city, floor) in [("London", 3), ("Arlington", 12)] {
+        let (sql, values) = laterite_core::query::build(
+            db.backend,
+            sea_query::Query::update()
+                .table(Alias::new("addresses"))
+                .value(Alias::new("floor"), floor)
+                .and_where(sea_query::Expr::col(Alias::new("city")).eq(city))
+                .to_owned(),
+        );
+        laterite_core::query::bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let only = |list: &str| (list.contains("Ada"), list.contains("Grace"));
+
+    let (_, list) = send(&app, "GET", "/admin/writers?f_town=lond", &session, "").await;
+    assert_eq!(only(&list), (true, false), "{list}");
+    let (_, list) = send(&app, "GET", "/admin/writers?f_floor_min=10", &session, "").await;
+    assert_eq!(only(&list), (false, true), "{list}");
+    let (_, list) = send(
+        &app,
+        "GET",
+        "/admin/writers?f_floor_min=2&f_floor_max=5",
+        &session,
+        "",
+    )
+    .await;
+    assert_eq!(only(&list), (true, false), "{list}");
+    let (_, list) = send(&app, "GET", "/admin/writers?f_floor_max=1", &session, "").await;
+    assert_eq!(only(&list), (false, false), "{list}");
+    // The controls carry what was asked.
+    assert!(list.contains(r#"name="f_floor_max""#), "{list}");
 }
 
 #[tokio::test]

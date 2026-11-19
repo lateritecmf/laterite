@@ -13,6 +13,10 @@ list:
     code: {}
     name: {}
     internal: {}
+  filters:
+    name: { type: text }
+    code: { type: select, options: [{ value: a, label: A }, { value: b, label: B }] }
+    audit: { type: text, column: internal, permission: acme.audit_posts }
 form:
   title: Post
   fields:

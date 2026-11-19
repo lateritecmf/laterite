@@ -10,6 +10,10 @@ list:
     name: {}
     city: { related: address }
     bio: { related: profile }
+  filters:
+    town: { type: text, column: city, related: address }
+    floor_min: { type: number, column: floor, related: address, match: at_least }
+    floor_max: { type: number, column: floor, related: address, match: at_most }
 form:
   title: Writer
   related:

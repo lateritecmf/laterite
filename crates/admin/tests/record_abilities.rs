@@ -86,6 +86,7 @@ async fn boot() -> (
             permissions: vec![
                 Permission::new("acme.manage_posts", t!("Manage posts"), t!("Acme")),
                 Permission::new("acme.edit_posts", t!("Edit posts"), t!("Acme")),
+                Permission::new("acme.audit_posts", t!("Audit posts"), t!("Acme")),
             ],
             listeners: vec![ModelListenerReg::all(Arc::new(AuditListener))],
             screens: vec![ScreenReg::new(
@@ -154,6 +155,7 @@ async fn nobody_without_a_resource_is_offered_the_record_abilities() {
         [
             "backend.records.kinds",
             "backend.records.find",
+            "backend.records.open",
             "backend.records.read",
             "backend.records.create",
             "backend.records.update"
@@ -373,4 +375,97 @@ async fn a_change_asks_for_the_resources_own_update_grant() {
         )
         .await;
     assert!(matches!(missing, Err(AbilityError::Refused(_))));
+}
+
+#[tokio::test]
+async fn a_list_says_its_filters_and_is_found_and_opened_through_them() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    let writer = person(id, &["acme.manage_posts"]);
+    let abilities = ctx.abilities();
+    add(&ctx, &writer, "a", "First post").await;
+    add(&ctx, &writer, "b", "Second post").await;
+
+    let kind = abilities
+        .run(
+            &writer,
+            "backend.records.kinds",
+            json!({ "resource": "/posts" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    // The filter behind a permission is not named to someone without it.
+    let names: Vec<&str> = kind["filters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["name", "code"]);
+    assert_eq!(kind["filters"][1]["values"], json!(["a", "b"]));
+    assert_eq!(kind["sorts"], json!(["code", "name"]));
+
+    let found = abilities
+        .run(
+            &writer,
+            "backend.records.find",
+            json!({ "resource": "/posts", "filters": { "code": "b" }, "sort": "name", "dir": "desc" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(found["total"], 1);
+    assert_eq!(found["rows"][0]["name"], "Second post");
+
+    let opened = abilities
+        .run(
+            &writer,
+            "backend.records.open",
+            json!({
+                "resource": "/posts",
+                "search": "post & more",
+                "filters": { "name": "second", "code": "b" },
+                "sort": "name"
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        opened.go.as_deref(),
+        Some("/admin/posts?q=post+%26+more&f_name=second&f_code=b&sort=name&dir=asc")
+    );
+
+    // What the list does not offer is named, and nothing is opened.
+    for (input, fault) in [
+        (json!({ "filters": { "audit": "x" } }), "filters/audit"),
+        (json!({ "filters": { "code": "z" } }), "filters/code"),
+        (json!({ "sort": "internal" }), "sort"),
+    ] {
+        let mut input = input;
+        input["resource"] = json!("/posts");
+        let refused = abilities
+            .run(&writer, "backend.records.open", input, None)
+            .await;
+        let Err(AbilityError::Invalid(faults)) = refused else {
+            panic!("expected a refusal for {fault}");
+        };
+        assert!(faults[0].starts_with(fault), "{faults:?}");
+    }
+
+    let auditor = person(id, &["acme.manage_posts", "acme.audit_posts"]);
+    let opened = abilities
+        .run(
+            &auditor,
+            "backend.records.open",
+            json!({ "resource": "/posts", "filters": { "audit": "x" } }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.go.as_deref(), Some("/admin/posts?f_audit=x"));
 }
