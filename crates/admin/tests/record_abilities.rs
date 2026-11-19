@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use laterite_admin::ability::AbilityError;
-use laterite_admin::routes::{RouteCtx, Screen, ScreenReg};
+use laterite_admin::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{
     AuditListener, AuthConfig, AuthService, AuthenticatedUser, BackendUser, NewOperator,
@@ -47,6 +47,13 @@ impl Migration for CreatePosts {
 struct Keeper(Arc<OnceLock<RouteCtx>>);
 
 impl Screen for Keeper {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let _ = self.0.set(ctx.clone());
+        Router::new()
+    }
+}
+
+impl PublicRoute for Keeper {
     fn mount(&self, ctx: &RouteCtx) -> Router {
         let _ = self.0.set(ctx.clone());
         Router::new()
@@ -743,4 +750,64 @@ async fn a_settings_page_says_what_it_holds_and_is_changed_only_on_its_page() {
         panic!("expected a refusal");
     };
     assert!(faults[0].starts_with("set: a setting is changed on its page"));
+}
+
+#[tokio::test]
+async fn a_public_route_acts_for_a_person_through_the_same_abilities() {
+    let mut sets = laterite_admin::builtin_migrations();
+    sets.push(MigrationSet::new("acme.posts", vec![Box::new(CreatePosts)]));
+    let (db, _guard): (Db, _) = laterite_core::testing::connect_test(&sets).await;
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    let id = auth
+        .create_superuser(NewOperator {
+            username: "asha",
+            email: "asha@acme.test",
+            first_name: "Asha",
+            last_name: None,
+            password: "correct horse 42",
+            timezone: None,
+        })
+        .await
+        .unwrap();
+    let kept = Arc::new(OnceLock::new());
+    let _ = router(
+        auth,
+        db,
+        Contributions {
+            resources: vec![resource!("tests/descriptors/record_abilities.yaml")],
+            permissions: vec![
+                Permission::new("acme.manage_posts", t!("Manage posts"), t!("Acme")),
+                Permission::new("acme.edit_posts", t!("Edit posts"), t!("Acme")),
+                Permission::new("acme.audit_posts", t!("Audit posts"), t!("Acme")),
+            ],
+            public_routes: vec![PublicRouteReg::new(
+                "/acme/api",
+                Arc::new(Keeper(kept.clone())),
+            )],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
+    let ctx = kept.get().expect("the route mounted").clone();
+
+    // The person a token of the route's own stands for, by id.
+    let asha = ctx.identity(id).await.expect("an active operator");
+    assert_eq!(asha.user.username, "asha");
+    assert!(ctx.identity(id + 100).await.is_none());
+
+    let codes: Vec<&str> = ctx
+        .abilities()
+        .for_user(&asha)
+        .iter()
+        .map(|a| a.code())
+        .collect();
+    assert!(codes.contains(&"backend.records.find"), "{codes:?}");
+    assert!(codes.contains(&"backend.screens.act"), "{codes:?}");
+    let kinds = ctx
+        .abilities()
+        .run(&asha, "backend.records.kinds", json!({}), Some("acme.api"))
+        .await
+        .unwrap();
+    assert!(kinds.data.unwrap().to_string().contains("posts"));
 }

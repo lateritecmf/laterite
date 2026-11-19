@@ -3242,6 +3242,14 @@ pub fn router(
         }
     }
 
+    // A public route acts through abilities like a screen does, so its
+    // context knows the same records and surfaces.
+    let whole = |ctx: routes::RouteCtx| {
+        ctx.with_entity_access(entity_access.clone())
+            .with_media_uses(media_uses.clone())
+            .with_records(record_kinds.clone())
+            .with_surfaces(mounted.clone())
+    };
     let app = protected
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         // Public routes (not covered by the guard above): the login and first-run
@@ -3286,12 +3294,13 @@ pub fn router(
             state.auth.events(),
             &forms,
             &settings_paths(&state.settings, &admin_path),
+            &whole,
         ));
     // Unmatched URLs reach the site when a module registered one, else render
     // the styled 404; a handler panic renders the 500 either way.
     let app = match app_public.iter().find(|r| r.is_site()) {
         Some(site) => {
-            let ctx = routes::RouteCtx::new(
+            let ctx = whole(routes::RouteCtx::new(
                 state.db.clone(),
                 state.auth.clone(),
                 state.parameters.clone(),
@@ -3310,7 +3319,7 @@ pub fn router(
                 state.auth.events().clone(),
                 forms.clone(),
                 settings_paths(&state.settings, &admin_path),
-            );
+            ));
             app.fallback_service(site.route.mount(&ctx))
         }
         None => app.fallback(not_found_fallback),
@@ -3479,11 +3488,12 @@ fn mount_public(
     events: &laterite_core::Events,
     forms: &form::Forms,
     settings_paths: &Arc<std::collections::HashMap<String, String>>,
+    whole: &dyn Fn(routes::RouteCtx) -> routes::RouteCtx,
 ) -> Router<AdminState> {
     let mut router = Router::new();
     // The site mounts as the fallback, not as a nested service.
     for reg in regs.iter().filter(|r| !r.is_site()) {
-        let ctx = routes::RouteCtx::new(
+        let ctx = whole(routes::RouteCtx::new(
             db.clone(),
             auth.clone(),
             parameters.clone(),
@@ -3502,7 +3512,7 @@ fn mount_public(
             events.clone(),
             forms.clone(),
             settings_paths.clone(),
-        );
+        ));
         // A nested service does not inherit the outer fallback, so without this a
         // request *below* a public route (`/robots.txt/anything`) escapes into
         // axum's bodyless 404 instead of the deployment's styled error page.

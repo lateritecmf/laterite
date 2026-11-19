@@ -258,6 +258,13 @@ impl RouteCtx {
         self.auth.verify_session(&token).await.ok()
     }
 
+    /// The active operator `user_id` with their permissions, for a public
+    /// route that authenticates a request itself (a token it issued) and then
+    /// acts as that person; `None` when they are gone or disabled.
+    pub async fn identity(&self, user_id: i64) -> Option<AuthenticatedUser> {
+        self.auth.identity(user_id).await.ok().flatten()
+    }
+
     /// Counts a URL the site could not serve in the request log, as the panel
     /// does for its own.
     pub async fn record_unserved(&self, method: &str, path: &str, status: u16) {

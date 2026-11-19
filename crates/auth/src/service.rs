@@ -543,6 +543,29 @@ impl AuthService {
                 .deadline(session.created_at, session.last_seen_at)
         };
 
+        let permissions = self.permissions_of(&user).await?;
+
+        Ok(ResolvedSession {
+            identity: AuthenticatedUser { user, permissions },
+            data: session.data,
+            expires_at,
+        })
+    }
+
+    /// The identity of the active user `user_id`, with the permissions a
+    /// session of theirs would carry; `None` when there is no such user or
+    /// they are disabled. For a caller that authenticates a request itself
+    /// (an API token it issued) and then acts as that person.
+    pub async fn identity(&self, user_id: i64) -> Result<Option<AuthenticatedUser>, AuthError> {
+        let Some(user) = store::find_active_user_by_id(&self.db, user_id).await? else {
+            return Ok(None);
+        };
+        let permissions = self.permissions_of(&user).await?;
+        Ok(Some(AuthenticatedUser { user, permissions }))
+    }
+
+    /// A user's effective permissions: role grants, then their own overrides.
+    async fn permissions_of(&self, user: &BackendUser) -> Result<PermissionSet, AuthError> {
         let grants = store::load_role_permissions(&self.db, user.id)
             .await?
             .into_iter()
@@ -558,13 +581,12 @@ impl AuthService {
                 _ => {}
             }
         }
-        let permissions = PermissionSet::with_overrides(user.is_superuser, grants, allow, deny);
-
-        Ok(ResolvedSession {
-            identity: AuthenticatedUser { user, permissions },
-            data: session.data,
-            expires_at,
-        })
+        Ok(PermissionSet::with_overrides(
+            user.is_superuser,
+            grants,
+            allow,
+            deny,
+        ))
     }
 
     /// Pushes a live session's deadline out as far as its idle window allows,
@@ -1839,6 +1861,41 @@ mod tests {
         let identity = svc.verify_session(&session.token).await.unwrap();
         assert_eq!(identity.user.username, "root");
         assert_eq!(identity.user.email, "root@example.test");
+    }
+
+    #[tokio::test]
+    async fn an_identity_is_resolved_by_id_only_for_an_active_user() {
+        let (pool, _guard) = test_db().await;
+        let hash = password::hash_password("pw").unwrap();
+        let root = store::create_user(
+            &pool,
+            "root",
+            "root@example.test",
+            "Root",
+            None,
+            &hash,
+            true,
+        )
+        .await
+        .unwrap();
+        let other = store::create_user(&pool, "lee", "lee@example.test", "Lee", None, &hash, false)
+            .await
+            .unwrap();
+        let svc = service(pool);
+
+        let identity = svc.identity(root).await.unwrap().unwrap();
+        assert_eq!(identity.user.username, "root");
+        assert!(identity.allows("anything.superuser.can.do"));
+        assert!(!svc
+            .identity(other)
+            .await
+            .unwrap()
+            .unwrap()
+            .allows("acme.blog.posts"));
+
+        svc.set_user_active(root, other, false).await.unwrap();
+        assert!(svc.identity(other).await.unwrap().is_none());
+        assert!(svc.identity(other + 100).await.unwrap().is_none());
     }
 
     #[tokio::test]

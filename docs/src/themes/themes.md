@@ -175,5 +175,6 @@ registry.add_public_route(PublicRouteReg::site(Arc::new(MySite)));
 
 ```rust
 let operator = ctx.operator(&headers).await;     // the session cookie's operator, if any
+let person = ctx.identity(user_id).await;        // an active operator by id, for a token the route issued
 ctx.record_unserved("GET", "/missing", 404).await; // into the request log
 ```
