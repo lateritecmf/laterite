@@ -194,6 +194,12 @@ fn worded(name: &str) -> String {
     words
 }
 
+/// The framework's abilities over any record and any screen, which a
+/// program calls and a person has pages for.
+fn for_programs(code: &str) -> bool {
+    code.starts_with("backend.records.") || code.starts_with("backend.screens.")
+}
+
 /// The abilities this person can run from the palette.
 fn by_hand_for<'a>(state: &'a DoState, user: &AuthenticatedUser) -> Vec<&'a Ability> {
     state
@@ -201,7 +207,7 @@ fn by_hand_for<'a>(state: &'a DoState, user: &AuthenticatedUser) -> Vec<&'a Abil
         .abilities()
         .for_user(user)
         .into_iter()
-        .filter(|a| !a.code().starts_with("backend.records.") && by_hand(a).is_some())
+        .filter(|a| !for_programs(a.code()) && by_hand(a).is_some())
         .collect()
 }
 
@@ -428,7 +434,7 @@ fn resolve<'a>(
     code: &str,
 ) -> Option<(&'a Ability, Vec<InputSpec>)> {
     let ability = state.ctx.abilities().get(user, code)?;
-    if code.starts_with("backend.records.") {
+    if for_programs(code) {
         return None;
     }
     by_hand(ability).map(|specs| (ability, specs))

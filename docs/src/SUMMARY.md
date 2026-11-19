@@ -72,6 +72,7 @@
 - [Resource Features and Hooks](plugins/resource-hooks.md)
 - [Console Commands](plugins/console-commands.md)
 - [Abilities](plugins/abilities.md)
+- [Surfaces](plugins/surfaces.md)
 - [Palette Modes](plugins/palette-modes.md)
 
 # Screens and Routes

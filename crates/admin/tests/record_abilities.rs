@@ -158,7 +158,10 @@ async fn nobody_without_a_resource_is_offered_the_record_abilities() {
             "backend.records.open",
             "backend.records.read",
             "backend.records.create",
-            "backend.records.update"
+            "backend.records.update",
+            "backend.screens.list",
+            "backend.screens.describe",
+            "backend.screens.act"
         ]
     );
 }
@@ -468,4 +471,86 @@ async fn a_list_says_its_filters_and_is_found_and_opened_through_them() {
         .await
         .unwrap();
     assert_eq!(opened.go.as_deref(), Some("/admin/posts?f_audit=x"));
+}
+
+#[tokio::test]
+async fn a_list_is_a_screen_described_and_driven_like_any_other() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    let writer = person(id, &["acme.manage_posts"]);
+    let abilities = ctx.abilities();
+    add(&ctx, &writer, "a", "First post").await;
+    add(&ctx, &writer, "b", "Second post").await;
+
+    let screens = abilities
+        .run(&writer, "backend.screens.list", json!({}), None)
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(screens.as_array().unwrap().len(), 1, "{screens}");
+    assert_eq!(screens[0]["screen"], "/posts");
+
+    let described = abilities
+        .run(
+            &writer,
+            "backend.screens.describe",
+            json!({ "screen": "/posts" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    let controls: Vec<&str> = described["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(controls, ["search", "name", "code", "sort", "dir"]);
+    assert_eq!(described["controls"][2]["values"], json!(["a", "b"]));
+    assert_eq!(described["acts"], json!(["show", "read"]));
+
+    let shown = abilities
+        .run(
+            &writer,
+            "backend.screens.act",
+            json!({ "screen": "/posts", "act": "show", "set": { "code": "b", "search": "post" } }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(shown.go.as_deref(), Some("/admin/posts?q=post&f_code=b"));
+
+    let read = abilities
+        .run(
+            &writer,
+            "backend.screens.act",
+            json!({ "screen": "/posts", "act": "read", "set": { "code": "b" } }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(read["total"], 1);
+
+    for (input, fault) in [
+        (
+            json!({ "act": "show", "set": { "audit": "x" } }),
+            "set/audit",
+        ),
+        (json!({ "act": "show", "part": "rows" }), "part"),
+        (json!({ "act": "delete" }), "act"),
+    ] {
+        let mut input = input;
+        input["screen"] = json!("/posts");
+        let refused = abilities
+            .run(&writer, "backend.screens.act", input, None)
+            .await;
+        let Err(AbilityError::Invalid(faults)) = refused else {
+            panic!("expected a refusal for {fault}");
+        };
+        assert!(faults[0].starts_with(fault), "{faults:?}");
+    }
 }

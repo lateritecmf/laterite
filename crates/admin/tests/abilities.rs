@@ -9,6 +9,7 @@ use laterite_admin::ability::{
 };
 use laterite_admin::routes::RouteCtx;
 use laterite_admin::settings::store;
+use laterite_admin::surface::{Control, Part, Request, Surface, READ, SHOW};
 use laterite_admin::AdminRegistry;
 use laterite_auth::{
     AuthConfig, AuthService, AuthenticatedUser, BackendUser, NewOperator, PermissionSet,
@@ -87,7 +88,53 @@ fn registry() -> Arc<Registry> {
         .permission("acme.crm.leads.delete")
         .effect(Effect::Delete),
     );
+    registry.add_surface(Arc::new(Overview));
     Arc::new(registry)
+}
+
+/// A dashboard of a module's own: one chart with a period and a grouping.
+struct Overview;
+
+#[async_trait]
+impl Surface for Overview {
+    fn path(&self) -> &str {
+        "/acme/overview"
+    }
+
+    fn label(&self) -> laterite_core::Text {
+        t!("Overview")
+    }
+
+    fn permission(&self) -> Option<&str> {
+        Some("acme.crm.reports")
+    }
+
+    async fn parts(&self, _cx: &AbilityCx<'_>) -> Result<Part, AbilityError> {
+        Ok(Part::new("overview", t!("Overview")).act(SHOW).part(
+            Part::new("leads_by_day", t!("Leads by day"))
+                .describe(t!("How many leads arrived each day."))
+                .control(
+                    Control::new("range", t!("Period"), "date_range")
+                        .value(json!({ "from": "2026-10-01", "to": "2026-10-31" })),
+                )
+                .control(Control::new("group_by", t!("Group by"), "select").values(["day", "week"]))
+                .act(READ),
+        ))
+    }
+
+    async fn act(&self, _cx: &AbilityCx<'_>, request: &Request) -> Result<Outcome, AbilityError> {
+        if request.act == SHOW {
+            return Ok(Outcome::new(t!("Opened the overview.")).go("/admin/acme/overview"));
+        }
+        let from = request.set["range"]["from"]
+            .as_str()
+            .ok_or_else(|| AbilityError::invalid("set/range: give `from` and `to`"))?;
+        Ok(Outcome::new(t!("The leads by day.")).data(json!({
+            "from": from,
+            "group_by": request.text("group_by"),
+            "points": [3, 5, 8],
+        })))
+    }
 }
 
 async fn boot() -> (
@@ -423,4 +470,74 @@ async fn a_person_tightens_freely_and_loosens_only_to_the_panels_rule() {
             .unwrap(),
         Confirm::Auto
     );
+}
+
+#[tokio::test]
+async fn a_component_of_a_modules_own_is_described_and_driven_by_its_parts() {
+    let (ctx, _auth, id, _guard) = boot().await;
+    let abilities = ctx.abilities();
+
+    // Without the screen's permission it is not there, and with no screen
+    // open the screen abilities are not offered at all.
+    let outsider = person(id, &[]);
+    assert!(abilities.get(&outsider, "backend.screens.list").is_none());
+
+    let analyst = person(id, &["acme.crm.reports"]);
+    let described = abilities
+        .run(
+            &analyst,
+            "backend.screens.describe",
+            json!({ "screen": "/acme/overview" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    let chart = &described["parts"][0];
+    assert_eq!(chart["name"], "leads_by_day");
+    assert_eq!(chart["controls"][0]["kind"], "date_range");
+    assert_eq!(chart["controls"][0]["value"]["from"], "2026-10-01");
+    assert_eq!(chart["controls"][1]["values"], json!(["day", "week"]));
+    assert_eq!(chart["acts"], json!(["read"]));
+
+    let read = abilities
+        .run(
+            &analyst,
+            "backend.screens.act",
+            json!({
+                "screen": "/acme/overview",
+                "part": "leads_by_day",
+                "act": "read",
+                "set": { "range": { "from": "2026-11-01", "to": "2026-11-15" }, "group_by": "day" }
+            }),
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(read["from"], "2026-11-01");
+    assert_eq!(read["points"], json!([3, 5, 8]));
+
+    // The framework refuses what the component did not say it has, before
+    // the component is asked.
+    for (input, fault) in [
+        (json!({ "part": "leads_by_week", "act": "read" }), "part"),
+        (json!({ "part": "leads_by_day", "act": "show" }), "act"),
+        (
+            json!({ "part": "leads_by_day", "act": "read", "set": { "colour": "red" } }),
+            "set/colour",
+        ),
+    ] {
+        let mut input = input;
+        input["screen"] = json!("/acme/overview");
+        let refused = abilities
+            .run(&analyst, "backend.screens.act", input, None)
+            .await;
+        let Err(AbilityError::Invalid(faults)) = refused else {
+            panic!("expected a refusal for {fault}");
+        };
+        assert!(faults[0].starts_with(fault), "{faults:?}");
+    }
 }

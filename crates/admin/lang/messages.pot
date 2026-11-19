@@ -2550,6 +2550,10 @@ msgstr ""
 msgid "The row could not be read: {reason}"
 msgstr ""
 
+#: src/surface.rs
+msgid "The screens."
+msgstr ""
+
 #: src/settings/mail.rs
 #: (descriptors)
 msgid "The sender, the transport and a test message."
@@ -2836,6 +2840,10 @@ msgstr ""
 
 #: templates/media_file.html
 msgid "What the image shows, for readers who cannot see it."
+msgstr ""
+
+#: src/surface.rs
+msgid "What the screen has."
 msgstr ""
 
 #: templates/import/index.html

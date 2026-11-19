@@ -754,17 +754,23 @@ impl<'a> Abilities<'a> {
         Self { ctx }
     }
 
-    /// Every ability `user` may run: the framework's own over records, where
-    /// some kind of record is open to them, then each module's in the order
-    /// they registered.
+    /// Every ability `user` may run: the framework's own over records and
+    /// over screens, where one is open to them, then each module's in the
+    /// order they registered.
     pub fn for_user(&self, user: &AuthenticatedUser) -> Vec<&'a Ability> {
         let records: &'static [Ability] = if crate::records::any_for(self.ctx, user) {
             &crate::records::ABILITIES
         } else {
             &[]
         };
+        let screens: &'static [Ability] = if crate::surface::any_for(self.ctx, user) {
+            &crate::surface::ABILITIES
+        } else {
+            &[]
+        };
         records
             .iter()
+            .chain(screens.iter())
             .chain(
                 self.ctx
                     .plugin_defined()

@@ -151,7 +151,7 @@ const SECRET_TYPES: [&str; 2] = ["password", "sensitive"];
 const MAX_ROWS: i64 = 25;
 
 impl RecordKind {
-    fn sees(&self, user: &AuthenticatedUser) -> bool {
+    pub(crate) fn sees(&self, user: &AuthenticatedUser) -> bool {
         self.config.enabled
             && self
                 .permission
@@ -340,6 +340,119 @@ impl RecordKind {
             Ok(params)
         } else {
             Err(AbilityError::Invalid(faults))
+        }
+    }
+
+    /// The list as a surface names it in `backend.screens.list`.
+    pub(crate) fn surface_summary(&self) -> Value {
+        json!({
+            "screen": self.key,
+            "label": self.title.source(),
+            "describe": self.config.describe.as_ref().map(Text::source),
+        })
+    }
+
+    /// What a surface calls the control for `filter`: its name, set apart
+    /// from the list's own three controls.
+    fn control_name(filter: &crate::list::ListFilter) -> String {
+        match filter.field.as_str() {
+            "search" | "sort" | "dir" => format!("filter_{}", filter.field),
+            name => name.to_string(),
+        }
+    }
+
+    /// The list as a surface: its search, its filters and its order as
+    /// controls, shown or read.
+    pub(crate) fn surface_part(&self, user: &AuthenticatedUser) -> crate::surface::Part {
+        use crate::surface::{Control, Part, READ, SHOW};
+
+        let mut part = Part::new("list", self.title.clone())
+            .act(SHOW)
+            .act(READ)
+            .control(Control::new("search", "Search", "text").describe("Words to match."));
+        if let Some(describe) = &self.config.describe {
+            part = part.describe(describe.clone());
+        }
+        for filter in crate::list::allowed_filters(&self.list, user) {
+            let mut control = Control::new(
+                Self::control_name(filter),
+                filter.label.clone(),
+                filter.filter_type.clone(),
+            );
+            control = match filter.filter_type.as_str() {
+                "boolean" => control.values(["1", "0"]),
+                "select" => control.values(filter.choices().into_iter().map(|o| o.value)),
+                "number" => match filter.matching() {
+                    "at_least" => control.describe("Keeps rows at or above this whole number."),
+                    "at_most" => control.describe("Keeps rows at or below this whole number."),
+                    _ => control.describe("Keeps rows with exactly this whole number."),
+                },
+                "date" => control.describe("One day, as YYYY-MM-DD."),
+                _ => control,
+            };
+            if let Some(default) = &filter.default_value {
+                control = control.value(default.clone());
+            }
+            part = part.control(control);
+        }
+        let sorts: Vec<&str> = self
+            .columns(user)
+            .filter(|(_, c)| c.sortable)
+            .map(|(_, c)| c.field.as_str())
+            .collect();
+        if !sorts.is_empty() {
+            part = part
+                .control(
+                    Control::new("sort", "Sort by", "select")
+                        .values(sorts)
+                        .value(self.list.order_by.clone()),
+                )
+                .control(Control::new("dir", "Direction", "select").values(["asc", "desc"]));
+        }
+        part
+    }
+
+    /// Shows or reads the list with the controls a request sets.
+    pub(crate) async fn surface_act(
+        &self,
+        cx: &AbilityCx<'_>,
+        request: &crate::surface::Request,
+    ) -> Result<Outcome, AbilityError> {
+        if !request.part.is_empty() {
+            return Err(AbilityError::invalid(format!(
+                "part: `{}` is not a part of this screen",
+                request.part.join("/")
+            )));
+        }
+        let mut input = Map::new();
+        input.insert("resource".into(), json!(self.key));
+        let mut filters = Map::new();
+        let offered = crate::list::allowed_filters(&self.list, cx.user());
+        let mut faults = Vec::new();
+        for (name, value) in &request.set {
+            match name.as_str() {
+                "search" | "sort" | "dir" => {
+                    input.insert(name.clone(), value.clone());
+                }
+                _ => match offered.iter().find(|f| Self::control_name(f) == *name) {
+                    Some(filter) => {
+                        filters.insert(filter.field.clone(), value.clone());
+                    }
+                    None => faults.push(format!("set/{name}: this part has no such control")),
+                },
+            }
+        }
+        if !faults.is_empty() {
+            return Err(AbilityError::Invalid(faults));
+        }
+        input.insert("filters".into(), Value::Object(filters));
+        let input = Value::Object(input);
+        match request.act.as_str() {
+            crate::surface::SHOW => Open.run(cx, input).await,
+            crate::surface::READ => Find.run(cx, input).await,
+            other => Err(AbilityError::invalid(format!(
+                "act: this part does not `{other}`; it offers: show, read"
+            ))),
         }
     }
 

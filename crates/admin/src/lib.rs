@@ -63,6 +63,7 @@ pub mod skin;
 pub mod source;
 mod sql;
 pub mod statics;
+pub mod surface;
 pub mod ui;
 mod upload;
 mod users;
@@ -144,6 +145,9 @@ pub trait AdminRegistry {
     fn add_ability(&mut self, ability: ability::Ability);
     /// Adds a mode to the command palette. See [`palette::PaletteMode`].
     fn add_palette_mode(&mut self, mode: palette::PaletteMode);
+    /// Says what a screen has, for a caller to read and drive. See
+    /// [`surface::Surface`].
+    fn add_surface(&mut self, surface: std::sync::Arc<dyn surface::Surface>);
     /// Adds a skin, selectable by `backend.skin`. See [`skin::Skin`].
     fn add_skin(&mut self, skin: skin::Skin);
     /// Serves a file under the admin's assets at `key` (`acme/dense.css`): a
@@ -194,6 +198,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_palette_mode(&mut self, mode: palette::PaletteMode) {
         self.add(mode);
+    }
+    fn add_surface(&mut self, surface: std::sync::Arc<dyn surface::Surface>) {
+        self.add(surface::SurfaceReg::new(surface));
     }
     fn add_skin(&mut self, skin: skin::Skin) {
         self.add(skin);
@@ -2144,6 +2151,9 @@ pub fn router(
         let mut named: Vec<&ability::Ability> = Vec::new();
         if !resources.is_empty() {
             named.extend(records::ABILITIES.iter());
+        }
+        if !resources.is_empty() || !plugin_defined.items::<surface::SurfaceReg>().is_empty() {
+            named.extend(surface::ABILITIES.iter());
         }
         named.extend(declared);
         if !named.is_empty() {
