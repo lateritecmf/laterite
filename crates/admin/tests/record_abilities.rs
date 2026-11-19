@@ -174,6 +174,7 @@ async fn nobody_without_a_resource_is_offered_the_record_abilities() {
             "backend.records.read",
             "backend.records.create",
             "backend.records.update",
+            "backend.records.delete",
             "backend.screens.list",
             "backend.screens.describe",
             "backend.screens.act"
@@ -201,7 +202,7 @@ async fn kinds_lists_what_is_open_and_hides_what_the_resource_hides() {
         "Blog posts, each with a code and a name."
     );
     // Without the update grant the person may add and not change.
-    assert_eq!(all[0]["can"], json!(["find", "read", "create"]));
+    assert_eq!(all[0]["can"], json!(["find", "read", "create", "delete"]));
 
     let one = abilities
         .run(
@@ -574,6 +575,85 @@ async fn a_list_is_a_screen_described_and_driven_like_any_other() {
         };
         assert!(faults[0].starts_with(fault), "{faults:?}");
     }
+}
+
+#[tokio::test]
+async fn a_record_is_deleted_only_once_an_administrator_allows_it() {
+    use laterite_admin::ability::{Confirm, PanelPolicy, PolicyRule};
+
+    let (ctx, auth, id, _guard) = boot().await;
+    let editor = person(id, &EDITOR);
+    let abilities = ctx.abilities();
+    let post = add(&ctx, &editor, "hello", "Hello world").await;
+    let input = json!({ "resource": "/posts", "id": post });
+
+    // Out of the box a channel is not offered deleting at all.
+    let refused = abilities
+        .run(
+            &editor,
+            "backend.records.delete",
+            input.clone(),
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, AbilityError::Unknown(_)), "{refused:?}");
+
+    laterite_admin::settings::store::save(
+        ctx.db(),
+        &PanelPolicy {
+            rules: vec![PolicyRule::new("backend.records.delete", Confirm::Ask)],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        abilities
+            .confirm(&editor, "backend.records.delete")
+            .await
+            .unwrap(),
+        Confirm::Ask
+    );
+
+    // The preview names the record and writes nothing.
+    let preview = abilities
+        .preview(
+            &editor,
+            "backend.records.delete",
+            &input,
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.count, Some(1));
+    assert_eq!(preview.records[0].href, format!("/admin/posts/{post}/edit"));
+
+    let gone = abilities
+        .run(
+            &editor,
+            "backend.records.delete",
+            input.clone(),
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(gone.data.unwrap()["id"], post);
+    let again = abilities
+        .run(
+            &editor,
+            "backend.records.delete",
+            input,
+            Some("acme.assistant"),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(again, AbilityError::Refused(_)), "{again:?}");
+
+    // The delete is in the trail as the person, through the channel.
+    let entries = auth.recent_audit(20).await.unwrap();
+    assert!(entries.iter().any(|e| e.action == "backend.posts.delete"
+        && e.actor_user_id == Some(id)
+        && e.channel.as_deref() == Some("acme.assistant")));
 }
 
 #[tokio::test]

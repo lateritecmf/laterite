@@ -9,6 +9,7 @@ abilities:
   hide: [internal]
 list:
   creatable: true
+  deletable: true
   columns:
     code: {}
     name: {}

@@ -649,6 +649,10 @@ msgstr ""
 msgid "Delete unused media"
 msgstr ""
 
+#: src/records.rs
+msgid "Deleted the record."
+msgstr ""
+
 #: src/bulk.rs
 #: src/relation.rs
 msgid "Deleted {n} record."
@@ -662,6 +666,10 @@ msgstr ""
 
 #: src/palette_do.rs
 msgid "Deletes"
+msgstr ""
+
+#: src/records.rs
+msgid "Deletes record {id} in {kind} for good."
 msgstr ""
 
 #: src/persist.rs
@@ -1370,6 +1378,10 @@ msgstr ""
 msgid "Move up"
 msgstr ""
 
+#: src/records.rs
+msgid "Moved the record to the trash."
+msgstr ""
+
 #: src/bulk.rs
 msgid "Moved {n} record to the trash."
 msgid_plural "Moved {n} records to the trash."
@@ -1378,6 +1390,10 @@ msgstr[1] ""
 
 #: src/list.rs
 msgid "Moved."
+msgstr ""
+
+#: src/records.rs
+msgid "Moves record {id} in {kind} to the trash."
 msgstr ""
 
 #: src/format.rs
@@ -2939,6 +2955,10 @@ msgstr ""
 
 #: src/records.rs
 msgid "You may not change these records."
+msgstr ""
+
+#: src/records.rs
+msgid "You may not delete these records."
 msgstr ""
 
 #: src/lib.rs

@@ -17,7 +17,7 @@ use axum::extract::State;
 use axum::response::Response;
 use axum::{Extension, Form};
 use laterite_auth::AuthenticatedUser;
-use laterite_core::{t, Actor, ModelListener, Text};
+use laterite_core::{t, Actor, Db, ModelListener, Text};
 
 use crate::persist::{delete, save, DeleteError, DeleteRequest, Persister, SaveError, SaveRequest};
 use crate::session::{FlashLevel, SessionHandle};
@@ -60,7 +60,8 @@ pub(crate) struct Outcome {
 
 /// Deletes each selected id, collecting what happened.
 pub(crate) async fn delete_selected(
-    state: &AdminState,
+    db: &Db,
+    cache: &laterite_core::Cache,
     ctx: &BulkContext,
     ids: &[String],
     actor: &Actor,
@@ -68,8 +69,8 @@ pub(crate) async fn delete_selected(
     let mut outcome = Outcome::default();
     for id in ids {
         let req = DeleteRequest {
-            db: &state.db,
-            cache: Some(&state.cache),
+            db,
+            cache: Some(cache),
             listeners: &ctx.listeners,
             persister: ctx.persister.as_ref(),
             actor,
@@ -91,7 +92,8 @@ pub(crate) async fn delete_selected(
 /// Sets or clears `deleted_at` on each selected id through the save pipeline,
 /// so the listeners, the audit entry and any trash cascade run.
 async fn stamp_selected(
-    state: &AdminState,
+    db: &Db,
+    cache: &laterite_core::Cache,
     ctx: &BulkContext,
     ids: &[String],
     actor: &Actor,
@@ -114,8 +116,8 @@ async fn stamp_selected(
             );
         }
         let req = SaveRequest {
-            db: &state.db,
-            cache: Some(&state.cache),
+            db,
+            cache: Some(cache),
             listeners: &ctx.save_listeners,
             persister: ctx.persister.as_ref(),
             actor,
@@ -138,6 +140,23 @@ async fn stamp_selected(
         }
     }
     outcome
+}
+
+/// Removes one record as the list's Delete would: to the trash on a
+/// soft-deleting resource, for good otherwise.
+pub(crate) async fn remove(
+    db: &Db,
+    cache: &laterite_core::Cache,
+    ctx: &BulkContext,
+    id: &str,
+    actor: &Actor,
+) -> Outcome {
+    let ids = [id.to_string()];
+    if ctx.soft_delete {
+        stamp_selected(db, cache, ctx, &ids, actor, true).await
+    } else {
+        delete_selected(db, cache, ctx, &ids, actor).await
+    }
 }
 
 /// The selected ids that are in the trash, in selection order: Delete
@@ -220,12 +239,14 @@ pub(crate) async fn delete_handler(
 
     let actor = Actor::from(&user);
     let outcome = match action {
-        Action::Delete if ctx.soft_delete => stamp_selected(&state, &ctx, &ids, &actor, true).await,
-        Action::Delete => delete_selected(&state, &ctx, &ids, &actor).await,
-        Action::Restore => stamp_selected(&state, &ctx, &ids, &actor, false).await,
+        Action::Delete if ctx.soft_delete => {
+            stamp_selected(&state.db, &state.cache, &ctx, &ids, &actor, true).await
+        }
+        Action::Delete => delete_selected(&state.db, &state.cache, &ctx, &ids, &actor).await,
+        Action::Restore => stamp_selected(&state.db, &state.cache, &ctx, &ids, &actor, false).await,
         Action::Purge => {
             let trashed = trashed_only(&state, &ctx.entity, &ids).await;
-            delete_selected(&state, &ctx, &trashed, &actor).await
+            delete_selected(&state.db, &state.cache, &ctx, &trashed, &actor).await
         }
     };
 

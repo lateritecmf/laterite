@@ -231,6 +231,7 @@ Key | Sets | Default
 `describe` | what the records are, for a caller choosing where to look | none
 `create` | a new record may be drafted | `true`, where the list is `creatable`
 `update` | a change may be drafted | `true`
+`delete` | a record may be deleted | `true`, where the list is `deletable`
 `hide` | fields and columns kept from a caller | none
 `untrusted` | the records carry text written by people outside the panel | `false`
 
@@ -242,6 +243,7 @@ Ability | Input | Answers
 `backend.records.read` | `resource`, `id` | one record's field values
 `backend.records.create` | `resource`, `values` | `preview`: the filled form as a `Draft`; `run`: the new id
 `backend.records.update` | `resource`, `id`, `values` | `preview`: the changed form as a `Draft`; `run`: the id
+`backend.records.delete` | `resource`, `id` | `preview`: the record named; `run`: the id, moved to the trash on a `soft_delete` resource
 
 ```json
 { "resource": "/posts", "filters": { "status": "live", "views_min": 1000 }, "sort": "views", "dir": "desc" }
@@ -250,7 +252,7 @@ Ability | Input | Answers
 `filters` names the list's own [filters](../lists/filters.md), the ones the
 person may use. `resource` is the resource's `path`. Each ability asks for the resource's
 `permission`, and a create or an update for its `permissions.create` or
-`permissions.update`. `password` and `sensitive` fields are never read or set.
+`permissions.update`, and a delete for `permissions.delete`. `password` and `sensitive` fields are never read or set.
 
 ## Act for a person in your own writes
 

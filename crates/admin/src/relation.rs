@@ -1014,7 +1014,7 @@ pub(crate) async fn delete(
         }
     }
     let actor = Actor::from(&user);
-    let outcome = bulk::delete_selected(&state, &rel.bulk, &owned, &actor).await;
+    let outcome = bulk::delete_selected(&state.db, &state.cache, &rel.bulk, &owned, &actor).await;
     if outcome.deleted > 0 {
         let n = outcome.deleted as i64;
         let message = match &rel.kind {

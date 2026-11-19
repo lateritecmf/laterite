@@ -2700,8 +2700,9 @@ pub fn router(
     // through one (`RouteCtx::form`). Keyed by the path as authored, relative to
     // the admin root, which is how a screen names a resource.
     let mut forms: HashMap<String, Arc<form::PreparedForm>> = HashMap::new();
+    let mut deletes: HashMap<String, Arc<bulk::BulkContext>> = HashMap::new();
     for resource in &resources {
-        let (mounted, prepared) = mount_resource(
+        let (mounted, prepared, delete) = mount_resource(
             &validation_rules,
             resource,
             &state.field_types,
@@ -2711,6 +2712,9 @@ pub fn router(
             &app_listeners,
         );
         protected = protected.merge(mounted);
+        if let Some(delete) = delete {
+            deletes.insert(resource.base_path.clone(), delete);
+        }
         if let Some(prepared) = prepared {
             let key = resource
                 .base_path
@@ -2734,6 +2738,7 @@ pub fn router(
                     .to_string();
                 records::RecordKind {
                     form: forms.get(&key).cloned(),
+                    delete: deletes.get(&r.base_path).cloned(),
                     key,
                     href: r.base_path.clone(),
                     title: r.list.title.clone(),
@@ -4058,7 +4063,12 @@ fn mount_resource(
     permission_codes: &std::collections::HashSet<String>,
     persisters: &persist::PersisterRegistry,
     listeners: &[laterite_core::ModelListenerReg],
-) -> (Router<AdminState>, Option<Arc<form::PreparedForm>>) {
+) -> (
+    Router<AdminState>,
+    Option<Arc<form::PreparedForm>>,
+    Option<Arc<bulk::BulkContext>>,
+) {
+    let mut deletes: Option<Arc<bulk::BulkContext>> = None;
     // A column naming a type nobody registered used to render an empty cell;
     // it aborts boot instead, like a form field with an unregistered type. So
     // does a column requiring a permission nobody registered.
@@ -4283,6 +4293,7 @@ fn mount_resource(
             soft_delete: resource.soft_delete,
             save_listeners,
         });
+        deletes = Some(ctx.clone());
         let mut actions = vec![("delete", bulk::Action::Delete)];
         if resource.soft_delete {
             actions.push(("restore", bulk::Action::Restore));
@@ -4661,7 +4672,7 @@ fn mount_resource(
     if let Some(permission) = &resource.permission {
         router = guard_with_permission(router, permission);
     }
-    (router, prepared_form)
+    (router, prepared_form, deletes)
 }
 
 /// Wraps every route currently in `router` in a permission guard: the auth guard

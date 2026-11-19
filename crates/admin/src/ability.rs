@@ -947,7 +947,8 @@ impl<'a> Abilities<'a> {
             let mut detail = json!({
                 "effect": ability.effect.as_str(),
                 "input": input,
-                "result": outcome.message.source(),
+                // The sentence with its placeholders filled, as it was written.
+                "result": laterite_core::Translator::new("en").t(&outcome.message),
             });
             if let Some(confirm) = confirm {
                 detail["confirm"] = json!(confirm.as_str());

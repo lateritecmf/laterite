@@ -1,12 +1,12 @@
 //! The abilities every resource gives for nothing: finding its records,
-//! reading one, and drafting a new one or a change.
+//! reading one, drafting a new one or a change, and deleting one.
 //!
 //! A resource descriptor already states the table, the permission, the
 //! searchable columns and each field's type, label and rules, so nothing more
 //! is written for these to exist. `abilities:` on the resource says what a
 //! caller is told about it and switches parts off; see [`RecordAbilities`].
 //!
-//! They are four fixed abilities over a list of kinds of record, never one per
+//! They are a few fixed abilities over a list of kinds of record, never one per
 //! resource: a panel with eighty resources offers a caller the same few.
 
 use std::collections::HashMap;
@@ -46,6 +46,9 @@ pub struct RecordAbilities {
     pub create: bool,
     /// Whether a change to a record may be drafted.
     pub update: bool,
+    /// Whether a record may be deleted, where the list deletes. The panel's
+    /// policy keeps deleting off until an administrator allows it.
+    pub delete: bool,
     /// Fields and columns kept from a caller, by name.
     pub hide: Vec<String>,
     /// The records carry text written by people outside the panel (a
@@ -60,6 +63,7 @@ impl Default for RecordAbilities {
             describe: None,
             create: true,
             update: true,
+            delete: true,
             hide: Vec::new(),
             untrusted: false,
         }
@@ -86,10 +90,17 @@ impl RecordAbilities {
         self
     }
 
-    /// Records are found and read, never drafted.
+    /// Records are found and read, never drafted or deleted.
     pub fn read_only(mut self) -> Self {
         self.create = false;
         self.update = false;
+        self.delete = false;
+        self
+    }
+
+    /// Records are never deleted through an ability.
+    pub fn keep(mut self) -> Self {
+        self.delete = false;
         self
     }
 
@@ -137,6 +148,8 @@ pub(crate) struct RecordKind {
     pub title: Text,
     pub list: ListConfig,
     pub form: Option<Arc<PreparedForm>>,
+    /// The list's own delete path, when the list deletes.
+    pub delete: Option<Arc<crate::bulk::BulkContext>>,
     pub permission: Option<String>,
     pub permissions: ActionPermissions,
     pub hooks: Vec<Arc<dyn QueryHook>>,
@@ -174,6 +187,13 @@ impl RecordKind {
         self.form.is_some() && self.config.update && self.may(user, &self.permissions.update)
     }
 
+    fn deletes(&self, user: &AuthenticatedUser) -> bool {
+        self.form.is_some()
+            && self.delete.is_some()
+            && self.config.delete
+            && self.may(user, &self.permissions.delete)
+    }
+
     fn hidden(&self, name: &str) -> bool {
         self.config.hide.iter().any(|h| h == name)
     }
@@ -203,6 +223,9 @@ impl RecordKind {
         }
         if self.updates(user) {
             can.push("update");
+        }
+        if self.deletes(user) {
+            can.push("delete");
         }
         json!({
             "resource": self.key,
@@ -828,6 +851,89 @@ impl AbilityHandler for Write {
     }
 }
 
+struct Delete;
+
+impl Delete {
+    /// The kind and the id, once the person may delete it and it is there
+    /// for them to see.
+    async fn prepared<'a>(
+        cx: &AbilityCx<'a>,
+        input: &Value,
+    ) -> Result<(&'a RecordKind, i64), AbilityError> {
+        let kind = kind(cx, text(input, "resource"))?;
+        if !kind.deletes(cx.user()) {
+            return Err(AbilityError::Refused(t!(
+                "You may not delete these records."
+            )));
+        }
+        let id = record_id(input)?;
+        stored(cx, kind, id).await?;
+        Ok((kind, id))
+    }
+}
+
+#[async_trait]
+impl AbilityHandler for Delete {
+    async fn preview(&self, cx: &AbilityCx<'_>, input: &Value) -> Result<Preview, AbilityError> {
+        let (kind, id) = Self::prepared(cx, input).await?;
+        let title = kind.title.source().to_string();
+        let soft = kind.delete.as_ref().is_some_and(|d| d.soft_delete);
+        let summary = if soft {
+            t!(
+                "Moves record {id} in {kind} to the trash.",
+                id = id,
+                kind = title.clone()
+            )
+        } else {
+            t!(
+                "Deletes record {id} in {kind} for good.",
+                id = id,
+                kind = title.clone()
+            )
+        };
+        Ok(Preview::new(summary)
+            .record(Link::new(title, kind.edit_href(&id.to_string())))
+            .count(1))
+    }
+
+    async fn run(&self, cx: &AbilityCx<'_>, input: Value) -> Result<Outcome, AbilityError> {
+        let (kind, id) = Self::prepared(cx, &input).await?;
+        let Some(delete) = kind.delete.as_ref() else {
+            return Err(AbilityError::Refused(t!(
+                "You may not delete these records."
+            )));
+        };
+        let mut outcome = crate::bulk::remove(
+            cx.db(),
+            cx.ctx().cache(),
+            delete,
+            &id.to_string(),
+            cx.actor(),
+        )
+        .await;
+        if let Some(reason) = outcome.refused.pop() {
+            return Err(AbilityError::Refused(reason));
+        }
+        if outcome.deleted == 0 {
+            return Err(AbilityError::Failed(format!(
+                "deleting {} {id} failed",
+                kind.key
+            )));
+        }
+        let message = if delete.soft_delete {
+            t!("Moved the record to the trash.")
+        } else {
+            t!("Deleted the record.")
+        };
+        Ok(Outcome::new(message)
+            .link(Link::new(
+                kind.title.source().to_string(),
+                kind.href.clone(),
+            ))
+            .data(json!({ "id": id })))
+    }
+}
+
 fn filters_property() -> Value {
     json!({
         "type": "object",
@@ -959,5 +1065,20 @@ pub(crate) static ABILITIES: LazyLock<Vec<Ability>> = LazyLock::new(|| {
             "additionalProperties": false
         }))
         .effect(Effect::Update),
+        Ability::new(
+            "backend.records.delete",
+            t!("Delete a record"),
+            Arc::new(Delete),
+        )
+        .describe(t!(
+            "Deletes one record, to the trash where the kind keeps one. The person agrees first."
+        ))
+        .input_schema(json!({
+            "type": "object",
+            "properties": { "resource": resource_property(), "id": id_property() },
+            "required": ["resource", "id"],
+            "additionalProperties": false
+        }))
+        .effect(Effect::Delete),
     ]
 });
