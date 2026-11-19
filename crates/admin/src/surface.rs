@@ -266,7 +266,7 @@ impl std::fmt::Debug for SurfaceReg {
 
 /// One surface open to a person: a module's own, or a list.
 enum Found<'a> {
-    Own(&'a dyn Surface),
+    Own(Arc<dyn Surface>),
     List(&'a crate::records::RecordKind),
 }
 
@@ -288,7 +288,8 @@ fn open_to<'a>(ctx: &'a RouteCtx, user: &AuthenticatedUser) -> Vec<Found<'a>> {
         .plugin_defined()
         .items::<SurfaceReg>()
         .into_iter()
-        .map(|reg| reg.surface.as_ref())
+        .map(|reg| reg.surface.clone())
+        .chain(ctx.mounted_surfaces())
         .filter(|s| s.permission().is_none_or(|p| user.permissions.allows(p)))
         .map(Found::Own);
     let lists = ctx

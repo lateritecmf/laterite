@@ -541,3 +541,163 @@ async fn a_component_of_a_modules_own_is_described_and_driven_by_its_parts() {
         assert!(faults[0].starts_with(fault), "{faults:?}");
     }
 }
+
+/// A chart of a board: a metric and a number of days as settings, and the
+/// board's own period.
+struct Trend;
+
+#[async_trait]
+impl laterite_admin::board::Kind for Trend {
+    fn code(&self) -> &str {
+        "acme.trend"
+    }
+
+    fn label(&self) -> laterite_core::Text {
+        t!("Trend")
+    }
+
+    fn description(&self) -> Option<laterite_core::Text> {
+        Some(t!("One figure, day by day."))
+    }
+
+    fn properties(&self) -> Vec<laterite_admin::form::FormField> {
+        use laterite_admin::form::FormField;
+        vec![
+            FormField::select(
+                "metric",
+                "Metric",
+                vec![("signups", "Sign-ups"), ("orders", "Orders")],
+            ),
+            FormField::of("days", "Days", "number"),
+        ]
+    }
+
+    fn check(&self, properties: &Value) -> Result<(), String> {
+        match properties["metric"].as_str() {
+            Some("signups" | "orders") => Ok(()),
+            _ => Err("metric: choose sign-ups or orders".to_string()),
+        }
+    }
+
+    fn reads(&self) -> bool {
+        true
+    }
+
+    async fn data(
+        &self,
+        cx: &laterite_admin::board::ReadCx<'_>,
+        properties: &Value,
+    ) -> Result<Value, String> {
+        Ok(json!({
+            "metric": properties["metric"],
+            "days": properties["days"],
+            "from": cx.query.get("from"),
+            "points": [4, 6, 9],
+        }))
+    }
+
+    async fn render(
+        &self,
+        _cx: &laterite_admin::board::BoardCx<'_>,
+        _properties: &Value,
+    ) -> Result<laterite_admin::html::Markup, String> {
+        Err("not drawn here".to_string())
+    }
+}
+
+#[tokio::test]
+async fn a_boards_widgets_are_parts_whose_settings_are_controls() {
+    use laterite_admin::board::{Board, Layout, Placement};
+
+    let (ctx, _auth, id, _guard) = boot().await;
+    let board = Arc::new(
+        Board::new(
+            "acme.sales",
+            Layout::rows(vec![vec![Placement::new("trend", "acme.trend", 10)
+                .properties(json!({ "metric": "signups", "days": 30 }))]]),
+        )
+        .carry(["from", "to"])
+        .with_kind(Arc::new(Trend)),
+    );
+    // A screen says so as it mounts.
+    ctx.add_surface(board.surface("/acme/sales", t!("Sales")));
+    let user = person(id, &[]);
+    let abilities = ctx.abilities();
+
+    let described = abilities
+        .run(
+            &user,
+            "backend.screens.describe",
+            json!({ "screen": "/acme/sales" }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(described["acts"], json!(["show"]));
+    assert_eq!(described["controls"][0]["name"], "from");
+    let trend = &described["parts"][0];
+    assert_eq!(trend["name"], "trend");
+    assert_eq!(trend["describe"], "One figure, day by day.");
+    let controls: Vec<&str> = trend["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(controls, ["metric", "days", "from", "to"]);
+    assert_eq!(trend["controls"][0]["values"], json!(["signups", "orders"]));
+    assert_eq!(trend["controls"][0]["value"], "signups");
+    assert_eq!(trend["acts"], json!(["read"]));
+
+    // Read with a setting and the period changed; nothing is saved.
+    let read = abilities
+        .run(
+            &user,
+            "backend.screens.act",
+            json!({
+                "screen": "/acme/sales",
+                "part": "trend",
+                "act": "read",
+                "set": { "metric": "orders", "from": "2026-11-01" }
+            }),
+            None,
+        )
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    assert_eq!(read["metric"], "orders");
+    assert_eq!(read["days"], 30);
+    assert_eq!(read["from"], "2026-11-01");
+    assert_eq!(read["points"], json!([4, 6, 9]));
+
+    // The widget's own check answers for a value it does not take.
+    let refused = abilities
+        .run(
+            &user,
+            "backend.screens.act",
+            json!({ "screen": "/acme/sales", "part": "trend", "act": "read", "set": { "metric": "refunds" } }),
+            None,
+        )
+        .await;
+    let Err(AbilityError::Invalid(faults)) = refused else {
+        panic!("expected a refusal");
+    };
+    assert!(faults[0].starts_with("set: metric"), "{faults:?}");
+
+    let shown = abilities
+        .run(
+            &user,
+            "backend.screens.act",
+            json!({ "screen": "/acme/sales", "act": "show", "set": { "from": "2026-11-01", "to": "2026-11-15" } }),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        shown.go.as_deref(),
+        Some("/admin/acme/sales?from=2026-11-01&to=2026-11-15")
+    );
+}

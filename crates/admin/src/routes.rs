@@ -48,6 +48,8 @@ pub struct RouteCtx {
     entity_access: Arc<EntityAccess>,
     media_uses: Arc<MediaUses>,
     records: Arc<Vec<crate::records::RecordKind>>,
+    /// The surfaces screens added as they mounted, shared by every context.
+    mounted: MountedSurfaces,
 }
 
 /// A `media` field some screen declares: what the Media screens call it, and
@@ -65,6 +67,9 @@ pub(crate) struct MediaUse {
 /// Every declared `media` field, by the entity (or settings code) and the
 /// field name its links carry.
 pub(crate) type MediaUses = HashMap<(String, String), MediaUse>;
+
+/// The surfaces added by screens as they mounted.
+pub(crate) type MountedSurfaces = Arc<std::sync::RwLock<Vec<Arc<dyn crate::surface::Surface>>>>;
 
 /// For each entity a resource or a relation shows, the permissions that let
 /// an operator see its records: holding any one is enough, and `None` among
@@ -116,6 +121,7 @@ impl RouteCtx {
             entity_access: Arc::default(),
             media_uses: Arc::default(),
             records: Arc::default(),
+            mounted: Arc::default(),
         }
     }
 
@@ -133,6 +139,33 @@ impl RouteCtx {
 
     pub(crate) fn records(&self) -> &[crate::records::RecordKind] {
         &self.records
+    }
+
+    /// The context sharing the surfaces screens add as they mount.
+    pub(crate) fn with_surfaces(mut self, mounted: MountedSurfaces) -> Self {
+        self.mounted = mounted;
+        self
+    }
+
+    /// Says what this screen has, for a caller to read and drive: the
+    /// run-time twin of
+    /// [`AdminRegistry::add_surface`](crate::AdminRegistry::add_surface), for
+    /// a screen that builds what it shows as it mounts. A surface already
+    /// added at the same path is replaced. See [`crate::surface::Surface`].
+    pub fn add_surface(&self, surface: Arc<dyn crate::surface::Surface>) {
+        let mut mounted = self
+            .mounted
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        mounted.retain(|s| s.path() != surface.path());
+        mounted.push(surface);
+    }
+
+    pub(crate) fn mounted_surfaces(&self) -> Vec<Arc<dyn crate::surface::Surface>> {
+        self.mounted
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     pub(crate) fn with_media_uses(mut self, uses: Arc<MediaUses>) -> Self {

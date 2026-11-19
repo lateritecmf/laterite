@@ -143,7 +143,22 @@ async fn add(ctx: &RouteCtx, user: &AuthenticatedUser, code: &str, name: &str) -
 #[tokio::test]
 async fn nobody_without_a_resource_is_offered_the_record_abilities() {
     let (ctx, _auth, id, _guard) = boot().await;
-    assert!(ctx.abilities().for_user(&person(id, &[])).is_empty());
+    // The home dashboard is a screen everyone has, so the screen abilities
+    // are there; the record abilities are not.
+    let bare: Vec<String> = ctx
+        .abilities()
+        .for_user(&person(id, &[]))
+        .iter()
+        .map(|a| a.code().to_string())
+        .collect();
+    assert_eq!(
+        bare,
+        [
+            "backend.screens.list",
+            "backend.screens.describe",
+            "backend.screens.act"
+        ]
+    );
     let codes: Vec<&str> = ctx
         .abilities()
         .for_user(&person(id, &["acme.manage_posts"]))
@@ -487,8 +502,14 @@ async fn a_list_is_a_screen_described_and_driven_like_any_other() {
         .unwrap()
         .data
         .unwrap();
-    assert_eq!(screens.as_array().unwrap().len(), 1, "{screens}");
-    assert_eq!(screens[0]["screen"], "/posts");
+    // The home dashboard, then the list.
+    let named: Vec<&str> = screens
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["screen"].as_str().unwrap())
+        .collect();
+    assert_eq!(named, ["/", "/posts"]);
 
     let described = abilities
         .run(

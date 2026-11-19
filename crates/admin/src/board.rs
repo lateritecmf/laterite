@@ -50,6 +50,17 @@ pub struct BoardCx<'a> {
     pub width: u8,
 }
 
+/// What a widget reads its figures from when a caller, not a page, asks:
+/// the viewer and the board's query string, with nothing to draw on.
+pub struct ReadCx<'a> {
+    /// The routes' context: the database, the cache, the registries.
+    pub ctx: &'a RouteCtx,
+    /// The person the figures are read for.
+    pub user: &'a AuthenticatedUser,
+    /// The board's query string (a period, say), as the caller set it.
+    pub query: &'a HashMap<String, String>,
+}
+
 /// A kind of widget a board can hold.
 #[laterite_core::strata::async_trait]
 pub trait Kind: Send + Sync {
@@ -121,6 +132,23 @@ pub trait Kind: Send + Sync {
     /// Seconds between the widget fetching itself again; `None` is never.
     fn refresh(&self, _properties: &Value) -> Option<u32> {
         None
+    }
+    /// The settings as a caller is told them, for a widget whose settings
+    /// are `current`: [`Kind::properties_for`] without a page to draw on.
+    /// [`Kind::properties`] unless said.
+    fn controls(&self, _cx: &ReadCx<'_>, _current: &Value) -> Vec<FormField> {
+        self.properties()
+    }
+    /// Whether [`Kind::data`] answers: the widget is then offered to a
+    /// caller to read, through the board's [surface](Board::surface).
+    fn reads(&self) -> bool {
+        false
+    }
+    /// What the widget shows, as data: the points of a chart, a figure and
+    /// what it is compared with. `properties` are its settings with whatever
+    /// the caller set over them, already through [`Kind::check`].
+    async fn data(&self, _cx: &ReadCx<'_>, _properties: &Value) -> Result<Value, String> {
+        Err("this widget has nothing to read".to_string())
     }
     /// The widget's content. An error is shown in the widget's place.
     async fn render(&self, cx: &BoardCx<'_>, properties: &Value) -> Result<Markup, String>;
@@ -293,6 +321,7 @@ pub struct Board {
     offered: Option<Vec<String>>,
     packed: bool,
     carry: Vec<String>,
+    explained: Vec<crate::surface::Control>,
     default: Layout,
     own: Vec<Arc<dyn Kind>>,
 }
@@ -311,6 +340,7 @@ impl Board {
             offered: None,
             packed: true,
             carry: Vec::new(),
+            explained: Vec::new(),
             default,
             own: Vec::new(),
         }
@@ -367,6 +397,15 @@ impl Board {
     /// period's `range`, `from` and `to`.
     pub fn carry<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
         self.carry = names.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Says what a name the board carries takes, for a caller of its
+    /// [surface](Board::surface): its label, its kind and its values. A name
+    /// with none said is a plain text control.
+    pub fn explain(mut self, control: crate::surface::Control) -> Self {
+        self.explained.retain(|c| c.name != control.name);
+        self.explained.push(control);
         self
     }
 
@@ -1190,4 +1229,206 @@ struct SettingsTemplate<'a> {
 #[template(path = "board/failed.html")]
 struct FailedTemplate<'a> {
     reason: &'a str,
+}
+
+/// A board as a caller reads and drives it. See [`Board::surface`].
+struct BoardSurface {
+    board: Arc<Board>,
+    path: String,
+    label: Text,
+}
+
+impl Board {
+    /// The board as a [surface](crate::surface): what it carries in its
+    /// query string as controls, and each widget as a part whose settings
+    /// are controls. `path` is the board's page under the admin root. Add it
+    /// where the board is built: `ctx.add_surface(board.surface(..))`.
+    ///
+    /// Showing the board sets what it carries. Reading a widget whose kind
+    /// [reads](Kind::reads) answers its figures for the settings given,
+    /// with nothing saved.
+    pub fn surface(
+        self: &Arc<Self>,
+        path: impl Into<String>,
+        label: impl Into<Text>,
+    ) -> Arc<dyn crate::surface::Surface> {
+        Arc::new(BoardSurface {
+            board: self.clone(),
+            path: path.into(),
+            label: label.into(),
+        })
+    }
+
+    /// What the board carries, as controls.
+    fn carried_controls(&self) -> Vec<crate::surface::Control> {
+        self.carry
+            .iter()
+            .map(|name| {
+                self.explained
+                    .iter()
+                    .find(|c| c.name == *name)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        crate::surface::Control::new(name.clone(), name.replace('_', " "), "text")
+                            .describe("A value the page carries in its address.")
+                    })
+            })
+            .collect()
+    }
+}
+
+/// A widget's setting as a control, with what it is set to.
+fn setting_control(field: &FormField, properties: &Value) -> crate::surface::Control {
+    let choices: Vec<String> = field
+        .options
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|o| o.get("value").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let kind = match field.field_type.as_str() {
+        "select" | "radio" => "select",
+        "switch" | "checkbox" => "boolean",
+        "number" | "date" => field.field_type.as_str(),
+        _ => "text",
+    };
+    let mut control =
+        crate::surface::Control::new(field.name.clone(), field.label.clone(), kind).values(choices);
+    if let Some(help) = &field.help {
+        control = control.describe(help.clone());
+    }
+    match properties.get(&field.name) {
+        Some(value) if !value.is_null() => control.value(value.clone()),
+        _ => control,
+    }
+}
+
+#[laterite_core::strata::async_trait]
+impl crate::surface::Surface for BoardSurface {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn label(&self) -> Text {
+        self.label.clone()
+    }
+
+    fn permission(&self) -> Option<&str> {
+        self.board.view_permission.as_deref()
+    }
+
+    async fn parts(
+        &self,
+        cx: &crate::ability::AbilityCx<'_>,
+    ) -> Result<crate::surface::Part, crate::ability::AbilityError> {
+        use crate::surface::{Part, READ, SHOW};
+
+        let kinds = Kinds::of(cx.ctx(), &self.board.own);
+        let (layout, _) = self.board.layout(cx.ctx(), cx.user()).await;
+        let none = HashMap::new();
+        let mut root = Part::new("board", self.label.clone()).act(SHOW);
+        for control in self.board.carried_controls() {
+            root = root.control(control);
+        }
+        for placed in layout.rows.iter().flatten() {
+            let Some(kind) = kinds.get(&placed.kind) else {
+                continue;
+            };
+            if kind
+                .permission()
+                .is_some_and(|p| !cx.user().permissions.allows(p))
+            {
+                continue;
+            }
+            let mut part = Part::new(placed.id.clone(), kind.label());
+            if let Some(describe) = kind.description() {
+                part = part.describe(describe);
+            }
+            let read = ReadCx {
+                ctx: cx.ctx(),
+                user: cx.user(),
+                query: &none,
+            };
+            for field in kind.controls(&read, &placed.properties) {
+                part = part.control(setting_control(&field, &placed.properties));
+            }
+            if kind.reads() {
+                for control in self.board.carried_controls() {
+                    if !part.controls.iter().any(|c| c.name == control.name) {
+                        part = part.control(control);
+                    }
+                }
+                part = part.act(READ);
+            }
+            root = root.part(part);
+        }
+        Ok(root)
+    }
+
+    async fn act(
+        &self,
+        cx: &crate::ability::AbilityCx<'_>,
+        request: &crate::surface::Request,
+    ) -> Result<crate::ability::Outcome, crate::ability::AbilityError> {
+        use crate::ability::{AbilityError, Outcome};
+
+        // What the request set of what the board carries.
+        let query: HashMap<String, String> = self
+            .board
+            .carry
+            .iter()
+            .filter_map(|name| request.text(name).map(|value| (name.clone(), value)))
+            .filter(|(_, value)| !value.is_empty())
+            .collect();
+        let Some(id) = request.part.first() else {
+            let href = format!(
+                "{}{}{}",
+                cx.ctx().admin_path(),
+                self.path.trim_end_matches('/'),
+                self.board.carried(&query)
+            );
+            return Ok(Outcome::new(t!("Opened {board}.", board = self.label.source())).go(href));
+        };
+        let kinds = Kinds::of(cx.ctx(), &self.board.own);
+        let (layout, _) = self.board.layout(cx.ctx(), cx.user()).await;
+        let (placed, kind) = layout
+            .find(id)
+            .and_then(|placed| kinds.get(&placed.kind).map(|kind| (placed, kind)))
+            .filter(|(_, kind)| {
+                kind.permission()
+                    .is_none_or(|p| cx.user().permissions.allows(p))
+            })
+            .ok_or_else(|| AbilityError::invalid(format!("part: no widget is named `{id}`")))?;
+        let read = ReadCx {
+            ctx: cx.ctx(),
+            user: cx.user(),
+            query: &query,
+        };
+        let mut properties = match &placed.properties {
+            Value::Object(map) => map.clone(),
+            _ => serde_json::Map::new(),
+        };
+        // A setting may decide which others there are, so what was set is
+        // laid over until the settings stop changing.
+        for _ in 0..3 {
+            let before = properties.len();
+            for field in kind.controls(&read, &Value::Object(properties.clone())) {
+                if let Some(value) = request.set.get(&field.name) {
+                    properties.insert(field.name.clone(), value.clone());
+                }
+            }
+            if properties.len() == before {
+                break;
+            }
+        }
+        let properties = Value::Object(properties);
+        kind.check(&properties)
+            .map_err(|reason| AbilityError::invalid(format!("set: {reason}")))?;
+        let data = kind
+            .data(&read, &properties)
+            .await
+            .map_err(|reason| AbilityError::invalid(format!("read: {reason}")))?;
+        Ok(Outcome::new(kind.label()).data(data))
+    }
 }

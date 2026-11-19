@@ -2747,6 +2747,9 @@ pub fn router(
             .collect(),
     );
 
+    // What screens say they have as they mount, read by the screen abilities.
+    let mounted: routes::MountedSurfaces = Arc::default();
+
     // The home dashboard: a board of the registered widgets, each person
     // arranging their own.
     {
@@ -2770,12 +2773,14 @@ pub fn router(
             state.auth.events().clone(),
             forms.clone(),
             settings_paths(&state.settings, &admin_path),
-        );
+        )
+        .with_surfaces(mounted.clone());
         let home = Arc::new(widget::home_board(
             &state.widgets,
             state.order.get(widget::HIERARCHY).map(Vec::as_slice),
             state.timezone.name(),
         ));
+        ctx.add_surface(home.surface("/", "Dashboard"));
         let page = (home.clone(), ctx.clone(), base.clone());
         protected = protected
             .route(
@@ -2938,7 +2943,8 @@ pub fn router(
         )
         .with_entity_access(entity_access.clone())
         .with_media_uses(media_uses.clone())
-        .with_records(record_kinds.clone());
+        .with_records(record_kinds.clone())
+        .with_surfaces(mounted.clone());
         protected = protected.merge(guard_with_permission(
             Router::new().nest_service(&base, reg.screen.mount(&ctx)),
             &reg.permission,
@@ -3162,7 +3168,8 @@ pub fn router(
             forms.clone(),
             settings_paths(&state.settings, &admin_path),
         )
-        .with_records(record_kinds.clone());
+        .with_records(record_kinds.clone())
+        .with_surfaces(mounted.clone());
         protected = protected.merge(palette_do::routes(&admin_path, ctx));
     }
 

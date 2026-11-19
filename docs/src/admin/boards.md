@@ -123,3 +123,39 @@ fn register(&self, registry: &mut laterite_core::Registry) {
 `render` | the content as `Markup`; an `Err` is shown in the widget's place | required
 
 `BoardCx` gives `ctx`, `shell`, `user`, `query` (the page's query string) and `width`.
+
+## Let a caller read a widget
+
+```rust
+use laterite_admin::board::ReadCx;
+use laterite_core::serde_json::{json, Value};
+
+fn reads(&self) -> bool {
+    true
+}
+
+async fn data(&self, cx: &ReadCx<'_>, properties: &Value) -> Result<Value, String> {
+    let from = cx.query.get("from").map(String::as_str);
+    let points = acme::revenue::by_day(cx.ctx.db(), properties["currency"].as_str(), from).await?;
+    Ok(json!({ "points": points }))
+}
+```
+
+```rust
+let board = Arc::new(board);
+ctx.add_surface(board.surface("/acme/sales", t!("Sales")));
+```
+
+`Kind` method | Returns | Default
+--- | --- | ---
+`reads` | whether `data` answers | `false`
+`data(cx, properties)` | what the widget shows, as JSON | `Err`
+
+`ReadCx` gives `ctx`, `user` and `query`. `Board::surface(path, label)` is the
+board as a [surface](../plugins/surfaces.md):
+
+Part | Controls | Acts
+--- | --- | ---
+the board | each name it carries | `show`
+each widget, by its placement id | its `properties`, and what the board carries where it `reads` | `read` where it `reads`
+

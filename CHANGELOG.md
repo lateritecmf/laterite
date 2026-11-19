@@ -16,6 +16,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A list filter compares another `column`, a `related` record's column, and a number `at_least` or `at_most` (`match`).
 - `backend.records.kinds` lists a kind's filters and sorts, `backend.records.find` takes them, and `backend.records.open` answers the list's address with them set. `Outcome::go` takes the person to a page, and the palette follows it.
 - Surfaces: a screen describes its controls, parts and acts through `surface::Surface` and `add_surface`, and `backend.screens.list`, `describe` and `act` read and drive any of them. Every list is one.
+- A board is a surface (`Board::surface`, added with `RouteCtx::add_surface`): its widgets are parts and their settings controls. A widget kind answers its figures to a caller through `Kind::reads` and `Kind::data`.
 - `Actor::through(channel)` marks a write made for a person by something else; the Audit Log shows it under Through (`AuditEntry::channel`, `AuditRecord::channel`).
 - `board`: a dashboard any screen hosts. `Board` lays `Kind`s of widget on a twenty-column grid, each fetched after the page, with an edit mode (move, resize, add, remove, configure) saved per person or for everyone.
 - `Kind::properties_for`, `reload_on` and `check` for settings that depend on one another and are checked before they are kept; `Board::view_permission` guards a board's routes.

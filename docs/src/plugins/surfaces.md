@@ -148,6 +148,24 @@ Ability | Input | Answers
 }
 ```
 
+## Add a surface while mounting
+
+```rust
+impl Screen for Sales {
+    fn mount(&self, ctx: &RouteCtx) -> Router {
+        let board = Arc::new(self.board());
+        ctx.add_surface(board.surface("/acme/sales", t!("Sales")));
+        Router::new().nest_service("/board", board.routes(ctx))
+    }
+}
+```
+
+Call | When
+--- | ---
+`registry.add_surface(surface)` | in `register`, for a surface known then
+`ctx.add_surface(surface)` | in `Screen::mount`, for one built there; the same `path` replaces
+`board.surface(path, label)` | a [board](../admin/boards.md) and its widgets as a surface
+
 ## Lists
 
 Every resource that offers [record abilities](abilities.md) is a surface
