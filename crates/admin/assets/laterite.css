@@ -227,6 +227,13 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-input{width:100%;height:var(--control-h);padding:0 12px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);outline:none;transition:var(--transition-control)}
 .lat-input[type=color]{width:64px;padding:4px 6px;cursor:pointer}
 .lat-input:focus{border-color:var(--accent);box-shadow:var(--ring-focus)}
+.lat-taglist--on{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:var(--control-h);padding:4px 8px;background:var(--surface-input);border:1px solid var(--border-input);border-radius:var(--radius-control);transition:var(--transition-control);cursor:text}
+.lat-taglist--on:focus-within{border-color:var(--accent);box-shadow:var(--ring-focus)}
+.lat-taglist__tags{display:contents}
+.lat-taglist__tag{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 4px 2px 10px;font-size:var(--fs-12);line-height:1.5;color:var(--text-body);background:var(--surface-page);border:1px solid var(--border-subtle);border-radius:999px;overflow-wrap:anywhere}
+.lat-taglist__remove{display:inline-grid;place-items:center;width:18px;height:18px;padding:0;font-size:14px;line-height:1;color:var(--text-muted);background:none;border:0;border-radius:50%;cursor:pointer}
+.lat-taglist__remove:hover,.lat-taglist__remove:focus-visible{color:var(--text-heading);background:var(--border-subtle);outline:none}
+.lat-taglist__entry{flex:1 1 48px;min-width:48px;height:24px;padding:0 2px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:none;border:0;outline:none}
 .lat-input:disabled{background:var(--surface-input-disabled);cursor:not-allowed}
 /* A select is a .lat-input with the browser's own chrome removed and our
    chevron drawn in; the open list stays the platform's. */

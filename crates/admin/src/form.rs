@@ -600,6 +600,11 @@ impl FormField {
         Self::of(name, label, "switch")
     }
 
+    /// A list of short texts typed one at a time, stored as a JSON array.
+    pub fn taglist(name: &str, label: impl Into<Text>) -> Self {
+        Self::of(name, label, "taglist")
+    }
+
     /// A calendar date, stored as `YYYY-MM-DD`.
     pub fn date(name: &str, label: impl Into<Text>) -> Self {
         Self::of(name, label, "date")

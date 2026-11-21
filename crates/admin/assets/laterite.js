@@ -2028,6 +2028,105 @@ window.lat.widget('reveal', function (btn) {
   return { show: function () { show(true); }, hide: function () { show(false); } };
 });
 
+// Tag list: draws each tag held by the field's input as a chip, with an entry
+// to type the next. Enter or a comma adds what is typed, Backspace on an empty
+// entry takes the last tag back to edit, and a pasted list is split. The
+// field's own input keeps the tags between commas, which is what is sent, so
+// a page with no script still has a working text input.
+window.lat.widget('taglist', function (root) {
+  var input = root.querySelector('input');
+  if (!input || root.querySelector('.lat-taglist__entry')) return;
+  var required = input.required;
+  var tags = [];
+  var list = document.createElement('span');
+  list.className = 'lat-taglist__tags';
+  var entry = document.createElement('input');
+  entry.type = 'text';
+  entry.className = 'lat-taglist__entry';
+  entry.autocomplete = 'off';
+  entry.placeholder = input.placeholder;
+  if (input.id) { entry.id = input.id; input.removeAttribute('id'); }
+  input.hidden = true;
+  input.required = false;
+  root.classList.add('lat-taglist--on');
+  root.appendChild(list);
+  root.appendChild(entry);
+
+  function split(text) {
+    return text.split(/[,\n]/).map(function (t) { return t.trim(); }).filter(Boolean);
+  }
+  function draw() {
+    list.textContent = '';
+    tags.forEach(function (tag, i) {
+      var chip = document.createElement('span');
+      chip.className = 'lat-taglist__tag';
+      chip.appendChild(document.createTextNode(tag));
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'lat-taglist__remove';
+      x.setAttribute('aria-label', (root.getAttribute('data-remove') || 'Remove') + ' ' + tag);
+      x.textContent = '\u00d7';
+      x.addEventListener('click', function () { tags.splice(i, 1); sync(true); entry.focus(); });
+      chip.appendChild(x);
+      list.appendChild(chip);
+    });
+    entry.required = required && tags.length === 0;
+    entry.placeholder = tags.length ? '' : input.placeholder;
+  }
+  function sync(changed) {
+    input.value = tags.join(', ');
+    draw();
+    if (changed) {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      window.lat.emit(root, 'taglist:changed', { tags: tags.slice() });
+    }
+  }
+  // While something is typed, Enter belongs to the entry: it adds the tag.
+  // With the entry empty, Enter does what it does in any other field.
+  function claim() {
+    if (entry.value.trim()) root.setAttribute('data-lat-enter-scope', 'taglist');
+    else root.removeAttribute('data-lat-enter-scope');
+  }
+  function add(text) {
+    var before = tags.length;
+    split(text).forEach(function (tag) { if (tags.indexOf(tag) === -1) tags.push(tag); });
+    entry.value = '';
+    claim();
+    sync(tags.length !== before);
+  }
+  entry.addEventListener('input', claim);
+
+  entry.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ',') && entry.value.trim()) {
+      e.preventDefault();
+      add(entry.value);
+    } else if (e.key === ',') {
+      e.preventDefault();
+    } else if (e.key === 'Backspace' && !entry.value && tags.length) {
+      e.preventDefault();
+      entry.value = tags.pop();
+      claim();
+      sync(true);
+    }
+  });
+  entry.addEventListener('paste', function (e) {
+    var text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!/[,\n]/.test(text)) return;
+    e.preventDefault();
+    add(entry.value + text);
+  });
+  entry.addEventListener('blur', function () { if (entry.value.trim()) add(entry.value); });
+  root.addEventListener('click', function (e) { if (e.target === root || e.target === list) entry.focus(); });
+
+  tags = split(input.value);
+  sync(false);
+  return {
+    tags: function () { return tags.slice(); },
+    set: function (next) { tags = []; add((next || []).join(',')); }
+  };
+});
+
 // Preset: a field follows another as it is typed, shaped on the way (a slug
 // from a title), until the operator edits it. Clearing it hands it back to
 // the source. The wrapper carries `data-lat-preset="<field>"` and

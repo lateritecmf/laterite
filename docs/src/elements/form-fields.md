@@ -140,6 +140,39 @@ Key | Values | Default
 
 A value listed twice stops the boot, naming it.
 
+## taglist
+
+Short texts typed one at a time. The column holds them as a JSON array of
+text.
+
+```yaml
+fields:
+  aliases:
+    type: taglist
+    placeholder: "Another name"
+    rules: [required]        # at least one tag
+```
+
+Key | Values | Default
+--- | --- | ---
+`placeholder` | text | None
+
+Enter or a comma adds what is typed; a pasted list splits on commas and
+lines. A tag typed twice is kept once. In a `repeater` row:
+
+```yaml
+fields:
+  outlets:
+    type: repeater
+    fields:
+      name:    {}
+      domains: { type: taglist }
+```
+
+```js
+lat.on('taglist:changed', function (detail) { console.log(detail.tags); });
+```
+
 ## switch
 
 ```yaml

@@ -40,7 +40,7 @@ Method | Role
 `submitted` | For a type of several controls: what it submitted, gathered into one value. The rules read it, and a refused save is rebuilt from it.
 `resolve_options` | Those keys, typed once.
 
-Built in: `text`, `textarea`, `select`, `radio`, `checklist`, `switch`, `date`,
+Built in: `text`, `textarea`, `select`, `radio`, `checklist`, `taglist`, `switch`, `date`,
 `password`, `reference`, `repeater`.
 
 ## Register it

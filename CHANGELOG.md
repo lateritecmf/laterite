@@ -9,6 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A `taglist` field type (`FormField::taglist`): short texts typed one at a time and stored as a JSON array, on a form, a settings page or in a repeater row.
 - Abilities: a module declares an act by name with `add_ability` (a typed input, a permission, an effect), and `RouteCtx::abilities` lists, previews and runs them as the signed-in person.
 - Every module resource is reachable through abilities (`backend.records.kinds`, `find`, `read`, `create`, `update`, `delete`); `abilities:` on a resource describes it, hides fields or turns parts off. A delete stays off for a channel until the policy allows it.
 - Palette modes: `add_palette_mode` adds a tab to the command palette that posts what is typed to a module's route. The built-in Do mode (`>`) runs an ability by name through its input, preview and result.

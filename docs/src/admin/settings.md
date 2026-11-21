@@ -143,7 +143,7 @@ Items naming the same heading share it, whatever their band. Labels are in
 title case.
 
 Fields are ordinary [`FormField`](https://docs.rs/laterite-admin)s: `text`,
-`textarea`, `switch`, `select`, `date`, `repeater`, and any registered type
+`textarea`, `switch`, `select`, `date`, `taglist`, `repeater`, and any registered type
 through `FormField::of(name, label, "vendor.type")`. A type that refuses its
 input refuses the save.
 

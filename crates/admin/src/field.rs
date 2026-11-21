@@ -1663,6 +1663,7 @@ pub(crate) fn builtin_field_types() -> Vec<Arc<dyn FieldType>> {
         Arc::new(RepeaterField),
         Arc::new(SelectField),
         Arc::new(ChecklistField),
+        Arc::new(TagListField),
         Arc::new(SwitchField),
         Arc::new(SectionField),
         Arc::new(DateField),
@@ -2285,6 +2286,137 @@ impl FieldType for TextareaField {
             placeholder: data.placeholder.as_deref(),
             grow: data.grow,
             attrs: &data.attrs,
+        })
+        .unwrap_or_default()
+    }
+}
+
+/// The tags held by a stored or submitted tag list: a JSON array of strings, or
+/// text with a tag between commas or on a line of its own. Blank tags and
+/// repeats are dropped, and the order typed is kept.
+fn tag_values(text: &str) -> Vec<String> {
+    let raw = serde_json::from_str::<Vec<String>>(text)
+        .unwrap_or_else(|_| text.split([',', '\n']).map(str::to_string).collect());
+    let mut seen = std::collections::HashSet::new();
+    raw.iter()
+        .map(|tag| tag.trim())
+        .filter(|tag| !tag.is_empty() && seen.insert(tag.to_string()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// A tag list's own key: what the empty control shows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TagListOptions {
+    #[serde(default)]
+    placeholder: Option<String>,
+}
+
+/// The tag list's view-model payload: the tags, for an override that draws
+/// them itself, and the label of the button that removes one.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct TagListData {
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default)]
+    remove: String,
+}
+
+#[derive(Template)]
+#[template(path = "fields/taglist.html")]
+struct TagListTmpl<'a> {
+    name: &'a str,
+    id: &'a str,
+    value: &'a str,
+    required: bool,
+    placeholder: Option<&'a str>,
+    remove: &'a str,
+}
+
+/// A list of short texts typed one at a time, stored as a JSON array of
+/// strings.
+///
+/// The control is one text input holding the tags between commas, which is
+/// what a page with no script submits; the script draws each tag as a chip
+/// over it. A stored list comes back joined the same way.
+pub(crate) struct TagListField;
+
+impl FieldType for TagListField {
+    fn view_key(&self) -> &'static str {
+        "taglist"
+    }
+    fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
+        keys(&["placeholder"])
+    }
+    fn resolve_options(
+        &self,
+        raw: &serde_json::Value,
+        _types: &FieldRegistry,
+    ) -> Result<ResolvedOptions, OptionsError> {
+        let opts: TagListOptions = if raw.is_null() {
+            TagListOptions::default()
+        } else {
+            serde_json::from_value(raw.clone()).map_err(|e| OptionsError(e.to_string()))?
+        };
+        Ok(ResolvedOptions::new(opts))
+    }
+
+    fn to_attr(
+        &self,
+        field: &SubmittedField<'_>,
+        _opts: &ResolvedOptions,
+        _mode: Mode,
+    ) -> Result<Option<AttrValue>, String> {
+        Ok(field.value().map(|text| {
+            AttrValue::Json(serde_json::Value::Array(
+                tag_values(text)
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ))
+        }))
+    }
+
+    fn to_control(&self, stored: Option<&str>, _opts: &ResolvedOptions) -> String {
+        tag_values(stored.unwrap_or_default()).join(", ")
+    }
+
+    fn view_model(&self, cx: &FieldCx<'_>) -> FieldVm {
+        // A settings screen hands the list over typed; a form hands over the
+        // control's text, or what a refused save submitted.
+        let tags = match cx.value {
+            FieldValue::Json(serde_json::Value::Array(items)) => items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect(),
+            FieldValue::Text(text) => tag_values(text),
+            _ => Vec::new(),
+        };
+        let mut vm = scalar_vm("taglist", cx);
+        vm.value = FieldValue::Text(tags.join(", "));
+        vm.data = serde_json::to_value(TagListData {
+            tags,
+            placeholder: cx
+                .opts
+                .get::<TagListOptions>()
+                .and_then(|o| o.placeholder.clone()),
+            remove: cx.i18n.t(&laterite_core::t!("Remove")),
+        })
+        .unwrap_or_default();
+        vm
+    }
+
+    fn render_default(&self, vm: &FieldVm) -> Markup {
+        let data: TagListData = serde_json::from_value(vm.data.clone()).unwrap_or_default();
+        Markup::from_template(&TagListTmpl {
+            name: &vm.name,
+            id: &vm.id,
+            value: vm.value.as_text(),
+            required: vm.required,
+            placeholder: data.placeholder.as_deref(),
+            remove: &data.remove,
         })
         .unwrap_or_default()
     }
@@ -4617,6 +4749,41 @@ mod save_contract_tests {
                 .unwrap(),
             Some(AttrValue::Text(String::new()))
         );
+    }
+
+    #[test]
+    fn a_tag_list_stores_an_array_and_shows_it_between_commas() {
+        let f = TagListField;
+        let typed = one(Some(" acme, acme.in\nacme ,, Acme_City "));
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &typed), &none(), Mode::Create)
+                .unwrap(),
+            Some(AttrValue::Json(serde_json::json!([
+                "acme",
+                "acme.in",
+                "Acme_City"
+            ])))
+        );
+        // Emptied, it stores an empty list; left out, the column is left alone.
+        assert_eq!(
+            f.to_attr(
+                &SubmittedField::new("f", &one(Some(""))),
+                &none(),
+                Mode::Update
+            )
+            .unwrap(),
+            Some(AttrValue::Json(serde_json::json!([])))
+        );
+        assert_eq!(
+            f.to_attr(&SubmittedField::new("f", &one(None)), &none(), Mode::Update)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            f.to_control(Some(r#"["acme","acme.in"]"#), &none()),
+            "acme, acme.in"
+        );
+        assert_eq!(f.to_control(None, &none()), "");
     }
 
     #[test]
