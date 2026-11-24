@@ -54,6 +54,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 - A colour field left unset saves empty, where it saved `#000000`; the sign-in panel switch opens on until it is saved off.
 - A save the database refuses (a duplicate in a unique column with no `unique` rule) re-renders the form alone with its message: the whole page was drawn inside the form.
 
+### Changed
+
+- The Settings page with nothing chosen shows the brick alone and faint, in place of the full mark on its dark tile.
+
 ## [0.11.0] - 2026-11-11
 
 ### Breaking
