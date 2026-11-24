@@ -56,6 +56,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- The settings sidebar keeps one width, `--sidebar-w` (240px), open or closed: a longer title ends in an ellipsis and a description after two lines. `--sidebar-min` is gone.
 - The Settings page with nothing chosen shows the brick alone and faint, in place of the full mark on its dark tile.
 
 ## [0.11.0] - 2026-11-11

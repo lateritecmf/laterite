@@ -72,7 +72,6 @@ the sign-in page and the setup page. A skin's rules key on it.
 :root[data-lat-skin="acme.dense"] {
   --topnav-h: 54px;
   --sidebar-w: 230px;
-  --sidebar-min: 180px;
   --side-panel-w: 300px;
   --page-gutter: 20px;
   --card-pad: 14px;
@@ -87,8 +86,7 @@ the sign-in page and the setup page. A skin's rules key on it.
 Token | Sets
 --- | ---
 `--topnav-h` | Top bar height
-`--sidebar-w` | The sidebar's widest; a longer title ends in an ellipsis
-`--sidebar-min` | The sidebar's narrowest
+`--sidebar-w` | The sidebar's width, the same open or closed; a longer title ends in an ellipsis, a description after two lines
 `--side-panel-w` | Context side panel width
 `--page-gutter` | Page padding
 `--card-pad` | Card padding
