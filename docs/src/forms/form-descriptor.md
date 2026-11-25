@@ -89,6 +89,8 @@ Key | Default | Description
 `transient` | `false` | Shown and submitted with no column behind it: not loaded, not written by the built-in writer; the form's `persist` handler reads it (a password field).
 `translatable` | `false` | Marks the value as translatable content, for a translation plugin to manage.
 `context` | every page | The pages the field is on: `create`, `update`, `preview`, one or a list. See below.
+`default` | none | What a new record's form opens with: text, a number, `true` or `false`, or a list for a field holding several.
+`default_from` | none | Another field whose `default` this one opens with.
 
 A key the type does not read is refused, naming the entry and the keys it
 accepts.

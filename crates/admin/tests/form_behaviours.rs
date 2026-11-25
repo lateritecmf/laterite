@@ -318,6 +318,9 @@ async fn a_form_with_tabs_draws_a_pane_a_tab_and_saves_every_field() {
     assert!(html[details..access].contains(r#"name="name""#));
     assert!(html[access..].contains(r#"name="permissions""#));
     assert!(html.contains("acme-details"), "the pane's class");
+    // A new record opens with its defaults, one field taking another's.
+    assert!(control(&html, "code").contains(r#"value="acme.new""#));
+    assert!(control(&html, "name").contains(r#"value="acme.new""#));
     // `active_tab: 2` opens the second tab.
     let tab = control_by_id(&html, "acme-access");
     assert!(

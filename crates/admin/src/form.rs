@@ -85,6 +85,12 @@ pub struct FormField {
     /// page is not shown, checked or saved there. In a file, `context:` or
     /// the key's suffix: `notes@update`.
     pub context: Vec<FormContext>,
+    /// The value a new record's form opens with: text, a number, a yes or
+    /// no, or a list for a field that holds several.
+    pub default: Option<serde_json::Value>,
+    /// Another field whose starting value this one opens with, when it has
+    /// no `default` of its own.
+    pub default_from: Option<String>,
     /// The tab the field is on, by its label. A field under `tabs` or
     /// `secondary_tabs` that names none takes the set's `default_tab`.
     pub tab: Option<Text>,
@@ -473,6 +479,8 @@ impl<'de> Deserialize<'de> for FormField {
                         "hidden" => field.hidden = map.next_value()?,
                         "transient" => field.transient = map.next_value()?,
                         "related" => field.related = Some(map.next_value()?),
+                        "default" => field.default = Some(map.next_value()?),
+                        "default_from" => field.default_from = Some(map.next_value()?),
                         "tab" => field.tab = Some(map.next_value()?),
                         "area" => field.area = map.next_value()?,
                         "context" => {
@@ -525,6 +533,12 @@ impl Serialize for FormField {
         }
         if !self.context.is_empty() {
             map.serialize_entry("context", &self.context)?;
+        }
+        if let Some(default) = &self.default {
+            map.serialize_entry("default", default)?;
+        }
+        if let Some(from) = &self.default_from {
+            map.serialize_entry("default_from", from)?;
         }
         if let Some(tab) = &self.tab {
             map.serialize_entry("tab", tab)?;
@@ -703,6 +717,18 @@ impl FormField {
         self
     }
 
+    /// Opens a new record's form with `value` in the field.
+    pub fn default_value(mut self, value: impl Into<serde_json::Value>) -> Self {
+        self.default = Some(value.into());
+        self
+    }
+
+    /// Opens a new record's form with the starting value of the field `other`.
+    pub fn default_from(mut self, other: impl Into<String>) -> Self {
+        self.default_from = Some(other.into());
+        self
+    }
+
     /// Puts the field on the form's tab labelled `tab`.
     pub fn tab(mut self, tab: impl Into<Text>) -> Self {
         self.tab = Some(tab.into());
@@ -734,6 +760,8 @@ impl FormField {
             transient: false,
             related: None,
             context: Vec::new(),
+            default: None,
+            default_from: None,
             tab: None,
             area: FormArea::Outside,
             format: None,
@@ -1418,6 +1446,44 @@ pub(crate) struct PreparedForm {
     pub(crate) update_permission: Option<String>,
     /// The registered validation rules a field may name.
     rules: Arc<laterite_core::validation::RuleRegistry>,
+}
+
+impl PreparedForm {
+    /// What a new record's form opens with: each field's `default`, as its
+    /// control shows it, then each `default_from` from the field it names.
+    /// Text is translated, since a default may be a phrase.
+    pub(crate) fn defaults(&self, shell: &crate::Shell) -> HashMap<String, String> {
+        let mut values = HashMap::new();
+        for (field, prepared) in self.config.fields.iter().zip(&self.fields) {
+            let Some(default) = &field.default else {
+                continue;
+            };
+            let text = match default {
+                serde_json::Value::Null => continue,
+                serde_json::Value::String(text) => shell.t(text),
+                other => other.to_string(),
+            };
+            values.insert(
+                field.name.clone(),
+                prepared
+                    .field_type
+                    .to_control_for(&field.name, Some(&text), &prepared.opts),
+            );
+        }
+        for field in &self.config.fields {
+            if field.default.is_some() {
+                continue;
+            }
+            if let Some(value) = field
+                .default_from
+                .as_ref()
+                .and_then(|from| values.get(from))
+            {
+                values.insert(field.name.clone(), value.clone());
+            }
+        }
+        values
+    }
 }
 
 /// One field's boot-resolved state: its typed options and its merged rules (the
@@ -2176,7 +2242,7 @@ pub(crate) fn new_form(
         form,
         &format!("{}/new", form.config.base_path),
         None,
-        &HashMap::new(),
+        &form.defaults(&shell),
         &ErrorBag::default(),
         &shell,
     );

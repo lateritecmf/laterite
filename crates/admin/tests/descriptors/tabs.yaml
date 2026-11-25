@@ -14,7 +14,7 @@ form:
     identifiers: { Access: acme-access }
     pane_css_class: { Details: acme-details }
     fields:
-      name: { rules: [required] }
+      name: { rules: [required], default_from: code }
       permissions: { tab: Access, type: textarea }
   fields:
-    code: { rules: [required] }
+    code: { rules: [required], default: acme.new }
