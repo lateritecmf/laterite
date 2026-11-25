@@ -1,0 +1,20 @@
+entity: backend_roles
+path: /tabbed
+title: Roles
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Role
+  tabs:
+    default_tab: Details
+    active_tab: "2"
+    icons: { Access: lock }
+    identifiers: { Access: acme-access }
+    pane_css_class: { Details: acme-details }
+    fields:
+      name: { rules: [required] }
+      permissions: { tab: Access, type: textarea }
+  fields:
+    code: { rules: [required] }

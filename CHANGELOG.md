@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- Form tabs: `tabs` and `secondary_tabs` on a form with `default_tab`, `active_tab`, `icons`, `linkable`, `stretch`, `css_class`, `pane_css_class` and `identifiers`, and `tab` on a field (`FormTabs`, `FormField::tab`, `FormArea`).
+
 ## [0.12.0] - 2026-11-26
 
 ### Breaking

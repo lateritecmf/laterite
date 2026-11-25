@@ -21,10 +21,11 @@ const SESSION_COOKIE: &str = "laterite_session";
 
 /// Bytes served for each asset the admin shell loads on every screen, as
 /// `(key, measured, budget)`. Measured 2026-11-19; raise a budget in the same
-/// commit that knowingly grows the asset.
+/// commit that knowingly grows the asset. The stylesheet and script were
+/// re-recorded 2026-11-26 for the tag list, record preview and form tabs.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 92_978, 96_000),
-    ("laterite.js", 117_480, 124_000),
+    ("laterite.css", 96_907, 102_000),
+    ("laterite.js", 124_566, 130_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];

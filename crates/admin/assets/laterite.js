@@ -2028,6 +2028,65 @@ window.lat.widget('reveal', function (btn) {
   return { show: function () { show(true); }, hide: function () { show(false); } };
 });
 
+// Form tabs: one pane of a form's tab set shows at a time. A tab opens on a
+// click, on the arrow keys from the strip, and by the address's fragment when
+// the set carries `data-linkable`, which then keeps the fragment in step. A
+// pane holding a field the browser refuses on submit opens to show it. With
+// no script every pane shows, each under its tab's name.
+window.lat.widget('formtabs', function (root) {
+  var tabs = Array.prototype.slice.call(root.querySelectorAll(':scope > [role=tablist] > [role=tab]'));
+  var panes = tabs.map(function (tab) { return document.getElementById(tab.getAttribute('aria-controls')); });
+  if (!tabs.length) return;
+  var linkable = root.hasAttribute('data-linkable');
+  function open(index, quiet) {
+    tabs.forEach(function (tab, i) {
+      var on = i === index;
+      tab.classList.toggle('is-active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (on) tab.removeAttribute('tabindex'); else tab.setAttribute('tabindex', '-1');
+      if (panes[i]) { panes[i].hidden = !on; panes[i].classList.toggle('is-active', on); }
+    });
+    if (!quiet) {
+      if (linkable && window.history && history.replaceState) history.replaceState(history.state, '', '#' + tabs[index].id);
+      window.lat.emit(root, 'formtabs:opened', { tab: tabs[index].id, index: index });
+    }
+  }
+  function named(hash) {
+    var id = (hash || '').replace(/^#/, '');
+    for (var i = 0; i < tabs.length; i++) if (tabs[i].id === id) return i;
+    return -1;
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { open(i); });
+    tab.addEventListener('keydown', function (e) {
+      var to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+      if (to < 0 && e.key !== 'ArrowLeft') return;
+      e.preventDefault();
+      to = (to + tabs.length) % tabs.length;
+      open(to);
+      tabs[to].focus();
+    });
+  });
+  // A refused field in a pane that is not showing cannot take the focus the
+  // browser wants to give it, so its pane opens first.
+  root.addEventListener('invalid', function (e) {
+    for (var i = 0; i < panes.length; i++) {
+      if (panes[i] && panes[i].hidden && panes[i].contains(e.target)) { open(i, true); break; }
+    }
+  }, true);
+  root.classList.add('is-on');
+  var first = tabs.findIndex(function (tab) { return tab.classList.contains('is-active'); });
+  var fromHash = linkable ? named(location.hash) : -1;
+  // A refused save says which tab to show; otherwise the address may.
+  var refused = !!root.querySelector('.lat-field__error');
+  open(!refused && fromHash >= 0 ? fromHash : Math.max(first, 0), true);
+  if (linkable) window.addEventListener('hashchange', function () {
+    var i = named(location.hash);
+    if (i >= 0) open(i, true);
+  });
+  return { open: function (id) { var i = typeof id === 'number' ? id : named(id); if (i >= 0) open(i); } };
+});
+
 // Tag list: draws each tag held by the field's input as a chip, with an entry
 // to type the next. Enter or a comma adds what is typed, Backspace on an empty
 // entry takes the last tag back to edit, and a pasted list is split. The

@@ -6823,6 +6823,8 @@ mod tests {
 
     fn write_form() -> form::FormConfig {
         form::FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             linked_record: None,
             enter: Default::default(),
             confirm_leave: true,

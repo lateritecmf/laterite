@@ -40,6 +40,7 @@ fn app(db: &Db) -> Router {
             resources: vec![
                 resource!("tests/descriptors/behaviours.yaml"),
                 resource!("tests/descriptors/behaviours_default.yaml"),
+                resource!("tests/descriptors/tabs.yaml"),
             ],
             permissions: vec![Permission::new(
                 "acme.manage_posts",
@@ -294,4 +295,76 @@ async fn a_save_the_database_refuses_answers_htmx_with_the_form_alone() {
         !body.contains("<html") && !body.contains("lat-nav"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn a_form_with_tabs_draws_a_pane_a_tab_and_saves_every_field() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let html = get(&db, &token, "/admin/tabbed/new").await;
+
+    // The form's own field sits above the set; each tab has its pane.
+    let set = html
+        .find(r#"data-lat-widget="formtabs""#)
+        .expect("a tab set");
+    assert!(html.find(r#"name="code""#).unwrap() < set);
+    let details = html
+        .find(r#"id="tab-details-pane""#)
+        .expect("the default tab");
+    let access = html
+        .find(r#"id="acme-access-pane""#)
+        .expect("an identifier");
+    assert!(details < access);
+    assert!(html[details..access].contains(r#"name="name""#));
+    assert!(html[access..].contains(r#"name="permissions""#));
+    assert!(html.contains("acme-details"), "the pane's class");
+    // `active_tab: 2` opens the second tab.
+    let tab = control_by_id(&html, "acme-access");
+    assert!(
+        tab.contains("is-active") && tab.contains(r#"aria-selected="true""#),
+        "{tab}"
+    );
+    assert!(html.contains("data-linkable"));
+
+    // A field on a tab is written like any other, and a refused one opens its tab.
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/tabbed/new")
+                .header("cookie", format!("laterite_session={token}"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("origin", "http://localhost")
+                .header("host", "localhost")
+                .body(Body::from(format!(
+                    "_csrf={}&code=acme.clerk&name=&permissions=%5B%5D",
+                    csrf_of(&html)
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let refused = text(resp).await;
+    let tab = control_by_id(&refused, "tab-details");
+    assert!(
+        tab.contains("is-active"),
+        "the tab holding the refused field: {tab}"
+    );
+}
+
+/// The opening tag of the element with `id`.
+fn control_by_id<'a>(html: &'a str, id: &str) -> &'a str {
+    let at = html
+        .find(&format!(r#" id="{id}""#))
+        .unwrap_or_else(|| panic!("no element with id {id}"));
+    let open = html[..at].rfind('<').unwrap();
+    let close = at + html[at..].find('>').unwrap();
+    &html[open..=close]
+}
+
+/// The CSRF token a page's form carries.
+fn csrf_of(html: &str) -> String {
+    let at = html.find(r#"name="_csrf" value=""#).expect("a csrf field") + 20;
+    html[at..at + html[at..].find('"').unwrap()].to_string()
 }

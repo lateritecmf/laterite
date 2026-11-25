@@ -93,6 +93,54 @@ Key | Default | Description
 A key the type does not read is refused, naming the entry and the keys it
 accepts.
 
+## Put fields on tabs
+
+```yaml
+form:
+  fields:
+    title: {}
+  tabs:
+    default_tab: Details
+    active_tab: Pricing
+    icons: { Details: file-text, Pricing: tag }
+    fields:
+      body:  { type: textarea }
+      price: { tab: Pricing, input: number }
+      stock: { tab: Pricing, input: number }
+  secondary_tabs:
+    fields:
+      notes: { tab: Notes, type: textarea }
+```
+
+Part | Holds
+--- | ---
+`fields` | The fields above the tabs. One naming a `tab` joins the tabs.
+`tabs.fields` | The fields on the tabs, each on the `tab` it names.
+`secondary_tabs.fields` | A second set of tabs, under the first.
+
+Key of `tabs` and `secondary_tabs` | Default | Description
+--- | --- | ---
+`default_tab` | `Misc` | The tab for a field in the set that names none.
+`active_tab` | the first | The tab open on load: its label, or its place from 1.
+`icons` | none | An icon for a tab, by the tab's label.
+`linkable` | `true` | A tab opens by the address's fragment, and writes it.
+`stretch` | `false` | The panes fill the height left on the page.
+`css_class` | none | A class on the set.
+`pane_css_class` | none | A class on every pane, or a map of tab label to class.
+`identifiers` | from the label | An HTML id for a tab, by its label.
+
+Tabs show in the order their fields first name them. A refused save opens
+the first tab holding a refused field.
+
+```js
+lat.get(document.querySelector('[data-lat-widget="formtabs"]')).open('tab-pricing');
+lat.on('formtabs:opened', function (detail) { console.log(detail.tab); });
+```
+
+```rust
+FormField::text("price", t!("Price")).tab(t!("Pricing"));
+```
+
 ## Keep a field to some pages
 
 ```yaml

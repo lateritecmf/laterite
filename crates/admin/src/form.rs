@@ -85,6 +85,12 @@ pub struct FormField {
     /// page is not shown, checked or saved there. In a file, `context:` or
     /// the key's suffix: `notes@update`.
     pub context: Vec<FormContext>,
+    /// The tab the field is on, by its label. A field under `tabs` or
+    /// `secondary_tabs` that names none takes the set's `default_tab`.
+    pub tab: Option<Text>,
+    /// Which part of the form the field is in. A field naming a `tab` among
+    /// the form's own fields is on the primary tabs.
+    pub area: FormArea,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
     /// What a value looks like: the shapes accepted, the one stored, and how a
@@ -410,6 +416,8 @@ impl Default for FormConfig {
             base_path: String::new(),
             id_field: "id".to_string(),
             fields: Vec::new(),
+            tabs: None,
+            secondary_tabs: None,
             enter: EnterPolicy::default(),
             confirm_leave: true,
             focus: FormFocus::default(),
@@ -465,6 +473,8 @@ impl<'de> Deserialize<'de> for FormField {
                         "hidden" => field.hidden = map.next_value()?,
                         "transient" => field.transient = map.next_value()?,
                         "related" => field.related = Some(map.next_value()?),
+                        "tab" => field.tab = Some(map.next_value()?),
+                        "area" => field.area = map.next_value()?,
                         "context" => {
                             field.context = map.next_value::<OneOrMany<FormContext>>()?.into()
                         }
@@ -516,6 +526,12 @@ impl Serialize for FormField {
         if !self.context.is_empty() {
             map.serialize_entry("context", &self.context)?;
         }
+        if let Some(tab) = &self.tab {
+            map.serialize_entry("tab", tab)?;
+        }
+        if self.area == FormArea::Secondary {
+            map.serialize_entry("area", &self.area)?;
+        }
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
@@ -543,6 +559,99 @@ impl crate::keyed::Keyed for FormField {
                 }
             }
             None => self.name = key,
+        }
+    }
+}
+
+/// The part of a form a field is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormArea {
+    /// Above the tabs, or the whole form when it has none.
+    #[default]
+    Outside,
+    /// On the form's tabs.
+    Primary,
+    /// On the second set of tabs, under the first.
+    Secondary,
+}
+
+/// A set of tabs on a form: its own keys, and the fields on it.
+///
+/// ```yaml
+/// tabs:
+///   default_tab: Details
+///   active_tab: Pricing
+///   icons: { Details: file-text, Pricing: tag }
+///   fields:
+///     body:  { type: textarea }
+///     price: { tab: Pricing, input: number }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct FormTabs {
+    /// The tab for a field here that names none. Default `Misc`.
+    pub default_tab: Option<Text>,
+    /// The tab open when the form loads: its label, or its place counted
+    /// from 1. Default: the first.
+    pub active_tab: Option<String>,
+    /// An icon from the icon set for a tab, by the tab's label.
+    pub icons: std::collections::BTreeMap<String, String>,
+    /// Whether a tab can be opened by the address's fragment, and writes it.
+    /// Default `true`.
+    pub linkable: bool,
+    /// The tabs fill the height left on the page.
+    pub stretch: bool,
+    /// A class on the set's container.
+    pub css_class: Option<String>,
+    /// A class on a tab's pane, by the tab's label, or one for every pane.
+    pub pane_css_class: PaneClass,
+    /// An HTML id for a tab, by the tab's label, for a script to find it.
+    pub identifiers: std::collections::BTreeMap<String, String>,
+    /// The fields on the tabs, written as the form's own are.
+    #[serde(
+        deserialize_with = "crate::keyed::deserialize",
+        serialize_with = "crate::keyed::serialize"
+    )]
+    pub fields: Vec<FormField>,
+}
+
+impl Default for FormTabs {
+    fn default() -> Self {
+        Self {
+            default_tab: None,
+            active_tab: None,
+            icons: Default::default(),
+            linkable: true,
+            stretch: false,
+            css_class: None,
+            pane_css_class: PaneClass::default(),
+            identifiers: Default::default(),
+            fields: Vec::new(),
+        }
+    }
+}
+
+/// A class for every pane of a tab set, or one a tab by its label.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PaneClass {
+    /// No class.
+    #[default]
+    None,
+    /// The same class on every pane.
+    All(String),
+    /// A class for each tab named.
+    Each(std::collections::BTreeMap<String, String>),
+}
+
+impl PaneClass {
+    fn of(&self, tab: &str) -> &str {
+        match self {
+            PaneClass::None => "",
+            PaneClass::All(class) => class,
+            PaneClass::Each(map) => map.get(tab).map(String::as_str).unwrap_or(""),
         }
     }
 }
@@ -594,6 +703,13 @@ impl FormField {
         self
     }
 
+    /// Puts the field on the form's tab labelled `tab`.
+    pub fn tab(mut self, tab: impl Into<Text>) -> Self {
+        self.tab = Some(tab.into());
+        self.area = FormArea::Primary;
+        self
+    }
+
     /// Whether the field is on `page`.
     pub fn on(&self, page: FormContext) -> bool {
         self.context.is_empty() || self.context.contains(&page)
@@ -618,6 +734,8 @@ impl FormField {
             transient: false,
             related: None,
             context: Vec::new(),
+            tab: None,
+            area: FormArea::Outside,
             format: None,
         }
     }
@@ -882,6 +1000,10 @@ pub struct FormConfig {
     )]
     /// The fields the form shows, in order.
     pub fields: Vec<FormField>,
+    /// The form's tabs and the fields on them; see [`FormTabs`].
+    pub tabs: Option<FormTabs>,
+    /// A second set of tabs, under the first.
+    pub secondary_tabs: Option<FormTabs>,
     /// What Enter does in the form's single-line fields. Default `submit`.
     #[serde(default)]
     pub enter: EnterPolicy,
@@ -948,6 +1070,8 @@ impl FormConfig {
             base_path: base_path.into(),
             id_field: id_field.into(),
             fields,
+            tabs: None,
+            secondary_tabs: None,
             persist: None,
             timestamps: false,
             footprints: false,
@@ -1387,6 +1511,8 @@ impl PreparedForm {
         persisters: &PersisterRegistry,
         listeners: &[ModelListenerReg],
     ) -> Result<Self, String> {
+        let mut config = config;
+        config.absorb_tabs();
         if !config.idents_valid() {
             return Err(format!(
                 "form for `{}` names an invalid column (a field, slug, encrypted column or related record), or a field names a related record the form does not declare (each declares one of foreign_key and belongs_to)",
@@ -2164,9 +2290,38 @@ pub(crate) async fn edit_form(
 }
 
 impl FormConfig {
+    /// Moves the fields under `tabs` and `secondary_tabs` in among the form's
+    /// own, each marked with its part of the form and its tab, so everything
+    /// that reads or writes the form sees one list. A field among the form's
+    /// own that names a `tab` joins the primary tabs. Safe to call twice.
+    pub fn absorb_tabs(&mut self) {
+        for field in &mut self.fields {
+            if field.tab.is_some() && field.area == FormArea::Outside {
+                field.area = FormArea::Primary;
+            }
+        }
+        for (set, area) in [
+            (&mut self.tabs, FormArea::Primary),
+            (&mut self.secondary_tabs, FormArea::Secondary),
+        ] {
+            let Some(set) = set else { continue };
+            let default = set.default_tab.clone().unwrap_or_else(|| Text::new("Misc"));
+            for mut field in std::mem::take(&mut set.fields) {
+                field.area = area;
+                field.tab.get_or_insert_with(|| default.clone());
+                self.fields.push(field);
+            }
+        }
+        // A field on the primary tabs with no set declared still needs one.
+        if self.tabs.is_none() && self.fields.iter().any(|f| f.area == FormArea::Primary) {
+            self.tabs = Some(FormTabs::default());
+        }
+    }
+
     /// The form as `page` shows it: the fields on that page, each column once.
     pub fn for_context(&self, page: FormContext) -> FormConfig {
         let mut form = self.clone();
+        form.absorb_tabs();
         let mut seen = std::collections::HashSet::new();
         form.fields
             .retain(|f| f.on(page) && seen.insert(f.name.clone()));
@@ -2177,6 +2332,7 @@ impl FormConfig {
     /// caller with no page of its own (an import, an ability) writes through.
     pub fn every_context(&self) -> FormConfig {
         let mut form = self.clone();
+        form.absorb_tabs();
         let mut seen = std::collections::HashSet::new();
         form.fields.retain(|f| seen.insert(f.name.clone()));
         form
@@ -2853,11 +3009,13 @@ fn build(
                 layout: layout_classes(f.span, f.break_row),
                 attrs: behaviour_attrs(f),
                 hidden: f.hidden,
+                chrome: None,
                 // Localize each per-field message through the request translator.
                 errors: bag.messages(&f.name).iter().map(|m| shell.tt(m)).collect(),
             }
         })
         .collect();
+    let fields = arrange_tabs(&form.config, fields, shell);
     // Collect the widget assets the rendered field types declare, deduped and
     // resolved to URLs for the head. Most declare none (their widgets ship in
     // core laterite.js).
@@ -2942,6 +3100,157 @@ struct FieldView {
     attrs: String,
     /// A hidden input with no chrome around it.
     hidden: bool,
+    /// Markup written as it is in place of a field: a tab set's frame.
+    chrome: Option<String>,
+}
+
+impl FieldView {
+    fn chrome(html: String) -> Self {
+        Self {
+            id: String::new(),
+            label: String::new(),
+            control: String::new(),
+            help: None,
+            section: false,
+            required: false,
+            errors: Vec::new(),
+            enter: "",
+            layout: String::new(),
+            attrs: String::new(),
+            hidden: false,
+            chrome: Some(html),
+        }
+    }
+}
+
+/// A label as a DOM id's part: its letters and digits, lowercase, the rest `-`.
+fn dom_slug(label: &str) -> String {
+    let slug: String = label
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "tab".to_string()
+    } else {
+        slug
+    }
+}
+
+/// The fields in the order the page draws them: the form's own, then each tab
+/// set as a strip of tabs over a pane a tab. The set opens on `active_tab`,
+/// or on the first tab holding a refused field.
+fn arrange_tabs(form: &FormConfig, views: Vec<FieldView>, shell: &crate::Shell) -> Vec<FieldView> {
+    if form.fields.iter().all(|f| f.area == FormArea::Outside) {
+        return views;
+    }
+    let mut outside = Vec::new();
+    // Per set: its tabs in order of first appearance, each with its fields.
+    let mut sets: [Vec<(Text, Vec<FieldView>)>; 2] = [Vec::new(), Vec::new()];
+    for (field, view) in form.fields.iter().zip(views) {
+        let set = match field.area {
+            FormArea::Outside => {
+                outside.push(view);
+                continue;
+            }
+            FormArea::Primary => &mut sets[0],
+            FormArea::Secondary => &mut sets[1],
+        };
+        let tab = field.tab.clone().unwrap_or_else(|| Text::new("Misc"));
+        match set.iter_mut().find(|(t, _)| t.source() == tab.source()) {
+            Some((_, fields)) => fields.push(view),
+            None => set.push((tab, vec![view])),
+        }
+    }
+    let mut out = outside;
+    let none = FormTabs::default();
+    for (index, (tabs, config)) in sets
+        .into_iter()
+        .zip([form.tabs.as_ref(), form.secondary_tabs.as_ref()])
+        .enumerate()
+    {
+        if tabs.is_empty() {
+            continue;
+        }
+        let config = config.unwrap_or(&none);
+        let prefix = if index == 0 { "tab" } else { "tab2" };
+        let refused = tabs
+            .iter()
+            .position(|(_, fields)| fields.iter().any(|f| !f.errors.is_empty()));
+        let asked = config.active_tab.as_deref().and_then(|want| {
+            want.trim()
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .filter(|n| *n < tabs.len())
+                .or_else(|| tabs.iter().position(|(t, _)| t.source() == want.trim()))
+        });
+        let active = refused.or(asked).unwrap_or(0);
+        let ids: Vec<String> = tabs
+            .iter()
+            .map(|(tab, _)| {
+                config
+                    .identifiers
+                    .get(tab.source())
+                    .cloned()
+                    .unwrap_or_else(|| format!("{prefix}-{}", dom_slug(tab.source())))
+            })
+            .collect();
+        let mut strip = String::new();
+        for (i, ((tab, _), id)) in tabs.iter().zip(&ids).enumerate() {
+            let icon = config
+                .icons
+                .get(tab.source())
+                .map(|name| shell.icon(name).to_string())
+                .unwrap_or_default();
+            strip.push_str(&format!(
+                r#"<button type="button" role="tab" class="lat-pagetabs__tab{on}" id="{id}" aria-controls="{id}-pane" aria-selected="{selected}"{tabindex}>{icon}<span>{label}</span></button>"#,
+                on = if i == active { " is-active" } else { "" },
+                id = escape_attr(id),
+                selected = i == active,
+                tabindex = if i == active { "" } else { r#" tabindex="-1""# },
+                label = escape_attr(&shell.tt(tab)),
+            ));
+        }
+        // The form's own grid closes, the set opens, and each pane is a grid.
+        out.push(FieldView::chrome(format!(
+            r#"</div><div class="lat-formtabs{stretch}{class}" data-lat-widget="formtabs"{linkable}><div class="lat-pagetabs" role="tablist">{strip}</div>"#,
+            stretch = if config.stretch { " lat-formtabs--stretch" } else { "" },
+            class = config
+                .css_class
+                .as_deref()
+                .map(|c| format!(" {}", escape_attr(c)))
+                .unwrap_or_default(),
+            linkable = if config.linkable { " data-linkable" } else { "" },
+        )));
+        for (i, ((tab, fields), id)) in tabs.into_iter().zip(&ids).enumerate() {
+            let class = config.pane_css_class.of(tab.source());
+            out.push(FieldView::chrome(format!(
+                r#"<div class="lat-formtabs__pane lat-fields{class}{on}" role="tabpanel" id="{id}-pane" aria-labelledby="{id}" data-label="{label}">"#,
+                class = if class.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", escape_attr(class))
+                },
+                on = if i == active { " is-active" } else { "" },
+                id = escape_attr(id),
+                label = escape_attr(&shell.tt(&tab)),
+            )));
+            out.extend(fields);
+            out.push(FieldView::chrome("</div>".to_string()));
+        }
+        // The grid the template closes.
+        out.push(FieldView::chrome(
+            r#"</div><div class="lat-fields">"#.to_string(),
+        ));
+    }
+    out
 }
 
 /// One relation on an edit page: its heading, its New link and the list region.
@@ -3355,6 +3664,8 @@ mod tests {
 
     fn config() -> PreparedForm {
         let config = FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -3414,6 +3725,8 @@ mod tests {
             .unwrap();
         let form = PreparedForm::prepare(
             FormConfig {
+                tabs: None,
+                secondary_tabs: None,
                 enter: Default::default(),
                 confirm_leave: true,
                 focus: Default::default(),
@@ -3702,6 +4015,8 @@ mod tests {
         // contributes Rule::Email without the descriptor listing it.
         let cfg = PreparedForm::prepare(
             FormConfig {
+                tabs: None,
+                secondary_tabs: None,
                 enter: Default::default(),
                 confirm_leave: true,
                 focus: Default::default(),
@@ -3761,6 +4076,8 @@ mod tests {
     #[test]
     fn prepare_rejects_an_unregistered_field_type() {
         let config = FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -3795,6 +4112,8 @@ mod tests {
         // The text field's `input` option is a string; a wrong JSON type for it
         // aborts prepare naming the field.
         let config = FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -3880,6 +4199,8 @@ mod tests {
 
     fn config_with(persister: &str) -> FormConfig {
         FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -3984,6 +4305,8 @@ mod timestamp_tests {
 
     fn timestamped(on: bool) -> FormConfig {
         FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),
@@ -4083,6 +4406,8 @@ mod htmx_tests {
         let st = state(db);
         let form = PreparedForm::prepare(
             FormConfig {
+                tabs: None,
+                secondary_tabs: None,
                 enter: Default::default(),
                 confirm_leave: true,
                 focus: Default::default(),

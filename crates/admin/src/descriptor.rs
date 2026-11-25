@@ -169,7 +169,9 @@ fn check_type_keys(list: &ListConfig, form: Option<&FormConfig>) -> Result<(), S
     }
     if let Some(form) = form {
         let fields = crate::field::builtin_registry();
-        for field in &form.fields {
+        let mut tabbed = form.clone();
+        tabbed.absorb_tabs();
+        for field in &tabbed.fields {
             if let Some(field_type) = fields.get(&field.field_type) {
                 crate::field::check_field_keys(field, field_type.as_ref())
                     .map_err(|e| format!("field `{}` (`{}`): {e}", field.name, field.field_type))?;
@@ -227,6 +229,7 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
         if form.title.source().is_empty() {
             form.title = file.title;
         }
+        form.absorb_tabs();
         for field in &mut form.fields {
             if field.label.source().is_empty() {
                 field.label = humanize(&field.name);
@@ -269,6 +272,7 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
                 column.label = humanize(&column.field);
             }
         }
+        relation.form.absorb_tabs();
         for field in &mut relation.form.fields {
             if field.label.source().is_empty() {
                 field.label = humanize(&field.name);

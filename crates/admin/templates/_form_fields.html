@@ -4,7 +4,7 @@
   {% if read_only %}{% if !preview %}<p class="lat-note">{{ shell.t("You can view this record but not change it.") }}</p>{% endif %}<fieldset class="lat-fieldset" disabled>{% endif %}
   <div class="lat-fields">
   {% for field in fields %}
-  {% if field.hidden %}{{ field.control|safe }}{% else if field.section %}
+  {% if let Some(chrome) = field.chrome %}{{ chrome|safe }}{% else if field.hidden %}{{ field.control|safe }}{% else if field.section %}
   <div class="lat-field lat-field--section{{ field.layout }}"{{ field.attrs|safe }}>
     <h3 class="lat-field__heading">{{ field.label }}</h3>
     {% if let Some(help) = field.help %}<p class="lat-field__help">{{ help }}</p>{% endif %}

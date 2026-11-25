@@ -638,6 +638,8 @@ mod pipeline_tests {
     #[test]
     fn the_default_persister_leaves_transient_fields_out() {
         let config = FormConfig {
+            tabs: None,
+            secondary_tabs: None,
             linked_record: None,
             enter: Default::default(),
             confirm_leave: true,
