@@ -235,6 +235,17 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-taglist__remove{display:inline-grid;place-items:center;width:18px;height:18px;padding:0;font-size:14px;line-height:1;color:var(--text-muted);background:none;border:0;border-radius:50%;cursor:pointer}
 .lat-taglist__remove:hover,.lat-taglist__remove:focus-visible{color:var(--text-heading);background:var(--border-subtle);outline:none}
 .lat-taglist__entry{flex:1 1 48px;min-width:48px;height:24px;padding:0 2px;font-family:var(--font-body);font-size:var(--fs-13);color:var(--text-body);background:none;border:0;outline:none}
+.lat-preview .lat-fieldset{border:0;margin:0;padding:0;min-width:0}
+.lat-preview .lat-input,.lat-preview .lat-input:disabled,.lat-preview select.lat-input,.lat-preview textarea.lat-input,.lat-preview .lat-taglist--on{height:auto;min-height:0;padding:2px 0;color:var(--text-body);background:none;border-color:transparent;box-shadow:none;cursor:text;opacity:1;-webkit-text-fill-color:currentColor;appearance:none;-webkit-appearance:none;background-image:none;resize:none}
+.lat-preview input.lat-input:placeholder-shown,.lat-preview textarea.lat-input:placeholder-shown{color:var(--text-muted)}
+.lat-preview ::placeholder{color:transparent}
+.lat-preview .lat-field__label{font-size:var(--fs-12);color:var(--text-muted)}
+.lat-preview .lat-field__req,.lat-preview .lat-field__help,.lat-preview .lat-taglist__remove,.lat-preview .lat-taglist__entry,.lat-preview .lat-repeater__add,.lat-preview .lat-repeater__up,.lat-preview .lat-repeater__down,.lat-preview .lat-repeater__duplicate,.lat-preview .lat-repeater__remove,.lat-preview .lat-input-group__btn{display:none}
+.lat-preview .lat-checklist__bar,.lat-preview .lat-checklist__search,.lat-preview .lat-checklist__item:has(input:not(:checked)){display:none}
+.lat-preview .lat-checklist__list{border:0;padding:0;max-height:none}
+.lat-preview__heading{margin:0 0 12px;font-family:var(--font-display);font-size:var(--fs-16);font-weight:var(--fw-semibold);color:var(--text-heading)}
+.lat-preview__loading{margin:0;color:var(--text-muted)}
+.lat-preview__panel{margin-top:16px}
 .lat-input:disabled{background:var(--surface-input-disabled);cursor:not-allowed}
 /* A select is a .lat-input with the browser's own chrome removed and our
    chevron drawn in; the open list stays the platform's. */

@@ -9,6 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `preview:` on a resource gives each record a read-only page at `{path}/{id}/preview` with panels a module draws (`Resource::preview`, `PreviewConfig`); the list links to it from each row, and `row_click: preview` opens it on a click.
 - A `partial` list column draws each cell through a MiniJinja template a module registers with `PartialReg`, given `value`, `record` and `column`.
 - `ColumnType::check` lets a column type refuse its keys when the list is read.
 - A `taglist` field type (`FormField::taglist`): short texts typed one at a time and stored as a JSON array, on a form, a settings page or in a repeater row.

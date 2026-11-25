@@ -2090,6 +2090,110 @@ pub(crate) async fn edit_form(
     render(page)
 }
 
+/// A record's preview page: its form's values to read, with nothing to save,
+/// at `{base_path}/{id}/preview`. The list gains a Preview link on each row.
+///
+/// ```yaml
+/// preview:
+///   title: Order
+///   assets: [chart.css]
+///   panels:
+///     - { title: Payments, src: "acme/orders/{id}/payments" }
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct PreviewConfig {
+    /// The page's title; the form's when left out.
+    #[serde(default)]
+    pub title: Option<Text>,
+    /// Asset-registry keys the panels need on the page.
+    #[serde(default)]
+    pub assets: Vec<String>,
+    /// Parts a module draws under the values.
+    #[serde(default)]
+    pub panels: Vec<PreviewPanel>,
+}
+
+/// One part of a preview a module draws: the page fetches `src` once it is
+/// open and shows what comes back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewPanel {
+    /// The heading over the panel, when it has one.
+    #[serde(default)]
+    pub title: Option<Text>,
+    /// A path under the admin root answering an HTML fragment, `{id}`
+    /// replaced by the record's id.
+    pub src: String,
+    /// A permission the operator must hold to see the panel.
+    #[serde(default)]
+    pub permission: Option<String>,
+}
+
+/// A preview panel as the page draws it.
+pub(crate) struct PanelView {
+    title: Option<String>,
+    src: String,
+}
+
+/// The preview page for record `id`.
+pub(crate) async fn preview_page(
+    state: &AdminState,
+    form: &PreparedForm,
+    preview: &PreviewConfig,
+    id: String,
+    shell: crate::Shell,
+    permissions: &laterite_auth::PermissionSet,
+) -> Response {
+    if !form.config.idents_valid() {
+        return render_error();
+    }
+    let values =
+        match load_values(&state.db, form, &id, state.scopes_for(&form.config.entity)).await {
+            Ok(Some(values)) => values,
+            Ok(None) => return not_found(),
+            Err(_) => return render_error(),
+        };
+    let edit = format!("{}/{}/edit", form.config.base_path, id);
+    let mut page = build(
+        state,
+        form,
+        &edit,
+        None,
+        &values,
+        &ErrorBag::default(),
+        &shell,
+    );
+    if let Some(title) = &preview.title {
+        page.title = shell.tt(title);
+    }
+    if !preview.assets.is_empty() {
+        let keys: Vec<&str> = preview.assets.iter().map(String::as_str).collect();
+        let extra = crate::page_assets(&keys, &shell.base, &state.assets, &state.asset_urls);
+        page.shell.assets.extend(extra);
+    }
+    page.read_only = true;
+    page.preview = true;
+    page.actions = Vec::new();
+    page.edit_href = Some(edit);
+    let base = shell.base.trim_end_matches('/').to_string();
+    page.panels = preview
+        .panels
+        .iter()
+        .filter(|p| p.permission.as_deref().is_none_or(|g| shell.allows(g)))
+        .map(|p| PanelView {
+            title: p.title.as_ref().map(|t| shell.tt(t)),
+            src: format!(
+                "{base}/{}",
+                p.src.replace("{id}", &id).trim_start_matches('/')
+            ),
+        })
+        .collect();
+    page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
+    render(page)
+}
+
 /// The Delete an edit page offers: what the resource's list allows on a row.
 #[derive(Clone)]
 pub(crate) struct DeleteOffer {
@@ -2514,6 +2618,7 @@ fn invalid_response(
             stay: page.stay,
             actions: page.actions,
             read_only: page.read_only,
+            preview: false,
             enter_off: page.enter_off,
             refused: page.refused,
             leave_off: page.leave_off,
@@ -2673,6 +2778,9 @@ fn build(
         stay: form.stay,
         actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
         read_only,
+        preview: false,
+        edit_href: None,
+        panels: Vec::new(),
         sections: Vec::new(),
         delete: None,
         linked: None,
@@ -2795,6 +2903,8 @@ struct FormFragment {
     /// The operator may look but not save: the fields are disabled and Save
     /// is gone.
     read_only: bool,
+    /// The record's preview: values to read, with no note and no buttons.
+    preview: bool,
     /// Enter never submits this form.
     enter_off: bool,
     /// The form holds a submission that was not saved.
@@ -2820,6 +2930,12 @@ struct FormTemplate {
     actions: Vec<ActionView>,
     /// The operator may look but not save.
     read_only: bool,
+    /// The record's preview page; see [`PreviewConfig`].
+    preview: bool,
+    /// Where a preview's Edit button goes.
+    edit_href: Option<String>,
+    /// A preview's panels, each fetched once the page is open.
+    panels: Vec<PanelView>,
     /// The related records, one section each, on an edit page.
     /// The record this one belongs to, linked above the form.
     linked: Option<LinkedView>,

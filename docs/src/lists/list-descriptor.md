@@ -47,7 +47,7 @@ Key | Default | Description
 `search` | on | The search box; keys below.
 `filters` | none | Filters above the table, keyed by field name. See [Filters](filters.md).
 `no_records_message` | "No records yet." | Shown when the list has no records at all.
-`row_click` | `open` | `open`: a row opens its record. `none`: the Edit link alone does.
+`row_click` | `open` | `open`: a row opens its record to edit. `preview`: it opens the record's [preview](../forms/form-descriptor.md#preview-a-record). `none`: the row's links alone do.
 `remember` | `true` | The sort, search, filters and page a user last used come back when they return.
 `reorder` | off | `true` orders rows by `sort_order`; `{ column: position }` names the column. See [Trees and Reordering](structures.md).
 `tree` | off | `true` nests rows on `parent_id`; `{ parent_key, source }` names the column and a picker source for Move to. See [Trees and Reordering](structures.md).

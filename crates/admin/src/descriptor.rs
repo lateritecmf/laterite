@@ -82,6 +82,16 @@ struct ResourceFile {
     /// Delete moves a record to the trash; see `Resource::soft_delete`.
     #[serde(default)]
     soft_delete: bool,
+    /// `true`, or a map of `PreviewConfig` keys.
+    #[serde(default)]
+    preview: Option<PreviewKey>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PreviewKey {
+    Flag(bool),
+    Config(crate::form::PreviewConfig),
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +242,11 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     resource = resource.menu(file.menu);
     if file.soft_delete {
         resource = resource.soft_delete();
+    }
+    match file.preview {
+        Some(PreviewKey::Flag(true)) => resource = resource.preview(Default::default()),
+        Some(PreviewKey::Config(preview)) => resource = resource.preview(preview),
+        Some(PreviewKey::Flag(false)) | None => {}
     }
     if let Some(source) = file.source {
         resource = resource.source(source);

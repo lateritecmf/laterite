@@ -2,7 +2,7 @@
 {% block title %}{{ title }} - {{ shell.brand }}{% endblock %}
 {% block content %}
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
-<div class="lat-toolbar"><h1>{{ title }}</h1>{% if let Some(d) = delete %}
+<div class="lat-toolbar"><h1>{{ title }}</h1>{% if let Some(href) = edit_href %}<div class="lat-toolbar__actions"><a class="lat-btn lat-btn--secondary lat-btn--sm" href="{{ href }}">{{ shell.icon("pencil")|safe }}<span>{{ shell.t("Edit") }}</span></a></div>{% endif %}{% if let Some(d) = delete %}
   <form class="lat-toolbar__actions" method="post" action="{{ d.action }}" data-lat-discards>
     {% include "_csrf.html" %}
     <input type="hidden" name="id" value="{{ d.id }}">
@@ -10,9 +10,15 @@
   </form>
 {% endif %}</div>
 {% if let Some(l) = linked %}<p class="lat-linked"><span>{{ l.label }}</span>{% if let Some(href) = l.href %}<a href="{{ href }}">{{ l.text }}</a>{% else %}<b>{{ l.text }}</b>{% endif %}</p>{% endif %}
-<div class="lat-card lat-card--form">
+<div class="lat-card lat-card--form{% if preview %} lat-preview{% endif %}">
   {% include "_form_fields.html" %}
 </div>
+{% for panel in panels %}
+<div class="lat-card lat-preview__panel">
+  {% if let Some(heading) = panel.title %}<h2 class="lat-preview__heading">{{ heading }}</h2>{% endif %}
+  <div hx-get="{{ panel.src }}" hx-trigger="load" hx-swap="innerHTML"><p class="lat-preview__loading">{{ shell.t("Loading…") }}</p><noscript><a href="{{ panel.src }}">{{ shell.t("Open") }}</a></noscript></div>
+</div>
+{% endfor %}
 {% if !pending.is_empty() %}
 <p class="lat-note">{{ shell.t("Save first, then add") }} {% for p in pending %}{% if !loop.first %}, {% endif %}{{ p }}{% endfor %}.</p>
 {% endif %}

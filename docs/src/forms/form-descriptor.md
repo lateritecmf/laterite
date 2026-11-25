@@ -131,6 +131,39 @@ Key | On | Values | Default
 
 A `max_length` rule also sets the control's `maxlength`.
 
+## Preview a record
+
+```yaml
+# descriptors/orders.yaml
+preview:
+  title: Order
+  assets: [chart.css]
+  panels:
+    - { title: Payments, src: "acme/orders/{id}/payments", permission: acme.payments }
+list:
+  row_click: preview
+```
+
+`preview: true` takes every default.
+
+Key | Default | Description
+--- | --- | ---
+`title` | the form's | The page's title.
+`assets` | none | Asset keys the panels need on the page.
+`panels` | none | Parts drawn under the values, in order.
+
+Panel key | Description
+--- | ---
+`src` | A path under the admin root answering an HTML fragment, `{id}` for the record's id. Fetched once the page is open.
+`title` | The heading over the panel.
+`permission` | A user without it does not get the panel.
+
+Route | Shows
+--- | ---
+`{path}/{id}/preview` | The form's fields with their values, none editable, an Edit button, then the panels.
+
+A previewed resource's list shows a Preview link on each row, before Edit.
+
 ## Lay out the fields
 
 Fields lay out on a twelve-column row and wrap as it fills.

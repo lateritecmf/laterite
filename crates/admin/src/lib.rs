@@ -1492,6 +1492,9 @@ pub struct Resource {
     pub source: Option<laterite_core::source::Source>,
     /// Whether a delete moves a record to the trash. See [`Resource::soft_delete`].
     pub soft_delete: bool,
+    /// The record's preview page, when the resource has one. See
+    /// [`Resource::preview`].
+    pub preview: Option<form::PreviewConfig>,
     /// What a caller of abilities may do with the records. See
     /// [`Resource::abilities`].
     pub abilities: records::RecordAbilities,
@@ -1702,6 +1705,7 @@ impl Resource {
             menu: nav::Placement::default(),
             source: None,
             soft_delete: false,
+            preview: None,
             abilities: records::RecordAbilities::default(),
         }
     }
@@ -1720,6 +1724,15 @@ impl Resource {
     /// ([`laterite_core::strata::soft_delete_col`]).
     pub fn soft_delete(mut self) -> Self {
         self.soft_delete = true;
+        self
+    }
+
+    /// Gives each record a preview page at `{base_path}/{id}/preview`: the
+    /// form's values to read, and any panels `preview` names. The list links
+    /// to it from each row. Needs a form.
+    pub fn preview(mut self, preview: form::PreviewConfig) -> Self {
+        self.list.preview = true;
+        self.preview = Some(preview);
         self
     }
 
@@ -4519,6 +4532,24 @@ fn mount_resource(
                 },
             })
         });
+        if let Some(preview) = resource.preview.clone() {
+            let (preview_pf, preview) = (prepared.clone(), Arc::new(preview));
+            router = router.route(
+                &format!("{base}/{{id}}/preview"),
+                get(
+                    move |State(state): State<AdminState>,
+                          Extension(shell): Extension<Shell>,
+                          Extension(user): Extension<AuthenticatedUser>,
+                          Path(id): Path<String>| {
+                        let (pf, preview) = (preview_pf.clone(), preview.clone());
+                        async move {
+                            form::preview_page(&state, &pf, &preview, id, shell, &user.permissions)
+                                .await
+                        }
+                    },
+                ),
+            );
+        }
         router = router.route(
             &format!("{base}/{{id}}/edit"),
             get(
@@ -6324,6 +6355,7 @@ fn builtin_resources() -> Vec<Resource> {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            preview: None,
             abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         },
@@ -6341,6 +6373,7 @@ fn builtin_resources() -> Vec<Resource> {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            preview: None,
             abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         },
@@ -6767,6 +6800,7 @@ mod tests {
             relations: Vec::new(),
             source: None,
             soft_delete: false,
+            preview: None,
             abilities: records::RecordAbilities::off(),
             menu: nav::Placement::default(),
         }

@@ -1,0 +1,18 @@
+entity: backend_roles
+path: /previews
+title: Roles
+permission: acme.manage_posts
+preview:
+  title: Role
+  panels:
+    - { title: History, src: "acme/roles/{id}/history" }
+    - { title: Secrets, src: "acme/roles/{id}/secrets", permission: acme.unheld }
+list:
+  row_click: preview
+  columns:
+    code: {}
+form:
+  title: Edit role
+  fields:
+    code: { rules: [required] }
+    name: {}
