@@ -1824,18 +1824,79 @@ pub struct ListConfig {
     pub(crate) delete_with: Vec<Text>,
 }
 
-/// What clicking a list row does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// What clicking a list row does: one of the built-in places, or an address
+/// of the descriptor's own.
+///
+/// In a file, `open`, `preview` and `none` are the built-in ones and any other
+/// text is an address pattern: `row_click: "acme/orders/{id}/summary"`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RowClick {
-    /// Opens the record, when the list links rows to a form.
+    /// Opens the record to edit, when the list links rows to a form.
     #[default]
     Open,
     /// Opens the record's preview, when the resource has one; its edit page
     /// otherwise.
     Preview,
-    /// Nothing: only the Edit link opens it.
+    /// Nothing: only the row's own links open it.
     None,
+    /// Opens an address: a path under the admin root or a full URL, with
+    /// `{id}` for the record's id and `{column}` for a column on the list.
+    /// A row whose placeholders cannot all be filled does not open anything.
+    Url(String),
+}
+
+impl Serialize for RowClick {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(match self {
+            RowClick::Open => "open",
+            RowClick::Preview => "preview",
+            RowClick::None => "none",
+            RowClick::Url(pattern) => pattern,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for RowClick {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(match text.trim() {
+            "open" | "" => RowClick::Open,
+            "preview" => RowClick::Preview,
+            "none" => RowClick::None,
+            pattern => RowClick::Url(pattern.to_string()),
+        })
+    }
+}
+
+/// Where a click on a row goes, or `None` for nowhere.
+fn row_href(config: &ListConfig, id: &str, fields: &[(&str, &str)], base: &str) -> Option<String> {
+    let record = |page: &str| {
+        config
+            .edit_base
+            .as_ref()
+            .map(|edit| format!("{edit}/{id}/{page}"))
+    };
+    match &config.row_click {
+        RowClick::None => None,
+        RowClick::Open => record("edit"),
+        RowClick::Preview if config.preview => record("preview"),
+        RowClick::Preview => record("edit"),
+        RowClick::Url(pattern) => {
+            let cx = CellCx::new("", chrono_tz::UTC, chrono::Locale::en_US).with_row(fields);
+            let url = fill(pattern, &cx, true)?;
+            // A scheme (`https:`, and `javascript:` too) makes it an address
+            // of its own, which `safe_href` then judges; anything else is a
+            // path under the admin.
+            let head = url.split(['/', '?', '#']).next().unwrap_or("");
+            let absolute = url.starts_with('/') || head.contains(':');
+            let url = if absolute {
+                url
+            } else {
+                format!("{}/{url}", base.trim_end_matches('/'))
+            };
+            safe_href(&url).then_some(url)
+        }
+    }
 }
 
 impl ListConfig {
@@ -2101,6 +2162,8 @@ pub struct RenderedRow {
     pub toggle: Option<String>,
     /// Whether the row is kept from deletion: no checkbox, no row Delete.
     pub protected: bool,
+    /// Where a click on the row goes, when it goes anywhere.
+    pub href: Option<String>,
 }
 
 /// Display-ready rows plus the total row count for the pager.
@@ -2937,6 +3000,10 @@ async fn build_page(
                         )
                         .collect();
                     RenderedRow {
+                        // A trashed record opens nothing until it is restored.
+                        href: (!trashed)
+                            .then(|| row_href(config, &row.id, &fields, shell.base()))
+                            .flatten(),
                         depth,
                         indent: format!("{}px", 16 + depth * 18),
                         toggle: (structure.is_some() && row.children > 0)
@@ -3082,9 +3149,7 @@ async fn build_page(
                 total_pages,
                 // A trashed record has no edit page until it is restored.
                 edit_base: config.edit_base.clone().filter(|_| !trashed),
-                row_link: config.row_click != RowClick::None && !trashed,
                 preview: config.preview,
-                row_preview: config.preview && config.row_click == RowClick::Preview,
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
@@ -3866,9 +3931,7 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         total: page.total,
         total_pages: page.total_pages,
         edit_base: page.edit_base,
-        row_link: page.row_link,
         preview: page.preview,
-        row_preview: page.row_preview,
         sort: page.sort,
         dir: page.dir,
         carry: page.carry,
@@ -3891,9 +3954,7 @@ fn rows_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>) -> 
         page: page.page,
         total_pages: page.total_pages,
         edit_base: page.edit_base,
-        row_link: page.row_link,
         preview: page.preview,
-        row_preview: page.row_preview,
         deletable: page.deletable,
         region: region.to_string(),
         delete_path,
@@ -4045,11 +4106,8 @@ struct ListTemplate {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
-    /// A row opens its record; the Edit link is there regardless.
-    row_link: bool,
-    /// Rows offer a Preview link, and whether a click on the row opens it.
+    /// Rows offer a Preview link.
     preview: bool,
-    row_preview: bool,
     /// The active ordering, carried on the pager links so paging keeps the sort.
     sort: String,
     dir: String,
@@ -4211,11 +4269,8 @@ struct ListFragment {
     total: i64,
     total_pages: i64,
     edit_base: Option<String>,
-    /// A row opens its record; the Edit link is there regardless.
-    row_link: bool,
-    /// Rows offer a Preview link, and whether a click on the row opens it.
+    /// Rows offer a Preview link.
     preview: bool,
-    row_preview: bool,
     sort: String,
     dir: String,
     carry: String,
@@ -4248,10 +4303,8 @@ struct RowsFragment {
     page: i64,
     total_pages: i64,
     edit_base: Option<String>,
-    row_link: bool,
-    /// Rows offer a Preview link, and whether a click on the row opens it.
+    /// Rows offer a Preview link.
     preview: bool,
-    row_preview: bool,
     deletable: bool,
     region: String,
     delete_path: Option<RowAction>,
@@ -4262,6 +4315,48 @@ struct RowsFragment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_row_click_is_a_built_in_place_or_an_address_pattern() {
+        let read =
+            |text: &str| serde_json::from_value::<RowClick>(serde_json::json!(text)).unwrap();
+        assert_eq!(read("open"), RowClick::Open);
+        assert_eq!(read("preview"), RowClick::Preview);
+        assert_eq!(read("none"), RowClick::None);
+        assert_eq!(
+            read("acme/orders/{id}/summary"),
+            RowClick::Url("acme/orders/{id}/summary".to_string())
+        );
+
+        let mut list = config().edit_base("/admin/users");
+        let row = [("id", "7"), ("username", "a b"), ("empty", "")];
+        let href = |list: &ListConfig| row_href(list, "7", &row, "/admin");
+        assert_eq!(href(&list).as_deref(), Some("/admin/users/7/edit"));
+        // Preview falls back to the edit page on a resource with none.
+        list.row_click = RowClick::Preview;
+        assert_eq!(href(&list).as_deref(), Some("/admin/users/7/edit"));
+        list.preview = true;
+        assert_eq!(href(&list).as_deref(), Some("/admin/users/7/preview"));
+        list.row_click = RowClick::None;
+        assert_eq!(href(&list), None);
+
+        // A pattern is under the admin unless it is a path or a full address,
+        // and what it fills in is encoded.
+        list.row_click = RowClick::Url("acme/people/{username}/card?from={id}".into());
+        assert_eq!(
+            href(&list).as_deref(),
+            Some("/admin/acme/people/a%20b/card?from=7")
+        );
+        list.row_click = RowClick::Url("/shop/{id}".into());
+        assert_eq!(href(&list).as_deref(), Some("/shop/7"));
+        list.row_click = RowClick::Url("https://acme.com/u/{id}".into());
+        assert_eq!(href(&list).as_deref(), Some("https://acme.com/u/7"));
+        // A placeholder with nothing to fill it, or an unsafe address: no link.
+        list.row_click = RowClick::Url("acme/{empty}".into());
+        assert_eq!(href(&list), None);
+        list.row_click = RowClick::Url("javascript:alert({id})".into());
+        assert_eq!(href(&list), None);
+    }
 
     #[test]
     fn a_partial_column_renders_its_template_and_escapes_values() {

@@ -7,8 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Breaking
+
+- `RowClick` is no longer `Copy` and gains `Preview` and `Url`: match it with a `_` arm, and clone it where it was copied.
+
 ### Added
 
+- `row_click` takes an address pattern as well as `open`, `preview` and `none`: `row_click: "acme/orders/{id}/summary"`, with `{id}` and `{column}` filled in from the row (`RowClick::Url`).
 - `preview:` on a resource gives each record a read-only page at `{path}/{id}/preview` with panels a module draws (`Resource::preview`, `PreviewConfig`); the list links to it from each row, and `row_click: preview` opens it on a click.
 - A `partial` list column draws each cell through a MiniJinja template a module registers with `PartialReg`, given `value`, `record` and `column`.
 - `ColumnType::check` lets a column type refuse its keys when the list is read.

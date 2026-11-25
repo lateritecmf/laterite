@@ -47,7 +47,7 @@ Key | Default | Description
 `search` | on | The search box; keys below.
 `filters` | none | Filters above the table, keyed by field name. See [Filters](filters.md).
 `no_records_message` | "No records yet." | Shown when the list has no records at all.
-`row_click` | `open` | `open`: a row opens its record to edit. `preview`: it opens the record's [preview](../forms/form-descriptor.md#preview-a-record). `none`: the row's links alone do.
+`row_click` | `open` | Where a click on a row goes: `open` (the record's edit page), `preview` (its [preview](../forms/form-descriptor.md#preview-a-record)), `none`, or an address pattern. See below.
 `remember` | `true` | The sort, search, filters and page a user last used come back when they return.
 `reorder` | off | `true` orders rows by `sort_order`; `{ column: position }` names the column. See [Trees and Reordering](structures.md).
 `tree` | off | `true` nests rows on `parent_id`; `{ parent_key, source }` names the column and a picker source for Move to. See [Trees and Reordering](structures.md).
@@ -65,6 +65,37 @@ Key | Default | Description
 `toolbar[].icon` | none | An icon name from the [shared set](../reference/icons.md).
 `toolbar[].permission` | none | Hidden from a user who lacks it.
 `toolbar[].primary` | | `true` renders it as the prominent action. Required.
+
+## Send a row click anywhere
+
+```yaml
+list:
+  row_click: "acme/orders/{id}/summary"
+```
+
+```yaml
+list:
+  row_click: "https://track.acme.com/parcels/{tracking_code}?order={id}"
+```
+
+Pattern | Goes to
+--- | ---
+`acme/orders/{id}/summary` | A path under the admin root.
+`/shop/orders/{id}` | A path on the site.
+`https://...` | A full address.
+
+Placeholder | Fills in
+--- | ---
+`{id}` | The record's id.
+`{column}` | A column on the list, as stored, URL-encoded.
+
+A row with an empty value for a placeholder opens nothing. A record in the
+trash opens nothing.
+
+```rust
+ListConfig::new("orders", t!("Orders"), columns)
+    .row_click(RowClick::Url("acme/orders/{id}/summary".into()));
+```
 
 ## Name a column
 
