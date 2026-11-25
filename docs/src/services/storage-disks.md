@@ -6,7 +6,7 @@ only for code that calls it.
 
 ```toml
 [dependencies]
-laterite-media = "0.11"
+laterite-media = "0.12"
 ```
 
 Term | Meaning
@@ -43,7 +43,7 @@ under `backend.storage`. The library uploads to `public`, else `media` there.
 
 ```toml
 [dependencies]
-laterite-media = { version = "0.11", features = ["s3"] }
+laterite-media = { version = "0.12", features = ["s3"] }
 ```
 
 ```rust

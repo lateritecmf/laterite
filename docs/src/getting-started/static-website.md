@@ -144,7 +144,7 @@ a module's | its own | its own | its own
 `folder` and `database` are always available; `git` needs the `theme-git` feature:
 
 ```toml
-lateritecmf = { version = "0.11", features = ["sqlite", "theme-git"] }
+lateritecmf = { version = "0.12", features = ["sqlite", "theme-git"] }
 ```
 
 ```toml

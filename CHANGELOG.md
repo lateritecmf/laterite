@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-26
+
 ### Breaking
 
 - `RowClick` is no longer `Copy` and gains `Preview` and `Url`: match it with a `_` arm, and clone it where it was copied.

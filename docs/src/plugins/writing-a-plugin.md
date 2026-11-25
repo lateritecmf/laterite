@@ -23,8 +23,8 @@ Name its module, and declare the framework by version:
 plugin = "acme.blog"
 
 [dependencies]
-laterite-core = "0.11"
-laterite-admin = "0.11"
+laterite-core = "0.12"
+laterite-admin = "0.12"
 ```
 
 The dependency requirement is the compatibility statement. `lat plugin add`
