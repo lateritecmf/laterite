@@ -756,6 +756,7 @@ impl Bootstrap {
         listeners
             .extend(crate::source::sync(&db, &root, &resources, &field_types, &sources).await?);
         let column_types = contributions.take::<crate::list::ColumnTypeReg>();
+        let partials = contributions.take::<crate::list::PartialReg>();
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();
         let widgets = contributions.take::<crate::widget::WidgetReg>();
@@ -935,6 +936,7 @@ impl Bootstrap {
                 validation_rules,
                 field_types,
                 column_types,
+                partials,
                 icons,
                 screens,
                 public_routes: public,

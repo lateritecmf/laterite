@@ -86,7 +86,7 @@ Key | Default | Description
 --- | --- | ---
 `label` | from the key | The header.
 `type` | `text` | The column type. Every type: [List Columns](../elements/list-columns.md).
-`sortable` | `true` | The header sorts.
+`sortable` | `true` | The header sorts. Empty values come last either way.
 `invisible` | `false` | Hidden until the user picks it from the column chooser.
 `width` | shared | A CSS width, `10%` or `120px`.
 `align` | | `left`, `center`, `right`.

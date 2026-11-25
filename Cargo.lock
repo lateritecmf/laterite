@@ -2587,6 +2587,7 @@ dependencies = [
  "laterite-core",
  "laterite-media",
  "listenfd",
+ "minijinja",
  "rand",
  "regex",
  "schemars",

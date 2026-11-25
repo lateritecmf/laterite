@@ -92,3 +92,41 @@ Case | Shown as
 Any other address (`javascript:`, `data:`) | Text
 A placeholder whose column is not on the list, or is empty | Text
 An empty value with no `url` | Nothing
+
+## partial
+
+A cell drawn by a template a module registers.
+
+```rust
+registry.add(PartialReg::new(
+    "acme.stock_level",
+    include_str!("../partials/stock_level.html"),
+));
+```
+
+```yaml
+columns:
+  stock: { type: partial, path: acme.stock_level }
+```
+
+```html
+{# partials/stock_level.html #}
+{% if value | int < 5 %}<b style="color:var(--danger)">{{ value }} left</b>
+{% else %}{{ value }} in stock{% endif %}
+<small>{{ record.sku }}</small>
+```
+
+Key | Default | Description
+--- | --- | ---
+`path` | | The partial's registered name. Required; a name nobody registered stops the boot.
+
+Variable | Holds
+--- | ---
+`value` | The cell's stored value, as text.
+`record` | Every column on the list by name, as text, and `id`. A column hidden from the list is not in it.
+`column` | The column's keys from the list file.
+
+The template is MiniJinja. A value written with `{{ }}` is escaped as HTML;
+the template's own markup is not. The column sorts, searches and exports by
+its stored value. A template that fails shows the value as text.
+

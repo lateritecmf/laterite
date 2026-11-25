@@ -23,6 +23,7 @@ Method | Role
 `view_model` | The cell's value as a view-model.
 `render_default` | The markup.
 `option_keys` | The keys the type reads from its column entry; any other key is refused at boot.
+`check` | Checks the column's keys when the list is read; an error stops the boot.
 
 `CellCx` | Gives
 --- | ---

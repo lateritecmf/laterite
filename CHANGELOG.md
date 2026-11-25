@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A `partial` list column draws each cell through a MiniJinja template a module registers with `PartialReg`, given `value`, `record` and `column`.
+- `ColumnType::check` lets a column type refuse its keys when the list is read.
 - A `taglist` field type (`FormField::taglist`): short texts typed one at a time and stored as a JSON array, on a form, a settings page or in a repeater row.
 - Abilities: a module declares an act by name with `add_ability` (a typed input, a permission, an effect), and `RouteCtx::abilities` lists, previews and runs them as the signed-in person.
 - Every module resource is reachable through abilities (`backend.records.kinds`, `find`, `read`, `create`, `update`, `delete`); `abilities:` on a resource describes it, hides fields or turns parts off. A delete stays off for a channel until the policy allows it.
@@ -56,6 +58,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Changed
 
+- A sorted list puts empty values last in both directions.
 - The settings sidebar keeps one width, `--sidebar-w` (240px), open or closed: a longer title ends in an ellipsis and a description after two lines. `--sidebar-min` is gone.
 - The Settings page with nothing chosen shows the brick alone and faint, in place of the full mark on its dark tile.
 

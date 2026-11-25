@@ -2003,6 +2003,8 @@ pub struct Contributions {
     pub field_types: Vec<field::FieldTypeReg>,
     /// Column types a list cell can render through.
     pub column_types: Vec<list::ColumnTypeReg>,
+    /// Templates a `partial` column renders its cells through.
+    pub partials: Vec<list::PartialReg>,
     /// Icons a module contributes, for glyphs the framework's curated set does
     /// not carry. Each is namespaced to the contributing module.
     pub icons: Vec<(laterite_core::ModuleId, laterite_core::icons::IconReg)>,
@@ -2055,6 +2057,7 @@ pub fn router(
         validation_rules: app_validation_rules,
         field_types: app_field_types,
         column_types: app_column_types,
+        partials: app_partials,
         widgets: app_widgets,
         skins: app_skins,
         assets: app_assets,
@@ -2558,6 +2561,11 @@ pub fn router(
             panic!("duplicate column type `{name}`");
         }
     }
+    // The partial column, knowing every partial a module registered.
+    column_types.insert(
+        "partial".to_string(),
+        Arc::new(list::PartialColumn::new(app_partials)),
+    );
 
     let settings = Arc::new(settings);
     // One render of the asset URLs, shared by the state and the sprite lookup.

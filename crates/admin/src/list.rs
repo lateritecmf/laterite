@@ -358,6 +358,12 @@ pub trait ColumnType: Send + Sync + 'static {
     fn assets(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    /// Checks a column's own keys when the list is read, so a column that can
+    /// never render (a partial nobody registered) stops the boot. Default: fine.
+    fn check(&self, options: &serde_json::Value) -> Result<(), String> {
+        let _ = options;
+        Ok(())
+    }
 }
 
 /// A column type a module contributes, so a list can render a cell the framework
@@ -416,7 +422,114 @@ pub(crate) fn builtin_column_types() -> Vec<Arc<dyn ColumnType>> {
         Arc::new(BoolColumn),
         Arc::new(StatusPillColumn),
         Arc::new(LinkColumn),
+        Arc::new(PartialColumn::new(Vec::new())),
     ]
+}
+
+/// A template a `partial` column renders a cell through, named so a column's
+/// `path` can find it: `vendor.name`.
+///
+/// The template is MiniJinja, with `value` (the cell's stored value as text),
+/// `record` (the row's values by column, `id` among them) and `column` (the
+/// column's keys). Values written with `{{ }}` are escaped as HTML.
+pub struct PartialReg {
+    /// The name a column's `path` gives.
+    pub name: String,
+    /// The template's source.
+    pub template: String,
+}
+
+impl PartialReg {
+    /// Returns a registration for the template `template` under `name`.
+    pub fn new(name: impl Into<String>, template: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            template: template.into(),
+        }
+    }
+}
+
+/// The `partial` column: renders each cell through a registered [`PartialReg`].
+pub(crate) struct PartialColumn {
+    env: minijinja::Environment<'static>,
+}
+
+impl PartialColumn {
+    /// A partial column over `partials`. A template that does not parse stops
+    /// the boot, naming it.
+    pub(crate) fn new(partials: Vec<PartialReg>) -> Self {
+        let mut env = minijinja::Environment::new();
+        env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
+        for partial in partials {
+            if let Err(e) = env.add_template_owned(partial.name.clone(), partial.template) {
+                panic!("partial `{}` does not parse: {e}", partial.name);
+            }
+        }
+        Self { env }
+    }
+
+    fn path(options: &serde_json::Value) -> Option<&str> {
+        options.get("path").and_then(|v| v.as_str())
+    }
+}
+
+impl ColumnType for PartialColumn {
+    fn view_key(&self) -> &'static str {
+        "partial"
+    }
+
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(vec!["path"])
+    }
+
+    fn check(&self, options: &serde_json::Value) -> Result<(), String> {
+        let path = Self::path(options).ok_or("a partial column needs a `path`")?;
+        self.env
+            .get_template(path)
+            .map(|_| ())
+            .map_err(|_| format!("names the partial `{path}`, which no module registered"))
+    }
+
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        let record: serde_json::Map<String, serde_json::Value> = cx
+            .row
+            .iter()
+            .map(|(k, v)| (k.to_string(), serde_json::Value::String(v.to_string())))
+            .collect();
+        let rendered = Self::path(cx.options)
+            .ok_or_else(|| "no path".to_string())
+            .and_then(|path| {
+                self.env
+                    .get_template(path)
+                    .and_then(|t| {
+                        t.render(minijinja::context! {
+                            value => cx.value,
+                            record => minijinja::Value::from(minijinja::value::Serde(&record)),
+                            column => minijinja::Value::from(minijinja::value::Serde(cx.options)),
+                        })
+                    })
+                    .map_err(|e| format!("{path}: {e}"))
+            });
+        let html = match rendered {
+            Ok(html) => html,
+            Err(e) => {
+                tracing::warn!(error = %e, "a partial column did not render; showing its value");
+                crate::form::escape_attr(cx.value)
+            }
+        };
+        CellVm {
+            view_key: "partial".to_string(),
+            value: cx.value.to_string(),
+            display: cx.value.to_string(),
+            data: serde_json::json!({ "html": html }),
+        }
+    }
+
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        // MiniJinja escaped every value the template wrote, as an override
+        // engine does; what is left is markup its author wrote.
+        Markup::from_override(vm.data["html"].as_str().unwrap_or_default().to_string())
+    }
 }
 
 /// The column registry seeded with the built-in types.
@@ -1412,11 +1525,16 @@ pub(crate) fn check(
                 ));
             }
         }
-        if column_types.get(&col.column_type).is_none() {
-            return Err(format!(
-                "column `{}` uses unregistered type `{}`",
-                col.field, col.column_type
-            ));
+        match column_types.get(&col.column_type) {
+            None => {
+                return Err(format!(
+                    "column `{}` uses unregistered type `{}`",
+                    col.field, col.column_type
+                ))
+            }
+            Some(ct) => ct
+                .check(&col.options)
+                .map_err(|e| format!("column `{}` {e}", col.field))?,
         }
         // An unregistered permission can never be granted, so the column would
         // be hidden from everyone but a superuser: a wiring bug, not a choice.
@@ -2454,7 +2572,9 @@ pub(crate) async fn query(
                 Alias::new(ID_ALIAS),
             )
             .from(Alias::new(&config.entity))
-            .order_by(Alias::new(req.order_by), dir);
+            // Empty values last whichever way the column sorts, so the largest
+            // or smallest real values lead.
+            .order_by_with_nulls(Alias::new(req.order_by), dir, sea_query::NullOrdering::Last);
         if let Some(parent_key) = req.children_of {
             let child = Alias::new("lat_child");
             select.expr_as(
@@ -4120,6 +4240,38 @@ struct RowsFragment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_partial_column_renders_its_template_and_escapes_values() {
+        let column = PartialColumn::new(vec![PartialReg::new(
+            "acme.stock",
+            "<b>{{ value }}</b> {{ record.sku }} {{ column.path }}",
+        )]);
+        let options = serde_json::json!({ "path": "acme.stock" });
+        let row = [("id", "7"), ("sku", "A&B")];
+        let cx = CellCx::new("<3", chrono_tz::UTC, chrono::Locale::en_US)
+            .with_options(&options)
+            .with_row(&row);
+        let html = column.render_default(&column.view_model(&cx)).into_string();
+        assert_eq!(html, "<b>&lt;3</b> A&amp;B acme.stock");
+        assert!(column.check(&options).is_ok());
+        assert!(column
+            .check(&serde_json::json!({ "path": "acme.missing" }))
+            .is_err());
+        assert!(column.check(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn a_partial_that_fails_shows_the_value_as_text() {
+        let column = PartialColumn::new(vec![PartialReg::new(
+            "acme.bad",
+            "{{ value | nonexistent }}",
+        )]);
+        let options = serde_json::json!({ "path": "acme.bad" });
+        let cx = CellCx::new("a<b", chrono_tz::UTC, chrono::Locale::en_US).with_options(&options);
+        let html = column.render_default(&column.view_model(&cx)).into_string();
+        assert_eq!(html, "a&lt;b");
+    }
 
     fn config() -> ListConfig {
         ListConfig {
