@@ -81,6 +81,10 @@ pub struct FormField {
     /// The one-to-one record this field is stored on, by its name under the
     /// form's `related`; `None` stores it on the form's own record.
     pub related: Option<String>,
+    /// The pages the field is on: empty for all of them. A field left off a
+    /// page is not shown, checked or saved there. In a file, `context:` or
+    /// the key's suffix: `notes@update`.
+    pub context: Vec<FormContext>,
     /// Changes when another field's state meets a condition.
     pub trigger: Option<Trigger>,
     /// What a value looks like: the shapes accepted, the one stored, and how a
@@ -461,6 +465,9 @@ impl<'de> Deserialize<'de> for FormField {
                         "hidden" => field.hidden = map.next_value()?,
                         "transient" => field.transient = map.next_value()?,
                         "related" => field.related = Some(map.next_value()?),
+                        "context" => {
+                            field.context = map.next_value::<OneOrMany<FormContext>>()?.into()
+                        }
                         _ => return Ok(false),
                     }
                     Ok(true)
@@ -506,6 +513,9 @@ impl Serialize for FormField {
         if let Some(related) = &self.related {
             map.serialize_entry("related", related)?;
         }
+        if !self.context.is_empty() {
+            map.serialize_entry("context", &self.context)?;
+        }
         if let Some(trigger) = &self.trigger {
             map.serialize_entry("trigger", trigger)?;
         }
@@ -522,11 +532,73 @@ impl crate::keyed::Keyed for FormField {
         &self.name
     }
     fn set_key(&mut self, key: String) {
-        self.name = key;
+        // `notes@update` is the column `notes` on the update page alone.
+        match key.split_once('@') {
+            Some((name, context)) => {
+                self.name = name.to_string();
+                if let Some(context) = FormContext::named(context) {
+                    if !self.context.contains(&context) {
+                        self.context.push(context);
+                    }
+                }
+            }
+            None => self.name = key,
+        }
+    }
+}
+
+/// A page a form is shown on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormContext {
+    /// The page that makes a record, `{base_path}/new`.
+    Create,
+    /// The page that changes one, `{base_path}/{id}/edit`.
+    Update,
+    /// The page that shows one, `{base_path}/{id}/preview`.
+    Preview,
+}
+
+impl FormContext {
+    fn named(name: &str) -> Option<Self> {
+        match name.trim() {
+            "create" => Some(Self::Create),
+            "update" => Some(Self::Update),
+            "preview" => Some(Self::Preview),
+            _ => None,
+        }
+    }
+}
+
+/// `context: update` or `context: [create, update]`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany<T> {
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> From<OneOrMany<T>> for Vec<T> {
+    fn from(value: OneOrMany<T>) -> Self {
+        match value {
+            OneOrMany::One(one) => vec![one],
+            OneOrMany::Many(many) => many,
+        }
     }
 }
 
 impl FormField {
+    /// Keeps the field to the pages named; see [`FormField::context`].
+    pub fn context(mut self, pages: impl IntoIterator<Item = FormContext>) -> Self {
+        self.context = pages.into_iter().collect();
+        self
+    }
+
+    /// Whether the field is on `page`.
+    pub fn on(&self, page: FormContext) -> bool {
+        self.context.is_empty() || self.context.contains(&page)
+    }
+
     /// A field of a registered type by key.
     pub fn of(name: &str, label: impl Into<Text>, field_type: &str) -> Self {
         Self {
@@ -545,6 +617,7 @@ impl FormField {
             hidden: false,
             transient: false,
             related: None,
+            context: Vec::new(),
             format: None,
         }
     }
@@ -2090,6 +2163,26 @@ pub(crate) async fn edit_form(
     render(page)
 }
 
+impl FormConfig {
+    /// The form as `page` shows it: the fields on that page, each column once.
+    pub fn for_context(&self, page: FormContext) -> FormConfig {
+        let mut form = self.clone();
+        let mut seen = std::collections::HashSet::new();
+        form.fields
+            .retain(|f| f.on(page) && seen.insert(f.name.clone()));
+        form
+    }
+
+    /// The form with every field whatever its page, each column once: what a
+    /// caller with no page of its own (an import, an ability) writes through.
+    pub fn every_context(&self) -> FormConfig {
+        let mut form = self.clone();
+        let mut seen = std::collections::HashSet::new();
+        form.fields.retain(|f| seen.insert(f.name.clone()));
+        form
+    }
+}
+
 /// A record's preview page: its form's values to read, with nothing to save,
 /// at `{base_path}/{id}/preview`. The list gains a Preview link on each row.
 ///
@@ -2100,7 +2193,7 @@ pub(crate) async fn edit_form(
 ///   panels:
 ///     - { title: Payments, src: "acme/orders/{id}/payments" }
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct PreviewConfig {
@@ -2113,6 +2206,34 @@ pub struct PreviewConfig {
     /// Parts a module draws under the values.
     #[serde(default)]
     pub panels: Vec<PreviewPanel>,
+    /// The fields the preview shows, in the form's own shape. Left out, it
+    /// shows the form's fields that are on the preview page.
+    #[serde(
+        default,
+        deserialize_with = "crate::keyed::deserialize",
+        serialize_with = "crate::keyed::serialize"
+    )]
+    pub fields: Vec<FormField>,
+    /// Whether the record's related lists show under the values. Default
+    /// `true`.
+    #[serde(default = "yes")]
+    pub relations: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        Self {
+            title: None,
+            assets: Vec::new(),
+            panels: Vec::new(),
+            fields: Vec::new(),
+            relations: true,
+        }
+    }
 }
 
 /// One part of a preview a module draws: the page fetches `src` once it is
@@ -2144,6 +2265,7 @@ pub(crate) async fn preview_page(
     preview: &PreviewConfig,
     id: String,
     shell: crate::Shell,
+    sections: Vec<RelationSection>,
     permissions: &laterite_auth::PermissionSet,
 ) -> Response {
     if !form.config.idents_valid() {
@@ -2190,6 +2312,7 @@ pub(crate) async fn preview_page(
             ),
         })
         .collect();
+    page.sections = sections;
     page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
     render(page)
 }

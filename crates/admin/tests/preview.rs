@@ -143,3 +143,28 @@ async fn a_panel_is_left_out_without_its_permission() {
     assert!(page.contains("/history"));
     assert!(!page.contains("/secrets"), "{page}");
 }
+
+#[tokio::test]
+async fn a_field_shows_only_on_the_pages_its_context_names() {
+    let (db, _guard) = test_db().await;
+    let token = operator(&db, true).await;
+    let (_, list) = get(&db, &token, "/admin/previews").await;
+    let at = list.find(r#"data-lat-href="/admin/previews/"#).unwrap();
+    let preview = list[at + 15..at + 15 + list[at + 15..].find('"').unwrap()].to_string();
+    let edit = format!("{}/edit", preview.trim_end_matches("/preview"));
+
+    let has = |page: &str, field: &str| page.contains(&format!(r#"name="{field}""#));
+    let (_, new) = get(&db, &token, "/admin/previews/new").await;
+    assert!(has(&new, "code") && has(&new, "name") && !has(&new, "permissions"));
+    let (status, edit) = get(&db, &token, &edit).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        has(&edit, "code") && !has(&edit, "name") && has(&edit, "permissions"),
+        "{:?}",
+        edit.match_indices("name=\"")
+            .map(|(i, _)| &edit[i..i + 24])
+            .collect::<Vec<_>>()
+    );
+    let (_, preview) = get(&db, &token, &preview).await;
+    assert!(has(&preview, "code") && has(&preview, "name") && !has(&preview, "permissions"));
+}

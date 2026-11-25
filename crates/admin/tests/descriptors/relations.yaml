@@ -2,6 +2,9 @@ entity: posts
 path: /posts
 title: Posts
 permission: acme.manage_posts
+preview:
+  fields:
+    code: { label: Reference }
 list:
   columns:
     code: {}

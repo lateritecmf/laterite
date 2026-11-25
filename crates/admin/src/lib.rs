@@ -4462,16 +4462,30 @@ fn mount_resource(
     if let Some(form_cfg) = resource.form.clone() {
         // Resolve the form's field options once, here at router build. A malformed
         // option or unregistered type aborts boot naming the resource.
-        let mut prepared =
-            form::PreparedForm::prepare(form_cfg, field_types, persisters, listeners)
+        let prepare = |cfg: form::FormConfig| {
+            let mut prepared = form::PreparedForm::prepare(cfg, field_types, persisters, listeners)
                 .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path))
                 .with_rules(rules.clone());
-        // Sections live on the edit page, so a form with them offers to stay there.
-        prepared.stay = !relations.is_empty();
-        prepared.update_permission = resource.permissions.update.clone();
-        let prepared = Arc::new(prepared);
+            // Sections live on the edit page, so a form with them offers to stay there.
+            prepared.stay = !relations.is_empty();
+            prepared.update_permission = resource.permissions.update.clone();
+            Arc::new(prepared)
+        };
+        // Every field, for a caller with no page of its own; then the form
+        // as each page shows it. A form whose fields are on every page is
+        // one form.
+        let prepared = prepare(form_cfg.every_context());
+        let paged = form_cfg.fields.iter().any(|f| !f.context.is_empty());
+        let on = |page: form::FormContext| {
+            if paged {
+                prepare(form_cfg.for_context(page))
+            } else {
+                prepared.clone()
+            }
+        };
+        let (on_create, on_update) = (on(form::FormContext::Create), on(form::FormContext::Update));
         prepared_form = Some(prepared.clone());
-        let (new_pf, create_pf) = (prepared.clone(), prepared.clone());
+        let (new_pf, create_pf) = (on_create.clone(), on_create);
         let relations_for_new = relations.clone();
         router = router.route(
             &format!("{base}/new"),
@@ -4516,7 +4530,7 @@ fn mount_resource(
             ),
         );
 
-        let (edit_pf, update_pf) = (prepared.clone(), prepared.clone());
+        let (edit_pf, update_pf) = (on_update.clone(), on_update);
         let relations_for_edit = relations.clone();
         // The edit page offers the Delete its list does.
         let delete_offer = resource.list.deletable.then(|| {
@@ -4533,7 +4547,17 @@ fn mount_resource(
             })
         });
         if let Some(preview) = resource.preview.clone() {
-            let (preview_pf, preview) = (prepared.clone(), Arc::new(preview));
+            // The preview's own fields when it names some, else the form's
+            // that are on the preview page.
+            let preview_pf = if preview.fields.is_empty() {
+                on(form::FormContext::Preview)
+            } else {
+                let mut cfg = form_cfg.clone();
+                cfg.fields = preview.fields.clone();
+                prepare(cfg.every_context())
+            };
+            let relations_for_preview = preview.relations.then(|| relations.clone());
+            let preview = Arc::new(preview);
             router = router.route(
                 &format!("{base}/{{id}}/preview"),
                 get(
@@ -4542,9 +4566,26 @@ fn mount_resource(
                           Extension(user): Extension<AuthenticatedUser>,
                           Path(id): Path<String>| {
                         let (pf, preview) = (preview_pf.clone(), preview.clone());
+                        let relations = relations_for_preview.clone();
                         async move {
-                            form::preview_page(&state, &pf, &preview, id, shell, &user.permissions)
-                                .await
+                            let mut sections = Vec::new();
+                            for rel in relations.iter().flat_map(|r| r.iter()) {
+                                if let Some(section) =
+                                    rel.section_to_read(&state, &id, &user, &shell).await
+                                {
+                                    sections.push(section);
+                                }
+                            }
+                            form::preview_page(
+                                &state,
+                                &pf,
+                                &preview,
+                                id,
+                                shell,
+                                sections,
+                                &user.permissions,
+                            )
+                            .await
                         }
                     },
                 ),
@@ -4601,6 +4642,21 @@ fn mount_resource(
         let name = rel.config.name.clone();
         let mut routes: Router<AdminState> = Router::new();
         let r = rel.clone();
+        let r_read = rel.clone();
+        routes = routes.route(
+            &format!("{base}/{{id}}/{name}/read"),
+            get(
+                move |State(state): State<AdminState>,
+                      Extension(shell): Extension<Shell>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Path(id): Path<String>,
+                      Query(params): Query<list::ListParams>,
+                      Query(raw): Query<HashMap<String, String>>| {
+                    let r = r_read.clone();
+                    async move { relation::read(&state, &r, &id, params, &raw, &user, shell).await }
+                },
+            ),
+        );
         routes =
             routes.route(
                 &format!("{base}/{{id}}/{name}"),

@@ -625,3 +625,39 @@ async fn a_membership_is_edited_and_removed_under_its_parent_leaving_the_record(
     assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
     assert_eq!(memberships(&db).await, [(1, 1, String::new())]);
 }
+
+#[tokio::test]
+async fn a_preview_shows_its_own_fields_and_the_sections_to_read() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let session = two_posts(&app, &db).await;
+    let (status, _, _) = send(
+        &app,
+        post("/admin/posts/1/comments/new", &session, "body=First"),
+    )
+    .await;
+    assert!(status.is_redirection(), "{status}");
+
+    let (status, _, body) = send(&app, get("/admin/posts/1/preview", &session)).await;
+    assert_eq!(status, StatusCode::OK);
+    // The preview's own field set: the code under its own label, no name.
+    assert!(body.contains("Reference") && body.contains(r#"name="code""#));
+    assert!(!body.contains(r#"name="name""#), "{body}");
+    // The section is there to read: its rows, and nothing that changes them.
+    assert!(body.contains("<h2>Comments</h2>") && body.contains("First"));
+    assert!(!body.contains("/admin/posts/1/comments/new"), "no New");
+    assert!(!body.contains("/comments/1/edit"), "no Edit");
+    assert!(!body.contains("/comments/delete"), "no Delete");
+    assert!(
+        body.contains("/admin/posts/1/comments/read"),
+        "sorting and paging stay on the read view"
+    );
+
+    let (status, _, rows) = send(
+        &app,
+        get_htmx("/admin/posts/1/comments/read?sort=body&dir=desc", &session),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(rows.contains("First") && !rows.contains("/edit"), "{rows}");
+}

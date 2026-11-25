@@ -88,9 +88,40 @@ Key | Default | Description
 `hidden` | `false` | Submitted but never shown: a plain hidden input carrying its value.
 `transient` | `false` | Shown and submitted with no column behind it: not loaded, not written by the built-in writer; the form's `persist` handler reads it (a password field).
 `translatable` | `false` | Marks the value as translatable content, for a translation plugin to manage.
+`context` | every page | The pages the field is on: `create`, `update`, `preview`, one or a list. See below.
 
 A key the type does not read is refused, naming the entry and the keys it
 accepts.
+
+## Keep a field to some pages
+
+```yaml
+fields:
+  code:  {}
+  token: { context: create }
+  notes: { type: textarea, context: [update, preview] }
+  status@create: { type: select, options: [{ value: draft, label: Draft }] }
+  status@update: { type: select, options: [{ value: draft, label: Draft }, { value: live, label: Live }] }
+```
+
+Form | Meaning
+--- | ---
+`context: update` | On that page alone.
+`context: [create, update]` | On each page listed.
+`name@update` | The same, written on the key. One column may have an entry a page.
+
+Page | Route
+--- | ---
+`create` | `{path}/new`
+`update` | `{path}/{id}/edit`
+`preview` | `{path}/{id}/preview`
+
+A field off a page is not shown, checked or saved there. An import and an
+ability write through every field.
+
+```rust
+FormField::text("token", t!("Token")).context([FormContext::Create]);
+```
 
 ## Set the form's keys
 
@@ -146,11 +177,21 @@ list:
 
 `preview: true` takes every default.
 
+```yaml
+preview:
+  fields:
+    code:   { label: Reference }
+    total:  { input: number }
+  relations: false
+```
+
 Key | Default | Description
 --- | --- | ---
 `title` | the form's | The page's title.
 `assets` | none | Asset keys the panels need on the page.
 `panels` | none | Parts drawn under the values, in order.
+`fields` | the form's on `preview` | The preview's own fields, written as the form's are.
+`relations` | `true` | The record's related lists show under the values, to read.
 
 Panel key | Description
 --- | ---

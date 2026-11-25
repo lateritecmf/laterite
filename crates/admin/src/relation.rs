@@ -723,6 +723,97 @@ impl PreparedRelation {
     }
 }
 
+impl PreparedRelation {
+    /// The relation's rows under `parent_id` to read: no New, no Edit, no
+    /// Delete, and sorting or paging stays that way.
+    fn list_to_read(&self, parent_id: &str) -> ListConfig {
+        let mut list = self.list_for(parent_id);
+        list.edit_base = None;
+        list.creatable = false;
+        list.deletable = false;
+        list.reorder = None;
+        list.row_click = list::RowClick::None;
+        list
+    }
+
+    async fn rows_to_read(
+        &self,
+        state: &AdminState,
+        parent_id: &str,
+        params: ListParams,
+        raw: &HashMap<String, String>,
+        user: &AuthenticatedUser,
+        shell: &Shell,
+    ) -> Option<crate::html::Markup> {
+        if let Some(code) = &self.config.permission {
+            if !user.permissions.allows(code) {
+                return None;
+            }
+        }
+        list::fragment(
+            state,
+            &self.list_to_read(parent_id),
+            &format!("{}/read", self.path(parent_id)),
+            params,
+            raw,
+            user,
+            shell.clone(),
+            &format!("lat-rel-{}", self.config.name),
+            None,
+        )
+        .await
+        .ok()
+    }
+
+    /// The relation as a section of a preview page.
+    pub(crate) async fn section_to_read(
+        &self,
+        state: &AdminState,
+        parent_id: &str,
+        user: &AuthenticatedUser,
+        shell: &Shell,
+    ) -> Option<RelationSection> {
+        let html = self
+            .rows_to_read(
+                state,
+                parent_id,
+                ListParams::default(),
+                &HashMap::new(),
+                user,
+                shell,
+            )
+            .await?;
+        Some(RelationSection {
+            toolbar: crate::ui::Toolbar::section(self.config.title.clone()).render(shell),
+            html,
+        })
+    }
+}
+
+/// A relation's rows to read, for a preview's sort and pager links.
+pub(crate) async fn read(
+    state: &AdminState,
+    rel: &PreparedRelation,
+    parent_id: &str,
+    params: ListParams,
+    raw: &HashMap<String, String>,
+    user: &AuthenticatedUser,
+    shell: Shell,
+) -> Response {
+    match rel.parent_exists(&state.db, parent_id).await {
+        Ok(true) => {}
+        Ok(false) => return not_found(),
+        Err(_) => return render_error(),
+    }
+    match rel
+        .rows_to_read(state, parent_id, params, raw, user, &shell)
+        .await
+    {
+        Some(html) => axum::response::Html(html.into_string()).into_response(),
+        None => axum::http::StatusCode::FORBIDDEN.into_response(),
+    }
+}
+
 /// The handlers, each over one relation under one parent.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn index(

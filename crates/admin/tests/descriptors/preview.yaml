@@ -15,4 +15,5 @@ form:
   title: Edit role
   fields:
     code: { rules: [required] }
-    name: {}
+    name: { context: [create, preview] }
+    permissions@update: { type: textarea }

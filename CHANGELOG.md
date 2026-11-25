@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `context:` on a form field (or `name@update` on its key) keeps it to the create, update or preview page; `FormField::context`, `FormContext`, `FormConfig::for_context`.
+- A preview takes its own `fields` and shows the record's related lists to read (`relations: false` leaves them out).
 - `row_click` takes an address pattern as well as `open`, `preview` and `none`: `row_click: "acme/orders/{id}/summary"`, with `{id}` and `{column}` filled in from the row (`RowClick::Url`).
 - `preview:` on a resource gives each record a read-only page at `{path}/{id}/preview` with panels a module draws (`Resource::preview`, `PreviewConfig`); the list links to it from each row, and `row_click: preview` opens it on a click.
 - A `partial` list column draws each cell through a MiniJinja template a module registers with `PartialReg`, given `value`, `record` and `column`.
