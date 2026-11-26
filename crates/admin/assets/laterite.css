@@ -1040,3 +1040,4 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-media-card__lock svg{width:12px;height:12px}
 .lat-upload__protect{margin-top:12px}
 .lat-field__locked{opacity:.65;min-width:0;flex-basis:100%}
+.lat-field__help--above{margin:0 0 6px}

@@ -7,8 +7,16 @@ list:
     code: {}
 form:
   title: Team
+  after_save:
+    create: "locked/{id}/edit"
+    close: locked
+    created: Team created.
   fields:
-    code: { rules: [required] }
+    code:
+      rules: [required]
+      help_above: Short and unique.
+      css_class: acme-code acme-wide
+      container_attributes: { data-acme: team }
     name: { read_only: true, default: Fixed }
     note: { disabled: true }
     topics: { permission: acme.unheld }

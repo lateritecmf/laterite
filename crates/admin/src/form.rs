@@ -62,6 +62,12 @@ pub struct FormField {
     pub translatable: bool,
     /// Help text shown beneath the control, localized at render.
     pub help: Option<Text>,
+    /// Text shown above the control, under the label, localized at render.
+    pub help_above: Option<Text>,
+    /// Classes added to the field's wrapper.
+    pub css_class: Option<String>,
+    /// Attributes added to the field's wrapper, by name.
+    pub container_attributes: std::collections::BTreeMap<String, String>,
     /// What Enter does in this field: `submit` (the form's rule), `off`, or
     /// `next` (moves to the next field).
     pub enter: FieldEnter,
@@ -266,6 +272,9 @@ pub(crate) fn behaviour_attrs(field: &FormField) -> String {
             preset.shape.as_str()
         ));
     }
+    for (name, value) in &field.container_attributes {
+        attrs.push_str(&format!(r#" {name}="{}""#, escaped(value)));
+    }
     if !field.depends_on.is_empty() {
         attrs.push_str(&format!(
             r#" data-lat-depends="{}""#,
@@ -453,6 +462,7 @@ impl Default for FormConfig {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         }
@@ -489,6 +499,9 @@ impl<'de> Deserialize<'de> for FormField {
                         "rules" => field.rules = map.next_value()?,
                         "translatable" => field.translatable = map.next_value()?,
                         "help" => field.help = map.next_value()?,
+                        "help_above" => field.help_above = map.next_value()?,
+                        "css_class" => field.css_class = map.next_value()?,
+                        "container_attributes" => field.container_attributes = map.next_value()?,
                         "enter" => field.enter = map.next_value()?,
                         "span" => field.span = map.next_value()?,
                         "break" => field.break_row = map.next_value()?,
@@ -519,6 +532,7 @@ impl<'de> Deserialize<'de> for FormField {
                 if let Some(trigger) = &field.trigger {
                     trigger.check().map_err(serde::de::Error::custom)?;
                 }
+                field.check_markup().map_err(serde::de::Error::custom)?;
                 Ok(field)
             }
 
@@ -541,6 +555,15 @@ impl Serialize for FormField {
         map.serialize_entry("rules", &self.rules)?;
         map.serialize_entry("translatable", &self.translatable)?;
         map.serialize_entry("help", &self.help)?;
+        if let Some(text) = &self.help_above {
+            map.serialize_entry("help_above", text)?;
+        }
+        if let Some(class) = &self.css_class {
+            map.serialize_entry("css_class", class)?;
+        }
+        if !self.container_attributes.is_empty() {
+            map.serialize_entry("container_attributes", &self.container_attributes)?;
+        }
         map.serialize_entry("enter", &self.enter)?;
         map.serialize_entry("span", &self.span)?;
         map.serialize_entry("break", &self.break_row)?;
@@ -823,6 +846,9 @@ impl FormField {
             rules: Vec::new(),
             translatable: false,
             help: None,
+            help_above: None,
+            css_class: None,
+            container_attributes: Default::default(),
             enter: FieldEnter::default(),
             span: Span::default(),
             break_row: false,
@@ -1002,6 +1028,79 @@ impl FormField {
         self
     }
 
+    /// Shows `text` above the control, under the label.
+    pub fn help_above(mut self, text: impl Into<Text>) -> Self {
+        self.help_above = Some(text.into());
+        self
+    }
+
+    /// Adds `class` (one or several, space separated) to the field's wrapper.
+    pub fn css_class(mut self, class: impl Into<String>) -> Self {
+        self.css_class = Some(class.into());
+        self
+    }
+
+    /// Adds an attribute to the field's wrapper.
+    pub fn container_attribute(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.container_attributes.insert(name.into(), value.into());
+        self
+    }
+
+    /// Refuses a class or an attribute name that is not plain markup: a class
+    /// of letters, digits, `-` and `_`; an attribute named likewise, and
+    /// never an event handler, `class`, `style` or one the framework sets.
+    pub(crate) fn check_markup(&self) -> Result<(), String> {
+        let plain = |text: &str| {
+            !text.is_empty()
+                && text
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        };
+        if let Some(class) = &self.css_class {
+            if !class.split_whitespace().all(plain) {
+                return Err(format!(
+                    "`css_class` holds `{class}`, which is not a list of class names"
+                ));
+            }
+        }
+        for name in self.container_attributes.keys() {
+            let lower = name.to_ascii_lowercase();
+            if !plain(name)
+                || lower.starts_with("on")
+                || lower.starts_with("data-lat-")
+                || matches!(lower.as_str(), "class" | "style" | "id" | "hidden")
+            {
+                return Err(format!("`container_attributes` cannot set `{name}`"));
+            }
+        }
+        Ok(())
+    }
+
+    /// The wrapper's classes: the span and row break, then the field's own.
+    pub(crate) fn wrapper_classes(&self) -> String {
+        let mut classes = layout_classes(self.span, self.break_row);
+        for class in self.css_class.iter().flat_map(|c| c.split_whitespace()) {
+            classes.push(' ');
+            classes.push_str(class);
+        }
+        classes
+    }
+
+    /// `control` with the field's text above it, when it has any.
+    pub(crate) fn with_help_above(&self, control: String, shell: &crate::Shell) -> String {
+        match &self.help_above {
+            Some(text) => format!(
+                r#"<p class="lat-field__help lat-field__help--above">{}</p>{control}"#,
+                escape_attr(&shell.tt(text))
+            ),
+            None => control,
+        }
+    }
+
     /// The share of the row this field takes.
     pub fn span(mut self, span: Span) -> Self {
         self.span = span;
@@ -1146,6 +1245,9 @@ pub struct FormConfig {
     /// The record of any resource this one belongs to, linked above the form.
     #[serde(default)]
     pub linked_record: Option<LinkedRecord>,
+    /// Where a save goes when it is not the list. See [`AfterSave`].
+    #[serde(default)]
+    pub after_save: AfterSave,
     /// Panels a module draws under an existing record's form, each fetched
     /// once the page is open: the same shape a preview's panels take.
     #[serde(default)]
@@ -1188,6 +1290,7 @@ impl FormConfig {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         }
@@ -1841,6 +1944,7 @@ impl PreparedForm {
     ) -> Result<Self, String> {
         let mut config = config;
         config.absorb_tabs();
+        config.after_save.check()?;
         if !config.idents_valid() {
             return Err(format!(
                 "form for `{}` names an invalid column (a field, slug, encrypted column or related record), or a field names a related record the form does not declare (each declares one of foreign_key and belongs_to)",
@@ -2520,17 +2624,41 @@ pub(crate) async fn new_form(
     render(page)
 }
 
-/// Where a save goes: the edit page when the operator asked to stay, else the
-/// form's done path or its list.
-fn after_save(form: &PreparedForm, data: &HashMap<String, String>, id: Option<i64>) -> String {
-    let stay = data.get("then").map(String::as_str) == Some("stay");
-    match (stay, id) {
-        (true, Some(id)) => format!("{}/{}/edit", form.config.base_path, id),
-        _ => form
-            .config
+/// Where a save goes: the edit page when the operator asked to stay; the
+/// form's `after_save` address for this kind of save, unless they asked to
+/// close; else the form's done path or its list.
+fn after_save(
+    form: &PreparedForm,
+    data: &HashMap<String, String>,
+    id: Option<i64>,
+    created: bool,
+    base: &str,
+) -> String {
+    let then = data.get("then").map(String::as_str);
+    let list = || {
+        form.config
             .done_path
             .clone()
-            .unwrap_or_else(|| form.config.base_path.clone()),
+            .unwrap_or_else(|| form.config.base_path.clone())
+    };
+    let rules = &form.config.after_save;
+    match (then, id) {
+        (Some("stay"), Some(id)) => format!("{}/{}/edit", form.config.base_path, id),
+        (Some("close"), _) => match &rules.close {
+            Some(path) => AfterSave::address(path, base, id),
+            None => list(),
+        },
+        _ => {
+            let own = if created {
+                &rules.create
+            } else {
+                &rules.update
+            };
+            match own {
+                Some(path) => AfterSave::address(path, base, id),
+                None => list(),
+            }
+        }
     }
 }
 
@@ -2570,12 +2698,19 @@ pub(crate) async fn create(
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
         Ok(rec) => {
-            session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
+            let said = form.config.after_save.created.clone();
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                said.unwrap_or_else(|| t!("Saved.")),
+            );
             let mut choice = HashMap::new();
             if let Some(then) = then {
                 choice.insert("then".to_string(), then);
             }
-            saved_response(htmx, &after_save(form, &choice, rec.id()))
+            saved_response(
+                htmx,
+                &after_save(form, &choice, rec.id(), true, &shell.base),
+            )
         }
         // A refused submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
@@ -2766,6 +2901,94 @@ pub struct PreviewPanel {
 pub(crate) struct PanelView {
     title: Option<String>,
     src: String,
+}
+
+/// Where a save goes, and what it says, when the defaults do not suit: Save
+/// returns to the list and says "Saved.".
+///
+/// ```yaml
+/// form:
+///   after_save:
+///     create: "acme/posts/{id}/edit"
+///     close: acme/posts
+///     created: Post created.
+/// ```
+///
+/// Each address is a path under the admin root, `{id}` replaced by the
+/// record's id. A page whose Save goes somewhere other than the list offers
+/// "Save and close" beside it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct AfterSave {
+    /// Where Save goes after a new record is created.
+    pub create: Option<String>,
+    /// Where Save goes after an existing record is updated.
+    pub update: Option<String>,
+    /// Where "Save and close" goes. The list when unset.
+    pub close: Option<String>,
+    /// What a create says in place of "Saved.".
+    pub created: Option<Text>,
+    /// What an update says in place of "Saved.".
+    pub updated: Option<Text>,
+}
+
+impl AfterSave {
+    /// Sends Save to `path` after a create.
+    pub fn create(mut self, path: impl Into<String>) -> Self {
+        self.create = Some(path.into());
+        self
+    }
+
+    /// Sends Save to `path` after an update.
+    pub fn update(mut self, path: impl Into<String>) -> Self {
+        self.update = Some(path.into());
+        self
+    }
+
+    /// Sends "Save and close" to `path`.
+    pub fn close(mut self, path: impl Into<String>) -> Self {
+        self.close = Some(path.into());
+        self
+    }
+
+    /// Says `text` after a create.
+    pub fn created(mut self, text: impl Into<Text>) -> Self {
+        self.created = Some(text.into());
+        self
+    }
+
+    /// Says `text` after an update.
+    pub fn updated(mut self, text: impl Into<Text>) -> Self {
+        self.updated = Some(text.into());
+        self
+    }
+
+    /// Refuses an address that leaves the admin: one with a scheme, or one a
+    /// browser reads as another host.
+    fn check(&self) -> Result<(), String> {
+        for path in [&self.create, &self.update, &self.close]
+            .into_iter()
+            .flatten()
+        {
+            if path.contains("://") || path.starts_with("//") || path.contains('\\') {
+                return Err(format!(
+                    "`after_save` goes to `{path}`, which is not a path under the admin"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// `path` under the admin root at `base`, for record `id`.
+    fn address(path: &str, base: &str, id: Option<i64>) -> String {
+        let id = id.map(|id| id.to_string()).unwrap_or_default();
+        format!(
+            "{}/{}",
+            base.trim_end_matches('/'),
+            path.replace("{id}", &id).trim_start_matches('/')
+        )
+    }
 }
 
 /// The panels the operator may see, each addressed for record `id`.
@@ -3173,12 +3396,19 @@ pub(crate) async fn update(
     .await
     {
         Ok(_) => {
-            session.push_flash(crate::session::FlashLevel::Success, t!("Saved."));
+            let said = form.config.after_save.updated.clone();
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                said.unwrap_or_else(|| t!("Saved.")),
+            );
             let mut choice = HashMap::new();
             if let Some(then) = then {
                 choice.insert("then".to_string(), then);
             }
-            saved_response(htmx, &after_save(form, &choice, id.parse().ok()))
+            saved_response(
+                htmx,
+                &after_save(form, &choice, id.parse().ok(), false, &shell.base),
+            )
         }
         // A refused submission re-renders the form with per-field errors as 422,
         // the cross-surface "validation failure" status.
@@ -3307,6 +3537,7 @@ fn invalid_response(
             error: page.error,
             fields: page.fields,
             stay: page.stay,
+            close: page.close,
             actions: page.actions,
             read_only: page.read_only,
             preview: false,
@@ -3410,6 +3641,11 @@ fn build(
                     None => String::new(),
                 }
             };
+            let control = if f.hidden {
+                control
+            } else {
+                f.with_help_above(control, shell)
+            };
             // A locked field shows its value and takes no input. A read-only
             // one still submits it, so a refused save draws it again.
             let control = if f.hidden || !f.locked() {
@@ -3427,7 +3663,7 @@ fn build(
                 section: !pf.field_type.stores(),
                 required,
                 enter: f.enter.attribute(),
-                layout: layout_classes(f.span, f.break_row),
+                layout: f.wrapper_classes(),
                 attrs: behaviour_attrs(f),
                 hidden: f.hidden,
                 chrome: None,
@@ -3478,6 +3714,13 @@ fn build(
         error,
         fields,
         stay: form.stay,
+        // Save goes somewhere other than the list on this page, so closing
+        // is offered beside it.
+        close: if action.ends_with("/new") {
+            form.config.after_save.create.is_some()
+        } else {
+            form.config.after_save.update.is_some()
+        },
         actions: action_views(&form.config.actions, action, &shell_base, &shell_i18n),
         read_only,
         preview: false,
@@ -3758,6 +4001,8 @@ struct FormFragment {
     error: Option<String>,
     fields: Vec<FieldView>,
     stay: bool,
+    /// Offer "Save and close".
+    close: bool,
     /// The module's buttons beside Save.
     actions: Vec<ActionView>,
     /// The operator may look but not save: the fields are disabled and Save
@@ -3786,6 +4031,8 @@ struct FormTemplate {
     fields: Vec<FieldView>,
     /// Offer "Save and continue editing".
     stay: bool,
+    /// Offer "Save and close".
+    close: bool,
     /// The module's buttons beside Save.
     actions: Vec<ActionView>,
     /// The operator may look but not save.
@@ -3999,8 +4246,8 @@ pub(crate) fn value_views(
                 id: f.name.clone(),
                 help: f.help.as_ref().map(|h| shell.tt(h)),
                 section: f.field_type == "section",
-                control,
-                layout: layout_classes(f.span, f.break_row),
+                control: f.with_help_above(control, shell),
+                layout: f.wrapper_classes(),
                 attrs: behaviour_attrs(f),
             }
         })
@@ -4113,6 +4360,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         };
@@ -4176,6 +4424,7 @@ mod tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                after_save: AfterSave::default(),
                 panels: Vec::new(),
                 done_path: None,
             },
@@ -4468,6 +4717,7 @@ mod tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                after_save: AfterSave::default(),
                 panels: Vec::new(),
                 done_path: None,
             },
@@ -4525,6 +4775,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         };
@@ -4564,6 +4815,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         };
@@ -4653,6 +4905,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         }
@@ -4760,6 +5013,7 @@ mod timestamp_tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            after_save: AfterSave::default(),
             panels: Vec::new(),
             done_path: None,
         }
@@ -4862,6 +5116,7 @@ mod htmx_tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                after_save: AfterSave::default(),
                 panels: Vec::new(),
                 done_path: None,
             },

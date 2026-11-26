@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `help_above`, `css_class` and `container_attributes` on a form field.
+- `after_save` on a form sends Save somewhere other than the list after a create or an update, offers "Save and close" beside it, and words the saved message (`AfterSave`).
 - `read_only`, `disabled` and `permission` on a form field (`FormField::read_only`, `disabled`, `require`): a locked field is never written from a submission, and a field behind a permission is neither shown to nor taken from a user without it.
 
 ## [0.12.2] - 2026-11-26

@@ -249,3 +249,70 @@ async fn a_field_behind_a_permission_is_neither_shown_nor_taken() {
     assert!(status.is_redirection(), "{status}");
     assert_eq!(stored(&db, "topics").await, "news");
 }
+
+#[tokio::test]
+async fn a_save_goes_where_the_form_says() {
+    let (db, _guard) = test_db().await;
+    let root = operator(&db, true).await;
+    let (_, new) = get(&db, &root, "/admin/locked/new").await;
+    // A field's own text above the control, class and wrapper attribute.
+    assert!(
+        new.contains(
+            r#"<p class="lat-field__help lat-field__help--above">Short and unique.</p><input"#
+        ),
+        "{new}"
+    );
+    assert!(
+        new.contains(r#" acme-code acme-wide" data-acme="team""#),
+        "{new}"
+    );
+    // Save leaves the list on a create, so closing is offered beside it.
+    assert!(
+        new.contains(r#"name="then" value="close">Save and close</button>"#),
+        "{new}"
+    );
+    let token = csrf(&new);
+    let send = |body: String, path: &'static str| {
+        let (db, root) = (db.clone(), root.clone());
+        async move {
+            let resp = app(&db)
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header("cookie", format!("laterite_session={root}"))
+                        .header("sec-fetch-site", "same-origin")
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            resp.headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        }
+    };
+    let to = send(format!("_csrf={token}&code=abc"), "/admin/locked/new")
+        .await
+        .expect("a redirect");
+    assert!(
+        to.starts_with("/admin/locked/") && to.ends_with("/edit"),
+        "to the new record: {to}"
+    );
+    let (_, edit) = get(&db, &root, &to).await;
+    assert!(
+        edit.contains("Team created."),
+        "the form's own words: {edit}"
+    );
+    // An update returns to the list as ever, so it offers no close.
+    assert!(!edit.contains("Save and close"), "{edit}");
+
+    let to = send(
+        format!("_csrf={token}&code=xyz&then=close"),
+        "/admin/locked/new",
+    )
+    .await;
+    assert_eq!(to.as_deref(), Some("/admin/locked"));
+}

@@ -24,7 +24,7 @@ const SESSION_COOKIE: &str = "laterite_session";
 /// commit that knowingly grows the asset. The stylesheet and script were
 /// re-recorded 2026-11-26 for the tag list, record preview, form tabs and field dependencies.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 96_967, 102_000),
+    ("laterite.css", 97_007, 102_000),
     ("laterite.js", 128_495, 134_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
