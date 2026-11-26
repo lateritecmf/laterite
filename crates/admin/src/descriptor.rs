@@ -140,7 +140,7 @@ fn check_type_keys(list: &ListConfig, form: Option<&FormConfig>) -> Result<(), S
     }
     for filter in &list.filters {
         let declared: Option<&[&str]> = match filter.filter_type.as_str() {
-            "select" => Some(&["options", "column", "related"]),
+            "select" => Some(&["options", "column", "related", "depends_on"]),
             "number" => Some(&["column", "related", "match"]),
             "boolean" | "text" | "date" => Some(&["column", "related"]),
             _ => None,

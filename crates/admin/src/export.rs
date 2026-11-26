@@ -80,6 +80,8 @@ pub(crate) async fn handle(
 
     // The same narrowing the screen applies, so the file has the columns the
     // operator can see and nothing else.
+    let loaded = config.with_choices(&state, raw, shell).await;
+    let config: &ListConfig = &loaded;
     let stored = list::stored_columns(&state, path, user).await;
     let config = list::narrowed(config, stored.as_deref(), user);
 

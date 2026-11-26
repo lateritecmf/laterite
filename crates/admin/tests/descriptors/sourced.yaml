@@ -5,6 +5,9 @@ permission: acme.manage_posts
 list:
   columns:
     code: {}
+  filters:
+    code: { type: select, options: [{ value: abc }, { value: xyz }] }
+    name: { type: select, options: acme.names, depends_on: code }
 form:
   title: Team
   fields:

@@ -259,6 +259,72 @@ async fn a_checklist_stores_only_what_its_source_offers() {
 }
 
 #[tokio::test]
+async fn a_filter_offers_what_its_source_returns_for_the_other_filters() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+
+    let (status, page) = get(&db, &token, "/admin/sourced?f_code=abc&f_name=alpha").await;
+    assert_eq!(status, StatusCode::OK);
+    let name = page
+        .split(r#"id="lat-filter-f_name""#)
+        .nth(1)
+        .and_then(|rest| rest.split("</select>").next())
+        .unwrap();
+    assert!(
+        name.contains(r#"<option value="alpha" selected>Alpha</option>"#),
+        "{name}"
+    );
+    // Clear names an empty query, so a remembered filter is not brought back.
+    assert!(
+        page.contains(r#"class="lat-filterbar__clear" href="/admin/sourced?q=""#),
+        "{page}"
+    );
+    // A disabled choice is not one a filter offers.
+    assert!(!name.contains("Apple") && !name.contains("Other"), "{name}");
+
+    // The followed filter moved on: the value held is no longer offered.
+    let (_, page) = get(&db, &token, "/admin/sourced?f_code=xyz&f_name=alpha").await;
+    let name = page
+        .split(r#"id="lat-filter-f_name""#)
+        .nth(1)
+        .and_then(|rest| rest.split("</select>").next())
+        .unwrap();
+    assert!(
+        name.contains(r#"<option value="other">Other</option>"#),
+        "{name}"
+    );
+    assert!(!name.contains("selected"), "{name}");
+}
+
+#[tokio::test]
+async fn a_swap_carries_the_fresh_choices_of_a_following_filter() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .uri("/admin/sourced?f_code=abc")
+                .header("cookie", format!("laterite_session={token}"))
+                .header("hx-request", "true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    let fresh = body
+        .split(r#"<select id="lat-filter-f_name" hx-swap-oob="innerHTML">"#)
+        .nth(1)
+        .expect("the following filter's choices");
+    assert!(fresh.contains(">Alpha</option>"), "{fresh}");
+    // The filter it follows is left as the page has it.
+    assert!(!body.contains(r#"id="lat-filter-f_code""#), "{body}");
+}
+
+#[tokio::test]
 #[should_panic(expected = "which no module registered")]
 async fn a_source_nobody_registered_aborts_boot() {
     let (db, _guard) = test_db().await;

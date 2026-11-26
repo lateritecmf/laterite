@@ -43,3 +43,5 @@
     </span>
   </div>
 </div>
+{% for f in refreshed %}<select id="lat-filter-{{ f.param }}" hx-swap-oob="innerHTML">{% include "_list_filter_options.html" %}</select>
+{% endfor %}

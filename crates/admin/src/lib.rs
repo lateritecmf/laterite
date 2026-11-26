@@ -2785,6 +2785,9 @@ pub fn router(
         if let Some(delete) = delete {
             deletes.insert(resource.base_path.clone(), delete);
         }
+        if let Err(e) = resource.list.check_filter_sources(&state.option_sources) {
+            panic!("admin resource `{}`: {e}", resource.base_path);
+        }
         if let Some(prepared) = prepared {
             if let Err(e) = prepared.check_sources(&state.option_sources) {
                 panic!("admin resource `{}`: {e}", resource.base_path);

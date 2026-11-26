@@ -17,7 +17,8 @@ Key | Default | Description
 --- | --- | ---
 `label` | from the key | The control's label.
 `type` | `text` | `boolean`, `select`, `text`, `number` or `date`.
-`options` | | A `select` filter's choices, a list of `{ value, label }`. Required for `select`.
+`options` | | A `select` filter's choices: a list of `{ value, label }`, or the name of an option source. Required for `select`.
+`depends_on` | none | On a `select` with a source: the filters whose values the source reads. See [select](../elements/filter-scopes.md#select).
 `default_value` | none | Applied when the request names no value for this filter: the screen opens already narrowed. Clearing it is still "no filter".
 `permission` | none | A user without it does not see the filter, and its default is not applied.
 
@@ -69,6 +70,7 @@ Constructor | Type
 --- | ---
 `ListFilter::boolean(field, label)` | `boolean`
 `ListFilter::select(field, label, options)` | `select`
+`ListFilter::select_from(field, label, source)` | `select`, its choices from an option source; `.depends_on([..])` names the filters it follows.
 `ListFilter::text(field, label)` | `text`
 `ListFilter::number(field, label)` | `number`
 `ListFilter::date(field, label)` | `date`

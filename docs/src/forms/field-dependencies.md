@@ -81,7 +81,7 @@ Key | Value
 --- | ---
 `field` | The field's name.
 `value` | The field's current value.
-`values` | Every value the form holds, by field name.
+`values` | Every value the form holds, by field name. For a list filter: every filter value, by filter name.
 `id` | The record being edited, on an edit page.
 `i18n` | The request's translator.
 

@@ -116,19 +116,16 @@
   {% for f in filters %}
   <label class="lat-filterbar__filter">
     <span class="lat-filterbar__label">{{ f.label }}</span>
-    {% if f.options.is_empty() %}
+    {% if f.input_type != "select" %}
     <input class="lat-input" type="{{ f.input_type }}" name="{{ f.param }}" value="{{ f.value }}" form="lat-list-query">
     {% else %}
-    <select class="lat-input lat-select" name="{{ f.param }}" form="lat-list-query">
-      <option value="">{{ shell.t("Any") }}</option>
-      {% for o in f.options %}
-      <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
-      {% endfor %}
+    <select class="lat-input lat-select" id="lat-filter-{{ f.param }}" name="{{ f.param }}" form="lat-list-query">
+      {% include "_list_filter_options.html" %}
     </select>
     {% endif %}
   </label>
   {% endfor %}
-  <a class="lat-filterbar__clear" href="{{ path }}">{{ shell.t("Clear") }}</a>
+  <a class="lat-filterbar__clear" href="{{ path }}?q=">{{ shell.t("Clear") }}</a>
 </div>
 {% endif %}
 {% if deletable %}

@@ -23,11 +23,14 @@ filters:
     type: select
     options: [{ value: draft, label: Draft }, { value: live, label: Live }]
     default_value: live
+  country: { type: select, options: acme.countries }
+  state:   { type: select, options: acme.states, depends_on: country }
 ```
 
 Key | Description
 --- | ---
-`options` | The choices, a list of `{ value, label }`. Required.
+`options` | The choices: a list of `{ value, label }`, or the name of an [option source](../forms/field-dependencies.md#options-from-a-source). Required.
+`depends_on` | A filter, or a list of filters, whose values the source reads through `OptionCx::values`. When one changes, this filter's choices are asked for again, and a value no longer offered is dropped.
 
 Offers | Matches
 --- | ---

@@ -1123,6 +1123,48 @@ impl ListFilter {
         Self::of(field, label, "date")
     }
 
+    /// A filter offering what a registered
+    /// [option source](crate::options::OptionSource) returns. The source sees
+    /// the other filters' values. In a file: `options: acme.states`.
+    pub fn select_from(field: &str, label: impl Into<Text>, source: &str) -> Self {
+        let mut filter = Self::of(field, label, "select");
+        filter.options = serde_json::json!({ "options": source });
+        filter
+    }
+
+    /// Names the filters whose values this one's source reads: when one of
+    /// them changes, this filter's choices are asked for again. In a file:
+    /// `depends_on: country`, or a list.
+    pub fn depends_on<I, S>(mut self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        if !self.options.is_object() {
+            self.options = serde_json::json!({});
+        }
+        let names: Vec<String> = filters.into_iter().map(Into::into).collect();
+        self.options["depends_on"] = serde_json::json!(names);
+        self
+    }
+
+    /// The option source named in place of a list of choices.
+    pub(crate) fn source(&self) -> Option<&str> {
+        self.options.get("options").and_then(|v| v.as_str())
+    }
+
+    /// The filters this one follows.
+    pub(crate) fn follows(&self) -> Vec<String> {
+        match self.options.get("depends_on") {
+            Some(serde_json::Value::String(one)) => vec![one.clone()],
+            Some(serde_json::Value::Array(many)) => many
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// The choices a `select` offers, or none for any other type.
     pub(crate) fn choices(&self) -> Vec<FilterOption> {
         self.options
@@ -2814,6 +2856,8 @@ pub(crate) async fn handle_remembering(
     query_string: Option<&str>,
     session: Option<&crate::session::SessionHandle>,
 ) -> Response {
+    let loaded = config.with_choices(state, raw, &shell).await;
+    let config: &ListConfig = &loaded;
     if let Some(session) = session.filter(|_| config.remember) {
         match query_string.filter(|q| !q.is_empty()) {
             None if !crate::form::is_htmx(headers) => {
@@ -2833,6 +2877,116 @@ pub(crate) async fn handle_remembering(
     show(state, config, path, params, raw, user, shell, headers).await
 }
 
+impl ListConfig {
+    /// Refuses a filter naming an option source nobody registered, or
+    /// following a filter the list lacks.
+    pub(crate) fn check_filter_sources(
+        &self,
+        sources: &crate::options::OptionRegistry,
+    ) -> Result<(), String> {
+        for filter in &self.filters {
+            if let Some(source) = filter.source() {
+                if !sources.contains_key(source) {
+                    return Err(format!(
+                        "filter `{}` takes its options from `{source}`, which no module registered",
+                        filter.field
+                    ));
+                }
+            }
+            for followed in filter.follows() {
+                if followed == filter.field || !self.filters.iter().any(|f| f.field == followed) {
+                    return Err(format!(
+                        "filter `{}` depends on `{followed}`, which is not another filter of this list",
+                        filter.field
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The list with each sourced filter's choices asked of its source, given
+    /// the request's filter values: what a request filters and renders
+    /// through. A list with no sourced filter is returned as it is.
+    pub(crate) async fn with_choices<'a>(
+        &'a self,
+        state: &AdminState,
+        raw: &HashMap<String, String>,
+        shell: &crate::Shell,
+    ) -> std::borrow::Cow<'a, ListConfig> {
+        if self.filters.iter().all(|f| f.source().is_none()) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut config = self.clone();
+        // What each filter holds, by its field.
+        let mut values: HashMap<String, String> = HashMap::new();
+        for filter in &self.filters {
+            let value = match raw.get(&filter.param()) {
+                Some(value) => value.trim().to_string(),
+                None => filter.default_value.clone().unwrap_or_default(),
+            };
+            if !value.is_empty() {
+                values.insert(filter.field.clone(), value);
+            }
+        }
+        let mut pending: Vec<usize> = (0..self.filters.len())
+            .filter(|&index| self.filters[index].source().is_some())
+            .collect();
+        // A filter is asked once every filter it follows has its choices.
+        while !pending.is_empty() {
+            let ready = pending
+                .iter()
+                .position(|&index| {
+                    !self.filters[index].follows().iter().any(|followed| {
+                        pending
+                            .iter()
+                            .any(|&other| other != index && &self.filters[other].field == followed)
+                    })
+                })
+                .unwrap_or(0);
+            let index = pending.remove(ready);
+            let filter = &self.filters[index];
+            let Some(name) = filter.source() else {
+                continue;
+            };
+            let entries = {
+                let cx = crate::options::OptionCx {
+                    field: &filter.field,
+                    value: values.get(&filter.field).map(String::as_str).unwrap_or(""),
+                    values: &values,
+                    id: None,
+                    i18n: shell.i18n(),
+                };
+                match state.option_sources.get(name) {
+                    Some(reg) => match reg.source.options(&state.db, &cx).await {
+                        Ok(entries) => entries,
+                        Err(error) => {
+                            tracing::error!(source = %name, filter = %filter.field, %error, "option source failed");
+                            Vec::new()
+                        }
+                    },
+                    None => Vec::new(),
+                }
+            };
+            // A value the fresh choices lack is no longer held, so a filter
+            // following this one is asked without it.
+            if values
+                .get(&filter.field)
+                .is_some_and(|held| !entries.iter().any(|e| !e.disabled && &e.value == held))
+            {
+                values.remove(&filter.field);
+            }
+            let choices: Vec<serde_json::Value> = entries
+                .into_iter()
+                .filter(|entry| !entry.disabled)
+                .map(|entry| serde_json::json!({ "value": entry.value, "label": entry.label }))
+                .collect();
+            config.filters[index].options["options"] = serde_json::Value::Array(choices);
+        }
+        std::borrow::Cow::Owned(config)
+    }
+}
+
 /// Renders the list for the request as it stands.
 #[allow(clippy::too_many_arguments)]
 async fn show(
@@ -2846,6 +3000,13 @@ async fn show(
     headers: &axum::http::HeaderMap,
 ) -> Response {
     let children = params.parent.is_some();
+    // Filters that follow another get their fresh choices with the rows.
+    let following: Vec<String> = config
+        .filters
+        .iter()
+        .filter(|f| !f.follows().is_empty())
+        .map(ListFilter::param)
+        .collect();
     match build_page(state, config, path, params, raw, user, shell).await {
         // An htmx request gets the list region alone, which replaces itself in
         // place; anything else gets the whole page, so sorting and paging still
@@ -2855,7 +3016,14 @@ async fn show(
             if crate::form::is_htmx(headers) && children && page_view.tree.is_some() {
                 render(rows_of(page_view, "lat-list", None))
             } else if crate::form::is_htmx(headers) {
-                render(fragment_of(page_view, "lat-list", None))
+                let mut page_view = page_view;
+                let refreshed = std::mem::take(&mut page_view.filters)
+                    .into_iter()
+                    .filter(|f| following.contains(&f.param))
+                    .collect();
+                let mut fragment = fragment_of(page_view, "lat-list", None);
+                fragment.refreshed = refreshed;
+                render(fragment)
             } else {
                 render(page_view)
             }
@@ -3165,6 +3333,7 @@ async fn build_page(
                 export_query,
                 path: path.to_string(),
                 filters: filter_views,
+                refreshed: Vec::new(),
                 deletable: config.deletable
                     && config
                         .delete_permission
@@ -3943,6 +4112,7 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         delete_path,
         reorder: page.reorder,
         tree: page.tree,
+        refreshed: Vec::new(),
     }
 }
 
@@ -3978,6 +4148,8 @@ pub(crate) async fn fragment(
     region: &str,
     delete_path: Option<RowAction>,
 ) -> Result<crate::html::Markup, ()> {
+    let loaded = config.with_choices(state, raw, &shell).await;
+    let config: &ListConfig = &loaded;
     let page = build_page(state, config, path, params, raw, user, shell)
         .await
         .ok_or(())?;
@@ -4143,6 +4315,8 @@ struct ListTemplate {
     path: String,
     /// The filter controls, with the active value marked.
     filters: Vec<FilterView>,
+    /// Always empty on a whole page: the filter bar is drawn in full.
+    refreshed: Vec<FilterView>,
     /// Whether anything is narrowing the list, so a Clear link is offered.
     filtered: bool,
     /// The query-string pairs a sort or pager link must carry.
@@ -4227,6 +4401,7 @@ fn filter_views(
                 _ => Vec::new(),
             };
             let input_type = match f.filter_type.as_str() {
+                "select" | "boolean" => "select",
                 "number" => "number",
                 "date" => "date",
                 _ => "text",
@@ -4292,6 +4467,8 @@ struct ListFragment {
     /// The grip and Move buttons, when the list is in its own order.
     reorder: Option<ReorderView>,
     tree: Option<TreeView>,
+    /// Filters that follow another, to hand their fresh choices to the page.
+    refreshed: Vec<FilterView>,
 }
 
 /// A parent's children alone, for a tree row that expands in place.

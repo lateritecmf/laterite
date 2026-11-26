@@ -2437,6 +2437,16 @@ window.lat.widget('taglist', function (root) {
   });
 })();
 
+// A filter that follows another gets fresh choices beside the rows. A browser
+// keeps its own idea of the selection across that swap, so the one the
+// response marks is put back: the first when it marks none.
+document.addEventListener('htmx:oobAfterSwap', function (e) {
+  var select = e.detail && e.detail.target;
+  if (!select || select.tagName !== 'SELECT' || select.id.indexOf('lat-filter-') !== 0) return;
+  var marked = select.querySelector('option[selected]');
+  select.selectedIndex = marked ? marked.index : 0;
+});
+
 // Rows: a row that names its record (`data-lat-href`) opens it on a click or
 // Enter, as its Edit link would. A click on a control in the row is that
 // control's, and text being selected is left to be copied. A modified click

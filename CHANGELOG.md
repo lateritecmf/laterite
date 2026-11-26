@@ -7,6 +7,14 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- A `select` list filter takes its choices from an option source (`options: acme.states`, `ListFilter::select_from`), and `depends_on` asks for them again when another filter changes.
+
+### Fixed
+
+- Clear on a list that remembers its query now clears it: the link was sent straight back to the remembered filters.
+
 ## [0.12.1] - 2026-11-26
 
 ### Added

@@ -1,0 +1,4 @@
+<option value="">{{ shell.t("Any") }}</option>
+      {% for o in f.options %}
+      <option value="{{ o.value }}"{% if o.value == f.value %} selected{% endif %}>{{ o.label }}</option>
+      {% endfor %}
