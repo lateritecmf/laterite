@@ -46,6 +46,36 @@
   <input type="hidden" name="active" value="{% if is_active %}0{% else %}1{% endif %}">
 </form>
 {% endif %}
+{% if can_edit_details %}
+<div class="lat-card lat-card--form">
+  <form method="post" action="{{ details_action }}" data-lat-widget="form">
+    {% include "_csrf.html" %}
+    <div class="lat-fields">
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="first_name">{{ shell.t("First name") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" type="text" id="first_name" name="first_name" value="{{ first_name }}" autocomplete="off" required>
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="last_name">{{ shell.t("Last name") }}</label>
+        <input class="lat-input" type="text" id="last_name" name="last_name" value="{{ last_name }}" autocomplete="off">
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="username">{{ shell.t("Username") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" type="text" id="username" name="username" value="{{ username }}" autocomplete="off" required>
+        <p class="lat-field__help">{{ shell.t("What they sign in with. Tell them when you change it.") }}</p>
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="email">{{ shell.t("Email") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" type="email" id="email" name="email" value="{{ email }}" autocomplete="off" required>
+        <p class="lat-field__help">{{ shell.t("Password reset links go to this address.") }}</p>
+      </div>
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save details") }}</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 <div class="lat-card lat-card--form">
   {% if locked %}<div class="lat-alert">{{ shell.t("This account is locked out after too many failed sign-ins.") }}</div>{% endif %}
   <dl class="lat-facts">

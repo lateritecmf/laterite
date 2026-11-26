@@ -561,7 +561,114 @@ pub(crate) async fn edit_form(
     page.reset_action = format!("{}/users/{id}/password", state.admin_path);
     page.locked = locked;
     page.unlock_action = format!("{}/users/{id}/unlock", state.admin_path);
+    page.can_edit_details = match &target {
+        Some(user) => {
+            editor.permissions.allows(crate::users::MANAGE_USERS)
+                && may_manage_credentials(&state, &editor, user).await?
+        }
+        None => false,
+    };
+    page.details_action = format!("{}/users/{id}/details", state.admin_path);
+    page.first_name = first_name.clone();
+    page.last_name = last_name.clone().unwrap_or_default();
     Ok(render(page))
+}
+
+/// What a details form submits.
+#[derive(serde::Deserialize)]
+pub(crate) struct DetailsForm {
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    first_name: String,
+    #[serde(default)]
+    last_name: String,
+}
+
+/// Why a submitted set of details is refused, or `None` when it may be
+/// stored for the account `id`: the required ones present, the email shaped
+/// like one, and neither the username nor the email held by another account.
+pub(crate) async fn details_refusal(
+    db: &laterite_core::Db,
+    id: i64,
+    username: &str,
+    email: &str,
+    first_name: &str,
+) -> Result<Option<Text>, laterite_auth::AuthError> {
+    if username.is_empty() || email.is_empty() || first_name.is_empty() {
+        return Ok(Some(t!("Username, email and first name are required.")));
+    }
+    if !email.contains('@') {
+        return Ok(Some(t!("That is not an email address.")));
+    }
+    if laterite_auth::store::find_user_by_username(db, username)
+        .await?
+        .is_some_and(|other| other.id != id)
+    {
+        return Ok(Some(t!("Another account has that username.")));
+    }
+    if laterite_auth::store::find_user_by_email(db, email)
+        .await?
+        .is_some_and(|other| other.id != id)
+    {
+        return Ok(Some(t!("Another account has that email address.")));
+    }
+    Ok(None)
+}
+
+/// Changes another account's username, email and name. Refused without the
+/// permission, and for an account holding what the editor does not.
+pub(crate) async fn update_details(
+    State(state): State<AdminState>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Path(id): Path<String>,
+    Form(form): Form<DetailsForm>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    let target_id: i64 = id.parse().map_err(|_| AdminError::NotFound)?;
+    let target = laterite_auth::store::find_user_by_id(&state.db, target_id)
+        .await?
+        .ok_or(AdminError::NotFound)?;
+    if !may_manage_credentials(&state, &editor, &target).await? {
+        return Err(AdminError::Forbidden);
+    }
+    let back = format!("{}/users/{id}/edit", state.admin_path);
+    let (username, email) = (form.username.trim(), form.email.trim());
+    let (first_name, last_name) = (form.first_name.trim(), form.last_name.trim());
+    if let Some(refusal) =
+        details_refusal(&state.db, target_id, username, email, first_name).await?
+    {
+        session.push_flash(crate::session::FlashLevel::Error, refusal);
+        return Ok(Redirect::to(&back).into_response());
+    }
+    laterite_auth::store::update_user_details(
+        &state.db,
+        target_id,
+        &laterite_auth::store::UserDetails {
+            username,
+            email,
+            first_name,
+            last_name: (!last_name.is_empty()).then_some(last_name),
+        },
+    )
+    .await?;
+    crate::audit::record(
+        &state,
+        &editor,
+        "backend.user.details",
+        Some("backend_user"),
+        Some(&id),
+        Some(username),
+        None,
+    )
+    .await;
+    session.push_flash(crate::session::FlashLevel::Success, t!("Details saved."));
+    Ok(Redirect::to(&back).into_response())
 }
 
 /// Persists the changed overrides, then redirects to the list.
@@ -792,6 +899,10 @@ fn build(
         reset_action: String::new(),
         locked: false,
         unlock_action: String::new(),
+        can_edit_details: false,
+        details_action: String::new(),
+        first_name: String::new(),
+        last_name: String::new(),
     }
 }
 
@@ -891,6 +1002,13 @@ struct UsersFormTemplate {
     /// Failed sign-ins have locked the account out for now.
     locked: bool,
     unlock_action: String,
+    /// Whether the viewing operator may change the account's name, email and
+    /// username: holding the permission, and nothing the account holds that
+    /// they lack.
+    can_edit_details: bool,
+    details_action: String,
+    first_name: String,
+    last_name: String,
 }
 
 #[cfg(test)]

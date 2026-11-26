@@ -59,6 +59,8 @@ laterite.auth::reset    name, username, link, expires
 Page | Does
 --- | ---
 `/admin/users/new` | Creates the account, shows the temporary password once, and mails `laterite.auth::invite` with a link to set a password; the link works for seven days.
+`/admin/users/<id>/edit` | Details: the account's first name, last name, username and email, changed by a user holding `backend.manage_users`. A username or email another account holds is refused.
+`/admin/preferences` | Your details: a user's own first name, last name and email. A new email asks for the current password; the username is changed by an administrator.
 `/admin/forgot` | Linked from the sign-in page. Takes a username or email address and mails `laterite.auth::reset` with a link that works for one hour; the page says the same whether or not the account exists, and one address may ask five times in fifteen minutes.
 `/admin/set-password/<token>` | Opened from either link: a new password, checked against the password policy, then the sign-in page.
 

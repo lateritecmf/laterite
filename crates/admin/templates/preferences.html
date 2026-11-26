@@ -27,6 +27,36 @@
   </form>
 </div>
 
+<div class="lat-toolbar lat-toolbar--section" id="details"><h2>{{ shell.t("Your details") }}</h2></div>
+<div class="lat-card lat-card--form">
+  <form method="post" action="{{ shell.base }}/preferences/details" data-lat-widget="form">
+    {% include "_csrf.html" %}
+    <div class="lat-fields">
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="first_name">{{ shell.t("First name") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" type="text" id="first_name" name="first_name" value="{{ first_name }}" autocomplete="given-name" required>
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="last_name">{{ shell.t("Last name") }}</label>
+        <input class="lat-input" type="text" id="last_name" name="last_name" value="{{ last_name }}" autocomplete="family-name">
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="email">{{ shell.t("Email") }}<span class="lat-field__req">*</span></label>
+        <input class="lat-input" type="email" id="email" name="email" value="{{ email }}" autocomplete="email" required>
+        <p class="lat-field__help">{{ shell.t("Password reset links go to this address.") }}</p>
+      </div>
+      <div class="lat-field lat-field--6">
+        <label class="lat-field__label" for="details_password">{{ shell.t("Current password") }}</label>
+        <input class="lat-input" type="password" id="details_password" name="current_password" autocomplete="current-password">
+        <p class="lat-field__help">{{ shell.t("Needed only when you change your email.") }}</p>
+      </div>
+    </div>
+    <div class="lat-actions">
+      <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save details") }}</button>
+    </div>
+  </form>
+</div>
+
 <div class="lat-toolbar lat-toolbar--section" id="password"><h2>{{ shell.t("Password") }}</h2></div>
 <div class="lat-card lat-card--form">
   {% if must_change %}<div class="lat-alert" data-lat-persist>{{ shell.t("This password is temporary. Set one of your own to continue.") }}</div>{% endif %}

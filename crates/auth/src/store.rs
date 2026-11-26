@@ -1386,6 +1386,49 @@ pub async fn create_user(
     Ok(id)
 }
 
+/// What an account is called and reached by: the fields an administrator, or
+/// the person themselves, may change after the account exists.
+#[derive(Debug, Clone, Copy)]
+pub struct UserDetails<'a> {
+    /// The login name.
+    pub username: &'a str,
+    /// The email address.
+    pub email: &'a str,
+    /// The given name.
+    pub first_name: &'a str,
+    /// The family name, when there is one.
+    pub last_name: Option<&'a str>,
+}
+
+/// Changes an account's username, email and name. The username and email are
+/// folded as a new account's are. A username or email another account holds
+/// is the caller's to refuse first; the table's unique keys refuse it here.
+pub async fn update_user_details(
+    db: &Db,
+    user_id: i64,
+    details: &UserDetails<'_>,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::Username, normalize_key(details.username))
+            .value(BackendUsers::Email, normalize_key(details.email))
+            .value(BackendUsers::FirstName, details.first_name)
+            .value(
+                BackendUsers::LastName,
+                details.last_name.map(str::to_string),
+            )
+            .value(BackendUsers::UpdatedAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
 /// Whether any backend user exists.
 pub async fn any_user_exists(db: &Db) -> Result<bool, AuthError> {
     let (sql, values) = build(

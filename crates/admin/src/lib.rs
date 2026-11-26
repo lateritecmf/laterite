@@ -3092,6 +3092,10 @@ pub fn router(
                 post(users::set_active),
             )
             .route(
+                &format!("{admin_path}/users/{{id}}/details"),
+                post(users::update_details),
+            )
+            .route(
                 &format!("{admin_path}/users/{{id}}/password"),
                 post(users::reset_password),
             )
@@ -3224,6 +3228,10 @@ pub fn router(
         )
         .route(&format!("{admin_path}/editor/menu"), get(editor_menu))
         .route(&format!("{admin_path}/palette"), get(palette::palette))
+        .route(
+            &format!("{admin_path}/preferences/details"),
+            post(own_details_update),
+        )
         .route(
             &format!("{admin_path}/preferences/sessions/revoke"),
             post(session_revoke),
@@ -6239,6 +6247,95 @@ async fn session_revoke_others(
 }
 
 #[derive(Deserialize)]
+struct OwnDetailsForm {
+    #[serde(default)]
+    first_name: String,
+    #[serde(default)]
+    last_name: String,
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    current_password: String,
+}
+
+/// Changes the operator's own name and email. The email is where a password
+/// reset is sent, so changing it asks for the current password; a name alone
+/// does not. The username stays an administrator's to change.
+async fn own_details_update(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<session::SessionHandle>,
+    Form(form): Form<OwnDetailsForm>,
+) -> Response {
+    let back = format!("{}/preferences#details", state.admin_path);
+    let refuse = |message: Text| {
+        session.push_flash(FlashLevel::Error, message);
+        Redirect::to(&back).into_response()
+    };
+    let (first_name, last_name) = (form.first_name.trim(), form.last_name.trim());
+    let email = form.email.trim();
+    let refusal = match users::details_refusal(
+        &state.db,
+        user.user.id,
+        &user.user.username,
+        email,
+        first_name,
+    )
+    .await
+    {
+        Ok(refusal) => refusal,
+        Err(e) => {
+            tracing::error!(error = %e, "checking account details failed");
+            return render_error();
+        }
+    };
+    if let Some(message) = refusal {
+        return refuse(message);
+    }
+    if !email.eq_ignore_ascii_case(&user.user.email) {
+        let stored = match laterite_auth::store::find_user_by_id(&state.db, user.user.id).await {
+            Ok(Some(stored)) => stored,
+            _ => return render_error(),
+        };
+        let matches =
+            laterite_auth::password::verify_password(&form.current_password, &stored.password_hash)
+                .unwrap_or(false);
+        if !matches {
+            return refuse(t!(
+                "To change your email, enter your current password as well."
+            ));
+        }
+    }
+    let saved = laterite_auth::store::update_user_details(
+        &state.db,
+        user.user.id,
+        &laterite_auth::store::UserDetails {
+            username: &user.user.username,
+            email,
+            first_name,
+            last_name: (!last_name.is_empty()).then_some(last_name),
+        },
+    )
+    .await;
+    if let Err(e) = saved {
+        tracing::error!(error = %e, "storing account details failed");
+        return refuse(t!("Your details could not be saved."));
+    }
+    audit::record(
+        &state,
+        &user,
+        "backend.user.details",
+        Some("backend_user"),
+        Some(&user.user.id.to_string()),
+        Some(&user.user.username),
+        None,
+    )
+    .await;
+    session.push_flash(FlashLevel::Success, t!("Details saved."));
+    Redirect::to(&back).into_response()
+}
+
+#[derive(Deserialize)]
 struct PasswordForm {
     current_password: String,
     new_password: String,
@@ -6440,6 +6537,9 @@ fn preferences_view(
         sessions: account.sessions,
         password_changed: account.password_changed,
         must_change: account.must_change,
+        first_name: user.user.first_name.clone(),
+        last_name: user.user.last_name.clone().unwrap_or_default(),
+        email: user.user.email.clone(),
         min_password: min_password as i64,
         items,
         menu_entries,
@@ -6816,6 +6916,10 @@ struct PreferencesTemplate {
     password_changed: Option<String>,
     /// The password is temporary; nothing else opens until it is replaced.
     must_change: bool,
+    /// The operator's own name and email, for the details form.
+    first_name: String,
+    last_name: String,
+    email: String,
     /// The shortest password accepted, for the form's help and `minlength`.
     min_password: i64,
     /// Modules' per-operator settings, each a page of its own.

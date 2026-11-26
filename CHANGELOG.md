@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- An account's name, username and email can be changed after it is created: by an administrator on the user's page, and a user's own name and email under Preferences, where a new email asks for the current password (`store::update_user_details`).
+
 ## [0.12.3] - 2026-11-27
 
 ### Added
