@@ -28,8 +28,8 @@ pub fn run(args: MakeMigrationArgs) -> Result<()> {
     let manifest = migrations_dir.join("mod.rs");
     if !manifest.is_file() {
         bail!(
-            "no migration manifest at {}.\nRun this from a Laterite application or \
-             plugin crate (one with a src/migrations/mod.rs), or pass --path.",
+            "no migration manifest at {}.\nRun this from a plugin crate (one with a \
+             src/migrations/mod.rs), or pass --path plugins/<plugin>.",
             manifest.display()
         );
     }

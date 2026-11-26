@@ -55,7 +55,7 @@ struct Cli {
 enum Command {
     /// Scaffold and set up a new Laterite application (interactive).
     New(new::NewArgs),
-    /// Scaffold a new migration file in this crate's src/migrations/ directory.
+    /// Scaffold a new migration file in a plugin's src/migrations/ directory.
     #[command(name = "make:migration")]
     MakeMigration(make::MakeMigrationArgs),
     /// Scaffold a new plugin crate in the expected layout.

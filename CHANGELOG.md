@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Changed
+
+- `lat new` scaffolds no application module: a project's own screens, tables and permissions go in a plugin under `plugins/`, made with `lat make:plugin`.
+
 ### Added
 
 - `AdoptHistory`, a migration that records another module's migrations under this one, so code moving between modules runs nothing twice and a build from before the move still starts.

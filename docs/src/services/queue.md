@@ -133,7 +133,6 @@ Key | Description
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     Bootstrap::new("config")
-        .module(migrations::AppModule)
         .run()
         .await
 }

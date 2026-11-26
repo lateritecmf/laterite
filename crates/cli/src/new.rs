@@ -800,8 +800,6 @@ fn scaffold(
     // the dependency and the `.modules` call wired by hand.
     fs::create_dir_all(dir.join("plugins"))?;
     crate::plugin::scaffold(dir)?;
-    fs::create_dir_all(dir.join("src/migrations"))?;
-    write(dir.join("src/migrations/mod.rs"), &migrations_mod_rs(name))?;
     write(
         dir.join("config/default.toml"),
         &default_toml(display_name, timezone, listen, site.map(|s| (name, s))),
@@ -842,15 +840,13 @@ const SITE_MAIN_RS: &str = r#"//! A Laterite static website with an admin.
 use lateritecmf::prelude::*;
 use lateritecmf::web::theme::ThemeModule;
 
-mod migrations;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     Bootstrap::new("config")
         .module(ThemeModule)
         // Every plugin under plugins/, as listed in plugins/plugins.toml.
+        // What the site adds of its own lives in a plugin there.
         .modules(plugins_manifest::all())
-        .module(migrations::AppModule)
         .run()
         .await
 }
@@ -1421,62 +1417,22 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
 const MAIN_RS: &str = r#"//! A Laterite application.
 //!
 //! `main` hands off to the framework's `Bootstrap`, which loads configuration,
-//! connects the database, runs the built-in and this application's migrations,
-//! and serves the admin. Register the application's own resources, settings,
-//! permissions, and routes (a public API, web pages) on the builder as it grows.
+//! connects the database, runs the migrations and serves the admin. The
+//! application holds no features of its own: screens, tables, permissions and
+//! settings live in plugins under `plugins/`, each made with `lat make:plugin`.
 
 use lateritecmf::prelude::*;
-
-mod migrations;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     Bootstrap::new("config")
         // Every plugin under plugins/, as listed in plugins/plugins.toml.
         .modules(plugins_manifest::all())
-        .module(migrations::AppModule)
-        // Register admin screens, permissions, and settings in AppModule::register().
         // .extend(|router, ctx| router.merge(my_api(ctx.db())))
         .run()
         .await
 }
 "#;
-
-/// This application's migration manifest. Each migration is one file in
-/// `src/migrations/`, listed in the `migration_set!` block in apply order.
-/// `lat make:migration <description>` scaffolds a new file and lists it here.
-/// The `module_id` is the application slug, the stable namespace its applied
-/// migrations are tracked under.
-fn migrations_mod_rs(module_id: &str) -> String {
-    format!(
-        r#"//! This application's own migrations.
-//!
-//! Each migration is one file in this directory, listed below in apply order.
-//! Scaffold a new one with `lat make:migration <description>`. They run after
-//! the framework's built-in migrations. Append new entries at the end; never
-//! reorder or rename a shipped one.
-
-use lateritecmf::prelude::*;
-
-migration_set! {{
-    module_id: "{module_id}",
-}}
-
-/// This application as a registerable module. Pass it to `Bootstrap::module`;
-/// its migrations run after the framework's built-in ones.
-pub struct AppModule;
-
-impl Module for AppModule {{
-    fn id(&self) -> ModuleId {{
-        ModuleId::new(MODULE_ID)
-    }}
-    fn migrations(&self) -> MigrationSet {{
-        migrations()
-    }}
-}}
-"#
-    )
-}
 
 fn default_toml(
     app_name: &str,
@@ -1800,7 +1756,6 @@ mod tests {
         for f in [
             "Cargo.toml",
             "src/main.rs",
-            "src/migrations/mod.rs",
             "config/default.toml",
             "config/local.toml",
             ".gitignore",
@@ -1809,11 +1764,12 @@ mod tests {
         ] {
             assert!(dir.join(f).exists(), "{f} should be generated");
         }
-        // The migration manifest carries the app slug as its module id, ready
-        // for `lat make:migration` to extend.
-        let manifest = std::fs::read_to_string(dir.join("src/migrations/mod.rs")).unwrap();
-        assert!(manifest.contains("migration_set!"));
-        assert!(manifest.contains("module_id: \"acme\""));
+        // The application holds no module of its own: what it adds lives in
+        // a plugin under plugins/.
+        assert!(!dir.join("src/migrations").exists());
+        let main = std::fs::read_to_string(dir.join("src/main.rs")).unwrap();
+        assert!(main.contains("plugins_manifest::all()"));
+        assert!(!main.contains("AppModule"));
         let cargo = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("features = [\"sqlite\"]"));
         assert!(cargo.contains("name = \"acme\""));
