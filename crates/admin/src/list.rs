@@ -1851,6 +1851,10 @@ pub struct ListConfig {
     /// Rows link to `{edit_base}/{id}/preview`. Set by `Resource::preview`.
     #[serde(skip)]
     pub preview: bool,
+    /// The preview is the only page a record has: rows open it and offer no
+    /// Edit. Set for a resource with a preview and no form.
+    #[serde(skip)]
+    pub preview_only: bool,
     /// Whether the sort, search, filters and page an operator last used come
     /// back when they return to the list. Default `true`.
     pub remember: bool,
@@ -1920,6 +1924,7 @@ fn row_href(config: &ListConfig, id: &str, fields: &[(&str, &str)], base: &str) 
     };
     match &config.row_click {
         RowClick::None => None,
+        RowClick::Open if config.preview_only => record("preview"),
         RowClick::Open => record("edit"),
         RowClick::Preview if config.preview => record("preview"),
         RowClick::Preview => record("edit"),
@@ -2114,6 +2119,7 @@ impl Default for ListConfig {
             no_records_message: None,
             row_click: RowClick::Open,
             preview: false,
+            preview_only: false,
             remember: true,
             related: std::collections::BTreeMap::new(),
             trash_with: Vec::new(),
@@ -3329,6 +3335,7 @@ async fn build_page(
                 // A trashed record has no edit page until it is restored.
                 edit_base: config.edit_base.clone().filter(|_| !trashed),
                 preview: config.preview,
+                preview_only: config.preview_only,
                 sort: order_by,
                 dir: active_dir.to_string(),
                 q: q.trim().to_string(),
@@ -4119,6 +4126,7 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         total_pages: page.total_pages,
         edit_base: page.edit_base,
         preview: page.preview,
+        preview_only: page.preview_only,
         sort: page.sort,
         dir: page.dir,
         carry: page.carry,
@@ -4143,6 +4151,7 @@ fn rows_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>) -> 
         total_pages: page.total_pages,
         edit_base: page.edit_base,
         preview: page.preview,
+        preview_only: page.preview_only,
         deletable: page.deletable,
         region: region.to_string(),
         delete_path,
@@ -4298,6 +4307,8 @@ struct ListTemplate {
     edit_base: Option<String>,
     /// Rows offer a Preview link.
     preview: bool,
+    /// Rows offer no Edit: the preview is the record's only page.
+    preview_only: bool,
     /// The active ordering, carried on the pager links so paging keeps the sort.
     sort: String,
     dir: String,
@@ -4464,6 +4475,8 @@ struct ListFragment {
     edit_base: Option<String>,
     /// Rows offer a Preview link.
     preview: bool,
+    /// Rows offer no Edit: the preview is the record's only page.
+    preview_only: bool,
     sort: String,
     dir: String,
     carry: String,
@@ -4500,6 +4513,8 @@ struct RowsFragment {
     edit_base: Option<String>,
     /// Rows offer a Preview link.
     preview: bool,
+    /// Rows offer no Edit: the preview is the record's only page.
+    preview_only: bool,
     deletable: bool,
     region: String,
     delete_path: Option<RowAction>,

@@ -1,0 +1,45 @@
+# The warnings and errors the application logged, each distinct message once
+# with a count. Rows may be cleared; the log keeps the most recent two thousand
+# on its own. A row opens to read, with where it was logged and its fields.
+entity: backend_event_log
+path: /event-log
+title: Event Log
+permission: backend.view_event_log
+preview:
+  title: Event
+  fields:
+    level:      { type: select, options: [{ value: error, label: Error }, { value: warn, label: Warning }], span: 1/3 }
+    count:      { label: Times, span: 1/3 }
+    target:     { label: Logged by, span: 1/3 }
+    message:    { type: textarea }
+    detail:     { label: Details, type: textarea, rows: 10 }
+    first_seen: { label: First seen, span: 1/2 }
+    last_seen:  { label: Last seen, span: 1/2 }
+list:
+  order_by: last_seen
+  order_dir: desc
+  per_page: 50
+  per_page_options: [25, 50, 100]
+  exportable: true
+  deletable: true
+  row_click: preview
+  search: { prompt: Search by message }
+  no_records_message: Nothing has gone wrong that the application logged.
+  columns:
+    last_seen:  { label: Last seen, type: datetime }
+    level:
+      label: Level
+      labels:
+        - { value: error, label: Error }
+        - { value: warn, label: Warning }
+    message:    { label: Message, searchable: true }
+    target:     { label: Logged by }
+    count:      { label: Times }
+    first_seen: { label: First seen, type: datetime, invisible: true }
+  filters:
+    level:
+      type: select
+      options:
+        - { value: error, label: Error }
+        - { value: warn, label: Warning }
+    target: { label: Logged by, type: text }

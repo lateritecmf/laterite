@@ -315,17 +315,25 @@ impl Bootstrap {
             .theme_config()
             .map(|t| t.folder.is_some())
             .unwrap_or(false);
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
+        // Warnings and errors also go to the event log, whatever the output's
+        // own filter shows.
+        {
+            use tracing_subscriber::layer::SubscriberExt;
+            use tracing_subscriber::util::SubscriberInitExt;
+            use tracing_subscriber::Layer;
+            let shown =
                 tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                     tracing_subscriber::EnvFilter::new(if quiet {
                         "warn"
                     } else {
                         "info,sqlx=warn"
                     })
-                }),
-            )
-            .try_init();
+                });
+            let _ = tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer().with_filter(shown))
+                .with(crate::eventlog::layer())
+                .try_init();
+        }
 
         let env_prefix = resolve_env_prefix(
             self.env_prefix.clone(),

@@ -1628,6 +1628,9 @@ pub(crate) struct PreparedForm {
     /// The grant a save asks for beside the resource's; without it the edit
     /// page opens read-only.
     pub(crate) update_permission: Option<String>,
+    /// Whether the record has an edit page: a preview on a resource with no
+    /// form offers none.
+    pub(crate) editable: bool,
     /// The registered validation rules a field may name.
     rules: Arc<laterite_core::validation::RuleRegistry>,
 }
@@ -2055,6 +2058,7 @@ impl PreparedForm {
             listeners,
             stay: false,
             update_permission: None,
+            editable: true,
             rules: Arc::new(Default::default()),
         })
     }
@@ -3051,7 +3055,7 @@ pub(crate) async fn preview_page(
     page.read_only = true;
     page.preview = true;
     page.actions = Vec::new();
-    page.edit_href = Some(edit);
+    page.edit_href = form.editable.then_some(edit);
     page.panels = panel_views(&preview.panels, &id, &shell);
     page.sections = sections;
     page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;

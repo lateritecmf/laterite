@@ -72,6 +72,47 @@ Hits | How many times.
 
 Rows are selected and deleted like any list's.
 
+## Read the event log
+
+Every warning and error the application logs is kept, once per level, module
+and message, with a count and the first and last time. Gated by
+`backend.view_event_log`.
+
+```rust
+tracing::error!(order = 42, "could not charge the card");
+tracing::warn!(%error, "the feed took too long");
+```
+
+```yaml
+# descriptors/event-log.yaml, built in
+entity: backend_event_log
+path: /event-log
+permission: backend.view_event_log
+```
+
+Column | Holds
+--- | ---
+Last seen, First seen | When the message was last and first logged.
+Level | `Error` or `Warning`.
+Message | What was logged, to 2000 characters.
+Logged by | The module that logged it (`acme::orders`).
+Times | How many times.
+
+A row opens to read: the message, its other fields one a line, and the file
+and line it was logged from. Rows are selected and deleted like any list's,
+and the log keeps the most recent 2000.
+
+An application that installs a `tracing` subscriber of its own adds the layer
+to it:
+
+```rust
+use tracing_subscriber::layer::SubscriberExt;
+
+tracing_subscriber::registry()
+    .with(tracing_subscriber::fmt::layer())
+    .with(laterite_admin::eventlog::layer());
+```
+
 ## Write audit entries from your own resources
 
 A `Resource` with a form is audited as `backend.<entity>.create` and

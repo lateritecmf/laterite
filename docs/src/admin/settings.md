@@ -136,7 +136,7 @@ Constant | Heading | Holds
 `category::WEBSITE` | Website | Themes, Maintenance Mode
 `category::USERS` | Users | Administrators, Roles
 `category::MAIL` | Mail | Mail Configuration, Mail Templates, Mail Branding
-`category::LOGS` | Logs | Audit Log, Access Log, Request Log, Mail Log
+`category::LOGS` | Logs | Audit Log, Access Log, Request Log, Event Log, Mail Log
 `category::SYSTEM` | System | Admin Branding, Plugins, Jobs, Scheduled Tasks
 
 Items naming the same heading share it, whatever their band. Labels are in

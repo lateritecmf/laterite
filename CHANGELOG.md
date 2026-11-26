@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- An event log: every warning and error logged through `tracing` is kept as a row under Settings, Logs, and opens to read (`eventlog::layer`, permission `backend.view_event_log`).
+- A resource with a preview and no form has the preview as its only record page: rows open it and nothing edits.
 - An account's name, username and email can be changed after it is created: by an administrator on the user's page, and a user's own name and email under Preferences, where a new email asks for the current password (`store::update_user_details`).
 
 ## [0.12.3] - 2026-11-27

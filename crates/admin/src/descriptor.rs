@@ -206,6 +206,15 @@ pub fn from_yaml(yaml: &str, source: &str) -> Result<Resource, DescriptorError> 
     if file.form.is_some() && list.edit_base.is_none() {
         list.edit_base = Some(file.path.clone());
     }
+    // With no form, a preview naming its own fields is the page a row opens.
+    let preview_alone = file.form.is_none()
+        && matches!(&file.preview, Some(PreviewKey::Config(preview)) if !preview.fields.is_empty());
+    if preview_alone {
+        list.preview_only = true;
+        if list.edit_base.is_none() {
+            list.edit_base = Some(file.path.clone());
+        }
+    }
     for column in &mut list.columns {
         if column.label.source().is_empty() {
             column.label = humanize(&column.field);

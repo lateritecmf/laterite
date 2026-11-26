@@ -28,6 +28,7 @@ pub mod descriptor;
 mod developer;
 pub mod editor;
 mod error;
+pub mod eventlog;
 mod export;
 pub mod field;
 pub mod form;
@@ -1917,6 +1918,7 @@ fn builtin_permissions() -> Vec<Permission> {
             "View the request log",
             "Backend",
         ),
+        Permission::new("backend.view_event_log", "View the event log", "Backend"),
     ];
     out.extend(medialib::permissions());
     out
@@ -1972,6 +1974,7 @@ pub fn builtin_modules() -> Vec<Box<dyn laterite_core::Module>> {
         Box::new(laterite_core::schedule::ScheduleModule),
         Box::new(laterite_core::mail::MailModule),
         Box::new(requestlog::RequestLogModule),
+        Box::new(eventlog::EventLogModule),
         Box::new(plugins::PluginsModule),
         Box::new(laterite_media::MediaModule),
         Box::new(medialib::MediaLibraryModule),
@@ -4737,6 +4740,55 @@ fn mount_resource(
         );
     }
 
+    // A resource with no form may still be read a record at a time: a preview
+    // naming its own fields mounts alone, with no create or edit beside it.
+    if resource.form.is_none() {
+        if let Some(preview) = resource
+            .preview
+            .clone()
+            .filter(|preview| !preview.fields.is_empty())
+        {
+            let cfg = form::FormConfig::new(
+                resource.list.entity.clone(),
+                preview
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| resource.nav_label.clone()),
+                base.clone(),
+                resource.list.id_field.clone(),
+                preview.fields.clone(),
+            );
+            let mut prepared = form::PreparedForm::prepare(cfg, field_types, persisters, listeners)
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path))
+                .with_rules(rules.clone());
+            prepared.editable = false;
+            let (preview_pf, preview) = (Arc::new(prepared), Arc::new(preview));
+            router = router.route(
+                &format!("{base}/{{id}}/preview"),
+                get(
+                    move |State(state): State<AdminState>,
+                          Extension(shell): Extension<Shell>,
+                          Extension(user): Extension<AuthenticatedUser>,
+                          Path(id): Path<String>| {
+                        let (pf, preview) = (preview_pf.clone(), preview.clone());
+                        async move {
+                            form::preview_page(
+                                &state,
+                                &pf,
+                                &preview,
+                                id,
+                                shell,
+                                Vec::new(),
+                                &user.permissions,
+                            )
+                            .await
+                        }
+                    },
+                ),
+            );
+        }
+    }
+
     for rel in relations.iter() {
         let name = rel.config.name.clone();
         let mut routes: Router<AdminState> = Router::new();
@@ -6661,6 +6713,7 @@ fn builtin_resources() -> Vec<Resource> {
         resource!("descriptors/audit-log.yaml"),
         resource!("descriptors/access-log.yaml"),
         resource!("descriptors/request-log.yaml"),
+        resource!("descriptors/event-log.yaml"),
     ]
 }
 
@@ -6760,6 +6813,14 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("unlink")
             .permission("backend.view_request_log")
             .link("/request-log"),
+        settings::SettingsItem::new("backend.event_log", "Event Log", Vec::new())
+            .description("Review the warnings and errors the application logged.")
+            .category(settings::category::LOGS)
+            .slot(laterite_core::arrange::slot::SYSTEM)
+            .order(32)
+            .icon("triangle-alert")
+            .permission("backend.view_event_log")
+            .link("/event-log"),
     ]
 }
 

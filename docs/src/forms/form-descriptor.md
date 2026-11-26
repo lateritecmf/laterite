@@ -252,6 +252,8 @@ Key | Default | Description
 `fields` | the form's on `preview` | The preview's own fields, written as the form's are.
 `relations` | `true` | The record's related lists show under the values, to read.
 
+A resource with no `form` and a preview that names `fields` has the preview alone: rows open it, and there is no create or edit page.
+
 Panel key | Description
 --- | ---
 `src` | A path under the admin root answering an HTML fragment, `{id}` for the record's id. Fetched once the page is open.
