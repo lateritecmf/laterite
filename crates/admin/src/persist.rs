@@ -641,6 +641,7 @@ mod pipeline_tests {
             tabs: None,
             secondary_tabs: None,
             linked_record: None,
+            panels: Vec::new(),
             enter: Default::default(),
             confirm_leave: true,
             focus: Default::default(),

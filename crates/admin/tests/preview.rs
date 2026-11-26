@@ -125,6 +125,16 @@ async fn a_previewed_resource_links_its_rows_to_a_read_only_page() {
 
     let (status, _) = get(&db, &token, "/admin/previews/999999/preview").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // A form's own panels sit under an existing record's form, and a new
+    // record has none to fetch.
+    let (_, edit) = get(&db, &token, &format!("/admin/previews/{id}/edit")).await;
+    assert!(
+        edit.contains(&format!(r#"hx-get="/admin/acme/roles/{id}/notes""#)),
+        "{edit}"
+    );
+    let (_, new) = get(&db, &token, "/admin/previews/new").await;
+    assert!(!new.contains("/notes"), "{new}");
 }
 
 #[tokio::test]

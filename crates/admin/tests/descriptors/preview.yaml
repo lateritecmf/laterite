@@ -13,6 +13,8 @@ list:
     code: {}
 form:
   title: Edit role
+  panels:
+    - { title: Notes, src: "acme/roles/{id}/notes" }
   fields:
     code: { rules: [required] }
     name: { context: [create, preview] }

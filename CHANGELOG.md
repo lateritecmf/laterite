@@ -9,6 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `panels` on a form shows module-drawn panels under an existing record's form, as a preview's panels are (`FormConfig::panels`).
 - A `select` list filter takes its choices from an option source (`options: acme.states`, `ListFilter::select_from`), and `depends_on` asks for them again when another filter changes.
 
 ### Fixed

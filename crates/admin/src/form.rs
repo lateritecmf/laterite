@@ -446,6 +446,7 @@ impl Default for FormConfig {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         }
     }
@@ -1098,6 +1099,10 @@ pub struct FormConfig {
     /// The record of any resource this one belongs to, linked above the form.
     #[serde(default)]
     pub linked_record: Option<LinkedRecord>,
+    /// Panels a module draws under an existing record's form, each fetched
+    /// once the page is open: the same shape a preview's panels take.
+    #[serde(default)]
+    pub panels: Vec<PreviewPanel>,
     /// Where a save and a cancel return to, when it is not the list under
     /// `base_path`: a related record's form returns to its parent. Set by the
     /// router, never by a descriptor.
@@ -1136,6 +1141,7 @@ impl FormConfig {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         }
     }
@@ -2522,6 +2528,7 @@ pub(crate) async fn edit_form(
         &shell,
     );
     page.sections = sections;
+    page.panels = panel_views(&form.config.panels, &id, &shell);
     page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
     if let Some(offer) = delete {
         page.delete = offer
@@ -2656,6 +2663,22 @@ pub(crate) struct PanelView {
     src: String,
 }
 
+/// The panels the operator may see, each addressed for record `id`.
+fn panel_views(panels: &[PreviewPanel], id: &str, shell: &crate::Shell) -> Vec<PanelView> {
+    let base = shell.base.trim_end_matches('/');
+    panels
+        .iter()
+        .filter(|p| p.permission.as_deref().is_none_or(|g| shell.allows(g)))
+        .map(|p| PanelView {
+            title: p.title.as_ref().map(|t| shell.tt(t)),
+            src: format!(
+                "{base}/{}",
+                p.src.replace("{id}", id).trim_start_matches('/')
+            ),
+        })
+        .collect()
+}
+
 /// The preview page for record `id`.
 pub(crate) async fn preview_page(
     state: &AdminState,
@@ -2699,19 +2722,7 @@ pub(crate) async fn preview_page(
     page.preview = true;
     page.actions = Vec::new();
     page.edit_href = Some(edit);
-    let base = shell.base.trim_end_matches('/').to_string();
-    page.panels = preview
-        .panels
-        .iter()
-        .filter(|p| p.permission.as_deref().is_none_or(|g| shell.allows(g)))
-        .map(|p| PanelView {
-            title: p.title.as_ref().map(|t| shell.tt(t)),
-            src: format!(
-                "{base}/{}",
-                p.src.replace("{id}", &id).trim_start_matches('/')
-            ),
-        })
-        .collect();
+    page.panels = panel_views(&preview.panels, &id, &shell);
     page.sections = sections;
     page.linked = linked_view(state, &form.config, &id, permissions, &shell).await;
     render(page)
@@ -3981,6 +3992,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         };
         PreparedForm::prepare(
@@ -4043,6 +4055,7 @@ mod tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                panels: Vec::new(),
                 done_path: None,
             },
             &crate::field::builtin_registry(),
@@ -4334,6 +4347,7 @@ mod tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                panels: Vec::new(),
                 done_path: None,
             },
             &st.field_types,
@@ -4390,6 +4404,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -4428,6 +4443,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         };
         let Err(err) = PreparedForm::prepare(
@@ -4516,6 +4532,7 @@ mod tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         }
     }
@@ -4622,6 +4639,7 @@ mod timestamp_tests {
             related: Default::default(),
             actions: Vec::new(),
             linked_record: None,
+            panels: Vec::new(),
             done_path: None,
         }
     }
@@ -4723,6 +4741,7 @@ mod htmx_tests {
                 related: Default::default(),
                 actions: Vec::new(),
                 linked_record: None,
+                panels: Vec::new(),
                 done_path: None,
             },
             &st.field_types,
