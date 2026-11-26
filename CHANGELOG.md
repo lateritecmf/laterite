@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-26
+
 ### Added
 
 - `panels` on a form shows module-drawn panels under an existing record's form, as a preview's panels are (`FormConfig::panels`).
