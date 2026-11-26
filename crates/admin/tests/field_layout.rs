@@ -114,11 +114,11 @@ async fn the_rendered_form_carries_the_grid_classes() {
     let html = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(html.contains(r#"<div class="lat-fields">"#), "{html}");
     assert!(
-        html.contains(r#"<div class="lat-field lat-field--8">"#),
+        html.contains(r#"<div class="lat-field lat-field--8" data-lat-field="#),
         "{html}"
     );
     assert!(
-        html.contains(r#"<div class="lat-field lat-field--4 lat-field--break">"#),
+        html.contains(r#"<div class="lat-field lat-field--4 lat-field--break" data-lat-field="#),
         "{html}"
     );
 }

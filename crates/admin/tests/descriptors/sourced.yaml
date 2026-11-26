@@ -1,0 +1,15 @@
+entity: teams
+path: /sourced
+title: Teams
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Team
+  fields:
+    code: { rules: [required] }
+    name: { type: select, options: acme.names, depends_on: code }
+    topics: { type: checklist, options: acme.names, depends_on: [code] }
+    kind: { transient: true, type: select, options: [{ value: a-team }, { value: b-team }] }
+    lead: { transient: true, type: select, options: acme.names, depends_on: kind }

@@ -89,7 +89,7 @@ async fn the_rendered_form_carries_the_rules() {
     let html = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(html.contains(r#" data-lat-enter="off">"#), "{html}");
     assert!(
-        html.contains(r#"<div class="lat-field" data-lat-enter="next">"#),
+        html.contains(r#"<div class="lat-field" data-lat-enter="next" data-lat-field="#),
         "{html}"
     );
     assert_eq!(

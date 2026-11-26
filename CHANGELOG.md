@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Option sources: `options: acme.states` on a select, radio or checklist takes its choices from a registered `OptionSource` (`add_option_source`), and `depends_on` draws the field again when another changes. `laterite.timezones` and `laterite.locales` are built in.
+- A select or radio option takes `disabled`, a select option `group`, a radio option `note`.
 - `default` and `default_from` on a form field set what a new record's form opens with (`FormField::default_value`, `default_from`).
 - Form tabs: `tabs` and `secondary_tabs` on a form with `default_tab`, `active_tab`, `icons`, `linkable`, `stretch`, `css_class`, `pane_css_class` and `identifiers`, and `tab` on a field (`FormTabs`, `FormField::tab`, `FormArea`).
 

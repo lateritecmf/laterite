@@ -1,3 +1,5 @@
 <select class="lat-input lat-select" id="{{ id }}" name="{{ name }}"{% if required %} required{% endif %}{% if search %} data-lat-widget="select-search"{% endif %}>
-{% for o in options %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>
+{% for (heading, members) in runs %}{% if let Some(heading) = heading %}<optgroup label="{{ heading }}">{% endif %}
+{% for o in members %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}{% if o.disabled %} disabled{% endif %}>{{ o.label }}</option>
+{% endfor %}{% if heading.is_some() %}</optgroup>{% endif %}
 {% endfor %}</select>

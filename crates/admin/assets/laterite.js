@@ -2357,6 +2357,86 @@ window.lat.widget('taglist', function (root) {
   document.addEventListener('htmx:load', function (e) { start(e.target); });
 })();
 
+// Depends: a field follows others. Its wrapper carries `data-lat-depends`
+// (field names joined by commas). When one of them changes, the form's values
+// go to `<action>/refresh` and the wrappers that come back replace the ones
+// here. A replaced field whose value moved counts as changed in its turn, so
+// a chain of followers settles link by link.
+(function () {
+  function wrapper(form, name) {
+    return Array.prototype.filter.call(form.querySelectorAll('[data-lat-field]'), function (w) {
+      return w.getAttribute('data-lat-field') === name;
+    })[0];
+  }
+  function followers(form, name) {
+    return Array.prototype.filter.call(form.querySelectorAll('[data-lat-depends]'), function (w) {
+      return w.getAttribute('data-lat-depends').split(',').indexOf(name) !== -1;
+    });
+  }
+  function pairs(form) {
+    var out = [];
+    new FormData(form).forEach(function (value, key) {
+      if (typeof value === 'string') out.push([key, value]);
+    });
+    return out;
+  }
+  function held(form, name) {
+    return pairs(form).filter(function (p) { return p[0] === name || p[0].indexOf(name + '[') === 0; })
+      .map(function (p) { return p[0] + '=' + p[1]; }).join('&');
+  }
+  function refresh(form, wrappers) {
+    var names = wrappers.map(function (w) { return w.getAttribute('data-lat-field'); });
+    var before = {};
+    names.forEach(function (n) { before[n] = held(form, n); });
+    var body = new URLSearchParams();
+    var token = '';
+    pairs(form).forEach(function (p) {
+      body.append(p[0], p[1]);
+      if (p[0] === '_csrf') token = p[1];
+    });
+    body.set('_fields', names.join(','));
+    var seq = form._latRefresh = (form._latRefresh || 0) + 1;
+    wrappers.forEach(function (w) { w.setAttribute('aria-busy', 'true'); });
+    fetch(form.getAttribute('action') + '/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'X-CSRF-Token': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    })
+      .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+      .then(function (html) {
+        if (seq !== form._latRefresh) return;
+        var box = document.createElement('template');
+        box.innerHTML = html;
+        var moved = [];
+        names.forEach(function (n) {
+          var fresh = wrapper(box.content, n);
+          var old = wrapper(form, n);
+          if (!fresh || !old) return;
+          old.parentNode.replaceChild(fresh, old);
+          if (window.htmx) window.htmx.process(fresh);
+          window.lat.scan(fresh);
+          fresh.dispatchEvent(new Event('input', { bubbles: true }));
+          if (held(form, n) !== before[n]) moved.push(fresh);
+        });
+        moved.forEach(function (w) { w.dispatchEvent(new Event('change', { bubbles: true })); });
+      })
+      .catch(function () {
+        wrappers.forEach(function (w) { w.removeAttribute('aria-busy'); });
+      });
+  }
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var form = t.form || t.closest('form');
+    if (!form || !form.querySelector('[data-lat-depends]')) return;
+    var name = t.name ? t.name.replace(/\[.*$/, '') : t.getAttribute('data-lat-field');
+    if (!name) return;
+    var found = followers(form, name);
+    if (found.length) refresh(form, found);
+  });
+})();
+
 // Rows: a row that names its record (`data-lat-href`) opens it on a click or
 // Enter, as its Edit link would. A click on a control in the row is that
 // control's, and text being selected is left to be copied. A modified click

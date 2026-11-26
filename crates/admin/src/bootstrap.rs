@@ -745,6 +745,7 @@ impl Bootstrap {
         tracing::info!(store = cache.store(), "cache ready");
         let permissions = contributions.take::<Permission>();
         let picker_sources = contributions.take::<crate::picker::PickerSourceReg>();
+        let option_sources = contributions.take::<crate::options::OptionSourceReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();
         let mut listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
@@ -930,6 +931,7 @@ impl Bootstrap {
                 settings,
                 permissions,
                 picker_sources,
+                option_sources,
                 persisters,
                 listeners,
                 query_hooks: Vec::new(),

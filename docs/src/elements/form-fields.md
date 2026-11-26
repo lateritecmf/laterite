@@ -97,7 +97,7 @@ fields:
 
 Key | Default | Description
 --- | --- | ---
-`options` | | A list of `{ value, label }`. Required.
+`options` | | A list of `{ value, label, disabled, group }`, or the name of an [option source](../forms/field-dependencies.md#options-from-a-source). `group` is the heading the choice sits under.
 `search` | `auto` | `auto`, `true`, `false`. `auto`: past 10 choices, the dropdown is searched. An option with an empty value is what clearing chooses.
 
 ## radio
@@ -109,7 +109,7 @@ fields:
 
 Key | Default | Description
 --- | --- | ---
-`options` | | A list of `{ value, label }`. Required.
+`options` | | A list of `{ value, label, note, disabled }`, or the name of an [option source](../forms/field-dependencies.md#options-from-a-source). `note` is a second line under the label.
 
 ## checklist
 
@@ -133,7 +133,7 @@ fields:
 
 Key | Values | Default
 --- | --- | ---
-`options` | A list of `{ value, label, note }` and `{ group, options }`, nested to any depth. | None
+`options` | A list of `{ value, label, note }` and `{ group, options }`, nested to any depth, or the name of an [option source](../forms/field-dependencies.md#options-from-a-source). | None
 `select_all` | `auto`, `true`, `false` | `auto`: past 10 choices
 `search` | `auto`, `true`, `false` | `auto`: past 20 choices
 `expand` | `auto`, `all`, `none` | `auto`: past 10 choices in more than one group, a group with every box ticked or none starts closed and a group partly ticked starts open

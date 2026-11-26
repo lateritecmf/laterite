@@ -43,6 +43,7 @@ mod maillog;
 mod mailtemplates;
 pub mod medialib;
 pub mod nav;
+pub mod options;
 pub mod palette;
 mod palette_do;
 mod passwordlinks;
@@ -118,6 +119,8 @@ pub trait AdminRegistry {
     fn add_settings(&mut self, item: settings::SettingsItem);
     /// Adds a reference-picker source, callable by a picker field's endpoints.
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
+    /// Adds an option source, nameable by a field's or a filter's `options`.
+    fn add_option_source(&mut self, source: options::OptionSourceReg);
     /// Adds a form persister, selectable by a form descriptor's `persist` key.
     fn add_persister(&mut self, persister: persist::PersisterReg);
     /// Adds a field type, nameable by any form or settings descriptor.
@@ -167,6 +170,9 @@ impl AdminRegistry for laterite_core::Registry {
         self.add(item);
     }
     fn add_picker_source(&mut self, source: picker::PickerSourceReg) {
+        self.add(source);
+    }
+    fn add_option_source(&mut self, source: options::OptionSourceReg) {
         self.add(source);
     }
     fn add_screen(&mut self, screen: routes::ScreenReg) {
@@ -363,6 +369,9 @@ pub(crate) struct AdminState {
     /// The reference-picker source registry: resolves a picker field's `source`
     /// key to the domain service its endpoints call. See [`picker`].
     pickers: Arc<picker::PickerRegistry>,
+    /// The option-source registry: resolves the name a field's `options`
+    /// gives to the service that lists its choices. See [`options`].
+    pub(crate) option_sources: Arc<options::OptionRegistry>,
     /// The resources whose records the command palette finds, each through
     /// the picker source it named. See [`palette`].
     palette: Arc<Vec<palette::RecordSource>>,
@@ -433,6 +442,7 @@ impl AdminState {
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
+            option_sources: Arc::new(options::OptionRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),
@@ -2001,6 +2011,8 @@ pub struct Contributions {
     pub permissions: Vec<Permission>,
     /// Sources a reference field searches and resolves against.
     pub picker_sources: Vec<picker::PickerSourceReg>,
+    /// Sources a field or a filter takes its choices from.
+    pub option_sources: Vec<options::OptionSourceReg>,
     /// Named write handlers a form can select.
     pub persisters: Vec<persist::PersisterReg>,
     /// Listeners run around every save and delete.
@@ -2064,6 +2076,7 @@ pub fn router(
         settings: app_settings,
         permissions: app_permissions,
         picker_sources: app_picker_sources,
+        option_sources: app_option_sources,
         persisters: app_persisters,
         listeners: app_listeners,
         query_hooks: app_query_hooks,
@@ -2328,6 +2341,37 @@ pub fn router(
             panic!("duplicate picker source `{name}`");
         }
     }
+
+    // The option-source registry, checked the same way. The framework's own
+    // lists come first.
+    let mut option_sources = options::OptionRegistry::new();
+    let builtin_options = [
+        options::OptionSourceReg::fixed(
+            "laterite.timezones",
+            TZ_VARIANTS
+                .iter()
+                .filter(|tz| zone_offered(tz.name()))
+                .map(|tz| options::OptionEntry::new(tz.name(), tz.name()))
+                .collect(),
+        ),
+        options::OptionSourceReg::fixed(
+            "laterite.locales",
+            offered_locales(&catalogs)
+                .iter()
+                .map(|code| options::OptionEntry::new(code.clone(), locale_name(code)))
+                .collect(),
+        ),
+    ];
+    for reg in builtin_options.into_iter().chain(app_option_sources) {
+        let name = reg.name.clone();
+        if !field::is_name(&name, true) {
+            panic!("invalid option source name `{name}`");
+        }
+        if option_sources.insert(name.clone(), reg).is_some() {
+            panic!("duplicate option source `{name}`");
+        }
+    }
+    let option_sources = Arc::new(option_sources);
 
     // The reference field validates its `source` against the picker registry at
     // boot, so build the field registry here (over the arg-free built-ins) with
@@ -2702,6 +2746,7 @@ pub fn router(
         assets: Arc::new(assets),
         asset_urls: asset_urls_arc.clone(),
         pickers,
+        option_sources,
         palette: Arc::new(palette_sources),
         overrides: Arc::new(field::NoOverrides),
     };
@@ -2737,6 +2782,9 @@ pub fn router(
             deletes.insert(resource.base_path.clone(), delete);
         }
         if let Some(prepared) = prepared {
+            if let Err(e) = prepared.check_sources(&state.option_sources) {
+                panic!("admin resource `{}`: {e}", resource.base_path);
+            }
             let key = resource
                 .base_path
                 .strip_prefix(admin_path.as_str())
@@ -4485,6 +4533,7 @@ fn mount_resource(
         };
         let (on_create, on_update) = (on(form::FormContext::Create), on(form::FormContext::Update));
         prepared_form = Some(prepared.clone());
+        let new_pf_for_refresh = on_create.clone();
         let (new_pf, create_pf) = (on_create.clone(), on_create);
         let relations_for_new = relations.clone();
         router = router.route(
@@ -4498,7 +4547,7 @@ fn mount_resource(
                             .iter()
                             .map(|r| shell.tt(&r.config.title))
                             .collect();
-                        form::new_form(&state, &pf, shell, pending)
+                        form::new_form(&state, &pf, shell, pending).await
                     }
                 },
             )
@@ -4516,6 +4565,33 @@ fn mount_resource(
                 },
             ),
         );
+
+        // A field following another is drawn again from here.
+        let (new_refresh_pf, edit_refresh_pf) = (new_pf_for_refresh, on_update.clone());
+        router = router
+            .route(
+                &format!("{base}/new/refresh"),
+                post(
+                    move |State(state): State<AdminState>,
+                          Extension(shell): Extension<Shell>,
+                          Form(data): Form<HashMap<String, String>>| {
+                        let pf = new_refresh_pf.clone();
+                        async move { form::refresh(&state, &pf, None, data, shell).await }
+                    },
+                ),
+            )
+            .route(
+                &format!("{base}/{{id}}/edit/refresh"),
+                post(
+                    move |State(state): State<AdminState>,
+                          Extension(shell): Extension<Shell>,
+                          Path(id): Path<String>,
+                          Form(data): Form<HashMap<String, String>>| {
+                        let pf = edit_refresh_pf.clone();
+                        async move { form::refresh(&state, &pf, Some(&id), data, shell).await }
+                    },
+                ),
+            );
 
         let reveal_pf = prepared.clone();
         router = router.route(
@@ -4675,6 +4751,39 @@ fn mount_resource(
                     },
                 ),
             );
+        // A related record's form refreshes its fields the way the parent's does.
+        let (r_new_refresh, r_edit_refresh) = (rel.clone(), rel.clone());
+        routes =
+            routes
+                .route(
+                    &format!("{base}/{{id}}/{name}/new/refresh"),
+                    post(
+                        move |State(state): State<AdminState>,
+                              Extension(shell): Extension<Shell>,
+                              Path(parent): Path<String>,
+                              Form(data): Form<HashMap<String, String>>| {
+                            let r = r_new_refresh.clone();
+                            async move {
+                                relation::refresh(&state, &r, &parent, None, data, shell).await
+                            }
+                        },
+                    ),
+                )
+                .route(
+                    &format!("{base}/{{id}}/{name}/{{child}}/edit/refresh"),
+                    post(
+                        move |State(state): State<AdminState>,
+                              Extension(shell): Extension<Shell>,
+                              Path((parent, child)): Path<(String, String)>,
+                              Form(data): Form<HashMap<String, String>>| {
+                            let r = r_edit_refresh.clone();
+                            async move {
+                                relation::refresh(&state, &r, &parent, Some(&child), data, shell)
+                                    .await
+                            }
+                        },
+                    ),
+                );
         let (r_new, r_create) = (rel.clone(), rel.clone());
         routes = routes.route(
             &format!("{base}/{{id}}/{name}/new"),
@@ -7239,6 +7348,7 @@ mod tests {
             assets: Arc::new(builtin_assets()),
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
+            option_sources: Arc::new(options::OptionRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),

@@ -317,6 +317,31 @@ pub trait FieldType: Send + Sync + 'static {
     fn assets(&self, _opts: &ResolvedOptions) -> Vec<&'static str> {
         Vec::new()
     }
+
+    /// The [option source](crate::options::OptionSource) the field's choices
+    /// come from, when its descriptor names one. Default: none.
+    fn option_source(&self, _opts: &ResolvedOptions) -> Option<String> {
+        None
+    }
+
+    /// The value the control shows when it cannot show `value`: a dropdown
+    /// with no such choice shows its first. A field following this one is
+    /// given its choices for that value. Default: none, the control shows
+    /// `value` as it is.
+    fn shown(&self, _value: &str, _opts: &ResolvedOptions) -> Option<String> {
+        None
+    }
+
+    /// The options with `entries` as the choices offered. The form calls it
+    /// once a request with what the field's source returned, and every other
+    /// method then sees the result. Default: the options unchanged.
+    fn with_options(
+        &self,
+        opts: &ResolvedOptions,
+        _entries: Vec<crate::options::OptionEntry>,
+    ) -> ResolvedOptions {
+        opts.clone()
+    }
 }
 
 /// A field type failed to type its options blob at boot.
@@ -664,6 +689,12 @@ impl FieldType for RepeaterField {
             check_field_keys(&field, field_type.as_ref())
                 .map_err(|e| OptionsError(format!("field `{}`: {}", field.name, e.0)))?;
             let opts = field_type.resolve_options(&field.options, types)?;
+            if field_type.option_source(&opts).is_some() {
+                return Err(OptionsError(format!(
+                    "field `{}`: a repeater row lists its options in place",
+                    field.name
+                )));
+            }
             rows.push(RepeaterSub {
                 field,
                 field_type,
@@ -2430,16 +2461,51 @@ pub const SELECT_SEARCH_PAST: usize = 10;
 #[derive(Debug, Default, Deserialize)]
 struct SelectOptions {
     #[serde(default)]
-    options: Vec<SelectOption>,
+    options: crate::options::Declared<SelectOption>,
     #[serde(default)]
     search: crate::checklist::Offer,
 }
 
 impl SelectOptions {
+    /// These options offering `entries`.
+    fn offering(&self, entries: Vec<crate::options::OptionEntry>) -> Self {
+        Self {
+            options: crate::options::Declared::List(
+                entries
+                    .into_iter()
+                    .map(|entry| SelectOption {
+                        value: entry.value,
+                        label: Some(entry.label),
+                        note: entry.note,
+                        disabled: entry.disabled,
+                        group: entry.group,
+                    })
+                    .collect(),
+            ),
+            search: self.search,
+        }
+    }
+
+    /// Each choice as its control shows it, `current` marked.
+    fn views(&self, current: &str) -> Vec<OptionView> {
+        self.options
+            .list()
+            .iter()
+            .map(|so| OptionView {
+                value: so.value.clone(),
+                label: so.label.clone().unwrap_or_else(|| so.value.clone()),
+                selected: so.value == current,
+                note: so.note.clone(),
+                disabled: so.disabled,
+                group: so.group.clone(),
+            })
+            .collect()
+    }
+
     fn searchable(&self) -> bool {
         use crate::checklist::Offer;
         match self.search {
-            Offer::Auto => self.options.len() > SELECT_SEARCH_PAST,
+            Offer::Auto => self.options.list().len() > SELECT_SEARCH_PAST,
             Offer::Always => true,
             Offer::Never => false,
         }
@@ -2460,6 +2526,15 @@ struct SelectOption {
     /// Display text; defaults to the value when omitted.
     #[serde(default)]
     label: Option<String>,
+    /// A second line under the label, on a radio.
+    #[serde(default)]
+    note: Option<String>,
+    /// Shown, and not selectable.
+    #[serde(default)]
+    disabled: bool,
+    /// The heading the choice sits under.
+    #[serde(default)]
+    group: Option<String>,
 }
 
 /// One rendered option: label resolved, `selected` computed against the current
@@ -2469,6 +2544,48 @@ struct OptionView {
     value: String,
     label: String,
     selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    disabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    group: Option<String>,
+}
+
+/// Choices in runs under their headings, in first-seen order: what a dropdown
+/// draws its option groups from.
+fn option_runs(options: &[OptionView]) -> Vec<(Option<&str>, Vec<&OptionView>)> {
+    let mut out: Vec<(Option<&str>, Vec<&OptionView>)> = Vec::new();
+    for option in options {
+        let group = option.group.as_deref();
+        match out.iter_mut().find(|(heading, _)| *heading == group) {
+            Some((_, members)) => members.push(option),
+            None => out.push((group, vec![option])),
+        }
+    }
+    out
+}
+
+/// What a field type that lists choices does with a source: names it, and
+/// takes what it returned.
+macro_rules! sourced_select {
+    () => {
+        fn option_source(&self, opts: &ResolvedOptions) -> Option<String> {
+            opts.get::<SelectOptions>()
+                .and_then(|o| o.options.source())
+                .map(str::to_string)
+        }
+        fn with_options(
+            &self,
+            opts: &ResolvedOptions,
+            entries: Vec<crate::options::OptionEntry>,
+        ) -> ResolvedOptions {
+            match opts.get::<SelectOptions>() {
+                Some(o) => ResolvedOptions::new(o.offering(entries)),
+                None => opts.clone(),
+            }
+        }
+    };
 }
 
 #[derive(Template)]
@@ -2477,7 +2594,7 @@ struct SelectTmpl<'a> {
     name: &'a str,
     id: &'a str,
     required: bool,
-    options: &'a [OptionView],
+    runs: Vec<(Option<&'a str>, Vec<&'a OptionView>)>,
     search: bool,
 }
 
@@ -2490,6 +2607,17 @@ impl FieldType for SelectField {
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
         keys(&["options", "search"])
+    }
+    sourced_select!();
+    fn shown(&self, value: &str, opts: &ResolvedOptions) -> Option<String> {
+        let options = opts.get::<SelectOptions>()?.options.list();
+        if options.iter().any(|o| o.value == value) {
+            return None;
+        }
+        options
+            .iter()
+            .find(|o| !o.disabled)
+            .map(|o| o.value.clone())
     }
     /// The typeahead ships with the record picker; a searched dropdown needs it
     /// on the page too.
@@ -2512,18 +2640,7 @@ impl FieldType for SelectField {
         let current = cx.value.as_text();
         let opts = cx.opts.get::<SelectOptions>();
         let data = SelectData {
-            options: opts
-                .map(|o| {
-                    o.options
-                        .iter()
-                        .map(|so| OptionView {
-                            value: so.value.clone(),
-                            label: so.label.clone().unwrap_or_else(|| so.value.clone()),
-                            selected: so.value == current,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            options: opts.map(|o| o.views(current)).unwrap_or_default(),
             search: opts.is_some_and(SelectOptions::searchable),
         };
         FieldVm {
@@ -2542,7 +2659,7 @@ impl FieldType for SelectField {
             name: &vm.name,
             id: &vm.id,
             required: vm.required,
-            options: &data.options,
+            runs: option_runs(&data.options),
             search: data.search,
         })
         .unwrap_or_default()
@@ -2553,7 +2670,7 @@ impl FieldType for SelectField {
 #[derive(Debug, Default, Deserialize)]
 struct ChecklistOptions {
     #[serde(default)]
-    options: Vec<ChecklistEntry>,
+    options: crate::options::Declared<ChecklistEntry>,
     #[serde(default)]
     select_all: crate::checklist::Offer,
     #[serde(default)]
@@ -2594,7 +2711,7 @@ impl ChecklistOptions {
             }
         }
         let mut out = Vec::new();
-        walk(&self.options, &mut out);
+        walk(self.options.list(), &mut out);
         out
     }
 
@@ -2639,6 +2756,41 @@ impl FieldType for ChecklistField {
     }
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
         keys(&["options", "select_all", "search", "expand"])
+    }
+    fn option_source(&self, opts: &ResolvedOptions) -> Option<String> {
+        opts.get::<ChecklistOptions>()
+            .and_then(|o| o.options.source())
+            .map(str::to_string)
+    }
+    fn with_options(
+        &self,
+        opts: &ResolvedOptions,
+        entries: Vec<crate::options::OptionEntry>,
+    ) -> ResolvedOptions {
+        let Some(declared) = opts.get::<ChecklistOptions>() else {
+            return opts.clone();
+        };
+        let choice = |entry: &crate::options::OptionEntry| ChecklistEntry::Choice {
+            value: entry.value.clone(),
+            label: Some(entry.label.clone()),
+            note: entry.note.clone(),
+        };
+        let options = crate::options::grouped(&entries)
+            .into_iter()
+            .flat_map(|(heading, members)| match heading {
+                Some(heading) => vec![ChecklistEntry::Group {
+                    group: heading.to_string(),
+                    options: members.into_iter().map(choice).collect(),
+                }],
+                None => members.into_iter().map(choice).collect(),
+            })
+            .collect();
+        ResolvedOptions::new(ChecklistOptions {
+            options: crate::options::Declared::List(options),
+            select_all: declared.select_all,
+            search: declared.search,
+            expand: declared.expand,
+        })
     }
     fn resolve_options(
         &self,
@@ -2731,7 +2883,7 @@ impl FieldType for ChecklistField {
         let mut list = Checklist::new(cx.label).id(cx.id);
         if let Some(options) = cx.opts.get::<ChecklistOptions>() {
             let mut position = 0;
-            for entry in build(&options.options, cx.name, &ticked, &mut position) {
+            for entry in build(options.options.list(), cx.name, &ticked, &mut position) {
                 list = list.entry(entry);
             }
             list = list
@@ -3439,6 +3591,7 @@ impl FieldType for RadioField {
     fn option_keys(&self, _raw: &serde_json::Value) -> Option<Vec<String>> {
         keys(&["options"])
     }
+    sourced_select!();
 
     fn resolve_options(
         &self,
@@ -3455,16 +3608,7 @@ impl FieldType for RadioField {
         let views: Vec<OptionView> = cx
             .opts
             .get::<SelectOptions>()
-            .map(|o| {
-                o.options
-                    .iter()
-                    .map(|so| OptionView {
-                        value: so.value.clone(),
-                        label: so.label.clone().unwrap_or_else(|| so.value.clone()),
-                        selected: so.value == current,
-                    })
-                    .collect()
-            })
+            .map(|o| o.views(current))
             .unwrap_or_default();
         FieldVm {
             view_key: "radio".to_string(),

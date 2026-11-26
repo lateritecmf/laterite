@@ -295,7 +295,11 @@
     select.setAttribute('tabindex', '-1');
 
     function options() {
-      return Array.prototype.map.call(select.options, function (o) { return { id: o.value, label: o.text }; });
+      return Array.prototype.filter.call(select.options, function (o) { return !o.disabled; }).map(function (o) {
+        var item = { id: o.value, label: o.text };
+        if (o.parentNode && o.parentNode.tagName === 'OPTGROUP') item.hint = o.parentNode.label;
+        return item;
+      });
     }
     var blank = Array.prototype.some.call(select.options, function (o) { return o.value === ''; });
 

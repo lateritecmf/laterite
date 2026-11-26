@@ -888,7 +888,7 @@ pub(crate) async fn new_form(
         Ok(false) => return not_found(),
         Err(_) => return render_error(),
     }
-    form::new_form(&state, &rel.new_form_for(&parent_id), shell, Vec::new())
+    form::new_form(&state, &rel.new_form_for(&parent_id), shell, Vec::new()).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -966,6 +966,37 @@ pub(crate) async fn create(
         &headers,
     )
     .await
+}
+
+/// A related record's form fields drawn again: the new form's when `child` is
+/// none, else the edit form's for a record the parent owns.
+pub(crate) async fn refresh(
+    state: &AdminState,
+    rel: &PreparedRelation,
+    parent_id: &str,
+    child: Option<&str>,
+    data: HashMap<String, String>,
+    shell: Shell,
+) -> Response {
+    let form = match child {
+        Some(child) => {
+            match rel.owned(&state.db, parent_id, child).await {
+                Ok(true) => {}
+                Ok(false) => return not_found(),
+                Err(_) => return render_error(),
+            }
+            rel.form_for(parent_id)
+        }
+        None => {
+            match rel.parent_exists(&state.db, parent_id).await {
+                Ok(true) => {}
+                Ok(false) => return not_found(),
+                Err(_) => return render_error(),
+            }
+            rel.new_form_for(parent_id)
+        }
+    };
+    form::refresh(state, &form, child, data, shell).await
 }
 
 pub(crate) async fn edit_form(

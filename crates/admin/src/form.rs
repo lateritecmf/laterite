@@ -91,6 +91,11 @@ pub struct FormField {
     /// Another field whose starting value this one opens with, when it has
     /// no `default` of its own.
     pub default_from: Option<String>,
+    /// Fields this one follows: when one of them changes, this field is
+    /// drawn again with the form's current values, so a field whose choices
+    /// come from an [option source](crate::options::OptionSource) offers a
+    /// fresh list.
+    pub depends_on: Vec<String>,
     /// The tab the field is on, by its label. A field under `tabs` or
     /// `secondary_tabs` that names none takes the set's `default_tab`.
     pub tab: Option<Text>,
@@ -252,6 +257,12 @@ pub(crate) fn behaviour_attrs(field: &FormField) -> String {
             r#" data-lat-preset="{}" data-lat-preset-type="{}""#,
             escaped(&preset.field),
             preset.shape.as_str()
+        ));
+    }
+    if !field.depends_on.is_empty() {
+        attrs.push_str(&format!(
+            r#" data-lat-depends="{}""#,
+            escaped(&field.depends_on.join(","))
         ));
     }
     if let Some(trigger) = &field.trigger {
@@ -481,6 +492,9 @@ impl<'de> Deserialize<'de> for FormField {
                         "related" => field.related = Some(map.next_value()?),
                         "default" => field.default = Some(map.next_value()?),
                         "default_from" => field.default_from = Some(map.next_value()?),
+                        "depends_on" => {
+                            field.depends_on = map.next_value::<OneOrMany<String>>()?.into()
+                        }
                         "tab" => field.tab = Some(map.next_value()?),
                         "area" => field.area = map.next_value()?,
                         "context" => {
@@ -539,6 +553,9 @@ impl Serialize for FormField {
         }
         if let Some(from) = &self.default_from {
             map.serialize_entry("default_from", from)?;
+        }
+        if !self.depends_on.is_empty() {
+            map.serialize_entry("depends_on", &self.depends_on)?;
         }
         if let Some(tab) = &self.tab {
             map.serialize_entry("tab", tab)?;
@@ -729,6 +746,16 @@ impl FormField {
         self
     }
 
+    /// Draws the field again whenever one of `fields` changes.
+    pub fn depends_on<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.depends_on = fields.into_iter().map(Into::into).collect();
+        self
+    }
+
     /// Puts the field on the form's tab labelled `tab`.
     pub fn tab(mut self, tab: impl Into<Text>) -> Self {
         self.tab = Some(tab.into());
@@ -762,6 +789,7 @@ impl FormField {
             context: Vec::new(),
             default: None,
             default_from: None,
+            depends_on: Vec::new(),
             tab: None,
             area: FormArea::Outside,
             format: None,
@@ -1494,9 +1522,147 @@ struct PreparedField {
     field_type: Arc<dyn crate::field::FieldType>,
     opts: ResolvedOptions,
     rules: Vec<Rule>,
+    /// The option source the field's choices come from, when it names one.
+    source: Option<String>,
+}
+
+/// Refuses a field following one the form lacks, itself, or a field that
+/// follows it back.
+fn check_dependencies(fields: &[FormField]) -> Result<(), String> {
+    for field in fields {
+        for followed in &field.depends_on {
+            if followed == &field.name {
+                return Err(format!("field `{}` depends on itself", field.name));
+            }
+            if !fields.iter().any(|other| &other.name == followed) {
+                return Err(format!(
+                    "field `{}` depends on `{followed}`, which is not in this form",
+                    field.name
+                ));
+            }
+        }
+    }
+    // Walk what each field follows; meeting the start again is a loop.
+    for start in fields {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut queue: Vec<&str> = start.depends_on.iter().map(String::as_str).collect();
+        while let Some(name) = queue.pop() {
+            if name == start.name {
+                return Err(format!(
+                    "field `{}` depends on itself through other fields",
+                    start.name
+                ));
+            }
+            if seen.contains(&name) {
+                continue;
+            }
+            seen.push(name);
+            if let Some(field) = fields.iter().find(|f| f.name == name) {
+                queue.extend(field.depends_on.iter().map(String::as_str));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl PreparedForm {
+    /// Refuses a field naming an option source nobody registered.
+    pub(crate) fn check_sources(
+        &self,
+        sources: &crate::options::OptionRegistry,
+    ) -> Result<(), String> {
+        for (field, prepared) in self.config.fields.iter().zip(&self.fields) {
+            if let Some(source) = &prepared.source {
+                if !sources.contains_key(source) {
+                    return Err(format!(
+                        "field `{}` takes its options from `{source}`, which no module registered",
+                        field.name
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The form with each sourced field's choices asked of its source, given
+    /// `values`: what a request renders and saves through. A form with no
+    /// sourced field is returned as it is.
+    pub(crate) async fn loaded<'a>(
+        &'a self,
+        state: &AdminState,
+        values: &HashMap<String, String>,
+        id: Option<&str>,
+        shell: &crate::Shell,
+    ) -> std::borrow::Cow<'a, PreparedForm> {
+        if self.fields.iter().all(|pf| pf.source.is_none()) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut form = self.clone();
+        // What each control shows, which is what a source is asked with: a
+        // dropdown holding nothing shows its first choice.
+        let mut values = values.clone();
+        let shown = |values: &mut HashMap<String, String>, index: usize, form: &PreparedForm| {
+            let name = &form.config.fields[index].name;
+            let prepared = &form.fields[index];
+            let current = values.get(name).map(String::as_str).unwrap_or("");
+            if let Some(value) = prepared.field_type.shown(current, &prepared.opts) {
+                values.insert(name.clone(), value);
+            }
+        };
+        let mut pending = Vec::new();
+        for (index, prepared) in self.fields.iter().enumerate() {
+            if prepared.source.is_some() {
+                pending.push(index);
+            } else {
+                shown(&mut values, index, &form);
+            }
+        }
+        // A field is asked once every field it follows has its choices.
+        while !pending.is_empty() {
+            let ready = pending
+                .iter()
+                .position(|&index| {
+                    !self.config.fields[index].depends_on.iter().any(|followed| {
+                        pending.iter().any(|&other| {
+                            other != index && &self.config.fields[other].name == followed
+                        })
+                    })
+                })
+                .unwrap_or(0);
+            let index = pending.remove(ready);
+            let field = &self.config.fields[index];
+            let prepared = &self.fields[index];
+            let Some(name) = &prepared.source else {
+                continue;
+            };
+            let entries = {
+                let cx = crate::options::OptionCx {
+                    field: &field.name,
+                    value: values.get(&field.name).map(String::as_str).unwrap_or(""),
+                    values: &values,
+                    id,
+                    i18n: shell.i18n(),
+                };
+                match state.option_sources.get(name) {
+                    Some(reg) => match reg.source.options(&state.db, &cx).await {
+                        Ok(entries) => entries,
+                        Err(error) => {
+                            tracing::error!(source = %name, field = %field.name, %error, "option source failed");
+                            Vec::new()
+                        }
+                    },
+                    None => {
+                        tracing::error!(source = %name, field = %field.name, "option source is not registered");
+                        Vec::new()
+                    }
+                }
+            };
+            form.fields[index].opts = prepared.field_type.with_options(&prepared.opts, entries);
+            shown(&mut values, index, &form);
+        }
+        std::borrow::Cow::Owned(form)
+    }
+
     /// The write handler this form resolved to.
     pub(crate) fn persister(&self) -> Arc<dyn Persister> {
         self.persister.clone()
@@ -1636,12 +1802,15 @@ impl PreparedForm {
                 .map_err(|e| format!("field `{}` (`{}`): {e}", f.name, f.field_type))?;
             let mut rules = ft.intrinsic_rules(&opts);
             rules.extend(f.rules.clone());
+            let source = ft.option_source(&opts);
             fields.push(PreparedField {
                 field_type: ft.clone(),
                 opts,
                 rules,
+                source,
             });
         }
+        check_dependencies(&config.fields)?;
         let persister: Arc<dyn Persister> = match &config.persist {
             Some(key) => persisters
                 .get(key)
@@ -2231,18 +2400,21 @@ fn has_required(rules: &[Rule]) -> bool {
 }
 
 /// Renders an empty create form.
-pub(crate) fn new_form(
+pub(crate) async fn new_form(
     state: &AdminState,
     form: &PreparedForm,
     shell: crate::Shell,
     pending: Vec<String>,
 ) -> Response {
+    let values = form.defaults(&shell);
+    let loaded = form.loaded(state, &values, None, &shell).await;
+    let form: &PreparedForm = &loaded;
     let mut page = build(
         state,
         form,
         &format!("{}/new", form.config.base_path),
         None,
-        &form.defaults(&shell),
+        &values,
         &ErrorBag::default(),
         &shell,
     );
@@ -2280,6 +2452,8 @@ pub(crate) async fn create(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
+    let loaded = form.loaded(state, &data, None, &shell).await;
+    let form: &PreparedForm = &loaded;
     let mut data = gathered(form, data);
     let then = data.remove("then");
     let actor = Actor::from(user);
@@ -2335,6 +2509,8 @@ pub(crate) async fn edit_form(
             Ok(None) => return not_found(),
             Err(_) => return render_error(),
         };
+    let loaded = form.loaded(state, &values, Some(&id), &shell).await;
+    let form: &PreparedForm = &loaded;
 
     let mut page = build(
         state,
@@ -2499,6 +2675,8 @@ pub(crate) async fn preview_page(
             Ok(None) => return not_found(),
             Err(_) => return render_error(),
         };
+    let loaded = form.loaded(state, &values, Some(&id), &shell).await;
+    let form: &PreparedForm = &loaded;
     let edit = format!("{}/{}/edit", form.config.base_path, id);
     let mut page = build(
         state,
@@ -2858,6 +3036,8 @@ pub(crate) async fn update(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
+    let loaded = form.loaded(state, &data, Some(&id), &shell).await;
+    let form: &PreparedForm = &loaded;
     let mut data = gathered(form, data);
     let then = data.remove("then");
     let actor = Actor::from(user);
@@ -2905,6 +3085,49 @@ pub(crate) async fn update(
 /// replaces the form in place; anything else gets the whole page, so the admin
 /// still works with scripting off.
 #[allow(clippy::too_many_arguments)]
+/// The fields named in the submission's `_fields`, drawn again holding what
+/// was submitted: what a field following another is replaced with when the
+/// other changes. Each comes back in its own wrapper; a name the form lacks
+/// is passed over.
+pub(crate) async fn refresh(
+    state: &AdminState,
+    form: &PreparedForm,
+    id: Option<&str>,
+    mut data: HashMap<String, String>,
+    shell: crate::Shell,
+) -> Response {
+    let wanted: Vec<String> = data
+        .remove("_fields")
+        .unwrap_or_default()
+        .split(',')
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    let loaded = form.loaded(state, &data, id, &shell).await;
+    let form: &PreparedForm = &loaded;
+    let data = gathered(form, data);
+    let action = match id {
+        Some(id) => format!("{}/{}/edit", form.config.base_path, id),
+        None => format!("{}/new", form.config.base_path),
+    };
+    let page = build(
+        state,
+        form,
+        &action,
+        None,
+        &data,
+        &ErrorBag::default(),
+        &shell,
+    );
+    render(FieldsFragment {
+        fields: page
+            .fields
+            .into_iter()
+            .filter(|view| view.chrome.is_none() && wanted.contains(&view.id))
+            .collect(),
+    })
+}
+
 /// A form page posting to `action`, holding `values`: the shape another screen
 /// borrows when it edits one thing a record owns, such as its tree parent.
 pub(crate) fn page(
@@ -3383,6 +3606,13 @@ fn action_views(
             }
         })
         .collect()
+}
+
+/// Some of a form's fields, each in its wrapper, for a refresh.
+#[derive(Template)]
+#[template(path = "_form_field_list.html")]
+struct FieldsFragment {
+    fields: Vec<FieldView>,
 }
 
 /// Just the form element, for an HTMX submit that failed validation: the
