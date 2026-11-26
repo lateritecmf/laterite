@@ -2288,18 +2288,8 @@ pub async fn set_user_preference(
     key: &str,
     value: &str,
 ) -> Result<(), AuthError> {
-    let mut tx = db.pool.begin().await?;
-    let (sql, values) = build(
-        db.backend,
-        Query::delete()
-            .from_table(BackendUserPreferences::Table)
-            .and_where(Expr::col(BackendUserPreferences::UserId).eq(user_id))
-            .and_where(Expr::col(BackendUserPreferences::PreferenceKey).eq(key))
-            .to_owned(),
-    );
-    bind_values(sqlx::query(&sql), values)
-        .execute(&mut *tx)
-        .await?;
+    // One statement: two saves arriving together both land, where a delete
+    // followed by an insert let the second trip the unique key.
     let (sql, values) = build(
         db.backend,
         Query::insert()
@@ -2314,12 +2304,19 @@ pub async fn set_user_preference(
                 key.to_string().into(),
                 value.to_string().into(),
             ])
+            .on_conflict(
+                sea_query::OnConflict::columns([
+                    BackendUserPreferences::UserId,
+                    BackendUserPreferences::PreferenceKey,
+                ])
+                .update_column(BackendUserPreferences::Value)
+                .to_owned(),
+            )
             .to_owned(),
     );
     bind_values(sqlx::query(&sql), values)
-        .execute(&mut *tx)
+        .execute(&db.pool)
         .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -2405,6 +2402,27 @@ mod tests {
     }
 
     /// Preferences are per operator and per key: one does not leak into another.
+    #[tokio::test]
+    async fn saves_arriving_together_all_land() {
+        let (db, _guard) = connect_test(&[crate::migrations()]).await;
+        let id = operator(&db).await;
+        let saves = (0..12).map(|n| {
+            let db = db.clone();
+            async move { set_user_preference(&db, id, "menu.collapsed", &n.to_string()).await }
+        });
+        let mut pending = Vec::new();
+        for save in saves {
+            pending.push(tokio::spawn(save));
+        }
+        for save in pending {
+            save.await.unwrap().expect("no save trips another");
+        }
+        assert!(user_preference(&db, id, "menu.collapsed")
+            .await
+            .unwrap()
+            .is_some());
+    }
+
     #[tokio::test]
     async fn preferences_are_scoped() {
         let (db, _guard) = connect_test(&[crate::migrations()]).await;
