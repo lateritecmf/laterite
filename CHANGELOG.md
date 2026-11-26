@@ -9,6 +9,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `AdoptHistory`, a migration that takes over migrations recorded under another module id, so code moving between modules keeps its history.
 - `clearable` on a list offers Clear, which removes every row of a log at once and is audited; `clear_permission` gates it (`ListConfig::clearable`). The request, event and access logs offer it.
 - An event log: every warning and error logged through `tracing` is kept as a row under Settings, Logs, and opens to read (`eventlog::layer`, permission `backend.view_event_log`).
 - A resource with a preview and no form has the preview as its only record page: rows open it and nothing edits.

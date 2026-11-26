@@ -46,3 +46,36 @@ Helper | Description
 
 Ids are `bigint` auto-increment; an insert never sets one. Keep a migration to
 one schema change.
+
+## Move migrations to another module
+
+```rust
+use laterite_core::{AdoptHistory, MigrationSet};
+
+pub fn migrations() -> MigrationSet {
+    MigrationSet::new(
+        "acme.blog",
+        vec![
+            Box::new(AdoptHistory::new(
+                "0000_adopt_history",
+                "acme",
+                "acme.blog",
+                &["0001_create_posts", "0002_create_comments"],
+            )),
+            Box::new(m0001_create_posts::Migration),
+            Box::new(m0002_create_comments::Migration),
+        ],
+    )
+}
+```
+
+Argument | Holds
+--- | ---
+`name` | The adopting migration's own name, first in the set.
+`from` | The module id the migrations ran under.
+`to` | This module's id.
+`names` | The migrations to take over, by name.
+
+A database that ran the named migrations under `from` records them under `to`
+and runs none of them again. A database that never ran them runs them as new.
+

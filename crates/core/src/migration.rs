@@ -199,6 +199,67 @@ impl Migration for SqlMigration {
     }
 }
 
+/// Takes over migrations recorded under another module id, so code that moves
+/// from one module to another keeps its history and nothing runs twice.
+///
+/// List it first in the new module's set. Its `up` re-keys the named
+/// migrations from `from` to `to` in the tracking table, and the migrations
+/// after it in the set are then found applied. On a database that never ran
+/// them under `from` it changes nothing, and they run as new.
+///
+/// ```ignore
+/// MigrationSet::new("acme.blog", vec![
+///     Box::new(AdoptHistory::new("0000_adopt_history", "acme", "acme.blog", &["0001_create_posts"])),
+///     Box::new(m0001_create_posts::Migration),
+/// ])
+/// ```
+pub struct AdoptHistory {
+    name: &'static str,
+    from: &'static str,
+    to: &'static str,
+    names: &'static [&'static str],
+}
+
+impl AdoptHistory {
+    /// Returns the migration `name` that moves the history of `names` from
+    /// module `from` to module `to`.
+    pub fn new(
+        name: &'static str,
+        from: &'static str,
+        to: &'static str,
+        names: &'static [&'static str],
+    ) -> Self {
+        Self {
+            name,
+            from,
+            to,
+            names,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl Migration for AdoptHistory {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    async fn up(&self, schema: &mut Schema<'_>) -> CoreResult<()> {
+        if self.names.is_empty() {
+            return Ok(());
+        }
+        let update = Query::update()
+            .table(LateriteMigrations::Table)
+            .value(LateriteMigrations::ModuleId, self.to)
+            .and_where(Expr::col(LateriteMigrations::ModuleId).eq(self.from))
+            .and_where(Expr::col(LateriteMigrations::Name).is_in(self.names.iter().copied()))
+            .to_owned();
+        let sql = query_sql(schema.backend, &update);
+        sqlx::query(&sql).execute(&mut *schema.conn).await?;
+        Ok(())
+    }
+}
+
 /// A module's ordered migrations: the version history for `module_id`.
 pub struct MigrationSet {
     /// Id of the module whose history these migrations are.
@@ -487,6 +548,56 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_module_takes_over_history_recorded_under_another() {
+        let pool = sqlite_pool().await;
+        let backend = DbBackend::Sqlite;
+        // The table is created under the old module, and a row put in it.
+        let old = MigrationSet::new("acme", vec![Box::new(CreateDemo)]);
+        run(&pool, backend, std::slice::from_ref(&old))
+            .await
+            .unwrap();
+        sqlx::query("insert into demo (id) values (1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let moved = || {
+            MigrationSet::new(
+                "acme.blog",
+                vec![
+                    Box::new(AdoptHistory::new(
+                        "0000_adopt_history",
+                        "acme",
+                        "acme.blog",
+                        &["0001_create_demo"],
+                    )),
+                    Box::new(CreateDemo),
+                ],
+            )
+        };
+        run(&pool, backend, &[moved()]).await.unwrap();
+        // The history moved and the create did not run again over the row.
+        assert!(applied(&pool, backend, "acme").await.unwrap().is_empty());
+        assert_eq!(
+            applied(&pool, backend, "acme.blog").await.unwrap(),
+            ["0000_adopt_history", "0001_create_demo"]
+        );
+        let (rows,): (i64,) = sqlx::query_as("select count(*) from demo")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+
+        // A database that never ran it under the old module runs it as new.
+        let fresh = sqlite_pool().await;
+        run(&fresh, backend, &[moved()]).await.unwrap();
+        assert_eq!(
+            applied(&fresh, backend, "acme.blog").await.unwrap().len(),
+            2
+        );
     }
 
     #[tokio::test]

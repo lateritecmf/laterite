@@ -59,7 +59,9 @@ pub use listeners::{
     DeleteCascade, Encrypted, Footprints, Sluggable, SoftDeleteCascade, Timestamps,
 };
 pub use mail::Mail;
-pub use migration::{bool_col, key_col, DbBackend, Migration, MigrationSet, Schema, SqlMigration};
+pub use migration::{
+    bool_col, key_col, AdoptHistory, DbBackend, Migration, MigrationSet, Schema, SqlMigration,
+};
 /// The template engine of mail and themes, at the framework's version.
 pub use minijinja;
 pub use model::Model;

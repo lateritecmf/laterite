@@ -12,7 +12,9 @@
 pub use async_trait::async_trait;
 
 pub use crate::error::{CoreError, CoreResult};
-pub use crate::migration::{bool_col, key_col, Migration, MigrationSet, Schema, SqlMigration};
+pub use crate::migration::{
+    bool_col, key_col, AdoptHistory, Migration, MigrationSet, Schema, SqlMigration,
+};
 pub use crate::query::{
     bind_values, bind_values_as, build, insert_returning_id, insert_returning_id_on,
     on_conflict_ignore, text_cast, AnyRowExt,
