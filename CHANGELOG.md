@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-27
+
 ### Added
 
 - `help_above`, `css_class` and `container_attributes` on a form field.
