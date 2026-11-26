@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-26
+
 ### Added
 
 - Option sources: `options: acme.states` on a select, radio or checklist takes its choices from a registered `OptionSource` (`add_option_source`), and `depends_on` draws the field again when another changes. `laterite.timezones` and `laterite.locales` are built in.
