@@ -29,6 +29,8 @@ ScreenReg::new("/reports", "acme.reports", Arc::new(ReportsScreen))
 `slot` | `application` | The band the entry belongs to (see below).
 `order` | `0` | Sorts among siblings of the band, lowest first; equal orders sort by label.
 `after`, `before` | none | Sits right after or before the sibling with that key, whatever the bands say. A resource's key is `resource:` and its path (`resource:/posts`), a screen's `screen:` and its path, a contributed item's its own.
+`in_settings` | none | A Settings category heading (`System`): the entry is listed in Settings under it, with no menu entry.
+`description` | none | The line under the label in Settings.
 `menu: false` | | Mounts the routes with no menu entry.
 
 Slot | Value | Holds

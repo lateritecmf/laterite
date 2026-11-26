@@ -2265,6 +2265,8 @@ pub fn router(
         item.under = resource.menu.under.clone();
         item.after = resource.menu.after.clone();
         item.before = resource.menu.before.clone();
+        item.in_settings = resource.menu.in_settings.clone();
+        item.description = resource.menu.description.clone();
         nav_items.push(item);
     }
     for reg in &app_screens {
@@ -2286,6 +2288,8 @@ pub fn router(
         item.under = reg.menu.under.clone();
         item.after = reg.menu.after.clone();
         item.before = reg.menu.before.clone();
+        item.in_settings = reg.menu.in_settings.clone();
+        item.description = reg.menu.description.clone();
         nav_items.push(item);
     }
     // A deployment's moves: an entry rendered somewhere other than its home,

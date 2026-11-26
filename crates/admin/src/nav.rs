@@ -184,6 +184,11 @@ pub struct Placement {
     pub before: Option<String>,
     /// Mounted and reachable by link, with no menu entry.
     pub hidden: bool,
+    /// Sits in Settings under this category heading, with no menu entry. A
+    /// deployment can still move it back to the menu.
+    pub in_settings: Option<Text>,
+    /// A line about the entry, shown where it is listed with one: in Settings.
+    pub description: Option<Text>,
 }
 
 impl Default for Placement {
@@ -196,6 +201,8 @@ impl Default for Placement {
             after: None,
             before: None,
             hidden: false,
+            in_settings: None,
+            description: None,
         }
     }
 }
@@ -249,6 +256,18 @@ impl Placement {
         self.before = Some(key.into());
         self
     }
+
+    /// Places the entry in Settings under the `category` heading.
+    pub fn in_settings(mut self, category: impl Into<Text>) -> Self {
+        self.in_settings = Some(category.into());
+        self
+    }
+
+    /// Describes the entry where it is listed with a line of text.
+    pub fn description(mut self, text: impl Into<Text>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
 }
 
 /// `menu: false` hides; `menu: { under, icon, order, after, before }` places.
@@ -260,12 +279,12 @@ where
     #[serde(untagged)]
     enum Key {
         Flag(bool),
-        Config(Placement),
+        Config(Box<Placement>),
     }
     Ok(match Option::<Key>::deserialize(deserializer)? {
         Some(Key::Flag(false)) => Placement::hidden(),
         Some(Key::Flag(true)) | None => Placement::default(),
-        Some(Key::Config(placement)) => placement,
+        Some(Key::Config(placement)) => *placement,
     })
 }
 
