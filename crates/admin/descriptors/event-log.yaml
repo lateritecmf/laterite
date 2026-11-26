@@ -22,6 +22,7 @@ list:
   per_page_options: [25, 50, 100]
   exportable: true
   deletable: true
+  clearable: true
   row_click: preview
   search: { prompt: Search by message }
   no_records_message: Nothing has gone wrong that the application logged.

@@ -12,6 +12,7 @@ list:
   per_page_options: [25, 50, 100]
   exportable: true
   deletable: true
+  clearable: true
   search: { prompt: Search by path }
   columns:
     last_seen:  { label: Last seen, type: datetime }

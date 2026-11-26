@@ -1807,6 +1807,13 @@ pub struct ListConfig {
     /// a list that shows a log, or records another screen owns, has no business
     /// offering it.
     pub deletable: bool,
+    /// Whether the list offers Clear, which removes every row at once. For a
+    /// log: a resource with a form refuses it at boot.
+    pub clearable: bool,
+    /// A permission Clear asks for beside the resource's. With none, whoever
+    /// may see the list may clear it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear_permission: Option<String>,
     /// A boolean column naming the rows this list never offers to delete: such
     /// a row has no checkbox and no row Delete, whatever `deletable` says.
     /// `protected: is_system` in a file.
@@ -2005,6 +2012,18 @@ impl ListConfig {
         self
     }
 
+    /// Offers Clear, which removes every row at once: for a log.
+    pub fn clearable(mut self) -> Self {
+        self.clearable = true;
+        self
+    }
+
+    /// Asks for `permission` to clear, beside the resource's own.
+    pub fn clear_permission(mut self, permission: impl Into<String>) -> Self {
+        self.clear_permission = Some(permission.into());
+        self
+    }
+
     /// Sets the filters offered above the table.
     pub fn filters(mut self, filters: Vec<ListFilter>) -> Self {
         self.filters = filters;
@@ -2106,6 +2125,8 @@ impl Default for ListConfig {
             delete_permission: None,
             filters: Vec::new(),
             deletable: false,
+            clearable: false,
+            clear_permission: None,
             protected: None,
             exportable: false,
             import: None,
@@ -3357,6 +3378,11 @@ async fn build_page(
                         .delete_permission
                         .as_deref()
                         .is_none_or(|p| user.permissions.allows(p)),
+                clearable: config.clearable
+                    && config
+                        .clear_permission
+                        .as_deref()
+                        .is_none_or(|p| user.permissions.allows(p)),
                 exportable: config.exportable,
                 import_href: config
                     .import
@@ -4327,6 +4353,8 @@ struct ListTemplate {
     per_page_options: Vec<i64>,
     /// Whether rows carry a checkbox and the Delete button is offered.
     deletable: bool,
+    /// Whether Clear, removing every row, is offered.
+    clearable: bool,
     /// Whether this resource offers an export, which puts the menu beside the
     /// title. Off leaves the title row bare.
     exportable: bool,

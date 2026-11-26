@@ -4740,6 +4740,44 @@ fn mount_resource(
         );
     }
 
+    // Clear removes every row with no listener run, so only a log offers it.
+    if resource.list.clearable {
+        if resource.form.is_some() {
+            panic!(
+                "admin resource `{}`: `clearable` is for a log, and this resource has a form",
+                resource.base_path
+            );
+        }
+        if let Some(permission) = &resource.list.clear_permission {
+            if !permission_codes.contains(permission) {
+                panic!(
+                    "admin resource `{}`: `clear_permission` is `{permission}`, which no module registered",
+                    resource.base_path
+                );
+            }
+        }
+        let entity: Arc<str> = resource.list.entity.as_str().into();
+        let back: Arc<str> = resource.base_path.as_str().into();
+        let permission: Option<Arc<str>> =
+            resource.list.clear_permission.as_deref().map(Into::into);
+        router = router.route(
+            &format!("{base}/clear"),
+            post(
+                move |state: State<AdminState>,
+                      user: Extension<AuthenticatedUser>,
+                      session: Extension<session::SessionHandle>,
+                      headers: axum::http::HeaderMap| {
+                    let (entity, back, permission) =
+                        (entity.clone(), back.clone(), permission.clone());
+                    async move {
+                        bulk::clear_handler(state, user, session, entity, back, permission, headers)
+                            .await
+                    }
+                },
+            ),
+        );
+    }
+
     // A resource with no form may still be read a record at a time: a preview
     // naming its own fields mounts alone, with no create or edit beside it.
     if resource.form.is_none() {

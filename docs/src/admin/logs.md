@@ -48,7 +48,7 @@ Event | Recorded when
 `logout` | An operator signed out.
 `password_changed` | An operator changed their own password.
 
-Rows older than `access_log_retention_days` (see [Authentication](../configuration/authentication.md)) are purged hourly.
+Clear removes every row, for a user holding `backend.manage_users`; the audit log records it. Rows older than `access_log_retention_days` (see [Authentication](../configuration/authentication.md)) are purged hourly.
 
 ## Read the request log
 
@@ -70,7 +70,7 @@ Method, Path | The request; the path is kept to 512 characters, without its quer
 Status | `404`.
 Hits | How many times.
 
-Rows are selected and deleted like any list's.
+Rows are selected and deleted like any list's, and Clear removes them all.
 
 ## Read the event log
 
@@ -100,7 +100,7 @@ Times | How many times.
 
 A row opens to read: the message, its other fields one a line, and the file
 and line it was logged from. Rows are selected and deleted like any list's,
-and the log keeps the most recent 2000.
+Clear removes them all, and the log keeps the most recent 2000.
 
 An application that installs a `tracing` subscriber of its own adds the layer
 to it:

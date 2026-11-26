@@ -1,0 +1,12 @@
+entity: backend_roles
+path: /cleared
+title: Roles
+permission: backend.manage_users
+list:
+  clearable: true
+  columns:
+    code: {}
+form:
+  title: Role
+  fields:
+    code: { rules: [required] }

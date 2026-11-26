@@ -216,6 +216,58 @@ fn selected(pairs: &[(String, String)]) -> Vec<String> {
 /// Handles the Delete button: removes the selection, then returns to the list
 /// with a flash saying what happened.
 #[allow(clippy::too_many_arguments)]
+/// Removes every row of a log's table, for a list that is `clearable`. Not a
+/// record-by-record delete: no listener runs, which is what makes it only a
+/// log's to offer. Audited with the number of rows that went.
+pub(crate) async fn clear_handler(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<SessionHandle>,
+    entity: Arc<str>,
+    back: Arc<str>,
+    permission: Option<Arc<str>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if permission
+        .as_deref()
+        .is_some_and(|p| !user.permissions.allows(p))
+    {
+        return axum::response::IntoResponse::into_response(axum::http::StatusCode::FORBIDDEN);
+    }
+    if !crate::sql::valid_ident(&entity) {
+        return crate::render_error();
+    }
+    let (sql, values) = laterite_core::query::build(
+        state.db.backend,
+        sea_query::Query::delete()
+            .from_table(sea_query::Alias::new(&*entity))
+            .to_owned(),
+    );
+    let removed = match laterite_core::query::bind_values(sqlx::query(&sql), values)
+        .execute(&state.db.pool)
+        .await
+    {
+        Ok(done) => done.rows_affected(),
+        Err(error) => {
+            tracing::error!(%error, entity = %entity, "clearing a log failed");
+            session.push_flash(FlashLevel::Error, t!("The log could not be cleared."));
+            return crate::form::saved_response(crate::form::is_htmx(&headers), &back);
+        }
+    };
+    crate::audit::record(
+        &state,
+        &user,
+        &format!("backend.{entity}.clear"),
+        Some(&entity),
+        None,
+        None,
+        Some(&format!("{removed} rows")),
+    )
+    .await;
+    session.push_flash(FlashLevel::Success, t!("Log cleared."));
+    crate::form::saved_response(crate::form::is_htmx(&headers), &back)
+}
+
 pub(crate) async fn delete_handler(
     State(state): State<AdminState>,
     Extension(user): Extension<AuthenticatedUser>,

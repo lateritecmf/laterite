@@ -42,6 +42,8 @@ Key | Default | Description
 `per_page_options` | none | Page sizes offered in the list setup; empty offers no choice.
 `creatable` | `false` | Offers New.
 `deletable` | `false` | Rows can be selected and deleted, and a record's edit page offers Delete.
+`clearable` | `false` | Offers Clear, which removes every row at once and writes an audit entry. For a log: a resource with a `form` refuses it.
+`clear_permission` | none | A permission Clear asks for beside the resource's.
 `protected` | none | A boolean column; a row it marks has no checkbox and no Delete.
 `exportable` | `false` | Offers the export menu. See [Export](export.md).
 `search` | on | The search box; keys below.

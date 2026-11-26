@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use laterite_admin::eventlog::{record, Entry};
-use laterite_admin::{router, AdminConfig, Contributions};
+use laterite_admin::{resource, router, AdminConfig, Contributions};
 use laterite_auth::{AuthConfig, AuthService, NewOperator, RequestContext};
 use laterite_core::{CatalogStore, Db};
 use std::sync::Arc;
@@ -110,4 +110,74 @@ async fn a_logged_error_is_listed_and_opens_to_read() {
     // It is listed under Logs in Settings.
     let (_, settings) = get(&db, &token, "/admin/settings").await;
     assert!(settings.contains("/admin/event-log"), "{settings}");
+}
+
+#[tokio::test]
+async fn clear_empties_the_log_and_says_so_in_the_audit_log() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    for message in ["first", "second"] {
+        record(
+            &db,
+            &Entry {
+                level: "warn",
+                target: "acme".into(),
+                message: message.into(),
+                detail: String::new(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let (_, list) = get(&db, &token, "/admin/event-log").await;
+    assert!(
+        list.contains(r#"action="/admin/event-log/clear""#),
+        "{list}"
+    );
+    let csrf = list
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap()
+        .to_string();
+    let resp = app(&db)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/event-log/clear")
+                .header("cookie", format!("laterite_session={token}"))
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_redirection(), "{}", resp.status());
+
+    let (_, list) = get(&db, &token, "/admin/event-log").await;
+    assert!(
+        !list.contains(">first<") && !list.contains(">second<"),
+        "{list}"
+    );
+    let (_, audit) = get(&db, &token, "/admin/audit-log").await;
+    assert!(audit.contains("backend.backend_event_log.clear"), "{audit}");
+    // The audit log itself offers no Clear.
+    assert!(!audit.contains("/admin/audit-log/clear"), "{audit}");
+}
+
+#[tokio::test]
+#[should_panic(expected = "`clearable` is for a log")]
+async fn clear_is_refused_on_a_resource_with_a_form() {
+    let (db, _guard) = test_db().await;
+    let _ = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![resource!("tests/descriptors/clear_refused.yaml")],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
 }

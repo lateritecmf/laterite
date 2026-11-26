@@ -54,6 +54,10 @@
     {% endif %}
   </div>
   <div class="lat-listbar__tools">
+    {% if clearable %}
+    <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit" form="lat-list-clear"
+            data-lat-confirm='{{ shell.t("Clear this log? Every row is removed, and that cannot be undone.") }}'><span class="lat-btn__icon">{{ shell.icon("circle-x")|safe }}</span>{{ shell.t("Clear") }}</button>
+    {% endif %}
     {% if let Some(t) = trash %}
     <a class="lat-btn lat-btn--secondary lat-btn--sm{% if t.showing %} is-active{% endif %}" href="{{ t.href }}"{% if t.showing %} aria-current="page"{% endif %}><span class="lat-btn__icon">{{ shell.icon("trash-2")|safe }}</span>{% if t.showing %}{{ shell.t("Leave the trash") }}{% else %}{{ shell.t("Trash") }}{% endif %}</a>
     {% endif %}
@@ -127,6 +131,11 @@
   {% endfor %}
   <a class="lat-filterbar__clear" href="{{ path }}?q=">{{ shell.t("Clear") }}</a>
 </div>
+{% endif %}
+{% if clearable %}
+<form id="lat-list-clear" method="post" action="{{ path }}/clear" hidden>
+  {% include "_csrf.html" %}
+</form>
 {% endif %}
 {% if deletable %}
 {# Holds only the token: the rows carry `form="lat-list-actions"` from inside the

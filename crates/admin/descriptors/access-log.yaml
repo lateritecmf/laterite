@@ -9,8 +9,11 @@ list:
   order_dir: desc
   per_page: 50
   per_page_options: [25, 50, 100]
-  # Evidence, like the audit log: it can leave the panel, nothing removes from it here.
+  # It can leave the panel, and whoever manages accounts may clear it; the
+  # audit log records that they did.
   exportable: true
+  clearable: true
+  clear_permission: backend.manage_users
   search: { prompt: Search by username or address }
   columns:
     created_at:         { label: When, type: datetime }
