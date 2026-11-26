@@ -1,0 +1,14 @@
+entity: teams
+path: /locked
+title: Teams
+permission: acme.manage_posts
+list:
+  columns:
+    code: {}
+form:
+  title: Team
+  fields:
+    code: { rules: [required] }
+    name: { read_only: true, default: Fixed }
+    note: { disabled: true }
+    topics: { permission: acme.unheld }

@@ -91,6 +91,13 @@ pub struct FormField {
     /// Another field whose starting value this one opens with, when it has
     /// no `default` of its own.
     pub default_from: Option<String>,
+    /// Shown with its value and not editable. A save keeps what is stored;
+    /// a new record takes the field's `default`.
+    pub read_only: bool,
+    /// Shown and not editable, and left out of every save.
+    pub disabled: bool,
+    /// A permission the operator must hold to see the field or write it.
+    pub permission: Option<String>,
     /// Fields this one follows: when one of them changes, this field is
     /// drawn again with the form's current values, so a field whose choices
     /// come from an [option source](crate::options::OptionSource) offers a
@@ -493,6 +500,9 @@ impl<'de> Deserialize<'de> for FormField {
                         "related" => field.related = Some(map.next_value()?),
                         "default" => field.default = Some(map.next_value()?),
                         "default_from" => field.default_from = Some(map.next_value()?),
+                        "read_only" => field.read_only = map.next_value()?,
+                        "disabled" => field.disabled = map.next_value()?,
+                        "permission" => field.permission = Some(map.next_value()?),
                         "depends_on" => {
                             field.depends_on = map.next_value::<OneOrMany<String>>()?.into()
                         }
@@ -557,6 +567,15 @@ impl Serialize for FormField {
         }
         if !self.depends_on.is_empty() {
             map.serialize_entry("depends_on", &self.depends_on)?;
+        }
+        if self.read_only {
+            map.serialize_entry("read_only", &true)?;
+        }
+        if self.disabled {
+            map.serialize_entry("disabled", &true)?;
+        }
+        if let Some(permission) = &self.permission {
+            map.serialize_entry("permission", permission)?;
         }
         if let Some(tab) = &self.tab {
             map.serialize_entry("tab", tab)?;
@@ -747,6 +766,31 @@ impl FormField {
         self
     }
 
+    /// Shows the field with its value, not editable: a save keeps what is
+    /// stored, and a new record takes the field's default.
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
+    }
+
+    /// Shows the field, not editable, and leaves it out of every save.
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+
+    /// Shows the field to, and takes it from, only an operator holding
+    /// `permission`.
+    pub fn require(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    /// Whether an operator may change the field at all.
+    pub(crate) fn locked(&self) -> bool {
+        self.read_only || self.disabled
+    }
+
     /// Draws the field again whenever one of `fields` changes.
     pub fn depends_on<I, S>(mut self, fields: I) -> Self
     where
@@ -791,6 +835,9 @@ impl FormField {
             default: None,
             default_from: None,
             depends_on: Vec::new(),
+            read_only: false,
+            disabled: false,
+            permission: None,
             tab: None,
             area: FormArea::Outside,
             format: None,
@@ -1572,6 +1619,49 @@ fn check_dependencies(fields: &[FormField]) -> Result<(), String> {
 }
 
 impl PreparedForm {
+    /// The form keeping only the fields `keep` accepts, or itself when it
+    /// accepts them all.
+    fn keeping<'a>(
+        &'a self,
+        keep: impl Fn(&FormField) -> bool,
+    ) -> std::borrow::Cow<'a, PreparedForm> {
+        if self.config.fields.iter().all(&keep) {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut form = self.clone();
+        let kept: Vec<bool> = self.config.fields.iter().map(&keep).collect();
+        let mut at = kept.iter();
+        form.config.fields.retain(|_| *at.next().unwrap_or(&true));
+        let mut at = kept.iter();
+        form.fields.retain(|_| *at.next().unwrap_or(&true));
+        std::borrow::Cow::Owned(form)
+    }
+
+    /// The form as an operator may see it: without the fields whose
+    /// permission `allows` does not grant.
+    pub(crate) fn seen_by<'a>(
+        &'a self,
+        allows: impl Fn(&str) -> bool,
+    ) -> std::borrow::Cow<'a, PreparedForm> {
+        self.keeping(|field| field.permission.as_deref().is_none_or(&allows))
+    }
+
+    /// The fields a save writes: none that is disabled, and on an update none
+    /// that is read-only, so a submission cannot change what the page locked.
+    pub(crate) fn written<'a>(&'a self, update: bool) -> std::borrow::Cow<'a, PreparedForm> {
+        self.keeping(|field| !field.disabled && !(update && field.read_only))
+    }
+
+    /// The permissions the form's fields name.
+    pub(crate) fn field_permissions(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.config.fields.iter().filter_map(|field| {
+            field
+                .permission
+                .as_deref()
+                .map(|permission| (field.name.as_str(), permission))
+        })
+    }
+
     /// Refuses a field naming an option source nobody registered.
     pub(crate) fn check_sources(
         &self,
@@ -2412,6 +2502,8 @@ pub(crate) async fn new_form(
     shell: crate::Shell,
     pending: Vec<String>,
 ) -> Response {
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let values = form.defaults(&shell);
     let loaded = form.loaded(state, &values, None, &shell).await;
     let form: &PreparedForm = &loaded;
@@ -2458,12 +2550,23 @@ pub(crate) async fn create(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/new", form.config.base_path);
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let loaded = form.loaded(state, &data, None, &shell).await;
     let form: &PreparedForm = &loaded;
     let mut data = gathered(form, data);
+    // A read-only field starts from its default, whatever was submitted.
+    let defaults = form.defaults(&shell);
+    for field in form.config.fields.iter().filter(|f| f.read_only) {
+        match defaults.get(&field.name) {
+            Some(value) => data.insert(field.name.clone(), value.clone()),
+            None => data.remove(&field.name),
+        };
+    }
     let then = data.remove("then");
     let actor = Actor::from(user);
-    match write(&state.db, Some(&state.cache), form, &data, None, &actor).await {
+    let written = form.written(false);
+    match write(&state.db, Some(&state.cache), &written, &data, None, &actor).await {
         // The audit entry is written by the framework's audit listener, which
         // runs on every entity after the commit.
         Ok(rec) => {
@@ -2509,6 +2612,8 @@ pub(crate) async fn edit_form(
     if !form.config.idents_valid() {
         return render_error();
     }
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let values =
         match load_values(&state.db, form, &id, state.scopes_for(&form.config.entity)).await {
             Ok(Some(values)) => values,
@@ -2692,6 +2797,8 @@ pub(crate) async fn preview_page(
     if !form.config.idents_valid() {
         return render_error();
     }
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let values =
         match load_values(&state.db, form, &id, state.scopes_for(&form.config.entity)).await {
             Ok(Some(values)) => values,
@@ -3047,15 +3154,18 @@ pub(crate) async fn update(
     }
     let htmx = is_htmx(headers);
     let action = format!("{}/{}/edit", form.config.base_path, id);
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let loaded = form.loaded(state, &data, Some(&id), &shell).await;
     let form: &PreparedForm = &loaded;
     let mut data = gathered(form, data);
     let then = data.remove("then");
     let actor = Actor::from(user);
+    let written = form.written(true);
     match write(
         &state.db,
         Some(&state.cache),
-        form,
+        &written,
         &data,
         Some(&id),
         &actor,
@@ -3114,6 +3224,8 @@ pub(crate) async fn refresh(
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
         .collect();
+    let seen = form.seen_by(|permission| shell.allows(permission));
+    let form: &PreparedForm = &seen;
     let loaded = form.loaded(state, &data, id, &shell).await;
     let form: &PreparedForm = &loaded;
     let data = gathered(form, data);
@@ -3297,6 +3409,15 @@ fn build(
                     }
                     None => String::new(),
                 }
+            };
+            // A locked field shows its value and takes no input. A read-only
+            // one still submits it, so a refused save draws it again.
+            let control = if f.hidden || !f.locked() {
+                control
+            } else if f.disabled {
+                format!(r#"<fieldset class="lat-fieldset lat-field__locked" disabled>{control}</fieldset>"#)
+            } else {
+                format!(r#"<div class="lat-field__locked" inert aria-disabled="true">{control}</div>"#)
             };
             FieldView {
                 id: f.name.clone(),

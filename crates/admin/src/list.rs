@@ -3194,8 +3194,19 @@ async fn build_page(
                                     resource: Some(&config.entity),
                                     field: Some(&col.field),
                                 };
+                                // A cell is editable where the form would let
+                                // this operator edit the field.
+                                let may_edit = |editor: &Editor| {
+                                    editor.0.config.fields.iter().any(|f| {
+                                        f.name == col.field
+                                            && !f.locked()
+                                            && f.permission
+                                                .as_deref()
+                                                .is_none_or(|p| shell.allows(p))
+                                    })
+                                };
                                 let html = match (&config.editor, col.editable && !trashed) {
-                                    (Some(editor), true) => cell_markup(
+                                    (Some(editor), true) if may_edit(editor) => cell_markup(
                                         state, &editor.0, path, &row.id, &col.field, raw, &shell,
                                         None,
                                     ),
@@ -3988,6 +3999,13 @@ pub(crate) async fn cell_handler(
     let Some(field) = data.remove("field") else {
         return crate::not_found();
     };
+    // A cell edits what the form would let this operator edit, and no more.
+    let editable = form.config.fields.iter().any(|f| {
+        f.name == field && !f.locked() && f.permission.as_deref().is_none_or(|p| shell.allows(p))
+    });
+    if !editable {
+        return (axum::http::StatusCode::FORBIDDEN, "").into_response();
+    }
     data.remove("_csrf");
     if !config
         .columns

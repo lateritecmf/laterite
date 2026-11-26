@@ -91,6 +91,9 @@ Key | Default | Description
 `context` | every page | The pages the field is on: `create`, `update`, `preview`, one or a list. See below.
 `default` | none | What a new record's form opens with: text, a number, `true` or `false`, or a list for a field holding several.
 `default_from` | none | Another field whose `default` this one opens with.
+`read_only` | `false` | Shown with its value, not editable. A save keeps what is stored; a new record takes the field's `default`.
+`disabled` | `false` | Shown, not editable, and left out of every save.
+`permission` | none | A permission the user must hold to see the field or write it. An editable list cell of the field follows the same rule.
 `depends_on` | none | A field, or a list of fields: when one changes, this field is drawn again. See [Field Dependencies](field-dependencies.md#options-from-a-source).
 
 A key the type does not read is refused, naming the entry and the keys it

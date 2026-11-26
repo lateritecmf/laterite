@@ -7,6 +7,10 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Added
+
+- `read_only`, `disabled` and `permission` on a form field (`FormField::read_only`, `disabled`, `require`): a locked field is never written from a submission, and a field behind a permission is neither shown to nor taken from a user without it.
+
 ## [0.12.2] - 2026-11-26
 
 ### Added

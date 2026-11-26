@@ -2789,6 +2789,14 @@ pub fn router(
             panic!("admin resource `{}`: {e}", resource.base_path);
         }
         if let Some(prepared) = prepared {
+            for (field, permission) in prepared.field_permissions() {
+                if !permission_codes.contains(permission) {
+                    panic!(
+                        "admin resource `{}`: field `{field}` requires `{permission}`, which no module registered",
+                        resource.base_path
+                    );
+                }
+            }
             if let Err(e) = prepared.check_sources(&state.option_sources) {
                 panic!("admin resource `{}`: {e}", resource.base_path);
             }
