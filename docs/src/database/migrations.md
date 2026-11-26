@@ -77,5 +77,6 @@ Argument | Holds
 `names` | The migrations to take over, by name.
 
 A database that ran the named migrations under `from` records them under `to`
-and runs none of them again. A database that never ran them runs them as new.
+as well and runs none of them again; the record under `from` stays, for a
+build from before the move. A database that never ran them runs them as new.
 

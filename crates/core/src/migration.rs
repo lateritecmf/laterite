@@ -202,10 +202,12 @@ impl Migration for SqlMigration {
 /// Takes over migrations recorded under another module id, so code that moves
 /// from one module to another keeps its history and nothing runs twice.
 ///
-/// List it first in the new module's set. Its `up` re-keys the named
-/// migrations from `from` to `to` in the tracking table, and the migrations
-/// after it in the set are then found applied. On a database that never ran
-/// them under `from` it changes nothing, and they run as new.
+/// List it first in the new module's set. Its `up` records the named
+/// migrations under `to` wherever they are recorded under `from`, and the
+/// migrations after it in the set are then found applied. The record under
+/// `from` stays, so a build from before the move still finds its history if a
+/// deployment has to go back to it. On a database that never ran them under
+/// `from` it changes nothing, and they run as new.
 ///
 /// ```ignore
 /// MigrationSet::new("acme.blog", vec![
@@ -248,13 +250,21 @@ impl Migration for AdoptHistory {
         if self.names.is_empty() {
             return Ok(());
         }
-        let update = Query::update()
-            .table(LateriteMigrations::Table)
-            .value(LateriteMigrations::ModuleId, self.to)
+        let recorded = Query::select()
+            .expr(Expr::val(self.to))
+            .column(LateriteMigrations::Name)
+            .from(LateriteMigrations::Table)
             .and_where(Expr::col(LateriteMigrations::ModuleId).eq(self.from))
             .and_where(Expr::col(LateriteMigrations::Name).is_in(self.names.iter().copied()))
             .to_owned();
-        let sql = query_sql(schema.backend, &update);
+        let mut insert = Query::insert();
+        insert
+            .into_table(LateriteMigrations::Table)
+            .columns([LateriteMigrations::ModuleId, LateriteMigrations::Name]);
+        insert
+            .select_from(recorded)
+            .map_err(|e| CoreError::Config(e.to_string()))?;
+        let sql = query_sql(schema.backend, &insert);
         sqlx::query(&sql).execute(&mut *schema.conn).await?;
         Ok(())
     }
@@ -579,8 +589,9 @@ mod tests {
             )
         };
         run(&pool, backend, &[moved()]).await.unwrap();
-        // The history moved and the create did not run again over the row.
-        assert!(applied(&pool, backend, "acme").await.unwrap().is_empty());
+        // The history is recorded under the new module, the old record stays
+        // for a build from before the move, and the create did not run again.
+        assert_eq!(applied(&pool, backend, "acme").await.unwrap().len(), 1);
         assert_eq!(
             applied(&pool, backend, "acme.blog").await.unwrap(),
             ["0000_adopt_history", "0001_create_demo"]
