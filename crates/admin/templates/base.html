@@ -15,7 +15,7 @@
   {% for a in shell.assets %}{% if a.css %}<link rel="stylesheet" href="{{ a.url }}" data-lat-asset="{{ a.url }}">{% else %}<script defer src="{{ a.url }}" data-lat-asset="{{ a.url }}"></script>{% endif %}
   {% endfor %}
 </head>
-<body class="lat-app" hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-session-ends="{{ shell.session_ends }}" data-lat-session-url="{{ shell.base }}/session" data-lat-session-soon='{{ shell.t("Your session ends in a few minutes.") }}' data-lat-session-stay='{{ shell.t("Stay signed in") }}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
+<body class="lat-app"{% if let Some(code) = shell.code_editor %} data-lat-code-editor="{{ code }}"{% endif %} hx-headers='{"X-CSRF-Token": "{{ shell.csrf_token }}"}' data-lat-session-ends="{{ shell.session_ends }}" data-lat-session-url="{{ shell.base }}/session" data-lat-session-soon='{{ shell.t("Your session ends in a few minutes.") }}' data-lat-session-stay='{{ shell.t("Stay signed in") }}' data-lat-request-error='{{ shell.t("Something went wrong. Please try again.") }}' data-lat-cancel='{{ shell.t("Cancel") }}' data-lat-leave='{{ shell.t("You have unsaved changes. Leave without saving?") }}' data-lat-leave-go='{{ shell.t("Leave") }}' data-lat-leave-stay='{{ shell.t("Stay") }}'>
   <a class="lat-skip" href="#lat-content">{{ shell.t("Skip to content") }}</a>
   {% if !shell.flash.is_empty() %}
   <div class="lat-flashes" role="status" aria-live="polite">

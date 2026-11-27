@@ -15,6 +15,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
 - `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- Each operator sets their own code editor (text size, indent, wrapping, gutter) under Preferences; `CodeEditorPreferences`.
 - The request log keeps the pages that linked to a missing URL, and a Log Settings screen turns the request log and the event log on or off; run migrations.
 - A settings field opens with its `default` when nothing is saved for it.
 - `NavHook` lets a module relabel, re-icon, re-permission or remove another module's menu entry (`add_nav_hook`).

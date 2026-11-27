@@ -745,6 +745,8 @@ pub struct Shell {
     /// The address of the operator's picture, or of the deployment's default
     /// one; `None` draws the initial.
     pub(crate) avatar: Option<String>,
+    /// The operator's code editor preferences as stored JSON, when saved.
+    pub(crate) code_editor: Option<String>,
     /// The timezone this operator's timestamps render in, resolved once per
     /// request: the operator's own preference if set and valid, else the
     /// deployment default. List and detail screens format dates in it.
@@ -990,6 +992,7 @@ impl Shell {
             badges: counter::Badges::new(),
             viewing_as: None,
             avatar: None,
+            code_editor: None,
             perms: user.permissions.clone(),
             full_name,
             initial,
@@ -1220,6 +1223,7 @@ impl Shell {
             badges: counter::Badges::new(),
             viewing_as: None,
             avatar: None,
+            code_editor: None,
             perms: Default::default(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
@@ -1289,10 +1293,12 @@ struct OwnMenu {
     moves: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
     /// The address of their picture, when they set one.
     avatar: Option<String>,
+    /// Their code editor preferences as stored, when they saved any.
+    code_editor: Option<String>,
 }
 
 impl OwnMenu {
-    /// One query for the five preferences, on every request.
+    /// One query for the six preferences, on every request.
     async fn load(state: &AdminState, user_id: i64) -> Self {
         let keys = [
             nav::order_preference(nav::TOP_HIERARCHY),
@@ -1300,6 +1306,9 @@ impl OwnMenu {
             nav::collapsed_preference(settings::HIERARCHY),
             nav::MOVES_PREFERENCE.to_string(),
             medialib::avatar::PREFERENCE.to_string(),
+            settings::preference_key(
+                <settings::code_editor::CodeEditorPreferences as settings::PreferencesModel>::CODE,
+            ),
         ];
         let wanted: Vec<&str> = keys.iter().map(String::as_str).collect();
         let mut stored = laterite_auth::store::user_preferences(&state.db, user_id, &wanted)
@@ -1316,7 +1325,9 @@ impl OwnMenu {
             .map(|json| nav::operator_moves(&json))
             .unwrap_or_default();
         let avatar = stored.remove(&keys[4]).filter(|url| !url.is_empty());
+        let code_editor = stored.remove(&keys[5]).filter(|json| json.starts_with('{'));
         Self {
+            code_editor,
             nav_order,
             settings_order,
             settings_collapsed,
@@ -5753,6 +5764,7 @@ async fn require_auth(
     );
     shell.nav_logo = state.nav_logo().await;
     shell.tabs = tabs;
+    shell.code_editor = own.code_editor.clone();
     shell.avatar = own
         .avatar
         .clone()
@@ -7392,6 +7404,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .permission("backend.view_event_log")
             .link("/event-log"),
         requestlog::settings_item(),
+        settings::code_editor::settings_item(),
     ]
 }
 

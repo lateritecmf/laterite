@@ -510,14 +510,22 @@ async fn a_list_is_a_screen_described_and_driven_like_any_other() {
         .unwrap()
         .data
         .unwrap();
-    // Their own preferences page, the home dashboard, then the list.
+    // Their own preferences pages, the home dashboard, then the list.
     let named: Vec<&str> = screens
         .as_array()
         .unwrap()
         .iter()
         .map(|s| s["screen"].as_str().unwrap())
         .collect();
-    assert_eq!(named, ["/preferences/backend/my_abilities", "/", "/posts"]);
+    assert_eq!(
+        named,
+        [
+            "/preferences/backend/code_editor",
+            "/preferences/backend/my_abilities",
+            "/",
+            "/posts"
+        ]
+    );
 
     let described = abilities
         .run(

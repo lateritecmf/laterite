@@ -13,6 +13,7 @@
 //! nothing here builds SQL from user input.
 
 pub mod brand;
+pub mod code_editor;
 pub mod mail;
 pub mod mail_brand;
 pub mod migrations;
@@ -25,6 +26,8 @@ pub use store::{
     get, get_for, load, load_for, patch, save, save_for, set, set_for, PreferencesError,
     PreferencesModel, SettingsError, SettingsModel,
 };
+
+pub(crate) use store::preference_key;
 
 /// The `laterite.settings` module: the framework's settings store table.
 pub struct SettingsModule;

@@ -88,6 +88,24 @@ Key | Default | Description
 `wrap` | `false` | `false`: long lines scroll.
 `placeholder` | none | The placeholder.
 
+Each operator sets their own editor under **Preferences → Code editor**:
+
+```rust
+use laterite_admin::settings::code_editor::CodeEditorPreferences;
+
+let own: CodeEditorPreferences = laterite_admin::settings::load_for(&db, user_id).await?;
+```
+
+Preference | Default | Description
+--- | --- | ---
+`font_size` | `13` | Text size in pixels, `12` to `18`.
+`tab_size` | `2` | Columns an indent takes: `2`, `4` or `8`.
+`hard_tabs` | `false` | An indent is a tab character.
+`word_wrap` | `false` | Long lines wrap; a field with `wrap: true` wraps for everyone.
+`line_numbers` | `true` | Numbers in the gutter; a field with `line_numbers: false` has none for anyone.
+`code_folding` | `true` | Fold markers in the gutter.
+`active_line` | `true` | The line holding the cursor is marked.
+
 ## select
 
 ```yaml
