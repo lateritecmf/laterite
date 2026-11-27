@@ -57,6 +57,15 @@ async fn test_db() -> (Db, laterite_core::testing::TestGuard) {
 }
 
 fn app(db: &Db) -> Router {
+    app_with(db, Vec::new())
+}
+
+/// The app with `extra` entries beside the Content section.
+fn app_with(db: &Db, extra: Vec<NavItem>) -> Router {
+    let mut nav = vec![NavItem::section("acme.content", "Content")
+        .icon("folder")
+        .order(10)];
+    nav.extend(extra);
     let mut config = AdminConfig::default();
     config.origin = "https://acme.test".to_string();
     router(
@@ -69,9 +78,7 @@ fn app(db: &Db) -> Router {
                 resource!("tests/descriptors/nav_shop.yaml"),
                 resource!("tests/descriptors/nav_hidden.yaml"),
             ],
-            nav: vec![NavItem::section("acme.content", "Content")
-                .icon("folder")
-                .order(10)],
+            nav,
             picker_sources: vec![PickerSourceReg::new(
                 "acme.posttitles",
                 Arc::new(TableSource::new("posts", "id", "title")),
@@ -731,4 +738,67 @@ async fn a_deployment_moves_a_settings_section_back_to_the_top_bar() {
         sidebar.contains(r#"href="/admin/pages""#) && sidebar.contains(r#"href="/admin/posts""#),
         "the entries are the section's sidebar"
     );
+}
+
+#[tokio::test]
+async fn a_side_menu_takes_headings_rulers_a_main_button_and_tied_entries() {
+    let (db, _guard) = test_db().await;
+    let app = app_with(
+        &db,
+        vec![
+            NavItem::new("acme.posts.new", "New post", "/posts/create")
+                .under("acme.content")
+                .order(-20)
+                .primary(),
+            NavItem::heading("acme.content.writing", "Writing", "acme.content").order(-10),
+            NavItem::new("acme.posts.drafts", "Drafts", "/posts/drafts")
+                .under("acme.content")
+                .order(50)
+                .visible_on("resource:/posts"),
+            NavItem::ruler("acme.content.mid", "acme.content").order(-15),
+            NavItem::ruler("acme.content.rule", "acme.content").order(60),
+            NavItem::heading("acme.content.empty", "Nothing below", "acme.content").order(70),
+        ],
+    );
+    let (root, _) = sessions(&db).await;
+
+    let (status, html) = get(&app, "/admin/posts", &root).await;
+    assert_eq!(status, StatusCode::OK);
+    let side = html
+        .split("<aside class=\"lat-sidebar\"")
+        .nth(1)
+        .expect(&html);
+    let side = side.split("</aside>").next().unwrap();
+    let at = |needle: &str| {
+        side.find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {side}"))
+    };
+    assert!(at("lat-sidebar__primary") < at("lat-sidebar__heading\">Writing<"));
+    assert!(at(">Writing<") < at("href=\"/admin/posts\""));
+    assert!(side.contains("href=\"/admin/posts/create\""));
+    // The section's tab leads to its first ordinary entry, not the button.
+    let bar = html.split("class=\"lat-topnav__nav\"").nth(1).unwrap();
+    let bar = bar.split("</nav>").next().unwrap();
+    assert!(!bar.contains("/admin/posts/create"), "{bar}");
+    // Drafts shows while Posts is open.
+    assert!(side.contains(">Drafts<"), "{side}");
+    // A ruler and a heading with no link after them are left out.
+    assert_eq!(side.matches("lat-sidebar__ruler").count(), 1, "{side}");
+    assert!(!side.contains("Nothing below"), "{side}");
+
+    // On Pages, the tied entry is gone.
+    let (_, html) = get(&app, "/admin/pages", &root).await;
+    let side = html.split("<aside class=\"lat-sidebar\"").nth(1).unwrap();
+    let side = side.split("</aside>").next().unwrap();
+    assert!(!side.contains(">Drafts<"), "{side}");
+    assert!(side.contains(">Writing<"));
+}
+
+#[tokio::test]
+#[should_panic(expected = "sits under a section")]
+async fn a_heading_outside_a_section_aborts_the_start() {
+    let (db, _guard) = test_db().await;
+    let mut heading = NavItem::heading("acme.loose", "Loose", "acme.content");
+    heading.under = None;
+    let _ = app_with(&db, vec![heading]);
 }

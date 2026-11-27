@@ -2,7 +2,7 @@
       <div class="lat-drawer__section">
         {% for group in shell.sidebar %}
         {% if shell.sidebar.len() > 1 %}<div class="lat-drawer__grouphead">{{ group.name }}</div>{% endif %}
-        {% for entry in group.items %}<a class="lat-drawer__sub{% if entry.active %} is-active{% endif %}" href="{{ entry.path }}"{% if entry.active %} aria-current="page"{% endif %}>{{ entry.icon|safe }}<span>{{ entry.label }}</span><span class="lat-menucount" data-lat-count="{{ entry.key }}"{% if !entry.badge.label.is_empty() %} title="{{ entry.badge.label }}"{% endif %}{% if entry.badge.count == 0 %} hidden{% endif %}>{{ entry.badge.text() }}</span></a>{% endfor %}
+        {% for entry in group.items %}{% if entry.is_heading() %}<div class="lat-drawer__grouphead">{{ entry.label }}</div>{% else if entry.is_ruler() %}<hr class="lat-drawer__ruler">{% else %}<a class="lat-drawer__sub{% if entry.active %} is-active{% endif %}" href="{{ entry.path }}"{% if entry.active %} aria-current="page"{% endif %}>{{ entry.icon|safe }}<span>{{ entry.label }}</span><span class="lat-menucount" data-lat-count="{{ entry.key }}"{% if !entry.badge.label.is_empty() %} title="{{ entry.badge.label }}"{% endif %}{% if entry.badge.count == 0 %} hidden{% endif %}>{{ entry.badge.text() }}</span></a>{% endif %}{% endfor %}
         {% endfor %}
       </div>
 {% endif %}

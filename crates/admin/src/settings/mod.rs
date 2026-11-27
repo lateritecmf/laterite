@@ -979,6 +979,7 @@ pub(crate) fn sidebar_groups(
             icon: icons.render(i.icon.as_deref()),
             active: active_code == Some(i.code.as_str()),
             badge: crate::counter::Badge::default(),
+            kind: crate::nav::NavKind::Link,
         };
         match groups.iter_mut().find(|g| g.name == category) {
             Some(group) => group.items.push(view),
@@ -1108,6 +1109,25 @@ pub(crate) struct ItemView {
     pub(crate) active: bool,
     /// The number beside the item, filled in once the page's counters ran.
     pub(crate) badge: crate::counter::Badge,
+    /// What the item is drawn as.
+    pub(crate) kind: crate::nav::NavKind,
+}
+
+impl ItemView {
+    /// A heading over the items after it.
+    pub(crate) fn is_heading(&self) -> bool {
+        self.kind == crate::nav::NavKind::Heading
+    }
+
+    /// A dividing line.
+    pub(crate) fn is_ruler(&self) -> bool {
+        self.kind == crate::nav::NavKind::Ruler
+    }
+
+    /// The section's main button.
+    pub(crate) fn is_primary(&self) -> bool {
+        self.kind == crate::nav::NavKind::Primary
+    }
 }
 
 #[derive(Template)]

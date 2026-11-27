@@ -55,6 +55,10 @@ Slot | Value | Holds
 `.description(text)` | The line under the label in Settings.
 `.counter(name)`, `.counter_label(text)` | As the `menu` keys above.
 `.no_counter()` | A section shows no sum of its entries' counters.
+`NavItem::heading(key, label, section)` | A heading over the entries after it in that section's side menu.
+`NavItem::ruler(key, section)` | A dividing line there.
+`.primary()` | Draws the entry as its section's main button.
+`.visible_on(key)` | Shows the entry only while the entry with that key, under the same section, is open.
 
 A resource's entry carries the resource's permission, a screen's its own. A
 duplicate key, `under` naming a key nobody declared, or `after` and `before`
@@ -72,6 +76,35 @@ Resource::new("/pages", "Pages", list)
 A section is a tab in the top bar. An operator sees only the entries they may
 open; a section with none left is not shown. Dashboard and Settings are always
 first and last.
+
+## Shape a side menu
+
+```rust
+registry.add_nav(
+    NavItem::new("acme.posts.new", "New post", "/posts/create")
+        .under("acme.content")
+        .order(-20)
+        .primary(),
+);
+registry.add_nav(NavItem::heading("acme.content.writing", "Writing", "acme.content").order(-10));
+registry.add_nav(NavItem::ruler("acme.content.rule", "acme.content").order(40));
+registry.add_nav(
+    NavItem::new("acme.posts.drafts", "Drafts", "/posts/drafts")
+        .under("acme.content")
+        .order(3)
+        .visible_on("resource:/posts"),
+);
+```
+
+`kind` | Drawn as
+--- | ---
+`link` | An entry (the default).
+`heading` | A heading; left out when no entry follows it.
+`ruler` | A line; left out at the top and when no entry comes after it.
+`primary` | A button.
+
+A heading, a ruler or a main button outside a section, a main button with no
+path, or `visible_on` naming no entry of the same section, aborts the start.
 
 ## Count what waits
 

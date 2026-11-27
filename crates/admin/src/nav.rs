@@ -14,6 +14,22 @@ use serde::{Deserialize, Serialize};
 use crate::counter::CounterRef;
 use crate::settings::{CategoryView, ItemView};
 
+/// What an entry under a section is drawn as.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum NavKind {
+    /// A link to a page.
+    #[default]
+    Link,
+    /// A heading over the entries after it.
+    Heading,
+    /// A dividing line.
+    Ruler,
+    /// A link drawn as the section's main button ("New order").
+    Primary,
+}
+
 /// One menu entry: a tab, or an entry under a section.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -56,6 +72,11 @@ pub struct NavItem {
     pub counter: CounterRef,
     /// What the number counts, shown as its tooltip.
     pub counter_label: Option<Text>,
+    /// What the entry is drawn as under its section.
+    pub kind: NavKind,
+    /// The key of another entry under the same section: this one shows only
+    /// while that entry's page, or its own, is open.
+    pub visible_on: Option<String>,
 }
 
 impl laterite_core::arrange::Arranged for NavNode {
@@ -88,6 +109,8 @@ impl NavItem {
             description: None,
             counter: CounterRef::Inherit,
             counter_label: None,
+            kind: NavKind::Link,
+            visible_on: None,
         }
     }
 
@@ -108,7 +131,42 @@ impl NavItem {
             description: None,
             counter: CounterRef::Inherit,
             counter_label: None,
+            kind: NavKind::Link,
+            visible_on: None,
         }
+    }
+
+    /// A heading over the entries after it in `section`'s side menu.
+    pub fn heading(
+        key: impl Into<String>,
+        label: impl Into<Text>,
+        section: impl Into<String>,
+    ) -> Self {
+        let mut item = Self::section(key, label);
+        item.kind = NavKind::Heading;
+        item.under = Some(section.into());
+        item
+    }
+
+    /// A dividing line in `section`'s side menu.
+    pub fn ruler(key: impl Into<String>, section: impl Into<String>) -> Self {
+        let mut item = Self::section(key, "");
+        item.kind = NavKind::Ruler;
+        item.under = Some(section.into());
+        item
+    }
+
+    /// Draws the entry as its section's main button.
+    pub fn primary(mut self) -> Self {
+        self.kind = NavKind::Primary;
+        self
+    }
+
+    /// Shows the entry only while the entry keyed `key`, under the same
+    /// section, is the open one (or this entry is).
+    pub fn visible_on(mut self, key: impl Into<String>) -> Self {
+        self.visible_on = Some(key.into());
+        self
     }
 
     /// Sets the entry's icon, by name from the icon set.
@@ -431,6 +489,31 @@ impl NavTree {
                 })?;
             parent.children.push(NavNode::leaf(prefixed(item)));
         }
+        for item in &items {
+            if item.under.is_none() && item.kind != NavKind::Link {
+                return Err(format!(
+                    "menu item `{}` is a heading, a ruler or a main button, which sits under a section",
+                    item.key
+                ));
+            }
+            if item.kind == NavKind::Primary && item.path.is_none() {
+                return Err(format!(
+                    "menu item `{}` is a main button with no path",
+                    item.key
+                ));
+            }
+            if let Some(on) = &item.visible_on {
+                let sibling = items.iter().any(|other| {
+                    &other.key == on && other.under == item.under && other.under.is_some()
+                });
+                if !sibling {
+                    return Err(format!(
+                        "menu item `{}` shows on `{on}`, which is no entry of its section",
+                        item.key
+                    ));
+                }
+            }
+        }
         let overrides = |key: &str| Overrides {
             deployment: order.get(key).map(Vec::as_slice),
             operator: None,
@@ -463,7 +546,7 @@ impl NavTree {
                     .cloned()
                     .collect();
                 let own = node.item.path.is_some() && allowed(&node.item);
-                if !own && children.is_empty() {
+                if !own && !children.iter().any(|c| c.item.path.is_some()) {
                     return None;
                 }
                 if node.item.path.is_some() && !allowed(&node.item) {
@@ -551,10 +634,15 @@ pub(crate) fn apply_order(nodes: &mut Vec<NavNode>, order: &str) {
 
 /// The path a top-level node's tab leads to: its own, or its first entry's.
 pub(crate) fn tab_path(node: &NavNode) -> Option<&str> {
-    node.item
-        .path
-        .as_deref()
-        .or_else(|| node.children.first().and_then(|c| c.item.path.as_deref()))
+    node.item.path.as_deref().or_else(|| {
+        // An ordinary entry before the main button: the tab opens a page
+        // to read, not a form.
+        node.children
+            .iter()
+            .filter(|c| c.item.kind == NavKind::Link)
+            .chain(node.children.iter())
+            .find_map(|c| c.item.path.as_deref())
+    })
 }
 
 /// Whether `path` is on `target` or beneath it.
@@ -608,21 +696,52 @@ pub(crate) fn section_sidebar(
         })
         .max_by_key(|c| c.item.path.as_deref().map(str::len).unwrap_or(0))
         .map(|c| c.item.key.clone());
-    vec![CategoryView::new(
-        tr.t(&node.item.label),
-        node.children
+    // An entry tied to another shows while either is open; a heading or a
+    // ruler with no link after it has nothing to head or divide.
+    let shown: Vec<&NavNode> = node
+        .children
+        .iter()
+        .filter(|c| match (&c.item.visible_on, active.as_deref()) {
+            (None, _) => true,
+            (Some(on), Some(open)) => on == open || c.item.key == open,
+            (Some(_), None) => false,
+        })
+        .collect();
+    let links = |from: usize| {
+        shown[from..]
             .iter()
-            .map(|c| ItemView {
-                key: c.item.key.clone(),
-                label: tr.t(&c.item.label),
-                description: String::new(),
-                path: c.item.path.clone().unwrap_or_default(),
-                icon: icons.render(c.item.icon.as_deref()),
-                active: active.as_deref() == Some(c.item.key.as_str()),
-                badge: crate::counter::Badge::default(),
-            })
-            .collect(),
-    )]
+            .take_while(|c| !matches!(c.item.kind, NavKind::Heading | NavKind::Ruler))
+            .count()
+    };
+    let mut items = Vec::new();
+    for (index, c) in shown.iter().enumerate() {
+        let left_out = match c.item.kind {
+            // A heading heads the entries right after it.
+            NavKind::Heading => links(index + 1) == 0,
+            // A ruler divides what is above from any entry below.
+            NavKind::Ruler => {
+                items.is_empty()
+                    || !shown[index + 1..]
+                        .iter()
+                        .any(|later| later.item.path.is_some())
+            }
+            _ => false,
+        };
+        if left_out {
+            continue;
+        }
+        items.push(ItemView {
+            key: c.item.key.clone(),
+            label: tr.t(&c.item.label),
+            description: String::new(),
+            path: c.item.path.clone().unwrap_or_default(),
+            icon: icons.render(c.item.icon.as_deref()),
+            active: active.as_deref() == Some(c.item.key.as_str()),
+            badge: crate::counter::Badge::default(),
+            kind: c.item.kind,
+        });
+    }
+    vec![CategoryView::new(tr.t(&node.item.label), items)]
 }
 
 /// Applies a deployment's `[backend.menu]` moves. A menu entry named in a

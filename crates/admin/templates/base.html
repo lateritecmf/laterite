@@ -80,6 +80,13 @@
       <div class="lat-sidebar__group">
       {% endif %}
         {% for item in group.items %}
+        {% if item.is_heading() %}
+        <div class="lat-sidebar__heading">{{ item.label }}</div>
+        {% else if item.is_ruler() %}
+        <hr class="lat-sidebar__ruler">
+        {% else if item.is_primary() %}
+        <a class="lat-sidebar__primary lat-btn lat-btn--primary" href="{{ item.path }}">{{ item.icon|safe }}<span>{{ item.label }}</span></a>
+        {% else %}
         <a class="lat-sidebar__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}" data-lat-key="{{ item.key }}" draggable="true">
           <span class="lat-sidebar__icon">{{ item.icon|safe }}</span>
           <span class="lat-sidebar__text">
@@ -88,6 +95,7 @@
           </span>
           <span class="lat-menucount" data-lat-count="{{ item.key }}"{% if !item.badge.label.is_empty() %} title="{{ item.badge.label }}"{% endif %}{% if item.badge.count == 0 %} hidden{% endif %}>{{ item.badge.text() }}</span>
         </a>
+        {% endif %}
         {% endfor %}
       {% if shell.sidebar.len() > 1 %}</details>{% else %}</div>{% endif %}
       {% endfor %}
