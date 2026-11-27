@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Added
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
+- `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- `NavHook` lets a module relabel, re-icon, re-permission or remove another module's menu entry (`add_nav_hook`).
 - A section's side menu takes headings, rulers, a main button and entries tied to another (`NavItem::heading`, `ruler`, `.primary()`, `.visible_on()`).
 - `PageHead::crumb` adds a level to a screen's breadcrumb trail, and `settings::patch` writes one key of a stored settings object.
 - A settings form puts fields on tabs (`FormField::tab`), takes a select's choices from an option source, and has Reset to defaults (`POST <path>/reset`).

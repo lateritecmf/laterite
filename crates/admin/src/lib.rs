@@ -148,6 +148,8 @@ pub trait AdminRegistry {
     fn add_nav(&mut self, item: nav::NavItem);
     /// Changes another module's resource before it mounts. See [`ResourceHook`].
     fn add_resource_hook(&mut self, hook: ResourceHook);
+    /// Changes or removes another module's menu entry. See [`nav::NavHook`].
+    fn add_nav_hook(&mut self, hook: nav::NavHook);
     /// Adds an entry to a surface's Insert menu. See [`editor::EditorCommand`].
     fn add_editor_command(&mut self, command: editor::EditorCommand);
     /// Adds a source of snippets for rich text and markdown. See [`editor::SnippetSource`].
@@ -208,6 +210,9 @@ impl AdminRegistry for laterite_core::Registry {
         self.add(item);
     }
     fn add_resource_hook(&mut self, hook: ResourceHook) {
+        self.add(hook);
+    }
+    fn add_nav_hook(&mut self, hook: nav::NavHook) {
         self.add(hook);
     }
     fn add_editor_command(&mut self, command: editor::EditorCommand) {
@@ -2208,6 +2213,9 @@ pub struct Contributions {
     /// Changes to other modules' resources, applied before they mount. See
     /// [`ResourceHook`].
     pub resource_hooks: Vec<ResourceHook>,
+    /// Changes to other modules' menu entries, applied before the menu is
+    /// built. See [`nav::NavHook`].
+    pub nav_hooks: Vec<nav::NavHook>,
     /// Dashboard widgets a module contributes. See [`widget::Widget`].
     pub widgets: Vec<widget::WidgetReg>,
     /// Skins a module offers, beyond the two built in. See [`skin::Skin`].
@@ -2260,6 +2268,7 @@ pub fn router(
         public_routes: app_public,
         nav: app_nav,
         resource_hooks,
+        nav_hooks,
         plugin_defined,
     } = contributions;
     // The admin's own screen and route beside the application's: the media
@@ -2485,6 +2494,25 @@ pub fn router(
     }
     // A deployment's moves: an entry rendered somewhere other than its home,
     // keeping its label, icon, permission and target.
+    // Another module's changes to an entry, before the menu is settled. A
+    // hook naming no entry is a wiring bug, so it aborts the start.
+    for hook in nav_hooks {
+        let Some(at) = nav_items.iter().position(|i| i.key == hook.target) else {
+            panic!(
+                "a menu hook targets `{}`, which no module declared",
+                hook.target
+            );
+        };
+        match hook.apply(nav_items[at].clone()) {
+            Some(mut changed) => {
+                changed.key = hook.target.clone();
+                nav_items[at] = changed;
+            }
+            None => {
+                nav_items.remove(at);
+            }
+        }
+    }
     // Entries a module placed in Settings, then a deployment's moves.
     nav::settle(&mut nav_items, &mut settings);
     nav::apply_moves(&mut nav_items, &mut settings, &config.menu);

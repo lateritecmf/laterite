@@ -771,6 +771,7 @@ impl Bootstrap {
         let partials = contributions.take::<crate::list::PartialReg>();
         let nav = contributions.take::<crate::nav::NavItem>();
         let resource_hooks = contributions.take::<crate::ResourceHook>();
+        let nav_hooks = contributions.take::<crate::nav::NavHook>();
         let widgets = contributions.take::<crate::widget::WidgetReg>();
         let skins = contributions.take::<crate::skin::Skin>();
         let assets = contributions.take::<crate::AssetReg>();
@@ -946,6 +947,7 @@ impl Bootstrap {
                 route_map: route_map.clone(),
                 nav,
                 resource_hooks,
+                nav_hooks,
                 widgets,
                 skins,
                 assets,

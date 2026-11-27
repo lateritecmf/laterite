@@ -5,7 +5,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use laterite_admin::nav::NavItem;
+use laterite_admin::nav::{NavHook, NavItem};
 use laterite_admin::picker::{PickerSourceReg, TableSource};
 use laterite_admin::{resource, router, AdminConfig, Contributions, Permission};
 use laterite_auth::{password, store, AuthConfig, AuthService, NewOperator, RequestContext};
@@ -62,6 +62,11 @@ fn app(db: &Db) -> Router {
 
 /// The app with `extra` entries beside the Content section.
 fn app_with(db: &Db, extra: Vec<NavItem>) -> Router {
+    app_hooked(db, extra, Vec::new())
+}
+
+/// [`app_with`], and `hooks` changing entries.
+fn app_hooked(db: &Db, extra: Vec<NavItem>, nav_hooks: Vec<NavHook>) -> Router {
     let mut nav = vec![NavItem::section("acme.content", "Content")
         .icon("folder")
         .order(10)];
@@ -79,6 +84,7 @@ fn app_with(db: &Db, extra: Vec<NavItem>) -> Router {
                 resource!("tests/descriptors/nav_hidden.yaml"),
             ],
             nav,
+            nav_hooks,
             picker_sources: vec![PickerSourceReg::new(
                 "acme.posttitles",
                 Arc::new(TableSource::new("posts", "id", "title")),
@@ -801,4 +807,39 @@ async fn a_heading_outside_a_section_aborts_the_start() {
     let mut heading = NavItem::heading("acme.loose", "Loose", "acme.content");
     heading.under = None;
     let _ = app_with(&db, vec![heading]);
+}
+
+#[tokio::test]
+async fn another_module_relabels_and_removes_menu_entries() {
+    let (db, _guard) = test_db().await;
+    let app = app_hooked(
+        &db,
+        Vec::new(),
+        vec![
+            NavHook::new("resource:/posts", |mut entry| {
+                entry.label = "Articles".into();
+                Some(entry)
+            }),
+            NavHook::remove("resource:/pages"),
+        ],
+    );
+    let (root, _) = sessions(&db).await;
+    let (_, html) = get(&app, "/admin/posts", &root).await;
+    let side = html
+        .split("<aside class=\"lat-sidebar\"")
+        .nth(1)
+        .expect(&html);
+    let side = side.split("</aside>").next().unwrap();
+    assert!(side.contains(">Articles<"), "{side}");
+    assert!(!side.contains("/admin/pages"), "{side}");
+    // Out of the menu, the page still serves.
+    let (status, _) = get(&app, "/admin/pages", &root).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+#[should_panic(expected = "which no module declared")]
+async fn a_menu_hook_naming_no_entry_aborts_the_start() {
+    let (db, _guard) = test_db().await;
+    let _ = app_hooked(&db, Vec::new(), vec![NavHook::remove("acme.nowhere")]);
 }

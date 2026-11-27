@@ -746,6 +746,19 @@ impl Queue {
         queue: &str,
         unique_key: Option<&str>,
     ) -> CoreResult<Pushed> {
+        self.push_named_at(name, payload, queue, unique_key, Utc::now())
+            .await
+    }
+
+    /// [`push_named`](Self::push_named), due at `when`.
+    pub async fn push_named_at(
+        &self,
+        name: &str,
+        payload: &serde_json::Value,
+        queue: &str,
+        unique_key: Option<&str>,
+        when: DateTime<Utc>,
+    ) -> CoreResult<Pushed> {
         let Some(reg) = self.job(name) else {
             return Err(CoreError::Validation(format!(
                 "job `{name}` is not registered"
@@ -761,7 +774,7 @@ impl Queue {
         let stored = self
             .inner
             .driver
-            .push(queue, name, payload, Utc::now(), unique_key)
+            .push(queue, name, payload, when, unique_key)
             .await?;
         match stored {
             Some(id) => {

@@ -331,3 +331,48 @@ async fn a_queued_message_waits_for_a_worker_and_the_log_driver_keeps_it() {
     assert_eq!(kept[0].html.as_deref(), Some("<p>hello</p>"));
     assert_eq!(LogMailer::clear(&db).await.unwrap(), 1);
 }
+
+#[tokio::test]
+async fn a_message_waits_for_its_time_and_goes_on_the_queue_named() {
+    let (db, _guard) = test_db().await;
+    let (mail, _, queue) = mail(&db, "log", false).await;
+    let message = |subject: &str| Message::raw(subject, "hello", None).to("ada@acme.example");
+    let work = |queues: Vec<String>| {
+        let queue = queue.clone();
+        async move {
+            let (_, rx) = tokio::sync::watch::channel(false);
+            let options = laterite_core::queue::WorkOptions::default()
+                .once(true)
+                .queues(queues);
+            queue.work(options, rx).await.unwrap()
+        }
+    };
+
+    // Due in an hour: a worker passing now leaves it.
+    mail.send_in(message("Later"), std::time::Duration::from_secs(3600))
+        .await
+        .unwrap();
+    assert_eq!(work(vec!["default".into()]).await, 0);
+    assert!(LogMailer::recent(&db, 10).await.unwrap().is_empty());
+
+    // On its own queue: the default worker leaves it, that queue's takes it.
+    mail.send_on(message("Bulk"), "bulk").await.unwrap();
+    assert_eq!(work(vec!["default".into()]).await, 0);
+    assert_eq!(work(vec!["bulk".into()]).await, 1);
+    let kept = LogMailer::recent(&db, 10).await.unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].subject, "Bulk");
+
+    // A time already past is due at once.
+    mail.send_at(
+        message("Due"),
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(work(vec!["default".into()]).await, 1);
+    assert!(mail
+        .send_in(Message::raw("None", "x", None), std::time::Duration::ZERO)
+        .await
+        .is_err());
+}

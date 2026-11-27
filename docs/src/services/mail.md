@@ -20,6 +20,8 @@ Method | Does
 `.to(addr)`, `.cc(addr)`, `.bcc(addr)`, `.reply_to(addr)`, `.from(addr)` | Addresses, as `Name <address>` or bare.
 `.attach(filename, content_type, bytes)` | A file.
 `mail.send(message)` | Queues it; `Pushed::Ran` in inline mode.
+`mail.send_in(message, delay)`, `mail.send_at(message, when)` | Queues it to go out after a `Duration`, or at a UTC time.
+`mail.send_on(message, queue)`, `mail.send_on_at(message, queue, when)` | Queues it on a named queue, for the workers started with `--queue` naming it.
 `mail.send_now(message)` | Renders and delivers here, returning the driver's error.
 `mail.envelope(message)` | What the driver would deliver, rendered and addressed; nothing is sent.
 `mail.send_test(addr)` | The built-in test template, delivered here.

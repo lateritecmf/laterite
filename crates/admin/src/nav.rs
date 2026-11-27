@@ -249,6 +249,51 @@ impl Default for NavItem {
     }
 }
 
+/// A change one module makes to a menu entry another declared: the hook
+/// receives the entry and returns it changed (its label, icon, permission,
+/// position or section), or `None` to take it out of the menu. The target is
+/// the entry's key (`resource:/acme/blog/posts`, `screen:/import`, or a
+/// contributed item's own); the key itself stays. A target nobody declared
+/// aborts the start. Hooks run in module order.
+#[derive(Clone)]
+pub struct NavHook {
+    /// The key of the entry the hook changes.
+    pub target: String,
+    apply: std::sync::Arc<dyn Fn(NavItem) -> Option<NavItem> + Send + Sync>,
+}
+
+impl NavHook {
+    /// A hook that changes the entry keyed `target` through `apply`.
+    pub fn new(
+        target: impl Into<String>,
+        apply: impl Fn(NavItem) -> Option<NavItem> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            apply: std::sync::Arc::new(apply),
+        }
+    }
+
+    /// A hook that takes the entry keyed `target` out of the menu; its page
+    /// still serves.
+    pub fn remove(target: impl Into<String>) -> Self {
+        Self::new(target, |_| None)
+    }
+
+    /// Applies the hook to `item`.
+    pub fn apply(&self, item: NavItem) -> Option<NavItem> {
+        (self.apply)(item)
+    }
+}
+
+impl std::fmt::Debug for NavHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NavHook")
+            .field("target", &self.target)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Where a resource or a screen sits in the menu: under which section, with
 /// which icon, at which position; or out of the menu altogether.
 #[derive(Clone, Debug, Serialize, Deserialize)]

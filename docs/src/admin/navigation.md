@@ -106,6 +106,27 @@ registry.add_nav(
 A heading, a ruler or a main button outside a section, a main button with no
 path, or `visible_on` naming no entry of the same section, aborts the start.
 
+## Change another module's entry
+
+```rust
+use laterite_admin::nav::NavHook;
+
+registry.add_nav_hook(NavHook::new("resource:/acme/blog/posts", |mut entry| {
+    entry.label = "Articles".into();
+    entry.icon = Some("newspaper".into());
+    entry.permission = Some("acme.blog.read".into());
+    Some(entry)
+}));
+registry.add_nav_hook(NavHook::remove("screen:/acme/blog/import"));
+```
+
+Returned | Result
+--- | ---
+`Some(entry)` | The entry as changed; its key stays.
+`None` | The entry leaves the menu; its page still serves.
+
+A hook naming a key nobody declared aborts the start.
+
 ## Count what waits
 
 ```rust

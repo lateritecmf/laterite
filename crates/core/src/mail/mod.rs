@@ -858,6 +858,52 @@ impl Mail {
         self.inner.queue.push(&SendMail { message }).await
     }
 
+    /// Queues `message` to go out after `delay`.
+    pub async fn send_in(
+        &self,
+        message: Message,
+        delay: std::time::Duration,
+    ) -> CoreResult<Pushed> {
+        let delay = chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::MAX);
+        self.send_at(message, chrono::Utc::now() + delay).await
+    }
+
+    /// Queues `message` to go out at `when`.
+    pub async fn send_at(
+        &self,
+        message: Message,
+        when: chrono::DateTime<chrono::Utc>,
+    ) -> CoreResult<Pushed> {
+        self.send_on_at(message, crate::queue::DEFAULT_QUEUE, when)
+            .await
+    }
+
+    /// Queues `message` on the queue named `queue`, for the workers that
+    /// take from it.
+    pub async fn send_on(&self, message: Message, queue: &str) -> CoreResult<Pushed> {
+        self.send_on_at(message, queue, chrono::Utc::now()).await
+    }
+
+    /// Queues `message` on `queue` to go out at `when`.
+    pub async fn send_on_at(
+        &self,
+        message: Message,
+        queue: &str,
+        when: chrono::DateTime<chrono::Utc>,
+    ) -> CoreResult<Pushed> {
+        if message.to.is_empty() {
+            return Err(CoreError::Validation(
+                "the message has no recipient".to_string(),
+            ));
+        }
+        let payload = serde_json::to_value(SendMail { message })
+            .map_err(|e| CoreError::Internal(format!("the message cannot serialize: {e}")))?;
+        self.inner
+            .queue
+            .push_named_at(SendMail::NAME, &payload, queue, None, when)
+            .await
+    }
+
     /// Renders and delivers `message` here, returning the driver's error.
     pub async fn send_now(&self, message: Message) -> CoreResult<()> {
         let envelope = self.envelope(message).await?;
