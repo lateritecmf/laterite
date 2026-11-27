@@ -388,6 +388,9 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 /* A name that did not resolve. Deliberately unlike any real icon. */
 .lat-icon--missing{opacity:.6}
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
+.lat-menucount{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--accent);color:var(--text-on-accent);font-size:var(--fs-11);font-weight:var(--fw-semibold);line-height:1;letter-spacing:0;font-variant-numeric:tabular-nums}
+.lat-menucount[hidden]{display:none}
+.lat-sidebar__item>.lat-menucount,.lat-settings-inline__item>.lat-menucount,.lat-drawer__sub>.lat-menucount{margin-left:auto;align-self:center}
 .lat-badge{display:inline-block;font-size:var(--fs-12);color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:999px;padding:1px 8px;margin-left:6px}
 .lat-field__error{font-size:var(--fs-12);color:var(--danger);margin:4px 0 0}
 

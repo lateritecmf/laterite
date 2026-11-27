@@ -9,7 +9,7 @@
   <div class="lat-card">
     {% for group in shell.sidebar %}
     <div class="lat-settings-inline__group">{{ group.name }}</div>
-    {% for entry in group.items %}<a class="lat-settings-inline__item" href="{{ entry.path }}">{{ entry.icon|safe }}<span><span class="lat-settings-inline__label">{{ entry.label }}</span>{% if !entry.description.is_empty() %}<br><span class="lat-settings-inline__desc">{{ entry.description }}</span>{% endif %}</span></a>{% endfor %}
+    {% for entry in group.items %}<a class="lat-settings-inline__item" href="{{ entry.path }}">{{ entry.icon|safe }}<span><span class="lat-settings-inline__label">{{ entry.label }}</span>{% if !entry.description.is_empty() %}<br><span class="lat-settings-inline__desc">{{ entry.description }}</span>{% endif %}</span><span class="lat-menucount" data-lat-count="{{ entry.key }}"{% if !entry.badge.label.is_empty() %} title="{{ entry.badge.label }}"{% endif %}{% if entry.badge.count == 0 %} hidden{% endif %}>{{ entry.badge.text() }}</span></a>{% endfor %}
     {% endfor %}
   </div>
 </div>

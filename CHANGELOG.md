@@ -13,6 +13,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Menu counters: `registry.add_counter` registers a number, and `counter` on a menu entry, a `menu` key or a settings item shows it; a section shows its entries' sum (`counter`, `lat.menu.setCounter`).
 - `registry.allow_site_source(directive, origin)` lets the public site load from another origin (a statistics script, a font host); the admin's content security policy stays fixed (`policy`).
 - `AdoptHistory`, a migration that records another module's migrations under this one, so code moving between modules runs nothing twice and a build from before the move still starts.
 - `clearable` on a list offers Clear, which removes every row of a log at once and is audited; `clear_permission` gates it (`ListConfig::clearable`). The request, event and access logs offer it.

@@ -120,6 +120,9 @@ Builder | Description
 `permission(code)` | Hides the item from operators without the grant.
 `link(path)` | Places an existing screen in the settings menu, with no form.
 `confirm_leave(false)` | Leaving the screen with changes unsaved does not ask.
+`counter(name)` | The [counter](navigation.md#count-what-waits) shown beside the item.
+`counter_label(text)` | The counter's tooltip.
+`no_counter()` | No number; an item of tabs shows the sum of its tabs' unless set.
 
 ## Headings
 

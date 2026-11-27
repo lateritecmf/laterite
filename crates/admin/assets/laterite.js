@@ -3006,3 +3006,55 @@ window.lat.widget('aside', function (root) {
   else if (small.addListener) small.addListener(apply);
 });
 
+
+// Menu counters: the number beside a menu entry or a settings item. A page
+// script sets one by the entry's key; after an action the chrome asks the
+// server for them all again.
+window.lat.menu = (function () {
+  function each(key, fn) {
+    var found = document.querySelectorAll('.lat-menucount[data-lat-count]');
+    for (var i = 0; i < found.length; i++) {
+      if (found[i].getAttribute('data-lat-count') === key) fn(found[i]);
+    }
+  }
+  function show(el, count) {
+    count = Math.max(0, parseInt(count, 10) || 0);
+    el.setAttribute('data-count', count);
+    el.textContent = count > 99 ? '99+' : String(count);
+    el.hidden = count === 0;
+  }
+  function read(el) {
+    var held = el.getAttribute('data-count');
+    return parseInt(held === null ? el.textContent : held, 10) || 0;
+  }
+  var timer = null;
+  var api = {
+    setCounter: function (key, count) { each(key, function (el) { show(el, count); }); },
+    increaseCounter: function (key, by) {
+      each(key, function (el) { show(el, read(el) + (by === undefined ? 1 : by)); });
+    },
+    dropCounter: function (key) { api.setCounter(key, 0); },
+    refreshCounters: function () {
+      var bar = document.querySelector('[data-lat-counters]');
+      if (!bar || !document.querySelector('.lat-menucount')) return;
+      fetch(bar.getAttribute('data-lat-counters'), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (counts) {
+          if (!counts) return;
+          var found = document.querySelectorAll('.lat-menucount[data-lat-count]');
+          for (var i = 0; i < found.length; i++) {
+            var key = found[i].getAttribute('data-lat-count');
+            if (Object.prototype.hasOwnProperty.call(counts, key)) show(found[i], counts[key]);
+          }
+        })
+        .catch(function () {});
+    }
+  };
+  document.addEventListener('htmx:afterRequest', function (e) {
+    var config = e.detail && e.detail.requestConfig;
+    if (!config || String(config.verb).toLowerCase() === 'get' || !e.detail.successful) return;
+    clearTimeout(timer);
+    timer = setTimeout(api.refreshCounters, 250);
+  });
+  return api;
+})();

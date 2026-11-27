@@ -27,7 +27,7 @@
     {% endfor %}
   </div>
   {% endif %}
-  <header class="lat-topnav">
+  <header class="lat-topnav" data-lat-counters="{{ shell.base }}/menu/counters">
     <button class="lat-topnav__burger" type="button" data-lat-drawer aria-controls="lat-menu" aria-expanded="false" aria-label='{{ shell.t("Menu") }}'>&#9776;</button>
     <a class="lat-topnav__brand" href="{{ shell.base }}">
       {% if let Some(logo) = shell.brand_nav_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}
@@ -36,7 +36,7 @@
     <div class="lat-topnav__rail" data-lat-widget="topnav-scroll">
       <button class="lat-topnav__step lat-topnav__step--back" type="button" tabindex="-1" aria-hidden="true" data-step="-1">{{ shell.icon("chevron-left")|safe }}</button>
       <nav class="lat-topnav__nav" data-lat-widget="menu-order" data-menu-post="{{ shell.base }}/preferences/menu" data-menu-csrf="{{ shell.csrf_token }}">
-        {% for item in shell.nav %}<a class="lat-topnav__section{% if item.active %} is-active{% endif %}" href="{{ item.path }}" data-lat-key="{{ item.key }}"{% if item.key != "dashboard" && item.key != "settings" %} draggable="true"{% endif %}{% if item.active %} aria-current="page"{% endif %}>{% if !item.icon.is_empty() %}<span class="lat-topnav__ico">{{ item.icon|safe }}</span>{% endif %}<span>{{ item.label }}</span></a>{% endfor %}
+        {% for item in shell.nav %}<a class="lat-topnav__section{% if item.active %} is-active{% endif %}" href="{{ item.path }}" data-lat-key="{{ item.key }}"{% if item.key != "dashboard" && item.key != "settings" %} draggable="true"{% endif %}{% if item.active %} aria-current="page"{% endif %}>{% if !item.icon.is_empty() %}<span class="lat-topnav__ico">{{ item.icon|safe }}</span>{% endif %}<span>{{ item.label }}</span><span class="lat-menucount" data-lat-count="{{ item.key }}"{% if !item.badge.label.is_empty() %} title="{{ item.badge.label }}"{% endif %}{% if item.badge.count == 0 %} hidden{% endif %}>{{ item.badge.text() }}</span></a>{% endfor %}
       </nav>
       <button class="lat-topnav__step lat-topnav__step--on" type="button" tabindex="-1" aria-hidden="true" data-step="1">{{ shell.icon("chevron-right")|safe }}</button>
     </div>
@@ -64,7 +64,7 @@
     <div class="lat-drawer__backdrop" data-lat-drawer></div>
     <nav class="lat-drawer__panel">
       <div class="lat-drawer__brand">{% if let Some(logo) = shell.brand_nav_logo() %}<img src="{{ logo }}" alt="">{% else %}<img src="{{ shell.asset("mark.png") }}" alt="">{% endif %}<span>{{ shell.brand }}</span></div>
-      {% for item in shell.nav %}<a class="lat-drawer__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% for item in shell.nav %}<a class="lat-drawer__item{% if item.active %} is-active{% endif %}" href="{{ item.path }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}<span class="lat-menucount" data-lat-count="{{ item.key }}"{% if !item.badge.label.is_empty() %} title="{{ item.badge.label }}"{% endif %}{% if item.badge.count == 0 %} hidden{% endif %}>{{ item.badge.text() }}</span></a>
       {% if item.active %}{% include "_drawer_section.html" %}{% endif %}{% endfor %}
       {% if !shell.sidebar_anchored() %}{% include "_drawer_section.html" %}{% endif %}
     </nav>
@@ -86,6 +86,7 @@
             <span class="lat-sidebar__title">{{ item.label }}</span>
             {% if !item.description.is_empty() %}<span class="lat-sidebar__desc">{{ item.description }}</span>{% endif %}
           </span>
+          <span class="lat-menucount" data-lat-count="{{ item.key }}"{% if !item.badge.label.is_empty() %} title="{{ item.badge.label }}"{% endif %}{% if item.badge.count == 0 %} hidden{% endif %}>{{ item.badge.text() }}</span>
         </a>
         {% endfor %}
       {% if shell.sidebar.len() > 1 %}</details>{% else %}</div>{% endif %}
@@ -98,7 +99,7 @@
         <nav class="lat-breadcrumb" aria-label='{{ shell.t("You are here") }}'>{% for c in shell.crumbs %}{% if !loop.first %}<span aria-hidden="true">&rsaquo;</span>{% endif %}<a href="{{ c.href }}">{{ c.label }}</a>{% endfor %}</nav>
         {% endif %}
         {% if !shell.tabs.is_empty() %}
-        <nav class="lat-pagetabs" aria-label='{{ shell.t("Pages") }}'>{% for tab in shell.tabs %}<a class="lat-pagetabs__tab{% if tab.active %} is-active{% endif %}" href="{{ tab.href }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
+        <nav class="lat-pagetabs" aria-label='{{ shell.t("Pages") }}'>{% for tab in shell.tabs %}<a class="lat-pagetabs__tab{% if tab.active %} is-active{% endif %}" href="{{ tab.href }}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}<span class="lat-menucount" data-lat-count="{{ tab.key }}"{% if !tab.badge.label.is_empty() %} title="{{ tab.badge.label }}"{% endif %}{% if tab.badge.count == 0 %} hidden{% endif %}>{{ tab.badge.text() }}</span></a>{% endfor %}</nav>
         {% endif %}
         {% block content %}{% endblock %}
       </div>

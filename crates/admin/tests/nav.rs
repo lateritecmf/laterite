@@ -150,6 +150,10 @@ fn tabs(html: &str) -> Vec<String> {
     nav.split("lat-topnav__section")
         .skip(1)
         .map(|a| {
+            let a = a
+                .split("<span class=\"lat-menucount\"")
+                .next()
+                .unwrap_or("");
             let text = a.rsplit("</span>").nth(1).unwrap_or("");
             text.rsplit('>').next().unwrap_or("").trim().to_string()
         })

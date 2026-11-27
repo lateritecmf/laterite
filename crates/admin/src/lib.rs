@@ -24,6 +24,7 @@ mod bulk;
 pub mod chart;
 pub mod checklist;
 mod clientip;
+pub mod counter;
 pub mod descriptor;
 mod developer;
 pub mod editor;
@@ -123,6 +124,8 @@ pub trait AdminRegistry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
     /// Adds an option source, nameable by a field's or a filter's `options`.
     fn add_option_source(&mut self, source: options::OptionSourceReg);
+    /// Adds a counter, nameable by a menu entry's or a settings item's `counter`.
+    fn add_counter(&mut self, counter: counter::CounterReg);
     /// Allows the public site to load from `source` in one part of its content
     /// security policy: a statistics script, a font host, a payment frame.
     /// The admin's policy stays as it is. See [`policy`].
@@ -180,6 +183,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_option_source(&mut self, source: options::OptionSourceReg) {
         self.add(source);
+    }
+    fn add_counter(&mut self, counter: counter::CounterReg) {
+        self.add(counter);
     }
     fn allow_site_source(&mut self, directive: policy::Directive, source: &str) {
         self.add(policy::SiteSource::new(directive, source));
@@ -381,6 +387,8 @@ pub(crate) struct AdminState {
     /// The option-source registry: resolves the name a field's `options`
     /// gives to the service that lists its choices. See [`options`].
     pub(crate) option_sources: Arc<options::OptionRegistry>,
+    /// Counters a menu entry or a settings item names.
+    pub(crate) counters: Arc<counter::CounterRegistry>,
     /// The resources whose records the command palette finds, each through
     /// the picker source it named. See [`palette`].
     palette: Arc<Vec<palette::RecordSource>>,
@@ -452,6 +460,7 @@ impl AdminState {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             option_sources: Arc::new(options::OptionRegistry::new()),
+            counters: Arc::new(counter::CounterRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),
@@ -730,6 +739,8 @@ pub struct Shell {
     crumbs: Vec<CrumbView>,
     /// The tabs above a page that is one of a settings item's tabs.
     tabs: Vec<PageTab>,
+    /// Every counted entry's number on this page, by the entry's key.
+    badges: counter::Badges,
     /// What the operator may do, for the controls a page shows.
     perms: laterite_auth::PermissionSet,
     /// The icon set, for chrome that renders one outside a nav entry.
@@ -905,6 +916,7 @@ impl Shell {
                 path: nav::tab_path(n).unwrap_or_default().to_string(),
                 active: active_nav == Some(n.item.key.as_str()),
                 icon: icons::svg(&icon_set, &sprite_url, n.item.icon.as_deref()),
+                badge: counter::Badge::default(),
             })
             .collect();
         let mut crumbs: Vec<CrumbView> = nav
@@ -940,6 +952,7 @@ impl Shell {
             nav,
             crumbs,
             tabs: Vec::new(),
+            badges: counter::Badges::new(),
             perms: user.permissions.clone(),
             full_name,
             initial,
@@ -1161,6 +1174,7 @@ impl Shell {
             sidebar: Vec::new(),
             crumbs: Vec::new(),
             tabs: Vec::new(),
+            badges: counter::Badges::new(),
             perms: Default::default(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
@@ -2024,6 +2038,8 @@ pub struct Contributions {
     pub picker_sources: Vec<picker::PickerSourceReg>,
     /// Sources a field or a filter takes its choices from.
     pub option_sources: Vec<options::OptionSourceReg>,
+    /// Numbers shown beside menu entries and settings items; see [`counter`].
+    pub counters: Vec<counter::CounterReg>,
     /// Origins the public site may load from; see [`policy`].
     pub site_sources: Vec<policy::SiteSource>,
     /// Named write handlers a form can select.
@@ -2090,6 +2106,7 @@ pub fn router(
         permissions: app_permissions,
         picker_sources: app_picker_sources,
         option_sources: app_option_sources,
+        counters: app_counters,
         site_sources,
         persisters: app_persisters,
         listeners: app_listeners,
@@ -2289,6 +2306,8 @@ pub fn router(
         item.before = resource.menu.before.clone();
         item.in_settings = resource.menu.in_settings.clone();
         item.description = resource.menu.description.clone();
+        item.counter = resource.menu.counter.clone();
+        item.counter_label = resource.menu.counter_label.clone();
         nav_items.push(item);
     }
     for reg in &app_screens {
@@ -2312,6 +2331,8 @@ pub fn router(
         item.before = reg.menu.before.clone();
         item.in_settings = reg.menu.in_settings.clone();
         item.description = reg.menu.description.clone();
+        item.counter = reg.menu.counter.clone();
+        item.counter_label = reg.menu.counter_label.clone();
         nav_items.push(item);
     }
     // A deployment's moves: an entry rendered somewhere other than its home,
@@ -2319,6 +2340,34 @@ pub fn router(
     // Entries a module placed in Settings, then a deployment's moves.
     nav::settle(&mut nav_items, &mut settings);
     nav::apply_moves(&mut nav_items, &mut settings, &config.menu);
+    // Counters, and every name an entry or a settings item gives one.
+    let mut counters = counter::CounterRegistry::new();
+    for reg in app_counters {
+        let name = reg.name.clone();
+        if !field::is_name(&name, true) {
+            panic!("invalid counter name `{name}`");
+        }
+        if counters.insert(name.clone(), reg).is_some() {
+            panic!("duplicate counter `{name}`");
+        }
+    }
+    let named = nav_items
+        .iter()
+        .map(|i| (&i.key, &i.counter))
+        .chain(settings.iter().map(|i| (&i.code, &i.counter)))
+        .chain(
+            settings
+                .iter()
+                .flat_map(|i| i.tab_counters.iter().map(|(key, (c, _))| (key, c))),
+        );
+    for (key, counter) in named {
+        if let Some(name) = counter.source() {
+            if !counters.contains_key(name) {
+                panic!("`{key}` names the counter `{name}`, which nothing registered");
+            }
+        }
+    }
+    let counters = Arc::new(counters);
     let nav = nav::NavTree::build_with(nav_items.clone(), &admin_path, &config.order)
         .unwrap_or_else(|e| panic!("admin menu: {e}"));
     nav.log_arrangement();
@@ -2773,6 +2822,7 @@ pub fn router(
         asset_urls: asset_urls_arc.clone(),
         pickers,
         option_sources,
+        counters,
         palette: Arc::new(palette_sources),
         overrides: Arc::new(field::NoOverrides),
     };
@@ -3244,6 +3294,7 @@ pub fn router(
             &format!("{admin_path}/preferences/menu/moves"),
             post(menu_moves_update),
         )
+        .route(&format!("{admin_path}/menu/counters"), get(menu_counters))
         .route(
             &format!("{admin_path}/markdown/preview"),
             post(markdown_preview),
@@ -5310,13 +5361,48 @@ async fn require_auth(
         own.settings_order.as_deref(),
         &own.settings_collapsed,
     );
-    let tabs = page_tabs(
+    let mut tabs = page_tabs(
         &own_settings,
         &state.admin_path,
         &user.permissions,
         &path,
         &i18n,
     );
+    // The numbers beside the entries this operator sees. A fragment draws no
+    // menu, so its request counts nothing.
+    let fragment = request.headers().contains_key("hx-request")
+        && !request.headers().contains_key("hx-boosted");
+    let badges = if safe && !fragment && !state.counters.is_empty() {
+        let seen: Vec<settings::SettingsItem> = visible_settings(&own_settings, &user.permissions)
+            .into_iter()
+            .filter(|i| !i.per_operator)
+            .collect();
+        counter::badges(
+            &state.counters,
+            &visible_nav,
+            &seen,
+            &state.db,
+            &counter::CounterCx {
+                user_id: user.user.id,
+                permissions: &user.permissions,
+            },
+            &i18n,
+        )
+        .await
+    } else {
+        counter::Badges::new()
+    };
+    let mut sidebar = sidebar;
+    for item in sidebar.iter_mut().flat_map(|g| g.items.iter_mut()) {
+        if let Some(badge) = badges.get(&item.key) {
+            item.badge = badge.clone();
+        }
+    }
+    for tab in &mut tabs {
+        if let Some(badge) = badges.get(&tab.key) {
+            tab.badge = badge.clone();
+        }
+    }
     let brand = state.brand().await;
     let mut shell = Shell::new(
         &state.admin_path,
@@ -5338,6 +5424,12 @@ async fn require_auth(
     );
     shell.nav_logo = state.nav_logo().await;
     shell.tabs = tabs;
+    for tab in &mut shell.nav {
+        if let Some(badge) = badges.get(&tab.key) {
+            tab.badge = badge.clone();
+        }
+    }
+    shell.badges = badges;
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
     request.extensions_mut().insert(handle.clone());
@@ -7120,9 +7212,13 @@ struct CrumbView {
 /// One tab above a page, from a settings item's tabs.
 #[derive(Clone)]
 struct PageTab {
+    /// The page's menu key, which its counter is found by.
+    key: String,
     label: String,
     href: String,
     active: bool,
+    /// The number beside the tab, filled in once the page's counters ran.
+    badge: counter::Badge,
 }
 
 /// The tabs `path` shows: those of the settings item one of whose tab pages it
@@ -7148,12 +7244,25 @@ fn page_tabs(
         .map(|t| {
             let href = format!("{admin_path}{}", t.link);
             PageTab {
+                key: t.key.clone(),
                 label: tr.t(&t.label),
                 active: path == href,
                 href,
+                badge: counter::Badge::default(),
             }
         })
         .collect()
+}
+
+/// The numbers beside this operator's menu entries and settings items, by
+/// key, for the page's script to redraw after an action.
+async fn menu_counters(Extension(shell): Extension<Shell>) -> Response {
+    let counts: std::collections::BTreeMap<&str, u64> = shell
+        .badges
+        .iter()
+        .map(|(key, badge)| (key.as_str(), badge.count))
+        .collect();
+    axum::Json(counts).into_response()
 }
 
 #[derive(Clone)]
@@ -7166,6 +7275,8 @@ struct NavView {
     /// Inline SVG for the tab's icon, or empty for a text-only tab. Rendered raw
     /// with `|safe`.
     icon: String,
+    /// The number beside the tab, filled in once the page's counters ran.
+    badge: counter::Badge,
 }
 
 /// Renders a template to an HTML response, mapping a render failure to a 500.
@@ -7614,6 +7725,7 @@ mod tests {
             asset_urls: Arc::new(asset_urls(&builtin_assets())),
             pickers: Arc::new(picker::PickerRegistry::new()),
             option_sources: Arc::new(options::OptionRegistry::new()),
+            counters: Arc::new(counter::CounterRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),
@@ -7665,6 +7777,9 @@ mod tests {
             per_operator: false,
             actions: Vec::new(),
             tabs: Vec::new(),
+            counter: Default::default(),
+            counter_label: None,
+            tab_counters: Default::default(),
         }
     }
 

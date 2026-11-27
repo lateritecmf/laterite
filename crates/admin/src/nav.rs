@@ -11,6 +11,7 @@
 use laterite_core::Text;
 use serde::{Deserialize, Serialize};
 
+use crate::counter::CounterRef;
 use crate::settings::{CategoryView, ItemView};
 
 /// One menu entry: a tab, or an entry under a section.
@@ -49,6 +50,12 @@ pub struct NavItem {
     pub in_settings: Option<Text>,
     /// The line under the entry's label when it renders in Settings.
     pub description: Option<Text>,
+    /// The number beside the entry: a registered counter's name, or `false`
+    /// for none. Unset, a section shows the sum of its entries'.
+    #[serde(skip_serializing_if = "CounterRef::is_inherit")]
+    pub counter: CounterRef,
+    /// What the number counts, shown as its tooltip.
+    pub counter_label: Option<Text>,
 }
 
 impl laterite_core::arrange::Arranged for NavNode {
@@ -79,6 +86,8 @@ impl NavItem {
             under: None,
             in_settings: None,
             description: None,
+            counter: CounterRef::Inherit,
+            counter_label: None,
         }
     }
 
@@ -97,6 +106,8 @@ impl NavItem {
             under: None,
             in_settings: None,
             description: None,
+            counter: CounterRef::Inherit,
+            counter_label: None,
         }
     }
 
@@ -154,6 +165,24 @@ impl NavItem {
         self.description = Some(text.into());
         self
     }
+
+    /// Shows the registered counter `name` beside the entry.
+    pub fn counter(mut self, name: impl Into<String>) -> Self {
+        self.counter = CounterRef::Source(name.into());
+        self
+    }
+
+    /// Shows no number, a section's sum of its entries included.
+    pub fn no_counter(mut self) -> Self {
+        self.counter = CounterRef::Off;
+        self
+    }
+
+    /// Says what the number counts, as its tooltip.
+    pub fn counter_label(mut self, text: impl Into<Text>) -> Self {
+        self.counter_label = Some(text.into());
+        self
+    }
 }
 
 impl Default for NavItem {
@@ -189,6 +218,11 @@ pub struct Placement {
     pub in_settings: Option<Text>,
     /// A line about the entry, shown where it is listed with one: in Settings.
     pub description: Option<Text>,
+    /// The number beside the entry: a registered counter's name.
+    #[serde(skip_serializing_if = "CounterRef::is_inherit")]
+    pub counter: CounterRef,
+    /// What the number counts, shown as its tooltip.
+    pub counter_label: Option<Text>,
 }
 
 impl Default for Placement {
@@ -203,6 +237,8 @@ impl Default for Placement {
             hidden: false,
             in_settings: None,
             description: None,
+            counter: CounterRef::Inherit,
+            counter_label: None,
         }
     }
 }
@@ -266,6 +302,18 @@ impl Placement {
     /// Describes the entry where it is listed with a line of text.
     pub fn description(mut self, text: impl Into<Text>) -> Self {
         self.description = Some(text.into());
+        self
+    }
+
+    /// Shows the registered counter `name` beside the entry.
+    pub fn counter(mut self, name: impl Into<String>) -> Self {
+        self.counter = CounterRef::Source(name.into());
+        self
+    }
+
+    /// Says what the number counts, as its tooltip.
+    pub fn counter_label(mut self, text: impl Into<Text>) -> Self {
+        self.counter_label = Some(text.into());
         self
     }
 }
@@ -571,6 +619,7 @@ pub(crate) fn section_sidebar(
                 path: c.item.path.clone().unwrap_or_default(),
                 icon: icons.render(c.item.icon.as_deref()),
                 active: active.as_deref() == Some(c.item.key.as_str()),
+                badge: crate::counter::Badge::default(),
             })
             .collect(),
     )]
@@ -641,6 +690,8 @@ pub(crate) fn apply_moves(
                 .order(spec.order.unwrap_or(item.order));
             moved.icon = item.icon.clone();
             moved.permission = item.permission.clone();
+            moved.counter = item.counter.clone();
+            moved.counter_label = item.counter_label.clone();
             moved.under = section;
             items.push(moved);
             continue;
@@ -712,7 +763,15 @@ fn into_settings(
     if let Some(permission) = item.permission.clone() {
         moved = moved.permission(permission);
     }
+    moved.counter = item.counter.clone();
+    moved.counter_label = item.counter_label.clone();
     for entry in entries {
+        if !entry.counter.is_inherit() || entry.counter_label.is_some() {
+            moved.tab_counters.insert(
+                entry.key.clone(),
+                (entry.counter.clone(), entry.counter_label.clone()),
+            );
+        }
         if let Some(link) = entry.path {
             moved.tabs.push(crate::settings::SettingsTab {
                 key: entry.key,
@@ -745,6 +804,8 @@ fn into_menu(
                 .order(order.unwrap_or(item.order));
             section.icon = item.icon.clone();
             section.permission = item.permission.clone();
+            section.counter = item.counter.clone();
+            section.counter_label = item.counter_label.clone();
             if !item.description.source().is_empty() {
                 section.description = Some(item.description.clone());
             }
@@ -752,10 +813,16 @@ fn into_menu(
             item.code.clone()
         }
     };
+    let mut tab_counters = item.tab_counters;
     for tab in item.tabs {
+        let counter = tab_counters.remove(&tab.key);
         let mut entry = NavItem::new(tab.key, tab.label, tab.link)
             .under(parent.clone())
             .order(tab.order);
+        if let Some((counter, label)) = counter {
+            entry.counter = counter;
+            entry.counter_label = label;
+        }
         entry.icon = tab.icon;
         entry.permission = tab.permission;
         items.push(entry);

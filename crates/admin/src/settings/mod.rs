@@ -181,6 +181,16 @@ pub struct SettingsItem {
     /// Pages shown as tabs on each other's lists: a menu section placed in
     /// Settings. The item links to the first.
     pub tabs: Vec<SettingsTab>,
+    /// The number beside the item: a registered counter's name, or `false`
+    /// for none. Unset, an item of tabs shows the sum of its tabs'.
+    #[serde(skip_serializing_if = "crate::counter::CounterRef::is_inherit")]
+    pub counter: crate::counter::CounterRef,
+    /// What the number counts, shown as its tooltip.
+    pub counter_label: Option<Text>,
+    /// Each tab's counter and what it counts, by the tab's key.
+    #[serde(skip)]
+    pub(crate) tab_counters:
+        std::collections::HashMap<String, (crate::counter::CounterRef, Option<Text>)>,
 }
 
 /// One tab of a [`SettingsItem`] that holds several pages.
@@ -240,7 +250,28 @@ impl SettingsItem {
             per_operator: false,
             actions: Vec::new(),
             tabs: Vec::new(),
+            counter: crate::counter::CounterRef::Inherit,
+            counter_label: None,
+            tab_counters: std::collections::HashMap::new(),
         }
+    }
+
+    /// Shows the registered counter `name` beside the item.
+    pub fn counter(mut self, name: impl Into<String>) -> Self {
+        self.counter = crate::counter::CounterRef::Source(name.into());
+        self
+    }
+
+    /// Shows no number beside the item, its tabs' sum included.
+    pub fn no_counter(mut self) -> Self {
+        self.counter = crate::counter::CounterRef::Off;
+        self
+    }
+
+    /// Says what the number counts, as its tooltip.
+    pub fn counter_label(mut self, text: impl Into<Text>) -> Self {
+        self.counter_label = Some(text.into());
+        self
     }
 
     /// Adds the page `key` as a tab leading to `link` (under the admin root),
@@ -825,6 +856,7 @@ pub(crate) fn sidebar_groups(
             path: i.path(admin_path),
             icon: icons.render(i.icon.as_deref()),
             active: active_code == Some(i.code.as_str()),
+            badge: crate::counter::Badge::default(),
         };
         match groups.iter_mut().find(|g| g.name == category) {
             Some(group) => group.items.push(view),
@@ -933,6 +965,8 @@ pub(crate) struct ItemView {
     pub(crate) icon: String,
     /// Whether this is the item currently open, so the sidebar highlights it.
     pub(crate) active: bool,
+    /// The number beside the item, filled in once the page's counters ran.
+    pub(crate) badge: crate::counter::Badge,
 }
 
 #[derive(Template)]
@@ -1009,6 +1043,9 @@ mod field_system_tests {
             per_operator: false,
             actions: Vec::new(),
             tabs: Vec::new(),
+            counter: Default::default(),
+            counter_label: None,
+            tab_counters: Default::default(),
         }
     }
 
@@ -1165,6 +1202,9 @@ mod tests {
             per_operator: false,
             actions: Vec::new(),
             tabs: Vec::new(),
+            counter: Default::default(),
+            counter_label: None,
+            tab_counters: Default::default(),
         }
     }
 
@@ -1208,6 +1248,9 @@ mod tests {
                 per_operator: false,
                 actions: Vec::new(),
                 tabs: Vec::new(),
+                counter: Default::default(),
+                counter_label: None,
+                tab_counters: Default::default(),
             },
             SettingsItem {
                 code: "a".into(),
@@ -1226,6 +1269,9 @@ mod tests {
                 per_operator: false,
                 actions: Vec::new(),
                 tabs: Vec::new(),
+                counter: Default::default(),
+                counter_label: None,
+                tab_counters: Default::default(),
             },
             SettingsItem {
                 code: "l".into(),
@@ -1244,6 +1290,9 @@ mod tests {
                 per_operator: false,
                 actions: Vec::new(),
                 tabs: Vec::new(),
+                counter: Default::default(),
+                counter_label: None,
+                tab_counters: Default::default(),
             },
         ];
         let groups = sidebar_groups(

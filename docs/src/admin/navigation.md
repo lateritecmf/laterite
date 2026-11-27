@@ -31,6 +31,8 @@ ScreenReg::new("/reports", "acme.reports", Arc::new(ReportsScreen))
 `after`, `before` | none | Sits right after or before the sibling with that key, whatever the bands say. A resource's key is `resource:` and its path (`resource:/posts`), a screen's `screen:` and its path, a contributed item's its own.
 `in_settings` | none | A Settings category heading (`System`): the entry is listed in Settings under it, with no menu entry.
 `description` | none | The line under the label in Settings.
+`counter` | none | A registered counter's name: its number shows beside the entry (see below).
+`counter_label` | none | The counter's tooltip.
 `menu: false` | | Mounts the routes with no menu entry.
 
 Slot | Value | Holds
@@ -51,6 +53,8 @@ Slot | Value | Holds
 `.icon(name)`, `.order(n)`, `.after(key)`, `.before(key)`, `.under(key)`, `.permission(code)` | As the `menu` keys above; `permission` hides the entry from an operator without it.
 `.in_settings(category)` | Renders the entry in Settings under `category` (see below).
 `.description(text)` | The line under the label in Settings.
+`.counter(name)`, `.counter_label(text)` | As the `menu` keys above.
+`.no_counter()` | A section shows no sum of its entries' counters.
 
 A resource's entry carries the resource's permission, a screen's its own. A
 duplicate key, `under` naming a key nobody declared, or `after` and `before`
@@ -68,6 +72,63 @@ Resource::new("/pages", "Pages", list)
 A section is a tab in the top bar. An operator sees only the entries they may
 open; a section with none left is not shown. Dashboard and Settings are always
 first and last.
+
+## Count what waits
+
+```rust
+use laterite_admin::counter::{Counter, CounterCx, CounterError, CounterReg};
+
+struct Pending;
+
+#[async_trait]
+impl Counter for Pending {
+    async fn count(&self, db: &Db, cx: &CounterCx<'_>) -> Result<u64, CounterError> {
+        Ok(pending_orders(db, cx.user_id).await?)
+    }
+}
+
+registry.add_counter(CounterReg::new("acme.pending", Arc::new(Pending)));
+registry.add_nav(
+    NavItem::new("acme.orders", "Orders", "/orders")
+        .counter("acme.pending")
+        .counter_label(t!("Orders to ship")),
+);
+```
+
+```yaml
+# descriptors/orders.yaml
+menu: { under: acme.shop, counter: acme.pending, counter_label: Orders to ship }
+```
+
+`counter` | Shows
+--- | ---
+`acme.pending` | The registered counter's number; nothing at zero, `99+` above 99.
+unset, on an entry | Nothing.
+unset, on a section | The sum of the counters of the entries the operator may open.
+unset, on the Settings tab | The sum of the settings items' counters.
+`false`, `.no_counter()` | Nothing.
+
+`CounterCx` | Description
+--- | ---
+`user_id` | The signed-in user.
+`permissions` | What the user may do.
+
+A name nothing registered aborts the start. A counter that fails, or runs
+past 1.5 seconds, shows nothing and logs a warning.
+
+```js
+lat.menu.setCounter('acme.orders', 5);
+lat.menu.increaseCounter('acme.orders', 1);
+lat.menu.dropCounter('acme.orders');
+lat.menu.refreshCounters();
+```
+
+Call | Description
+--- | ---
+`setCounter(key, n)` | Shows `n` beside the entry with that menu key or settings code.
+`increaseCounter(key, by)` | Adds `by` (1 unless given); a negative number subtracts.
+`dropCounter(key)` | Clears the number.
+`refreshCounters()` | Reads every count again from `GET /admin/menu/counters`. Runs by itself after each htmx request that is not a GET.
 
 ## Place a section in Settings
 
