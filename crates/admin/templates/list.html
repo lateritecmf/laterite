@@ -52,6 +52,28 @@
     </button>
     {% endif %}
     {% endif %}
+    {% if !bulk.is_empty() %}
+    {% if !toolbar.is_empty() || deletable %}<span class="lat-listbar__divider" aria-hidden="true"></span>{% endif %}
+    {% for g in bulk %}
+    {% if g.label.is_empty() %}
+    {% for a in g.actions %}
+    <button class="lat-btn {% if a.danger %}lat-btn--danger{% else %}lat-btn--secondary{% endif %} lat-btn--sm" type="submit"
+            form="lat-list-actions" formaction="{{ a.href }}" data-lat-widget="bulk-delete" disabled{% if !a.confirm.is_empty() %}
+            data-lat-confirm='{{ a.confirm }}'{% endif %}>{% if !a.icon.is_empty() %}<span class="lat-btn__icon">{{ a.icon|safe }}</span>{% endif %}{{ a.label }}</button>
+    {% endfor %}
+    {% else %}
+    <details class="lat-menu lat-bulkmenu" data-lat-widget="bulk-menu">
+      <summary class="lat-btn lat-btn--secondary lat-btn--sm" aria-disabled="true">{{ g.label }}<span class="lat-btn__icon">{{ shell.icon("chevron-down")|safe }}</span></summary>
+      <div class="lat-menu__panel">
+        {% for a in g.actions %}
+        <button type="submit"{% if a.danger %} class="is-danger"{% endif %} form="lat-list-actions" formaction="{{ a.href }}"{% if !a.confirm.is_empty() %} data-lat-confirm='{{ a.confirm }}'{% endif %}>{% if !a.icon.is_empty() %}{{ a.icon|safe }}{% endif %}{{ a.label }}</button>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+    {% if pickable %}<span class="lat-listbar__count" data-lat-widget="checked-count" data-count-one='{{ shell.t("{n} selected") }}' hidden></span>{% endif %}
   </div>
   <div class="lat-listbar__tools">
     {% if clearable %}
@@ -137,7 +159,7 @@
   {% include "_csrf.html" %}
 </form>
 {% endif %}
-{% if deletable %}
+{% if pickable %}
 {# Holds only the token: the rows carry `form="lat-list-actions"` from inside the
    swapped region, so a swap replaces the checkboxes without destroying the form
    they belong to, and the button above posts it from the action row. #}

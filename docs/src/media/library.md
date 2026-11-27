@@ -51,6 +51,18 @@ Retitle, rename or move a file | The file page | `media.manage`
 Crop an image | The file page | `media.manage`; a new file `<stem>-crop.<ext>` beside it, or the file replaced.
 Make private, make public | The file page | `media.manage`; the file moves disk and its thumbnails are made again.
 Delete a file | The file page | `media.delete`, or `media.delete_linked` when records use it.
+Delete a folder with its contents | The folder bar | `media.manage` and `media.delete`.
+Move several files and folders | Tick them, then Move | `media.manage`
+Delete several files and folders | Tick them, then Delete | `media.delete`; `media.manage` when a folder is ticked.
+
+Selection | Result
+--- | ---
+Nothing ticked | Move and Delete are disabled.
+Select all | Every file and folder on the page.
+Shift-click | The run between the last tick and this one.
+A ticked folder, Delete | Its files and folders go with it.
+A file a record still uses, without `media.delete_linked` | Kept, with the folders that hold it.
+A folder moved into itself | Refused; the others ticked still move.
 
 ## Work the library from code
 

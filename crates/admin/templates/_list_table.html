@@ -3,7 +3,7 @@
     <table class="lat-table">
       <thead><tr>
         {% if let Some(r) = reorder %}<th class="lat-table__grip" data-lat-widget="reorder" data-reorder-path="{{ r.path }}" data-reorder-page="{{ r.page }}" data-reorder-csrf="{{ shell.csrf_token }}" data-reorder-region="{{ region }}"><span class="lat-visually-hidden">{{ shell.t("Order") }}</span></th>{% endif %}
-        {% if deletable %}<th class="lat-table__pick"><input type="checkbox" data-lat-widget="pick-all" aria-label='{{ shell.t("Select all") }}'></th>{% endif %}
+        {% if pickable %}<th class="lat-table__pick"><input type="checkbox" data-lat-widget="pick-all" aria-label='{{ shell.t("Select all") }}'></th>{% endif %}
         {% for c in columns %}
         <th{% if tree.is_some() && loop.first %} data-lat-widget="tree"{% endif %}{% if c.active == "asc" %} aria-sort="ascending"{% else if c.active == "desc" %} aria-sort="descending"{% endif %}{% if let Some(w) = c.width %} style="width:{{ w }}"{% endif %}{% if !c.align_class.is_empty() %} class="{{ c.align_class }}"{% endif %}>
           {% if !c.sortable %}<span>{{ c.label }}</span>{% else %}

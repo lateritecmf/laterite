@@ -756,6 +756,7 @@ impl Bootstrap {
         let option_sources = contributions.take::<crate::options::OptionSourceReg>();
         let site_sources = contributions.take::<crate::policy::SiteSource>();
         let counters = contributions.take::<crate::counter::CounterReg>();
+        let bulk_actions = contributions.take::<crate::bulk::BulkActionReg>();
         let persisters = contributions.take::<crate::persist::PersisterReg>();
         let mut listeners = contributions.take::<laterite_core::ModelListenerReg>();
         let field_types = contributions.take::<crate::field::FieldTypeReg>();
@@ -944,6 +945,7 @@ impl Bootstrap {
                 option_sources,
                 site_sources,
                 counters,
+                bulk_actions,
                 persisters,
                 listeners,
                 query_hooks: Vec::new(),

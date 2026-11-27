@@ -20,7 +20,7 @@ pub mod ability;
 mod audit;
 pub mod board;
 pub mod bootstrap;
-mod bulk;
+pub mod bulk;
 pub mod chart;
 pub mod checklist;
 mod clientip;
@@ -124,6 +124,8 @@ pub trait AdminRegistry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
     /// Adds an option source, nameable by a field's or a filter's `options`.
     fn add_option_source(&mut self, source: options::OptionSourceReg);
+    /// Adds a bulk action, nameable by a list's `bulk_actions` as its `handler`.
+    fn add_bulk_action(&mut self, action: bulk::BulkActionReg);
     /// Adds a counter, nameable by a menu entry's or a settings item's `counter`.
     fn add_counter(&mut self, counter: counter::CounterReg);
     /// Allows the public site to load from `source` in one part of its content
@@ -186,6 +188,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_counter(&mut self, counter: counter::CounterReg) {
         self.add(counter);
+    }
+    fn add_bulk_action(&mut self, action: bulk::BulkActionReg) {
+        self.add(action);
     }
     fn allow_site_source(&mut self, directive: policy::Directive, source: &str) {
         self.add(policy::SiteSource::new(directive, source));
@@ -389,6 +394,8 @@ pub(crate) struct AdminState {
     pub(crate) option_sources: Arc<options::OptionRegistry>,
     /// Counters a menu entry or a settings item names.
     pub(crate) counters: Arc<counter::CounterRegistry>,
+    /// Handlers a list's bulk action names.
+    pub(crate) bulk_actions: Arc<bulk::BulkRegistry>,
     /// The resources whose records the command palette finds, each through
     /// the picker source it named. See [`palette`].
     palette: Arc<Vec<palette::RecordSource>>,
@@ -461,6 +468,7 @@ impl AdminState {
             pickers: Arc::new(picker::PickerRegistry::new()),
             option_sources: Arc::new(options::OptionRegistry::new()),
             counters: Arc::new(counter::CounterRegistry::new()),
+            bulk_actions: Arc::new(bulk::BulkRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),
@@ -2040,6 +2048,8 @@ pub struct Contributions {
     pub option_sources: Vec<options::OptionSourceReg>,
     /// Numbers shown beside menu entries and settings items; see [`counter`].
     pub counters: Vec<counter::CounterReg>,
+    /// Handlers for lists' own bulk actions; see [`bulk`].
+    pub bulk_actions: Vec<bulk::BulkActionReg>,
     /// Origins the public site may load from; see [`policy`].
     pub site_sources: Vec<policy::SiteSource>,
     /// Named write handlers a form can select.
@@ -2107,6 +2117,7 @@ pub fn router(
         picker_sources: app_picker_sources,
         option_sources: app_option_sources,
         counters: app_counters,
+        bulk_actions: app_bulk_actions,
         site_sources,
         persisters: app_persisters,
         listeners: app_listeners,
@@ -2368,6 +2379,17 @@ pub fn router(
         }
     }
     let counters = Arc::new(counters);
+    let mut bulk_actions = bulk::BulkRegistry::new();
+    for reg in app_bulk_actions {
+        let name = reg.name.clone();
+        if !field::is_name(&name, true) {
+            panic!("invalid bulk action name `{name}`");
+        }
+        if bulk_actions.insert(name.clone(), reg).is_some() {
+            panic!("duplicate bulk action `{name}`");
+        }
+    }
+    let bulk_actions = Arc::new(bulk_actions);
     let nav = nav::NavTree::build_with(nav_items.clone(), &admin_path, &config.order)
         .unwrap_or_else(|e| panic!("admin menu: {e}"));
     nav.log_arrangement();
@@ -2823,6 +2845,7 @@ pub fn router(
         pickers,
         option_sources,
         counters,
+        bulk_actions,
         palette: Arc::new(palette_sources),
         overrides: Arc::new(field::NoOverrides),
     };
@@ -2856,6 +2879,9 @@ pub fn router(
         protected = protected.merge(mounted);
         if let Some(delete) = delete {
             deletes.insert(resource.base_path.clone(), delete);
+        }
+        if let Err(e) = resource.list.check_bulk_actions(&state.bulk_actions) {
+            panic!("admin resource `{}`: {e}", resource.base_path);
         }
         if let Err(e) = resource.list.check_filter_sources(&state.option_sources) {
             panic!("admin resource `{}`: {e}", resource.base_path);
@@ -4451,7 +4477,7 @@ fn mount_resource(
         ),
     );
 
-    if resource.list.deletable {
+    if resource.list.deletable || !resource.list.bulk_actions.is_empty() {
         // The write path for a delete: the form's persister when the resource has
         // a generic form, otherwise one over the list's own table, so a bespoke
         // editor (roles) still deletes through the pipeline rather than beside it.
@@ -4486,6 +4512,38 @@ fn mount_resource(
             }
         }
         save_listeners.extend(contributed.iter().cloned());
+        // A `set` action saves through the resource's form, prepared here for
+        // it: a field the form lacks aborts boot.
+        let sets: Vec<&list::BulkActionSpec> = resource
+            .list
+            .bulk_actions
+            .iter()
+            .filter(|a| !a.set.is_empty())
+            .collect();
+        let set_form = match (&resource.form, sets.is_empty()) {
+            (Some(form_cfg), false) => {
+                for action in &sets {
+                    for field in action.set.keys() {
+                        if !form_cfg.fields.iter().any(|f| &f.name == field) {
+                            panic!(
+                                "admin resource `{}`: bulk action `{}` sets `{field}`, which the form has no field for",
+                                resource.base_path, action.name
+                            );
+                        }
+                    }
+                }
+                let prepared = form::PreparedForm::prepare(
+                    form_cfg.every_context(),
+                    field_types,
+                    persisters,
+                    listeners,
+                )
+                .unwrap_or_else(|e| panic!("admin resource `{}`: {e}", resource.base_path))
+                .with_rules(rules.clone());
+                Some(Arc::new(prepared))
+            }
+            _ => None,
+        };
         let ctx = Arc::new(bulk::BulkContext {
             base_path: resource.base_path.clone(),
             entity: resource.list.entity.clone(),
@@ -4493,10 +4551,35 @@ fn mount_resource(
             listeners: contributed,
             soft_delete: resource.soft_delete,
             save_listeners,
+            form: set_form,
         });
-        deletes = Some(ctx.clone());
-        let mut actions = vec![("delete", bulk::Action::Delete)];
-        if resource.soft_delete {
+        for spec in &resource.list.bulk_actions {
+            let ctx = ctx.clone();
+            let spec = Arc::new(spec.clone());
+            router = router.route(
+                &format!("{base}/bulk/{}", spec.name),
+                post(
+                    move |state: State<AdminState>,
+                          user: Extension<AuthenticatedUser>,
+                          session: Extension<session::SessionHandle>,
+                          headers: axum::http::HeaderMap,
+                          form: Form<Vec<(String, String)>>| {
+                        let ctx = ctx.clone();
+                        let spec = spec.clone();
+                        async move {
+                            bulk::action_handler(state, user, session, ctx, spec, headers, form)
+                                .await
+                        }
+                    },
+                ),
+            );
+        }
+        let mut actions = Vec::new();
+        if resource.list.deletable {
+            deletes = Some(ctx.clone());
+            actions.push(("delete", bulk::Action::Delete));
+        }
+        if resource.list.deletable && resource.soft_delete {
             actions.push(("restore", bulk::Action::Restore));
             actions.push(("purge", bulk::Action::Purge));
         }
@@ -7726,6 +7809,7 @@ mod tests {
             pickers: Arc::new(picker::PickerRegistry::new()),
             option_sources: Arc::new(options::OptionRegistry::new()),
             counters: Arc::new(counter::CounterRegistry::new()),
+            bulk_actions: Arc::new(bulk::BulkRegistry::new()),
             palette: Arc::new(Vec::new()),
             route_map: Arc::new(Vec::new()),
             registry_summary: Arc::new(Vec::new()),

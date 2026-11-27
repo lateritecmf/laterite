@@ -1116,3 +1116,195 @@ async fn a_file_shown_publicly_stays_public_and_a_private_one_is_refused() {
         .unwrap();
     assert_eq!(saved["logo"], logo.id);
 }
+
+/// Every library file's name, sorted, with the folder it sits in.
+async fn filed(db: &Db) -> Vec<(String, Option<i64>)> {
+    let mut all: Vec<(String, Option<i64>)> = record::all(db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| (r.original_name, r.folder_id))
+        .collect();
+    all.sort();
+    all
+}
+
+#[tokio::test]
+async fn a_selection_is_moved_and_deleted_together() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    post(&app, "/admin/media/folders", &root, "name=Photos").await;
+    post(&app, "/admin/media/folders", &root, "name=Archive").await;
+    let top = folder::children(&db, None).await.unwrap();
+    let archive = top.iter().find(|f| f.name == "Archive").unwrap().id;
+    let photos = top.iter().find(|f| f.name == "Photos").unwrap().id;
+    upload(
+        &app,
+        &root,
+        &[],
+        &[("a.png", &png(1)), ("b.png", &png(2)), ("c.png", &png(3))],
+    )
+    .await;
+    let ids: std::collections::HashMap<String, i64> = record::all(&db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| (r.original_name, r.id))
+        .collect();
+
+    // The page offers the selection: a checkbox per file and folder, and
+    // actions that start disabled.
+    let (_, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert_eq!(html.matches("name=\"files\"").count(), 3);
+    assert_eq!(html.matches("name=\"folders\"").count(), 2);
+    let delete = html.split("value=\"delete\"").nth(1).unwrap();
+    assert!(delete.split('>').next().unwrap().contains("disabled"));
+    assert!(html.contains("data-lat-widget=\"media-select\""));
+
+    // Nothing ticked changes nothing.
+    let (status, _) = post(&app, "/admin/media/bulk", &root, "action=delete").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(filed(&db).await.len(), 3);
+
+    // Two files and a folder move into Archive in one go.
+    let body = format!(
+        "action=move&to={archive}&files={}&files={}&folders={photos}",
+        ids["a.png"], ids["b.png"]
+    );
+    let (status, _) = post(&app, "/admin/media/bulk", &root, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        filed(&db).await,
+        [
+            ("a.png".to_string(), Some(archive)),
+            ("b.png".to_string(), Some(archive)),
+            ("c.png".to_string(), None),
+        ]
+    );
+    assert_eq!(
+        folder::find(&db, photos).await.unwrap().unwrap().parent_id,
+        Some(archive)
+    );
+    // A folder cannot move into itself; the rest of the selection still does.
+    let body = format!(
+        "action=move&to={archive}&folders={archive}&files={}",
+        ids["c.png"]
+    );
+    post(&app, "/admin/media/bulk", &root, &body).await;
+    assert_eq!(
+        folder::find(&db, archive).await.unwrap().unwrap().parent_id,
+        None
+    );
+    assert_eq!(filed(&db).await[2], ("c.png".to_string(), Some(archive)));
+
+    // One file and the folder with everything in it are deleted together.
+    let body = format!("action=delete&files={}&folders={archive}", ids["c.png"]);
+    let (status, _) = post(&app, "/admin/media/bulk", &root, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(filed(&db).await.is_empty());
+    assert!(folder::all(&db).await.unwrap().is_empty());
+    let (_, html, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert!(html.contains("Deleted 3 files."), "{html}");
+    assert!(html.contains("Deleted 2 folders."));
+}
+
+#[tokio::test]
+async fn a_file_still_in_use_keeps_its_folder_from_a_delete_with_contents() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    // Someone who may manage and delete, without the linked-media permission.
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    let hash = password::hash_password("keeperpw12345").unwrap();
+    let keeper = auth_store::create_user(
+        &db,
+        "keeper",
+        "keeper@acme.test",
+        "Keeper",
+        None,
+        &hash,
+        false,
+    )
+    .await
+    .unwrap();
+    let role = auth_store::create_role(
+        &db,
+        "keeper",
+        "Keeper",
+        &[
+            "media.browse".to_string(),
+            "media.manage".to_string(),
+            "media.delete".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    auth_store::assign_role(&db, keeper, role).await.unwrap();
+    let keeper = svc
+        .authenticate("keeper", "keeperpw12345", &RequestContext::default())
+        .await
+        .unwrap()
+        .token;
+    svc.set_session_data(&keeper, r#"{"v":1,"csrf":"tok-123"}"#)
+        .await
+        .unwrap();
+
+    post(&app, "/admin/media/folders", &root, "name=Photos").await;
+    let photos = folder::children(&db, None).await.unwrap()[0].id;
+    upload(
+        &app,
+        &root,
+        &[("folder", &photos.to_string())],
+        &[("used.png", &png(1)), ("spare.png", &png(2))],
+    )
+    .await;
+    let used = record::all(&db)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.original_name == "used.png")
+        .unwrap();
+    link::set(
+        &db,
+        Owner {
+            owner_type: "acme_posts",
+            owner_id: "9",
+            field: "cover",
+        },
+        &[used.id],
+    )
+    .await
+    .unwrap();
+
+    // The folder's own menu offers the delete with contents.
+    let (_, html, _) = get(
+        &app,
+        &format!("/admin/media?folder={photos}"),
+        Some(&keeper),
+    )
+    .await;
+    assert!(html.contains("Delete folder and contents"));
+
+    let path = format!("/admin/media/folders/{photos}/delete");
+    let (status, location) = post(&app, &path, &keeper, "contents=1").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    // The spare file went; the used one and its folder stayed, and the page
+    // returns to the folder that is still there.
+    assert_eq!(filed(&db).await, [("used.png".to_string(), Some(photos))]);
+    assert_eq!(location, format!("/admin/media?folder={photos}"));
+    let (_, html, _) = get(&app, &location, Some(&keeper)).await;
+    assert!(
+        html.contains("1 file is still used by a record and was kept"),
+        "{html}"
+    );
+    assert!(html.contains("1 folder still holds something and was kept."));
+
+    // With the permission, the same delete clears it all.
+    let (_, location) = post(&app, &path, &root, "contents=1").await;
+    assert_eq!(location, "/admin/media");
+    assert!(filed(&db).await.is_empty());
+    assert!(folder::all(&db).await.unwrap().is_empty());
+}

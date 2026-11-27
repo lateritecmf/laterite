@@ -341,6 +341,7 @@ impl Screen for MediaScreen {
             .route("/upload", post(upload))
             .route("/direct", post(direct_start))
             .route("/direct/complete", post(direct_complete))
+            .route("/bulk", post(bulk))
             .route("/folders", post(create_folder))
             .route("/folders/{id}/rename", post(rename_folder))
             .route("/folders/{id}/move", post(move_folder))
@@ -810,6 +811,7 @@ async fn pick(
             .unwrap_or_default()
             .into_iter()
             .map(|f| FolderView {
+                id: f.id,
                 href: pick_href(&pick_url, Some(f.id), "", &mode, public_only, 1),
                 name: f.name,
                 active: false,
@@ -933,6 +935,8 @@ struct BrowseQuery {
 }
 
 struct FolderView {
+    /// The folder's id, which a selection names.
+    id: i64,
     name: String,
     href: String,
     /// Whether the folder shown holds, or is, the one being browsed.
@@ -973,6 +977,8 @@ struct FileActionsTemplate {
 }
 
 struct FileView {
+    /// The record's id, which a selection names.
+    id: i64,
     name: String,
     kind: &'static str,
     content_type: String,
@@ -1021,6 +1027,10 @@ struct IndexTemplate {
     sort: String,
     may_upload: bool,
     may_manage: bool,
+    /// May delete files, so a selection offers Delete.
+    may_delete: bool,
+    /// Every folder, for the selection's Move.
+    all_folders: Vec<FolderChoice>,
     prev_href: Option<String>,
     next_href: Option<String>,
 }
@@ -1107,6 +1117,7 @@ fn urlencoding(s: &str) -> String {
 
 fn file_view(app: &AppState, r: &MediaRecord) -> FileView {
     FileView {
+        id: r.id,
         name: r.display_name().to_string(),
         kind: r.kind().as_str(),
         content_type: r.content_type.clone(),
@@ -1166,6 +1177,7 @@ async fn index(
             .unwrap_or_default()
             .into_iter()
             .map(|f| FolderView {
+                id: f.id,
                 href: browse_href(&base, Some(f.id), "", &kind_name, &sort_name, 1),
                 name: f.name,
                 active: false,
@@ -1179,6 +1191,7 @@ async fn index(
         .unwrap_or_default()
         .into_iter()
         .map(|f| FolderView {
+            id: f.id,
             href: browse_href(&base, Some(f.id), "", &kind_name, &sort_name, 1),
             active: top == Some(f.id),
             name: f.name,
@@ -1236,6 +1249,15 @@ async fn index(
     );
     let pages = (listed.total as u64).max(1).div_ceil(PER_PAGE);
     let files = listed.items.iter().map(|r| file_view(&app, r)).collect();
+    let all_folders: Vec<FolderChoice> = folder::all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| FolderChoice {
+            id: f.id.to_string(),
+            path: f.path,
+        })
+        .collect();
     let may_upload = user.permissions.allows(UPLOAD);
     let may_manage = user.permissions.allows(MANAGE);
     let actions = Markup::from_template(&ActionsTemplate {
@@ -1267,6 +1289,8 @@ async fn index(
                 .then(|| browse_href(&base, folder_id, &q, &kind_name, &sort_name, page + 1)),
             may_upload,
             may_manage,
+            may_delete: user.permissions.allows(DELETE),
+            all_folders,
             shell: shell.clone(),
             base,
             folder: folder_id,
@@ -1883,11 +1907,281 @@ async fn move_folder(
     }
 }
 
+/// What became of a selection in the library.
+#[derive(Default)]
+struct Swept {
+    files: i64,
+    folders: i64,
+    /// Files other records still use, kept for want of the permission.
+    linked: i64,
+    /// Files this operator may not delete at all.
+    denied: i64,
+    /// Folders kept because something in them was.
+    kept: i64,
+    failed: i64,
+}
+
+impl Swept {
+    fn report(&self, session: &SessionHandle) {
+        if self.files > 0 {
+            session.push_flash(
+                FlashLevel::Success,
+                laterite_core::tn!("Deleted {n} file.", "Deleted {n} files.", n = self.files),
+            );
+        }
+        if self.folders > 0 {
+            session.push_flash(
+                FlashLevel::Success,
+                laterite_core::tn!(
+                    "Deleted {n} folder.",
+                    "Deleted {n} folders.",
+                    n = self.folders
+                ),
+            );
+        }
+        if self.linked > 0 {
+            session.push_flash(
+                FlashLevel::Error,
+                laterite_core::tn!(
+                    "{n} file is still used by a record and was kept; deleting it needs the permission to delete linked media.",
+                    "{n} files are still used by records and were kept; deleting them needs the permission to delete linked media.",
+                    n = self.linked
+                ),
+            );
+        }
+        if self.denied > 0 {
+            session.push_flash(
+                FlashLevel::Error,
+                laterite_core::tn!(
+                    "{n} file was kept: deleting files needs a permission you do not hold.",
+                    "{n} files were kept: deleting files needs a permission you do not hold.",
+                    n = self.denied
+                ),
+            );
+        }
+        if self.kept > 0 {
+            session.push_flash(
+                FlashLevel::Error,
+                laterite_core::tn!(
+                    "{n} folder still holds something and was kept.",
+                    "{n} folders still hold something and were kept.",
+                    n = self.kept
+                ),
+            );
+        }
+        if self.failed > 0 {
+            session.push_flash(FlashLevel::Error, t!("Could not delete. Please try again."));
+        }
+    }
+}
+
+/// Deletes one file as this operator may: a file other records use needs the
+/// linked-media permission.
+async fn sweep_file(app: &AppState, user: &AuthenticatedUser, r: &MediaRecord, swept: &mut Swept) {
+    let ctx = &app.ctx;
+    let users = link::users_of(ctx.db(), r.id).await.unwrap_or_default();
+    if !user.permissions.allows(DELETE) {
+        swept.denied += 1;
+        return;
+    }
+    if !users.is_empty() && !user.permissions.allows(DELETE_LINKED) {
+        swept.linked += 1;
+        return;
+    }
+    match remove_file(app, user, r, &users).await {
+        Ok(()) => swept.files += 1,
+        Err(e) => {
+            tracing::error!(error = %e, "a media record could not be deleted");
+            swept.failed += 1;
+        }
+    }
+}
+
+/// Deletes a folder with everything in it: each file as [`sweep_file`]
+/// allows, then each folder left empty, deepest first.
+async fn sweep_folder(
+    app: &AppState,
+    user: &AuthenticatedUser,
+    root: &folder::Folder,
+    swept: &mut Swept,
+) {
+    let ctx = &app.ctx;
+    let inside = format!("{}/", root.path);
+    let mut folders: Vec<folder::Folder> = folder::all(ctx.db())
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| f.id == root.id || f.path.starts_with(&inside))
+        .collect();
+    let ids: Vec<i64> = folders.iter().map(|f| f.id).collect();
+    let files: Vec<MediaRecord> = record::all(ctx.db())
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.folder_id.is_some_and(|f| ids.contains(&f)))
+        .collect();
+    for r in &files {
+        sweep_file(app, user, r, swept).await;
+    }
+    folders.sort_by_key(|f| std::cmp::Reverse(f.path.len()));
+    for f in folders {
+        match folder::delete(ctx.db(), f.id).await {
+            Ok(()) => {
+                swept.folders += 1;
+                ctx.audit(
+                    user,
+                    "media.folder.delete",
+                    Some("media_folder"),
+                    Some(&f.id.to_string()),
+                    Some(&f.path),
+                    None,
+                )
+                .await;
+            }
+            Err(laterite_media::FolderError::NotEmpty { .. }) => swept.kept += 1,
+            Err(e) => {
+                tracing::error!(error = %e, "a media folder could not be deleted");
+                swept.failed += 1;
+            }
+        }
+    }
+}
+
+/// The ids a selection names under `key`, in the order ticked.
+fn picked(pairs: &[(String, String)], key: &str) -> Vec<i64> {
+    pairs
+        .iter()
+        .filter(|(k, _)| k == key)
+        .filter_map(|(_, v)| v.trim().parse::<i64>().ok())
+        .collect()
+}
+
+/// Acts on the files and folders ticked in the library: deletes them, or
+/// moves them to a folder.
+async fn bulk(
+    State(app): App,
+    Extension(session): Extension<SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Form(pairs): Form<Vec<(String, String)>>,
+) -> Response {
+    let ctx = &app.ctx;
+    let value = |key: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("")
+    };
+    let from = folder_param(value("from"));
+    let files = picked(&pairs, "files");
+    let folders = picked(&pairs, "folders");
+    if files.is_empty() && folders.is_empty() {
+        session.push_flash(FlashLevel::Error, t!("Select a file or a folder first."));
+        return back_to(ctx, from);
+    }
+    match value("action") {
+        "delete" => {
+            if !user.permissions.allows(DELETE)
+                || (!folders.is_empty() && !user.permissions.allows(MANAGE))
+            {
+                return forbidden();
+            }
+            let mut swept = Swept::default();
+            for id in files {
+                if let Some(r) = load(ctx, id).await {
+                    sweep_file(&app, &user, &r, &mut swept).await;
+                }
+            }
+            for id in folders {
+                if let Ok(Some(f)) = folder::find(ctx.db(), id).await {
+                    sweep_folder(&app, &user, &f, &mut swept).await;
+                }
+            }
+            swept.report(&session);
+            back_to(ctx, from)
+        }
+        "move" => {
+            if !user.permissions.allows(MANAGE) {
+                return forbidden();
+            }
+            let to = folder_param(value("to"));
+            if let Some(to) = to {
+                if folder::find(ctx.db(), to).await.ok().flatten().is_none() {
+                    session.push_flash(FlashLevel::Error, t!("No such folder."));
+                    return back_to(ctx, from);
+                }
+            }
+            let detail = format!(
+                "{{\"folder\":{}}}",
+                to.map(|f| f.to_string()).unwrap_or("null".into())
+            );
+            let mut moved = 0;
+            let mut failed = 0;
+            for id in files {
+                match record::move_to_folder(ctx.db(), id, to).await {
+                    Ok(()) => {
+                        moved += 1;
+                        ctx.audit(
+                            &user,
+                            "media.move",
+                            Some("media"),
+                            Some(&id.to_string()),
+                            None,
+                            Some(&detail),
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "a media record could not be moved");
+                        failed += 1;
+                    }
+                }
+            }
+            for id in folders {
+                match folder::move_to(ctx.db(), id, to).await {
+                    Ok(f) => {
+                        moved += 1;
+                        ctx.audit(
+                            &user,
+                            "media.folder.move",
+                            Some("media_folder"),
+                            Some(&id.to_string()),
+                            Some(&f.path),
+                            None,
+                        )
+                        .await;
+                    }
+                    Err(e) => flash_folder_error(&session, &e),
+                }
+            }
+            if moved > 0 {
+                session.push_flash(
+                    FlashLevel::Success,
+                    laterite_core::tn!("Moved {n} item.", "Moved {n} items.", n = moved),
+                );
+            }
+            if failed > 0 {
+                session.push_flash(FlashLevel::Error, t!("Could not save. Please try again."));
+            }
+            back_to(ctx, from)
+        }
+        _ => AdminError::NotFound.into_response(),
+    }
+}
+
+#[derive(serde::Deserialize, Default)]
+struct DeleteFolderForm {
+    /// `1` deletes the folder with everything in it.
+    #[serde(default)]
+    contents: String,
+}
+
 async fn delete_folder(
     State(app): App,
     Extension(session): Extension<SessionHandle>,
     Extension(user): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
+    Form(form): Form<DeleteFolderForm>,
 ) -> Response {
     if !user.permissions.allows(MANAGE) {
         return forbidden();
@@ -1898,6 +2192,16 @@ async fn delete_folder(
         .ok()
         .flatten()
         .and_then(|f| f.parent_id);
+    if form.contents == "1" {
+        let Ok(Some(root)) = folder::find(ctx.db(), id).await else {
+            return AdminError::NotFound.into_response();
+        };
+        let mut swept = Swept::default();
+        sweep_folder(&app, &user, &root, &mut swept).await;
+        swept.report(&session);
+        let gone = folder::find(ctx.db(), id).await.ok().flatten().is_none();
+        return back_to(ctx, if gone { parent } else { Some(id) });
+    }
     match folder::delete(ctx.db(), id).await {
         Ok(()) => {
             ctx.audit(
@@ -2581,38 +2885,8 @@ async fn delete_file(
         return Redirect::to(&here).into_response();
     }
     let folder_id = r.folder_id;
-    let variants = variant::list_for(ctx.db(), id).await.unwrap_or_default();
-    let _ = variant::delete_for(ctx.db(), id).await;
-    match record::delete(ctx.db(), id).await {
-        Ok(last) => {
-            forget_settings_of(ctx, &users).await;
-            if last {
-                if let Some((driver, _)) = app.disks.by_name.get(&r.disk) {
-                    for v in &variants {
-                        let _ = driver.delete(&v.path).await;
-                    }
-                    if let Err(e) = driver.delete(&blob_path(&r.hash)).await {
-                        tracing::warn!(error = %e, hash = %r.hash, "a blob could not be removed");
-                    }
-                }
-            }
-            ctx.audit(
-                &user,
-                "media.delete",
-                Some("media"),
-                Some(&id.to_string()),
-                Some(&r.original_name),
-                Some(&format!("{{\"links\":{}}}", users.len())),
-            )
-            .await;
-            ctx.events()
-                .emit(&MediaRemoved {
-                    id,
-                    hash: r.hash.clone(),
-                    name: r.original_name.clone(),
-                    by: user.user.username.clone(),
-                })
-                .await;
+    match remove_file(&app, &user, &r, &users).await {
+        Ok(()) => {
             session.push_flash(FlashLevel::Success, t!("File deleted."));
             back_to(ctx, folder_id)
         }
@@ -2622,6 +2896,51 @@ async fn delete_file(
             Redirect::to(&here).into_response()
         }
     }
+}
+
+/// Removes one library file: its variants, its record, its blob when no
+/// other record shares it, and the settings that named it. Audited, and
+/// announced to listeners. The caller has checked the permission.
+async fn remove_file(
+    app: &AppState,
+    user: &AuthenticatedUser,
+    r: &MediaRecord,
+    users: &[link::Link],
+) -> Result<(), laterite_media::RecordError> {
+    let ctx = &app.ctx;
+    let id = r.id;
+    let variants = variant::list_for(ctx.db(), id).await.unwrap_or_default();
+    let _ = variant::delete_for(ctx.db(), id).await;
+    let last = record::delete(ctx.db(), id).await?;
+    forget_settings_of(ctx, users).await;
+    if last {
+        if let Some((driver, _)) = app.disks.by_name.get(&r.disk) {
+            for v in &variants {
+                let _ = driver.delete(&v.path).await;
+            }
+            if let Err(e) = driver.delete(&blob_path(&r.hash)).await {
+                tracing::warn!(error = %e, hash = %r.hash, "a blob could not be removed");
+            }
+        }
+    }
+    ctx.audit(
+        user,
+        "media.delete",
+        Some("media"),
+        Some(&id.to_string()),
+        Some(&r.original_name),
+        Some(&format!("{{\"links\":{}}}", users.len())),
+    )
+    .await;
+    ctx.events()
+        .emit(&MediaRemoved {
+            id,
+            hash: r.hash.clone(),
+            name: r.original_name.clone(),
+            by: user.user.username.clone(),
+        })
+        .await;
+    Ok(())
 }
 
 #[cfg(test)]

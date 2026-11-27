@@ -1737,6 +1737,81 @@ window.lat.widget('bulk-delete', function (btn) {
   sync();
 });
 
+// The media library's selection: ticking files and folders enables the bar's
+// actions and counts them; Select all ticks the page, shift-click a range.
+window.lat.widget('media-select', function (bar) {
+  var grid = bar.parentNode.querySelector('.lat-media-grid');
+  if (!grid) return;
+  var all = bar.querySelector('[data-media-all]');
+  var count = bar.querySelector('[data-media-count]');
+  var last = null;
+  function boxes() { return Array.prototype.slice.call(grid.querySelectorAll('.lat-media-item__pick')); }
+  function sync() {
+    var found = boxes();
+    var n = found.filter(function (b) { return b.checked; }).length;
+    var acts = bar.querySelectorAll('[data-media-act]');
+    for (var i = 0; i < acts.length; i++) acts[i].disabled = n === 0;
+    if (count) {
+      count.hidden = n === 0;
+      count.textContent = (count.getAttribute('data-count-one') || '{n}').replace('{n}', n);
+    }
+    if (all) {
+      all.checked = n > 0 && n === found.length;
+      all.indeterminate = n > 0 && n < found.length;
+    }
+    grid.classList.toggle('is-picking', n > 0);
+  }
+  grid.addEventListener('click', function (e) {
+    var box = e.target.closest && e.target.closest('.lat-media-item__pick');
+    if (!box) return;
+    var found = boxes();
+    if (e.shiftKey && last && found.indexOf(last) >= 0) {
+      var a = found.indexOf(last), b = found.indexOf(box);
+      for (var i = Math.min(a, b); i <= Math.max(a, b); i++) found[i].checked = box.checked;
+    }
+    last = box;
+    sync();
+  });
+  if (all) all.addEventListener('change', function () {
+    boxes().forEach(function (b) { b.checked = all.checked; });
+    sync();
+  });
+  sync();
+});
+
+// A dropdown of bulk actions: it opens only while a row is ticked.
+window.lat.widget('bulk-menu', function (menu) {
+  var summary = menu.querySelector('summary');
+  function sync() {
+    var any = !!document.querySelector('input[type="checkbox"][name="id"]:checked');
+    summary.setAttribute('aria-disabled', any ? 'false' : 'true');
+    if (!any) menu.open = false;
+  }
+  summary.addEventListener('click', function (e) {
+    if (summary.getAttribute('aria-disabled') === 'true') e.preventDefault();
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('input[name="id"], [data-lat-widget="pick-all"]')) sync();
+  });
+  document.addEventListener('htmx:load', sync);
+  sync();
+});
+
+// How many rows are ticked, beside the list's actions; hidden at none.
+window.lat.widget('checked-count', function (el) {
+  var text = el.getAttribute('data-count-one') || '{n}';
+  function sync() {
+    var n = document.querySelectorAll('input[type="checkbox"][name="id"]:checked').length;
+    el.hidden = n === 0;
+    el.textContent = text.replace('{n}', n);
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('input[name="id"], [data-lat-widget="pick-all"]')) sync();
+  });
+  document.addEventListener('htmx:load', sync);
+  sync();
+});
+
 // Copy button: copies its input group's value, with brief confirmation. Binds by
 // structure (closest group), so it survives repeater path-ids.
 window.lat.widget('copy', function (btn) {

@@ -1,0 +1,29 @@
+entity: tasks
+path: /tasks
+title: Tasks
+permission: acme.manage_tasks
+list:
+  columns:
+    title: {}
+    status: {}
+  bulk_actions:
+    - name: close
+      label: Close
+      group: Change status
+      set: { status: closed }
+      done: "{n} closed"
+    - name: reopen
+      label: Reopen
+      group: Change status
+      set: { status: open }
+      permission: acme.reopen_tasks
+    - name: archive
+      label: Archive
+      icon: check
+      confirm: Archive the ticked tasks?
+      handler: acme.archive
+form:
+  title: Task
+  fields:
+    title: { rules: [required] }
+    status: {}

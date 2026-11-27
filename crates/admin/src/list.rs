@@ -1254,6 +1254,153 @@ pub(crate) struct ImportLink {
     pub permission: String,
 }
 
+/// One action over the rows ticked in a list: a button, or an entry of a
+/// dropdown, that stays disabled until a row is ticked.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct BulkActionSpec {
+    /// The action's name within the list (`publish`): lowercase letters,
+    /// digits and hyphens. It is the last segment of the address it posts to.
+    pub name: String,
+    /// The button's text, localized at render.
+    pub label: Text,
+    /// An icon name from the shared set.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// A question asked before the action runs.
+    #[serde(default)]
+    pub confirm: Option<Text>,
+    /// Hidden from, and refused to, an operator who lacks this permission.
+    #[serde(default)]
+    pub permission: Option<String>,
+    /// The dropdown the action sits in: actions naming the same group share
+    /// one button of that label.
+    #[serde(default)]
+    pub group: Option<Text>,
+    /// Draws the action as destructive.
+    #[serde(default)]
+    pub danger: bool,
+    /// The fields to set on each ticked record, saved through the form's
+    /// pipeline. An action has this or a `handler`.
+    #[serde(default)]
+    pub set: std::collections::BTreeMap<String, serde_json::Value>,
+    /// A registered [`BulkAction`](crate::bulk::BulkAction) the ticked ids
+    /// are handed to.
+    #[serde(default)]
+    pub handler: Option<String>,
+    /// Offered in the trash view, and only there.
+    #[serde(default)]
+    pub trash: bool,
+    /// What to say afterwards; `{n}` is the number of records changed.
+    #[serde(default)]
+    pub done: Option<Text>,
+}
+
+impl BulkActionSpec {
+    /// An action named `name`, shown as `label`, handing the ticked ids to
+    /// the registered handler `handler`.
+    pub fn handler(
+        name: impl Into<String>,
+        label: impl Into<Text>,
+        handler: impl Into<String>,
+    ) -> Self {
+        Self {
+            handler: Some(handler.into()),
+            ..Self::bare(name, label)
+        }
+    }
+
+    /// An action named `name`, shown as `label`, setting `field` to `value`
+    /// on each ticked record.
+    pub fn set(
+        name: impl Into<String>,
+        label: impl Into<Text>,
+        field: impl Into<String>,
+        value: impl Into<serde_json::Value>,
+    ) -> Self {
+        let mut action = Self::bare(name, label);
+        action.set.insert(field.into(), value.into());
+        action
+    }
+
+    fn bare(name: impl Into<String>, label: impl Into<Text>) -> Self {
+        Self {
+            name: name.into(),
+            label: label.into(),
+            icon: None,
+            confirm: None,
+            permission: None,
+            group: None,
+            danger: false,
+            set: std::collections::BTreeMap::new(),
+            handler: None,
+            trash: false,
+            done: None,
+        }
+    }
+
+    /// Sets the icon, by name from the icon set.
+    pub fn icon(mut self, icon: impl Into<String>) -> Self {
+        self.icon = Some(icon.into());
+        self
+    }
+
+    /// Asks `question` before the action runs.
+    pub fn confirm(mut self, question: impl Into<Text>) -> Self {
+        self.confirm = Some(question.into());
+        self
+    }
+
+    /// Hides the action from an operator without `permission`.
+    pub fn permission(mut self, permission: impl Into<String>) -> Self {
+        self.permission = Some(permission.into());
+        self
+    }
+
+    /// Places the action in the dropdown labelled `group`.
+    pub fn group(mut self, group: impl Into<Text>) -> Self {
+        self.group = Some(group.into());
+        self
+    }
+
+    /// Draws the action as destructive.
+    pub fn danger(mut self) -> Self {
+        self.danger = true;
+        self
+    }
+
+    /// Offers the action in the trash view, and only there.
+    pub fn in_trash(mut self) -> Self {
+        self.trash = true;
+        self
+    }
+
+    /// Says `message` afterwards; `{n}` is the number of records changed.
+    pub fn done(mut self, message: impl Into<Text>) -> Self {
+        self.done = Some(message.into());
+        self
+    }
+}
+
+/// One bulk action as the toolbar draws it.
+#[derive(Debug, Clone)]
+pub(crate) struct BulkButton {
+    pub(crate) label: String,
+    pub(crate) href: String,
+    pub(crate) icon: String,
+    pub(crate) confirm: String,
+    pub(crate) danger: bool,
+}
+
+/// A run of the toolbar's bulk actions: one button, or a dropdown of them.
+#[derive(Debug, Clone)]
+pub(crate) struct BulkGroup {
+    /// The dropdown's label; empty for a button on its own.
+    pub(crate) label: String,
+    pub(crate) actions: Vec<BulkButton>,
+}
+
 /// A resource declares its own; the framework contributes New and the export
 /// menu the same way, so the toolbar is one list of buttons rather than a
 /// hardcoded bar with special cases.
@@ -1845,6 +1992,10 @@ pub struct ListConfig {
     pub(crate) editor: Option<Editor>,
     /// Extra buttons in the toolbar, beside New and the export menu.
     pub toolbar: Vec<ToolbarButton>,
+    /// Shows a checkbox on every row whether or not the list is `deletable`.
+    pub checkboxes: bool,
+    /// The list's own actions over ticked rows; see [`BulkActionSpec`].
+    pub bulk_actions: Vec<BulkActionSpec>,
     /// The search box's settings.
     pub search: SearchConfig,
     /// Page sizes the operator may choose from in the list setup, remembered
@@ -2135,6 +2286,8 @@ impl Default for ListConfig {
             tree: None,
             editor: None,
             toolbar: Vec::new(),
+            checkboxes: false,
+            bulk_actions: Vec::new(),
             search: SearchConfig::default(),
             per_page_options: Vec::new(),
             no_records_message: None,
@@ -2905,6 +3058,105 @@ pub(crate) async fn handle_remembering(
 }
 
 impl ListConfig {
+    /// Shows a checkbox on every row whether or not the list is `deletable`.
+    pub fn checkboxes(mut self) -> Self {
+        self.checkboxes = true;
+        self
+    }
+
+    /// Adds an action over the ticked rows.
+    pub fn bulk_action(mut self, action: BulkActionSpec) -> Self {
+        self.bulk_actions.push(action);
+        self
+    }
+
+    /// Refuses a bulk action with a malformed or repeated name, with neither
+    /// or both of `set` and `handler`, or naming a handler nobody registered.
+    pub(crate) fn check_bulk_actions(
+        &self,
+        registered: &crate::bulk::BulkRegistry,
+    ) -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for action in &self.bulk_actions {
+            let name = &action.name;
+            if !crate::field::is_name(name, false) {
+                return Err(format!(
+                    "bulk action `{name}`: the name takes lowercase letters, digits and hyphens"
+                ));
+            }
+            if !seen.insert(name) {
+                return Err(format!("bulk action `{name}` is declared twice"));
+            }
+            match (&action.handler, action.set.is_empty()) {
+                (Some(_), false) => {
+                    return Err(format!("bulk action `{name}` has both `set` and `handler`"))
+                }
+                (None, true) => {
+                    return Err(format!("bulk action `{name}` needs `set` or `handler`"))
+                }
+                (Some(handler), true) if !registered.contains_key(handler) => {
+                    return Err(format!(
+                    "bulk action `{name}` names the handler `{handler}`, which nothing registered"
+                ))
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// The bulk actions `user` may run in this view, as the toolbar draws them.
+    pub(crate) fn bulk_groups(
+        &self,
+        path: &str,
+        trashed: bool,
+        user: &laterite_auth::AuthenticatedUser,
+        shell: &crate::Shell,
+    ) -> Vec<BulkGroup> {
+        let mut groups: Vec<BulkGroup> = Vec::new();
+        for action in &self.bulk_actions {
+            if action.trash != trashed
+                || !action
+                    .permission
+                    .as_deref()
+                    .is_none_or(|p| user.permissions.allows(p))
+            {
+                continue;
+            }
+            let button = BulkButton {
+                label: shell.tt(&action.label),
+                href: format!("{path}/bulk/{}", action.name),
+                icon: action
+                    .icon
+                    .as_deref()
+                    .map(|i| shell.icon(i))
+                    .unwrap_or_default(),
+                confirm: action
+                    .confirm
+                    .as_ref()
+                    .map(|c| shell.tt(c))
+                    .unwrap_or_default(),
+                danger: action.danger,
+            };
+            let label = action
+                .group
+                .as_ref()
+                .map(|g| shell.tt(g))
+                .unwrap_or_default();
+            match groups
+                .iter_mut()
+                .find(|g| !label.is_empty() && g.label == label)
+            {
+                Some(group) => group.actions.push(button),
+                None => groups.push(BulkGroup {
+                    label,
+                    actions: vec![button],
+                }),
+            }
+        }
+        groups
+    }
+
     /// Refuses a filter naming an option source nobody registered, or
     /// following a filter the list lacks.
     pub(crate) fn check_filter_sources(
@@ -3323,6 +3575,7 @@ async fn build_page(
             // Built before the literal moves `order_by` into `sort`.
             let export_query = format!("&sort={order_by}&dir={active_dir}{carry}");
             let toolbar = toolbar_views(declared, &state.admin_path, user, &shell_for_toolbar);
+            let bulk = config.bulk_groups(path, trashed, user, &shell_for_toolbar);
             // Localized before the literal moves `shell` in.
             let search_prompt = config.search.prompt.as_ref().map(|p| shell.tt(p));
             let no_records_message = config.no_records_message.as_ref().map(|m| shell.tt(m));
@@ -3373,6 +3626,14 @@ async fn build_page(
                 path: path.to_string(),
                 filters: filter_views,
                 refreshed: Vec::new(),
+                pickable: config.checkboxes
+                    || !bulk.is_empty()
+                    || (config.deletable
+                        && config
+                            .delete_permission
+                            .as_deref()
+                            .is_none_or(|p| user.permissions.allows(p))),
+                bulk,
                 deletable: config.deletable
                     && config
                         .delete_permission
@@ -4157,7 +4418,7 @@ fn fragment_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>)
         dir: page.dir,
         carry: page.carry,
         filtered: page.filtered,
-        deletable: page.deletable,
+        pickable: page.pickable,
         no_records_message: page.no_records_message,
         path: page.path,
         region: region.to_string(),
@@ -4178,7 +4439,7 @@ fn rows_of(page: ListTemplate, region: &str, delete_path: Option<RowAction>) -> 
         edit_base: page.edit_base,
         preview: page.preview,
         preview_only: page.preview_only,
-        deletable: page.deletable,
+        pickable: page.pickable,
         region: region.to_string(),
         delete_path,
         reorder: page.reorder,
@@ -4351,8 +4612,13 @@ struct ListTemplate {
     /// renders no chooser.
     per_page: i64,
     per_page_options: Vec<i64>,
-    /// Whether rows carry a checkbox and the Delete button is offered.
+    /// Whether the Delete button is offered.
     deletable: bool,
+    /// Whether rows carry a checkbox: for Delete, a bulk action, or because
+    /// the list asked for them.
+    pickable: bool,
+    /// The list's own bulk actions this operator may run in this view.
+    bulk: Vec<BulkGroup>,
     /// Whether Clear, removing every row, is offered.
     clearable: bool,
     /// Whether this resource offers an export, which puts the menu beside the
@@ -4512,7 +4778,7 @@ struct ListFragment {
     /// react without the bar itself having to swap. Also picks the empty state:
     /// a filtered list with no rows has not run out of records, it has no match.
     filtered: bool,
-    deletable: bool,
+    pickable: bool,
     no_records_message: Option<String>,
     /// The list's own path, so sort and pager links stay right when the
     /// fragment sits inside another page.
@@ -4543,7 +4809,7 @@ struct RowsFragment {
     preview: bool,
     /// Rows offer no Edit: the preview is the record's only page.
     preview_only: bool,
-    deletable: bool,
+    pickable: bool,
     region: String,
     delete_path: Option<RowAction>,
     reorder: Option<ReorderView>,

@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- The media library ticks files and folders and moves or deletes them together; a folder can be deleted with its contents, keeping any file a record still uses.
+- A list's own bulk actions: `bulk_actions` draws buttons and dropdowns that enable on a ticked row and either `set` fields on each record or call a registered handler (`registry.add_bulk_action`); `checkboxes` ticks rows without `deletable`.
 - Menu counters: `registry.add_counter` registers a number, and `counter` on a menu entry, a `menu` key or a settings item shows it; a section shows its entries' sum (`counter`, `lat.menu.setCounter`).
 - `registry.allow_site_source(directive, origin)` lets the public site load from another origin (a statistics script, a font host); the admin's content security policy stays fixed (`policy`).
 - `AdoptHistory`, a migration that records another module's migrations under this one, so code moving between modules runs nothing twice and a build from before the move still starts.

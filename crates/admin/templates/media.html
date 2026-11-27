@@ -27,6 +27,7 @@
         <div class="lat-menu__panel">
           <button type="button" data-lat-dialog="rename-folder">{{ shell.t("Rename folder") }}</button>
           <form method="post" action="{{ base }}/folders/{{ f }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this empty folder?") }}'>{{ shell.t("Delete folder") }}</button></form>
+          {% if may_delete %}<form method="post" action="{{ base }}/folders/{{ f }}/delete"><input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}"><input type="hidden" name="contents" value="1"><button class="is-danger" type="submit" data-lat-confirm='{{ shell.t("Delete this folder and everything in it? This cannot be undone.") }}'>{{ shell.t("Delete folder and contents") }}</button></form>{% endif %}
         </div>
       </details>
       {% endif %}{% endif %}
@@ -42,20 +43,40 @@
     {% if folders.is_empty() && files.is_empty() %}
     <div class="lat-media-empty">{% if q.is_empty() %}{{ shell.t("No files here yet.") }}{% if may_upload %} {{ shell.t("Upload some, or add a folder.") }}{% endif %}{% else %}{{ shell.t("Nothing matches.") }}{% endif %}</div>
     {% else %}
+    {% if may_manage || may_delete %}
+    <div class="lat-media-bulk" data-lat-widget="media-select">
+      <label class="lat-check"><input type="checkbox" data-media-all> {{ shell.t("Select all") }}</label>
+      <span class="lat-listbar__count" data-media-count data-count-one='{{ shell.t("{n} selected") }}' hidden></span>
+      <span class="lat-media-bulk__actions">
+        {% if may_manage %}<button class="lat-btn lat-btn--secondary lat-btn--sm" type="button" data-lat-dialog="move-selection" data-media-act disabled><span class="lat-btn__icon">{{ shell.icon("folder")|safe }}</span>{{ shell.t("Move") }}</button>{% endif %}
+        {% if may_delete %}<button class="lat-btn lat-btn--danger lat-btn--sm" type="submit" form="lat-media-bulk" name="action" value="delete" data-media-act disabled data-lat-confirm='{{ shell.t("Delete everything ticked, folders with their contents? This cannot be undone.") }}'><span class="lat-btn__icon">{{ shell.icon("trash-2")|safe }}</span>{{ shell.t("Delete") }}</button>{% endif %}
+      </span>
+    </div>
+    <form id="lat-media-bulk" method="post" action="{{ base }}/bulk" hidden>
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      {% if let Some(f) = folder %}<input type="hidden" name="from" value="{{ f }}">{% endif %}
+    </form>
+    {% endif %}
     <div class="lat-media-grid">
       {% for f in folders %}
+      <div class="lat-media-item">
+      {% if may_manage %}<input class="lat-media-item__pick" type="checkbox" name="folders" value="{{ f.id }}" form="lat-media-bulk" aria-label='{{ shell.tfs("Select {name}", [("name", f.name.as_str())]) }}'>{% endif %}
       <a class="lat-media-card lat-media-card--folder" href="{{ f.href }}" title="{{ f.name }}">
         <span class="lat-media-card__thumb">{{ shell.icon("folder")|safe }}</span>
         <span class="lat-media-card__name">{{ f.name }}</span>
         <span class="lat-media-card__meta">{{ shell.t("Folder") }}</span>
       </a>
+      </div>
       {% endfor %}
       {% for f in files %}
+      <div class="lat-media-item">
+      {% if may_manage || may_delete %}<input class="lat-media-item__pick" type="checkbox" name="files" value="{{ f.id }}" form="lat-media-bulk" aria-label='{{ shell.tfs("Select {name}", [("name", f.name.as_str())]) }}'>{% endif %}
       <a class="lat-media-card" href="{{ f.href }}" title="{{ f.name }}">
         <span class="lat-media-card__thumb">{% if f.is_image %}<img src="{{ f.thumb_url }}" alt="" loading="lazy">{% else %}<span class="lat-media-card__kind">{{ f.kind }}</span>{% endif %}{% if f.protected %}<span class="lat-media-card__lock" title='{{ shell.t("Private") }}'>{{ shell.icon("lock")|safe }}</span>{% endif %}</span>
         <span class="lat-media-card__name">{{ f.name }}</span>
         <span class="lat-media-card__meta">{{ f.size }}</span>
       </a>
+      </div>
       {% endfor %}
     </div>
     {% endif %}
@@ -91,6 +112,19 @@
 </dialog>
 {% endif %}
 {% if may_manage %}
+<dialog class="lat-dialog" id="move-selection">
+  {% let dialog_title = shell.t("Move to") %}{% include "_dialog_head.html" %}
+  <div class="lat-dialog__body">
+    <div class="lat-field">
+      <label class="lat-field__label" for="move-selection-to">{{ shell.t("Folder") }}</label>
+      <select class="lat-input" id="move-selection-to" name="to" form="lat-media-bulk">
+        <option value="">{{ shell.t("Library") }}</option>
+        {% for c in all_folders %}<option value="{{ c.id }}">{{ c.path }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit" form="lat-media-bulk" name="action" value="move">{{ shell.t("Move") }}</button></div>
+</dialog>
 <dialog class="lat-dialog" id="new-folder">
   <form method="post" action="{{ base }}/folders">
     {% let dialog_title = shell.t("New folder") %}{% include "_dialog_head.html" %}

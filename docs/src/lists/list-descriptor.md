@@ -45,6 +45,8 @@ Key | Default | Description
 `clearable` | `false` | Offers Clear, which removes every row at once and writes an audit entry. For a log: a resource with a `form` refuses it.
 `clear_permission` | none | A permission Clear asks for beside the resource's.
 `protected` | none | A boolean column; a row it marks has no checkbox and no Delete.
+`checkboxes` | `false` | Every row has a checkbox, whether or not the list is `deletable`.
+`bulk_actions` | none | The list's own actions over ticked rows (see below).
 `exportable` | `false` | Offers the export menu. See [Export](export.md).
 `search` | on | The search box; keys below.
 `filters` | none | Filters above the table, keyed by field name. See [Filters](filters.md).
@@ -67,6 +69,76 @@ Key | Default | Description
 `toolbar[].icon` | none | An icon name from the [shared set](../reference/icons.md).
 `toolbar[].permission` | none | Hidden from a user who lacks it.
 `toolbar[].primary` | | `true` renders it as the prominent action. Required.
+
+## Act on ticked rows
+
+```yaml
+list:
+  bulk_actions:
+    - name: publish
+      label: Publish
+      group: Change status
+      set: { status: published }
+      done: "{n} published"
+    - name: retire
+      label: Retire
+      group: Change status
+      set: { status: retired, featured: false }
+      permission: acme.retire
+    - name: labels
+      label: Print labels
+      icon: printer
+      confirm: Print a label for each ticked order?
+      handler: acme.labels
+```
+
+```rust
+use laterite_admin::bulk::{BulkAction, BulkActionReg, BulkCx, BulkError, BulkOutcome};
+
+struct Labels;
+
+#[async_trait]
+impl BulkAction for Labels {
+    async fn run(&self, cx: &BulkCx<'_>, ids: &[String]) -> Result<BulkOutcome, BulkError> {
+        let printed = print_labels(cx.db, ids).await?;
+        Ok(BulkOutcome::done(printed).redirect("/orders/labels"))
+    }
+}
+
+registry.add_bulk_action(BulkActionReg::new("acme.labels", Arc::new(Labels)));
+```
+
+`bulk_actions` key | Default | Description
+--- | --- | ---
+`name` | required | Lowercase letters, digits and hyphens, unique in the list. The action posts to `<path>/bulk/<name>`.
+`label` | required | The button's text.
+`icon` | none | An [icon](../reference/icons.md).
+`set` | none | Form fields set on each ticked record, validated and saved as an edit of it. A resource with no form writes the columns directly. An action has `set` or `handler`.
+`handler` | none | A registered bulk action's name; it receives the ticked ids.
+`group` | none | Actions naming the same group share one dropdown of that label.
+`confirm` | none | A question asked first.
+`permission` | none | Hides the action from, and refuses it to, an operator without the grant.
+`danger` | `false` | Draws the action as destructive.
+`trash` | `false` | Offered in the trash view, and only there.
+`done` | `Updated {n} record(s).` | The message afterwards; `{n}` is the number changed.
+
+`BulkCx` | Description
+--- | ---
+`db` | The database.
+`entity` | The list's table.
+`actor` | Who is acting, for a write through the save pipeline.
+`user` | The signed-in user and their permissions.
+
+`BulkOutcome` | Description
+--- | ---
+`done(n)` | `n` records acted on.
+`.refuse(message)` | One record's refusal, shown as written.
+`.message(text)` | Replaces the `done` message.
+`.redirect(path)` | Goes to `path` under the admin root in place of the list.
+
+A button and a dropdown are disabled until a row is ticked; the bar shows how
+many are. An unknown `handler`, a repeated `name`, a `set` field the form lacks, or an
+action with both or neither of `set` and `handler` aborts the start.
 
 ## Send a row click anywhere
 

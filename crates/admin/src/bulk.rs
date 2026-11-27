@@ -1,5 +1,10 @@
 //! Acting on selected list rows.
 //!
+//! A list names its own actions under `bulk_actions`: each is a button, or an
+//! entry of a dropdown, that stays disabled until a row is ticked and then
+//! posts the ticked ids. An action either sets fields on each record (`set`)
+//! or hands the ids to a registered [`BulkAction`] (`handler`).
+//!
 //! A list marked `deletable` renders a checkbox per row and a Delete button. The
 //! selection posts here, and each id goes through the same delete pipeline a
 //! single record would: the transaction is owned by the pipeline, listeners run
@@ -14,7 +19,7 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::{Extension, Form};
 use laterite_auth::AuthenticatedUser;
 use laterite_core::{t, Actor, Db, ModelListener, Text};
@@ -22,6 +27,94 @@ use laterite_core::{t, Actor, Db, ModelListener, Text};
 use crate::persist::{delete, save, DeleteError, DeleteRequest, Persister, SaveError, SaveRequest};
 use crate::session::{FlashLevel, SessionHandle};
 use crate::AdminState;
+
+/// What a registered bulk action knows about the request.
+#[non_exhaustive]
+pub struct BulkCx<'a> {
+    /// The database.
+    pub db: &'a Db,
+    /// The table the list shows.
+    pub entity: &'a str,
+    /// Who is acting, for a write through the save pipeline.
+    pub actor: &'a Actor,
+    /// The signed-in user and what they may do.
+    pub user: &'a AuthenticatedUser,
+}
+
+/// What a bulk action did.
+#[derive(Debug, Default)]
+#[non_exhaustive]
+pub struct BulkOutcome {
+    /// How many records it acted on.
+    pub done: usize,
+    /// One message per record it refused, shown as they are.
+    pub refused: Vec<Text>,
+    /// What to say in place of the list's own message.
+    pub message: Option<Text>,
+    /// Where to go in place of the list: a path under the admin root.
+    pub redirect: Option<String>,
+}
+
+impl BulkOutcome {
+    /// An outcome over `done` records.
+    pub fn done(done: usize) -> Self {
+        Self {
+            done,
+            ..Self::default()
+        }
+    }
+
+    /// Adds a record's refusal.
+    pub fn refuse(mut self, message: impl Into<Text>) -> Self {
+        self.refused.push(message.into());
+        self
+    }
+
+    /// Says `message` in place of the list's own.
+    pub fn message(mut self, message: impl Into<Text>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    /// Goes to `path` (under the admin root) in place of the list.
+    pub fn redirect(mut self, path: impl Into<String>) -> Self {
+        self.redirect = Some(path.into());
+        self
+    }
+}
+
+/// A bulk action failed as a whole.
+#[derive(Debug, thiserror::Error)]
+#[error("bulk action error: {0}")]
+pub struct BulkError(pub String);
+
+/// An action over the rows ticked in a list.
+#[laterite_core::strata::async_trait]
+pub trait BulkAction: Send + Sync + 'static {
+    /// Acts on `ids`, the ticked records' ids in the order shown.
+    async fn run(&self, cx: &BulkCx<'_>, ids: &[String]) -> Result<BulkOutcome, BulkError>;
+}
+
+/// A registered bulk action under its dotted `vendor.name` key.
+pub struct BulkActionReg {
+    /// The action's dotted `vendor.name` key.
+    pub name: String,
+    /// The action being registered.
+    pub action: Arc<dyn BulkAction>,
+}
+
+impl BulkActionReg {
+    /// Registers `action` as `name`.
+    pub fn new(name: impl Into<String>, action: Arc<dyn BulkAction>) -> Self {
+        Self {
+            name: name.into(),
+            action,
+        }
+    }
+}
+
+/// The bulk-action registry, keyed by action name.
+pub(crate) type BulkRegistry = std::collections::HashMap<String, BulkActionReg>;
 
 /// What a list needs to delete from: where to go back to, and the write path.
 pub(crate) struct BulkContext {
@@ -35,6 +128,9 @@ pub(crate) struct BulkContext {
     /// The listeners a trash or restore saves through: the form's own stamps
     /// (`timestamps`, `footprints`) and the contributed ones.
     pub save_listeners: Vec<Arc<dyn ModelListener>>,
+    /// The resource's form, which a bulk action's `set` saves through so its
+    /// rules run. A resource with no form writes the columns directly.
+    pub form: Option<Arc<crate::form::PreparedForm>>,
 }
 
 /// What a bulk action does to each selected record.
@@ -140,6 +236,182 @@ async fn stamp_selected(
         }
     }
     outcome
+}
+
+/// Sets `fields` on each selected id through the save pipeline, so the
+/// listeners and the audit entry run for every record.
+async fn set_selected(
+    db: &Db,
+    cache: &laterite_core::Cache,
+    ctx: &BulkContext,
+    ids: &[String],
+    actor: &Actor,
+    fields: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Outcome {
+    use laterite_core::AttrValue;
+    let mut outcome = Outcome::default();
+    for id in ids {
+        let Ok(numeric) = id.parse::<i64>() else {
+            outcome.failed += 1;
+            continue;
+        };
+        // Through the form when there is one: the record as its edit page
+        // holds it, with the action's fields laid over, validated and saved.
+        if let Some(form) = &ctx.form {
+            let handle = crate::form::FormHandle::new(db.clone(), cache.clone(), form.clone());
+            let saved = match handle.load(numeric).await {
+                Ok(Some(mut data)) => {
+                    for (field, value) in fields {
+                        let text = match value {
+                            serde_json::Value::Null | serde_json::Value::Bool(false) => {
+                                String::new()
+                            }
+                            serde_json::Value::Bool(true) => "1".to_string(),
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        data.insert(field.clone(), text);
+                    }
+                    handle.update(numeric, data, actor).await
+                }
+                Ok(None) => continue,
+                Err(e) => Err(e),
+            };
+            match saved {
+                Ok(()) => outcome.deleted += 1,
+                Err(SaveError::Invalid(bag)) => {
+                    outcome.refused.extend(
+                        bag.iter()
+                            .flat_map(|(_, messages)| messages.iter().cloned()),
+                    );
+                }
+                Err(SaveError::Failed(e)) => {
+                    tracing::error!(entity = %ctx.entity, id = %id, error = %e, "a bulk update failed");
+                    outcome.failed += 1;
+                }
+            }
+            continue;
+        }
+        let mut rec = laterite_core::Record::with_id(&ctx.entity, numeric);
+        for (field, value) in fields {
+            let value = match value {
+                serde_json::Value::Null => AttrValue::Null,
+                serde_json::Value::Bool(b) => AttrValue::Bool(*b),
+                serde_json::Value::String(s) => AttrValue::Text(s.clone()),
+                serde_json::Value::Number(n) => match n.as_i64() {
+                    Some(i) => AttrValue::Int(i),
+                    None => AttrValue::Float(n.as_f64().unwrap_or_default()),
+                },
+                other => AttrValue::Json(other.clone()),
+            };
+            rec.set(field, value);
+        }
+        let req = SaveRequest {
+            db,
+            cache: Some(cache),
+            listeners: &ctx.save_listeners,
+            persister: ctx.persister.as_ref(),
+            actor,
+            op: laterite_core::Op::Update,
+            id: Some(id),
+            then: None,
+        };
+        match save(req, &mut rec).await {
+            Ok(()) => outcome.deleted += 1,
+            Err(SaveError::Invalid(bag)) => {
+                outcome.refused.extend(
+                    bag.iter()
+                        .flat_map(|(_, messages)| messages.iter().cloned()),
+                );
+            }
+            Err(SaveError::Failed(e)) => {
+                tracing::error!(entity = %ctx.entity, id = %id, error = %e, "a bulk update failed");
+                outcome.failed += 1;
+            }
+        }
+    }
+    outcome
+}
+
+/// Handles one of a list's own bulk actions: sets its fields on the ticked
+/// records, or hands them to its registered handler, then returns to the list
+/// saying what happened.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn action_handler(
+    State(state): State<AdminState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Extension(session): Extension<SessionHandle>,
+    ctx: Arc<BulkContext>,
+    spec: Arc<crate::list::BulkActionSpec>,
+    headers: axum::http::HeaderMap,
+    Form(pairs): Form<Vec<(String, String)>>,
+) -> Response {
+    if !spec
+        .permission
+        .as_deref()
+        .is_none_or(|p| user.permissions.allows(p))
+    {
+        return crate::AdminError::Forbidden.into_response();
+    }
+    let ids = selected(&pairs);
+    let mut back = if spec.trash {
+        format!("{}?trashed=1", ctx.base_path)
+    } else {
+        ctx.base_path.clone()
+    };
+    let htmx = crate::form::is_htmx(&headers);
+    if ids.is_empty() {
+        session.push_flash(FlashLevel::Error, t!("Select a record first."));
+        return crate::form::saved_response(htmx, &back);
+    }
+    let actor = Actor::from(&user);
+    let (done, refused, failed, message) = match &spec.handler {
+        Some(name) => {
+            let Some(reg) = state.bulk_actions.get(name) else {
+                return crate::AdminError::NotFound.into_response();
+            };
+            let cx = BulkCx {
+                db: &state.db,
+                entity: &ctx.entity,
+                actor: &actor,
+                user: &user,
+            };
+            match reg.action.run(&cx, &ids).await {
+                Ok(outcome) => {
+                    if let Some(path) = outcome.redirect {
+                        back = format!("{}{path}", state.admin_path);
+                    }
+                    (outcome.done, outcome.refused, 0, outcome.message)
+                }
+                Err(e) => {
+                    tracing::error!(action = %name, entity = %ctx.entity, error = %e, "a bulk action failed");
+                    (0, Vec::new(), ids.len(), None)
+                }
+            }
+        }
+        None => {
+            let outcome =
+                set_selected(&state.db, &state.cache, &ctx, &ids, &actor, &spec.set).await;
+            (outcome.deleted, outcome.refused, outcome.failed, None)
+        }
+    };
+    if let Some(message) = message {
+        session.push_flash(FlashLevel::Success, message);
+    } else if done > 0 {
+        let n = done as i64;
+        let message = match &spec.done {
+            Some(text) => text.clone().arg("n", n),
+            None => laterite_core::tn!("Updated {n} record.", "Updated {n} records.", n = n),
+        };
+        session.push_flash(FlashLevel::Success, message);
+    }
+    for message in refused {
+        session.push_flash(FlashLevel::Error, message);
+    }
+    if failed > 0 {
+        session.push_flash(FlashLevel::Error, t!("Some records could not be changed."));
+    }
+    crate::form::saved_response(htmx, &back)
 }
 
 /// Removes one record as the list's Delete would: to the trash on a

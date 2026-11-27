@@ -22,10 +22,12 @@ const SESSION_COOKIE: &str = "laterite_session";
 /// Bytes served for each asset the admin shell loads on every screen, as
 /// `(key, measured, budget)`. Measured 2026-11-19; raise a budget in the same
 /// commit that knowingly grows the asset. The stylesheet and script were
-/// re-recorded 2026-11-26 for the tag list, record preview, form tabs and field dependencies.
+/// re-recorded 2026-11-26 for the tag list, record preview, form tabs and field dependencies,
+/// and 2026-11-27 for menu counters, list bulk actions and the media selection, which also
+/// raised the script's ceiling and each screen's page weight.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 97_529, 102_000),
-    ("laterite.js", 130_707, 134_000),
+    ("laterite.css", 98_714, 102_000),
+    ("laterite.js", 133_648, 140_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];
@@ -37,22 +39,22 @@ const SCREENS: &[Screen] = &[
     Screen {
         name: "list",
         path: "/admin/products",
-        html: (24_454, 30_000),
-        weight: (300_531, 320_000),
+        html: (25_096, 30_000),
+        weight: (323_077, 335_000),
         queries: (10, 12),
     },
     Screen {
         name: "form (new)",
         path: "/admin/products/new",
-        html: (8_729, 12_000),
-        weight: (284_806, 305_000),
+        html: (9_436, 12_000),
+        weight: (307_417, 320_000),
         queries: (7, 9),
     },
     Screen {
         name: "form (edit)",
         path: "/admin/products/1/edit",
-        html: (8_734, 12_000),
-        weight: (284_811, 305_000),
+        html: (9_441, 12_000),
+        weight: (307_422, 320_000),
         queries: (8, 10),
     },
 ];

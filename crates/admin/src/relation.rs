@@ -465,6 +465,7 @@ impl PreparedRelation {
             // rows go to the trash only with their parent.
             soft_delete: false,
             save_listeners: Vec::new(),
+            form: None,
         });
         Ok(Self {
             parent_base: parent.base_path.clone(),
