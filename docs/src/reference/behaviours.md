@@ -103,7 +103,9 @@ lat.tooltip.hide();
 
 Where | Default | Change it
 --- | --- | ---
-A new password | At least 8 characters. | `[auth.password_policy] min_length`.
+A new password | At least 8 characters, no character rules. | `[auth.password_policy] min_length`, `require_uppercase`, `require_lowercase`, `require_number`, `require_nonalpha`.
+A password's age | No limit. | `[auth.password_policy] expire_days`.
+A forgotten password | A reset link from the sign-in page, good for an hour. | `[auth.password_policy] allow_reset`, `reset_expire_minutes`.
 A generated password | Temporary: every screen leads to Preferences until it is replaced. | `lat admin create` without `--generate` sets a password that is kept.
 The top bar's order | The registry's order. An operator drags the tabs into their own, kept with their preferences. | "Reset the menu order" on Preferences.
 Finding a page or a record | The search button or Ctrl+K opens the command palette over menu entries, settings and the records of resources with a `palette` source. | `palette: <picker source>` on a resource adds its records.

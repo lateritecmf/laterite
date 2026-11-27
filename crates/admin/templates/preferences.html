@@ -60,6 +60,7 @@
 <div class="lat-toolbar lat-toolbar--section" id="password"><h2>{{ shell.t("Password") }}</h2></div>
 <div class="lat-card lat-card--form">
   {% if must_change %}<div class="lat-alert" data-lat-persist>{{ shell.t("This password is temporary. Set one of your own to continue.") }}</div>{% endif %}
+  {% if password_expired %}<div class="lat-alert" data-lat-persist>{{ shell.tf("This password is more than {n} days old. Set a new one to continue.", [("n", expire_days)]) }}</div>{% endif %}
   <dl class="lat-facts">
     <div><dt>{{ shell.t("Last changed") }}</dt><dd>{% if let Some(at) = password_changed %}{{ at }}{% else %}{{ shell.t("Not recorded") }}{% endif %}</dd></div>
   </dl>
@@ -72,7 +73,7 @@
     <div class="lat-field">
       <label class="lat-field__label" for="new_password">{{ shell.t("New password") }}</label>
       <div class="lat-input-group lat-reveal"><input class="lat-input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="{{ min_password }}" required><button type="button" class="lat-input-group__btn lat-reveal__btn" data-lat-widget="reveal" aria-label='{{ shell.t("Show password") }}' aria-pressed="false" hidden></button></div>
-      <p class="lat-help">{{ shell.tf("At least {n} characters. Every other device is signed out.", [("n", min_password)]) }}</p>
+      <p class="lat-help">{{ password_hint }} {{ shell.t("Every other device is signed out.") }}</p>
     </div>
     <div class="lat-field">
       <label class="lat-field__label" for="confirm_password">{{ shell.t("Confirm new password") }}</label>

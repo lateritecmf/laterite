@@ -151,7 +151,7 @@ auth.change_password(
 Argument | Value
 --- | ---
 `user_id` | The account whose password changes.
-`new_password` | Refused under `password_policy.min_length` (default 8).
+`new_password` | Refused when it breaks a rule of `password_policy`.
 `keep_token` | The session to keep signed in, or `None` to end all of them.
 `actor` | Who made the change, recorded on the audit log. `Actor::system("lat admin reset-password")` for a process.
 
@@ -169,7 +169,7 @@ Error | Returned when
 --- | ---
 `AuthError::InvalidCredentials` | `current` does not match. Counts as a failed sign-in.
 `AuthError::TooManyAttempts` | The account is locked out.
-`AuthError::Refused` | The new password is under `password_policy.min_length`.
+`AuthError::Refused` | The new password breaks a rule of `password_policy`; the message names each one.
 
 A change through this call is also on the access log as `password_changed`.
 

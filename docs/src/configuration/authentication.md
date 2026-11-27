@@ -14,7 +14,14 @@ failure_window_secs = 900
 access_log_retention_days = 365
 
 [auth.password_policy]
-min_length = 8
+min_length = 12
+require_uppercase = true
+require_lowercase = true
+require_number = true
+require_nonalpha = true
+expire_days = 90
+allow_reset = true
+reset_expire_minutes = 30
 ```
 
 ## Set the keys
@@ -29,6 +36,16 @@ Key | Description
 `failure_window_secs` | Window the failures are counted over. Default `900`.
 `access_log_retention_days` | Days of the access log the hourly purge keeps. Default `365`; `0` keeps every row.
 `password_policy.min_length` | The shortest password accepted, wherever one is set. Default `8`.
+`password_policy.require_uppercase` | A password needs an uppercase letter. Default `false`.
+`password_policy.require_lowercase` | A password needs a lowercase letter. Default `false`.
+`password_policy.require_number` | A password needs a digit. Default `false`.
+`password_policy.require_nonalpha` | A password needs a character that is neither a letter nor a digit. Default `false`.
+`password_policy.expire_days` | Days a password lasts; an older one opens nothing but the form that replaces it. Default `0`: no limit. An account that never changed its password ages from its creation.
+`password_policy.allow_reset` | Whether the sign-in page offers "Forgot your password?". Default `true`; `false` also removes `/admin/forgot`.
+`password_policy.reset_expire_minutes` | How long a reset link works. Default `60`, at least `1`.
+
+Each password form lists the rules in force, and a refused password is told
+every rule it breaks.
 
 ## Clear a lockout
 

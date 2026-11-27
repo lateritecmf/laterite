@@ -20,8 +20,6 @@ use crate::{
 
 /// How long an invitation's link works.
 pub const INVITE_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
-/// How long a reset link works.
-pub const RESET_TTL: Duration = Duration::from_secs(3600);
 const INVITE_PURPOSE: &str = "invite";
 const RESET_PURPOSE: &str = "reset";
 /// How many reset requests one address may make in the window.
@@ -52,6 +50,8 @@ struct SetPasswordTemplate {
     error: Option<String>,
     action: String,
     username: String,
+    /// The policy's rules, as the line under the new password.
+    hint: String,
     i18n: Translator,
 }
 
@@ -111,7 +111,21 @@ pub(crate) async fn send_invite(state: &AdminState, user: &laterite_auth::Backen
     }
 }
 
+/// A reset link's lifetime as its mail states it: `one hour`, `30 minutes`.
+fn lifetime(minutes: u32) -> String {
+    match minutes {
+        60 => "one hour".to_string(),
+        1 => "one minute".to_string(),
+        m if m % 1440 == 0 => format!("{} days", m / 1440),
+        m if m % 60 == 0 => format!("{} hours", m / 60),
+        m => format!("{m} minutes"),
+    }
+}
+
 pub(crate) async fn forgot_form(State(state): State<AdminState>, headers: HeaderMap) -> Response {
+    if !state.auth.password_policy().allow_reset {
+        return crate::AdminError::NotFound.into_response();
+    }
     let i18n = pre_auth_translator(&state, &headers);
     render(ForgotTemplate {
         base: state.admin_path.to_string(),
@@ -148,6 +162,9 @@ pub(crate) async fn forgot_submit(
     Extension(ctx): Extension<RequestContext>,
     Form(form): Form<ForgotForm>,
 ) -> Response {
+    if !state.auth.password_policy().allow_reset {
+        return crate::AdminError::NotFound.into_response();
+    }
     let i18n = pre_auth_translator(&state, &headers);
     let account = form.account.trim();
     if account.is_empty() {
@@ -175,8 +192,13 @@ pub(crate) async fn forgot_submit(
                     serde_json::json!({
                         "name": user.first_name,
                         "username": user.username,
-                        "link": link(&state, RESET_PURPOSE, user.id, RESET_TTL),
-                        "expires": "one hour",
+                        "link": link(
+                            &state,
+                            RESET_PURPOSE,
+                            user.id,
+                            state.auth.password_policy().reset_ttl(),
+                        ),
+                        "expires": lifetime(state.auth.password_policy().reset_expire_minutes.max(1)),
                     }),
                 )
                 .to(&user.email);
@@ -237,6 +259,7 @@ async fn set_password_page(
         error,
         action: format!("{}/set-password/{token}", state.admin_path),
         username,
+        hint: crate::password_hint(state.auth.password_policy(), &i18n),
         i18n,
     })
 }
@@ -292,6 +315,21 @@ pub(crate) async fn set_password_submit(
             &token,
             user.username,
             Some(i18n.t(&t!("The two passwords differ."))),
+        )
+        .await;
+    }
+    let broken: Vec<String> =
+        crate::password_refusals(state.auth.password_policy(), &form.password)
+            .iter()
+            .map(|message| i18n.t(message))
+            .collect();
+    if !broken.is_empty() {
+        return set_password_page(
+            &state,
+            i18n.clone(),
+            &token,
+            user.username,
+            Some(broken.join(" ")),
         )
         .await;
     }

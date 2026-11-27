@@ -40,8 +40,8 @@ pub use models::{AccessEvent, BackendUser, BackendUserSummary};
 pub use permission::PermissionSet;
 pub use service::{
     ActiveSession, AuditEntry, AuthConfig, AuthService, AuthenticatedUser, IssuedSession,
-    NewOperator, PasswordPolicy, Purged, RecalledSession, RememberCredential, RequestContext,
-    ResolvedSession, MIN_PASSWORD_LENGTH,
+    NewOperator, PasswordDue, PasswordPolicy, PasswordRule, Purged, RecalledSession,
+    RememberCredential, RequestContext, ResolvedSession, MIN_PASSWORD_LENGTH,
 };
 pub use store::{AccessRecord, AuditRecord};
 pub use store::{RevokeReason, SessionEnd};

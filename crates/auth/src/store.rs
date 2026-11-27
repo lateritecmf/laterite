@@ -916,6 +916,41 @@ pub(crate) async fn must_change_password(db: &Db, user_id: i64) -> Result<bool, 
     }
 }
 
+/// Whether the account holds a temporary password, and when its password
+/// was last set (the day it was created, when never changed). `None` for an
+/// account that does not exist.
+pub(crate) async fn password_state(
+    db: &Db,
+    user_id: i64,
+) -> Result<Option<(bool, Option<DateTime<Utc>>)>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns([
+                BackendUsers::MustChangePassword,
+                BackendUsers::PasswordChangedAt,
+                BackendUsers::CreatedAt,
+            ])
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let Some(row) = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let set_at = match row.get_text_opt("password_changed_at")? {
+        Some(at) => Some(at),
+        None => row.get_text_opt("created_at")?,
+    };
+    Ok(Some((
+        row.get_bool("must_change_password")?,
+        set_at.map(|s| parse_ts(&s)).transpose()?,
+    )))
+}
+
 /// Marks or clears the account as holding a temporary password.
 pub(crate) async fn set_must_change_password(
     db: &Db,

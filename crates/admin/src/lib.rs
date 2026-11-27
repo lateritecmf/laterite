@@ -5387,9 +5387,10 @@ async fn require_auth(
         && path != format!("{}/logout", state.admin_path)
         && state
             .auth
-            .must_change_password(user.user.id)
+            .password_due(user.user.id)
             .await
-            .unwrap_or(false)
+            .unwrap_or(None)
+            .is_some()
     {
         let to = format!("{preferences}#password");
         let response = if htmx {
@@ -5703,6 +5704,7 @@ async fn login_form(
                 .and_then(end_notice)
                 .map(|text| i18n.t(&text));
             render(LoginTemplate {
+                allow_reset: state.auth.password_policy().allow_reset,
                 base: state.admin_path.to_string(),
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await.name.clone(),
@@ -5799,6 +5801,7 @@ async fn login_submit(
                     .into_response();
             }
             render(LoginTemplate {
+                allow_reset: state.auth.password_policy().allow_reset,
                 base: state.admin_path.to_string(),
                 asset_urls: state.asset_urls.clone(),
                 brand: state.brand().await.name.clone(),
@@ -5941,7 +5944,7 @@ async fn setup_form(State(state): State<AdminState>, headers: HeaderMap) -> Resp
             None,
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
-            state.auth.password_policy().min_length,
+            state.auth.password_policy(),
         )),
         Err(_) => render_error(),
     }
@@ -5978,7 +5981,7 @@ async fn setup_submit(
             )),
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
-            state.auth.password_policy().min_length,
+            state.auth.password_policy(),
         ));
     }
     // The setup select always carries a value, but guard against a bad one.
@@ -5991,24 +5994,25 @@ async fn setup_submit(
             Some(t!("That is not a recognised timezone.")),
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
-            state.auth.password_policy().min_length,
+            state.auth.password_policy(),
         ));
     }
 
-    let min_length = state.auth.password_policy().min_length;
-    if form.password.chars().count() < min_length {
+    let tr = pre_auth_translator(&state, &headers);
+    let broken: Vec<String> = password_refusals(state.auth.password_policy(), &form.password)
+        .iter()
+        .map(|message| tr.t(message))
+        .collect();
+    if !broken.is_empty() {
         return render(setup_view(
             &state.admin_path,
             state.brand().await,
             state.skin.clone(),
             state.timezone,
-            Some(t!(
-                "A password needs at least {n} characters.",
-                n = min_length as i64
-            )),
+            Some(Text::dynamic(broken.join(" "))),
             pre_auth_translator(&state, &headers),
             state.asset_urls.clone(),
-            state.auth.password_policy().min_length,
+            state.auth.password_policy(),
         ));
     }
     let new = NewOperator {
@@ -6032,7 +6036,7 @@ async fn setup_submit(
                 )),
                 pre_auth_translator(&state, &headers),
                 state.asset_urls.clone(),
-                state.auth.password_policy().min_length,
+                state.auth.password_policy(),
             ));
         }
     };
@@ -6082,7 +6086,7 @@ fn setup_view(
     error: Option<Text>,
     i18n: Translator,
     asset_urls: Arc<AssetUrls>,
-    min_password: usize,
+    policy: &laterite_auth::PasswordPolicy,
 ) -> SetupTemplate {
     let default_name = default_tz.name();
     let zones = TZ_VARIANTS
@@ -6101,7 +6105,8 @@ fn setup_view(
         skin,
         zones,
         error: error.map(|e| i18n.t(&e)),
-        min_password: min_password as i64,
+        min_password: policy.min_length as i64,
+        password_hint: password_hint(policy, &i18n),
         i18n,
     }
 }
@@ -6652,6 +6657,46 @@ struct PasswordForm {
     confirm_password: String,
 }
 
+/// Why `password` breaks the policy: one sentence per rule it breaks, none
+/// when it is acceptable.
+pub(crate) fn password_refusals(
+    policy: &laterite_auth::PasswordPolicy,
+    password: &str,
+) -> Vec<Text> {
+    use laterite_auth::PasswordRule as Rule;
+    policy
+        .unmet(password)
+        .into_iter()
+        .map(|rule| match rule {
+            Rule::MinLength(n) => t!("A password needs at least {n} characters.", n = n as i64),
+            Rule::Uppercase => t!("A password needs an uppercase letter."),
+            Rule::Lowercase => t!("A password needs a lowercase letter."),
+            Rule::Number => t!("A password needs a number."),
+            Rule::NonAlpha => t!("A password needs a symbol."),
+            _ => t!("That password does not meet the password rules."),
+        })
+        .collect()
+}
+
+/// The policy's rules as a line under a new-password field.
+pub(crate) fn password_hint(policy: &laterite_auth::PasswordPolicy, tr: &Translator) -> String {
+    use laterite_auth::PasswordRule as Rule;
+    policy
+        .rules()
+        .into_iter()
+        .map(|rule| match rule {
+            Rule::MinLength(n) => tr.t(&t!("At least {n} characters.", n = n as i64)),
+            Rule::Uppercase => tr.t(&t!("An uppercase letter.")),
+            Rule::Lowercase => tr.t(&t!("A lowercase letter.")),
+            Rule::Number => tr.t(&t!("A number.")),
+            Rule::NonAlpha => tr.t(&t!("A symbol.")),
+            _ => String::new(),
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Changes the operator's own password. This session stays signed in, and a
 /// stay-signed-in credential this browser holds for the account is reissued;
 /// every other device is signed out and told why. A refusal redirects back
@@ -6672,12 +6717,12 @@ async fn password_update(
     if form.new_password != form.confirm_password {
         return refuse(t!("The new passwords do not match."));
     }
-    let min_length = state.auth.password_policy().min_length;
-    if form.new_password.chars().count() < min_length {
-        return refuse(t!(
-            "A password needs at least {n} characters.",
-            n = min_length as i64
-        ));
+    let mut broken = password_refusals(state.auth.password_policy(), &form.new_password);
+    if let Some(last) = broken.pop() {
+        for message in broken {
+            session.push_flash(FlashLevel::Error, message);
+        }
+        return refuse(last);
     }
     // Whether the stay-signed-in cookie here is this account's, asked before the
     // change revokes it: only then is a fresh one owed.
@@ -6846,7 +6891,10 @@ fn preferences_view(
         inherits_locale: current_locale.is_none(),
         sessions: account.sessions,
         password_changed: account.password_changed,
-        must_change: account.must_change,
+        must_change: account.due == Some(laterite_auth::PasswordDue::Temporary),
+        password_expired: account.due == Some(laterite_auth::PasswordDue::Expired),
+        expire_days: account.expire_days,
+        password_hint: account.password_hint,
         first_name: user.user.first_name.clone(),
         last_name: user.user.last_name.clone().unwrap_or_default(),
         email: user.user.email.clone(),
@@ -6861,8 +6909,12 @@ fn preferences_view(
 struct AccountSecurity {
     sessions: Vec<SessionRow>,
     password_changed: Option<String>,
-    /// The password is temporary and must be replaced before anything else.
-    must_change: bool,
+    /// Why the password must be replaced before anything else, if it must.
+    due: Option<laterite_auth::PasswordDue>,
+    /// The policy's age limit in days; zero when it sets none.
+    expire_days: i64,
+    /// The policy's rules, as the line under a new password.
+    password_hint: String,
 }
 
 async fn account_security(
@@ -6884,11 +6936,9 @@ async fn account_security(
     AccountSecurity {
         sessions: session_rows(state, user, shell, jar).await,
         password_changed,
-        must_change: state
-            .auth
-            .must_change_password(user.user.id)
-            .await
-            .unwrap_or(false),
+        due: state.auth.password_due(user.user.id).await.unwrap_or(None),
+        expire_days: i64::from(state.auth.password_policy().expire_days),
+        password_hint: password_hint(state.auth.password_policy(), &shell.i18n),
     }
 }
 
@@ -7144,6 +7194,8 @@ struct LoginTemplate {
     error: Option<String>,
     /// Why the previous session ended, when the redirect said.
     notice: Option<String>,
+    /// Whether the page offers the reset link.
+    allow_reset: bool,
     /// The pre-auth translator (config locale, then `Accept-Language`); no operator
     /// preference exists yet. `self.t` and `self.locale` localize this screen.
     i18n: Translator,
@@ -7189,19 +7241,11 @@ struct SetupTemplate {
     i18n: Translator,
     /// The shortest password the policy accepts.
     min_password: i64,
+    /// The policy's rules, as the line under the password.
+    password_hint: String,
 }
 
 impl SetupTemplate {
-    /// Localizes a source string with integer `{name}` arguments, as
-    /// [`Shell::tf`] does for signed-in screens.
-    fn tf(&self, source: &str, args: &[(&'static str, i64)]) -> String {
-        let mut text = Text::dynamic(source);
-        for (name, value) in args {
-            text = text.arg(*name, *value);
-        }
-        self.i18n.t(&text)
-    }
-
     fn asset(&self, key: &str) -> String {
         preauth_asset(&self.asset_urls, &self.base, key)
     }
@@ -7235,6 +7279,12 @@ struct PreferencesTemplate {
     password_changed: Option<String>,
     /// The password is temporary; nothing else opens until it is replaced.
     must_change: bool,
+    /// The password is past the policy's age limit.
+    password_expired: bool,
+    /// The age limit, in days, for the notice that says so.
+    expire_days: i64,
+    /// The policy's rules, as the line under the new password.
+    password_hint: String,
     /// The operator's own name and email, for the details form.
     first_name: String,
     last_name: String,

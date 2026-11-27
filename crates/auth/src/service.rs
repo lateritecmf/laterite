@@ -98,28 +98,142 @@ impl Default for AuthConfig {
 pub struct PasswordPolicy {
     /// The shortest password accepted, in characters. Default 8.
     pub min_length: usize,
+    /// A password needs an uppercase letter.
+    pub require_uppercase: bool,
+    /// A password needs a lowercase letter.
+    pub require_lowercase: bool,
+    /// A password needs a digit.
+    pub require_number: bool,
+    /// A password needs a character that is neither a letter nor a digit.
+    pub require_nonalpha: bool,
+    /// A password older than this many days must be replaced at the next
+    /// request. `0`, the default, never expires one.
+    pub expire_days: u32,
+    /// Whether an account may ask for a reset link from the sign-in page.
+    /// Default `true`.
+    pub allow_reset: bool,
+    /// How long a reset link works, in minutes. Default 60, at least 1.
+    pub reset_expire_minutes: u32,
 }
 
 impl Default for PasswordPolicy {
     fn default() -> Self {
         Self {
             min_length: MIN_PASSWORD_LENGTH,
+            require_uppercase: false,
+            require_lowercase: false,
+            require_number: false,
+            require_nonalpha: false,
+            expire_days: 0,
+            allow_reset: true,
+            reset_expire_minutes: 60,
+        }
+    }
+}
+
+/// One thing a password policy asks of a password.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PasswordRule {
+    /// At least this many characters.
+    MinLength(usize),
+    /// An uppercase letter.
+    Uppercase,
+    /// A lowercase letter.
+    Lowercase,
+    /// A digit.
+    Number,
+    /// A character that is neither a letter nor a digit.
+    NonAlpha,
+}
+
+impl PasswordRule {
+    /// Whether `password` meets the rule.
+    pub fn met_by(&self, password: &str) -> bool {
+        match self {
+            Self::MinLength(n) => password.chars().count() >= *n,
+            Self::Uppercase => password.chars().any(char::is_uppercase),
+            Self::Lowercase => password.chars().any(char::is_lowercase),
+            Self::Number => password.chars().any(char::is_numeric),
+            Self::NonAlpha => password.chars().any(|c| !c.is_alphanumeric()),
+        }
+    }
+
+    /// The rule as the end of "A password needs ...".
+    fn needs(&self) -> String {
+        match self {
+            Self::MinLength(n) => format!("at least {n} characters"),
+            Self::Uppercase => "an uppercase letter".to_string(),
+            Self::Lowercase => "a lowercase letter".to_string(),
+            Self::Number => "a number".to_string(),
+            Self::NonAlpha => "a symbol".to_string(),
         }
     }
 }
 
 impl PasswordPolicy {
-    /// Refuses a password that breaks a rule, with the reason as
+    /// Every rule the policy sets, in the order a form states them.
+    pub fn rules(&self) -> Vec<PasswordRule> {
+        let mut rules = vec![PasswordRule::MinLength(self.min_length)];
+        if self.require_uppercase {
+            rules.push(PasswordRule::Uppercase);
+        }
+        if self.require_lowercase {
+            rules.push(PasswordRule::Lowercase);
+        }
+        if self.require_number {
+            rules.push(PasswordRule::Number);
+        }
+        if self.require_nonalpha {
+            rules.push(PasswordRule::NonAlpha);
+        }
+        rules
+    }
+
+    /// The rules `password` breaks, none when it is acceptable.
+    pub fn unmet(&self, password: &str) -> Vec<PasswordRule> {
+        self.rules()
+            .into_iter()
+            .filter(|rule| !rule.met_by(password))
+            .collect()
+    }
+
+    /// Refuses a password that breaks a rule, naming every rule it breaks as
     /// [`AuthError::Refused`].
     pub fn check(&self, password: &str) -> Result<(), AuthError> {
-        if password.chars().count() < self.min_length {
-            return Err(AuthError::Refused(format!(
-                "A password needs at least {} characters.",
-                self.min_length
-            )));
-        }
-        Ok(())
+        let unmet: Vec<String> = self
+            .unmet(password)
+            .iter()
+            .map(PasswordRule::needs)
+            .collect();
+        let needs = match unmet.as_slice() {
+            [] => return Ok(()),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        };
+        Err(AuthError::Refused(format!("A password needs {needs}.")))
     }
+
+    /// Whether a password last set at `changed_at` is past its age limit at
+    /// `now`. With no limit set, never.
+    pub fn expired(&self, changed_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+        self.expire_days > 0 && now - changed_at > chrono::Duration::days(self.expire_days.into())
+    }
+
+    /// How long a reset link works.
+    pub fn reset_ttl(&self) -> Duration {
+        Duration::from_secs(u64::from(self.reset_expire_minutes.max(1)) * 60)
+    }
+}
+
+/// Why an account must set a new password before it does anything else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PasswordDue {
+    /// It holds a temporary password made for it.
+    Temporary,
+    /// Its password is older than the policy's `expire_days`.
+    Expired,
 }
 
 impl AuthConfig {
@@ -140,7 +254,8 @@ fn de_secs<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Duration, D::Error
 
 #[cfg(test)]
 mod auth_config_tests {
-    use super::{AuthConfig, MIN_PASSWORD_LENGTH};
+    use super::{AuthConfig, PasswordPolicy, PasswordRule, MIN_PASSWORD_LENGTH};
+    use crate::AuthError;
     use chrono::Utc;
     use std::time::Duration;
 
@@ -204,6 +319,53 @@ mod auth_config_tests {
         );
         assert!(cfg.password_policy.check("eleven-char").is_err());
         assert!(cfg.password_policy.check("twelve-chars").is_ok());
+    }
+
+    #[test]
+    fn a_policy_names_every_rule_a_password_breaks() {
+        let policy: PasswordPolicy = serde_json::from_str(
+            r#"{"min_length": 10, "require_uppercase": true, "require_lowercase": true,
+                "require_number": true, "require_nonalpha": true}"#,
+        )
+        .unwrap();
+        assert_eq!(policy.rules().len(), 5);
+        assert!(policy.check("Tr0ub4dor&3x").is_ok());
+        assert_eq!(
+            policy.unmet("password"),
+            [
+                PasswordRule::MinLength(10),
+                PasswordRule::Uppercase,
+                PasswordRule::Number,
+                PasswordRule::NonAlpha
+            ]
+        );
+        let Err(AuthError::Refused(reason)) = policy.check("PASSWORD1234") else {
+            panic!("an all-uppercase password with no symbol passed");
+        };
+        assert_eq!(reason, "A password needs a lowercase letter and a symbol.");
+        // The defaults ask for length alone, never expire, and allow a reset
+        // link that lasts an hour.
+        let plain = PasswordPolicy::default();
+        assert_eq!(
+            plain.rules(),
+            [PasswordRule::MinLength(MIN_PASSWORD_LENGTH)]
+        );
+        assert!(plain.allow_reset);
+        assert_eq!(plain.reset_ttl(), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn a_password_ages_only_under_a_limit() {
+        let now = Utc::now();
+        let old = now - chrono::Duration::days(91);
+        let recent = now - chrono::Duration::days(89);
+        assert!(!PasswordPolicy::default().expired(old, now));
+        let policy: PasswordPolicy =
+            serde_json::from_str(r#"{"expire_days": 90, "reset_expire_minutes": 0}"#).unwrap();
+        assert!(policy.expired(old, now));
+        assert!(!policy.expired(recent, now));
+        // A reset link always has a lifetime.
+        assert_eq!(policy.reset_ttl(), Duration::from_secs(60));
     }
 
     #[test]
@@ -911,6 +1073,20 @@ impl AuthService {
     /// Whether the account still holds a temporary password.
     pub async fn must_change_password(&self, user_id: i64) -> Result<bool, AuthError> {
         store::must_change_password(&self.db, user_id).await
+    }
+
+    /// Why the account must set a new password now, if it must: a temporary
+    /// password, or one past the policy's age limit. An account whose password
+    /// was never changed ages from the day it was created.
+    pub async fn password_due(&self, user_id: i64) -> Result<Option<PasswordDue>, AuthError> {
+        let Some((temporary, set_at)) = store::password_state(&self.db, user_id).await? else {
+            return Ok(None);
+        };
+        if temporary {
+            return Ok(Some(PasswordDue::Temporary));
+        }
+        let expired = set_at.is_some_and(|at| self.config.password_policy.expired(at, Utc::now()));
+        Ok(expired.then_some(PasswordDue::Expired))
     }
 
     /// The rules a new password must meet, for a form to state them up front.

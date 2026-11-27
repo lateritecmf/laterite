@@ -13,6 +13,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `[auth.password_policy]` gains `require_uppercase`, `require_lowercase`, `require_number`, `require_nonalpha`, `expire_days`, `allow_reset` and `reset_expire_minutes`; a refused password is told every rule it breaks (`PasswordPolicy::unmet`, `AuthService::password_due`).
 - The media library ticks files and folders and moves or deletes them together; a folder can be deleted with its contents, keeping any file a record still uses.
 - A list's own bulk actions: `bulk_actions` draws buttons and dropdowns that enable on a ticked row and either `set` fields on each record or call a registered handler (`registry.add_bulk_action`); `checkboxes` ticks rows without `deletable`.
 - Menu counters: `registry.add_counter` registers a number, and `counter` on a menu entry, a `menu` key or a settings item shows it; a section shows its entries' sum (`counter`, `lat.menu.setCounter`).
