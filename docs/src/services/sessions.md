@@ -81,6 +81,40 @@ document.addEventListener('click', function (e) {
 });
 ```
 
+## Allow the site another origin
+
+```rust
+use laterite_admin::policy::Directive;
+use laterite_admin::AdminRegistry;
+
+registry.allow_site_source(Directive::Script, "https://tags.acme.com");
+registry.allow_site_source(Directive::Font, "https://*.acme.com");
+registry.allow_site_source(Directive::Connect, "wss://live.acme.com:8443");
+```
+
+`Directive` | Policy part
+--- | ---
+`Script` | `script-src`
+`Style` | `style-src`
+`Image` | `img-src`
+`Media` | `media-src`
+`Font` | `font-src`
+`Connect` | `connect-src`
+`Frame` | `frame-src`
+`FormAction` | `form-action`
+
+Source | Accepted
+--- | ---
+`https://cdn.acme.com` | Yes
+`https://*.acme.com` | Yes: every subdomain
+`wss://live.acme.com:8443/feed` | Yes: a port and a path
+`*`, `https:`, `https://*.com` | No
+`http://cdn.acme.com` | No
+`'unsafe-inline'`, `'unsafe-eval'` | No
+
+Pages outside the admin carry the policy with the declared origins added. The
+admin's policy is fixed. A refused source aborts the start.
+
 ## Flash a message
 
 ```rust

@@ -51,6 +51,7 @@ mod passwordlinks;
 pub mod persist;
 pub mod picker;
 pub mod plugins;
+pub mod policy;
 pub mod records;
 pub mod relation;
 pub(crate) mod requestlog;
@@ -122,6 +123,10 @@ pub trait AdminRegistry {
     fn add_picker_source(&mut self, source: picker::PickerSourceReg);
     /// Adds an option source, nameable by a field's or a filter's `options`.
     fn add_option_source(&mut self, source: options::OptionSourceReg);
+    /// Allows the public site to load from `source` in one part of its content
+    /// security policy: a statistics script, a font host, a payment frame.
+    /// The admin's policy stays as it is. See [`policy`].
+    fn allow_site_source(&mut self, directive: policy::Directive, source: &str);
     /// Adds a form persister, selectable by a form descriptor's `persist` key.
     fn add_persister(&mut self, persister: persist::PersisterReg);
     /// Adds a field type, nameable by any form or settings descriptor.
@@ -175,6 +180,9 @@ impl AdminRegistry for laterite_core::Registry {
     }
     fn add_option_source(&mut self, source: options::OptionSourceReg) {
         self.add(source);
+    }
+    fn allow_site_source(&mut self, directive: policy::Directive, source: &str) {
+        self.add(policy::SiteSource::new(directive, source));
     }
     fn add_screen(&mut self, screen: routes::ScreenReg) {
         self.add(screen);
@@ -2016,6 +2024,8 @@ pub struct Contributions {
     pub picker_sources: Vec<picker::PickerSourceReg>,
     /// Sources a field or a filter takes its choices from.
     pub option_sources: Vec<options::OptionSourceReg>,
+    /// Origins the public site may load from; see [`policy`].
+    pub site_sources: Vec<policy::SiteSource>,
     /// Named write handlers a form can select.
     pub persisters: Vec<persist::PersisterReg>,
     /// Listeners run around every save and delete.
@@ -2080,6 +2090,7 @@ pub fn router(
         permissions: app_permissions,
         picker_sources: app_picker_sources,
         option_sources: app_option_sources,
+        site_sources,
         persisters: app_persisters,
         listeners: app_listeners,
         query_hooks: app_query_hooks,
@@ -2104,6 +2115,14 @@ pub fn router(
     let mut app_public = app_public;
     app_public.push(medialib::serve_route());
     let admin_path = normalize_path(&config.path);
+    let site_policy = match policy::site_policy(CONTENT_SECURITY_POLICY, &site_sources) {
+        Ok(policy) => policy.map(|policy| {
+            let value = axum::http::HeaderValue::from_str(&policy)
+                .expect("a checked policy is a valid header value");
+            (Arc::<str>::from(admin_path.as_str()), value)
+        }),
+        Err(e) => panic!("{e}"),
+    };
 
     let mut resources = builtin_resources();
     let mut app_resources = app_resources;
@@ -3452,6 +3471,26 @@ pub fn router(
                 axum::http::HeaderValue::from_static("HX-Request"),
             ),
         )
+        // Pages outside the admin carry the site's policy when a module
+        // declared an origin; set first, so the layer below leaves it alone.
+        .layer(middleware::from_fn(
+            move |request: axum::extract::Request, next: middleware::Next| {
+                let site_policy = site_policy.clone();
+                async move {
+                    let outside = site_policy
+                        .as_ref()
+                        .filter(|(admin, _)| !under(request.uri().path(), admin));
+                    let mut response = next.run(request).await;
+                    if let Some((_, policy)) = outside {
+                        response
+                            .headers_mut()
+                            .entry(header::CONTENT_SECURITY_POLICY)
+                            .or_insert_with(|| policy.clone());
+                    }
+                    response
+                }
+            },
+        ))
         // The browser-side hardening every admin response carries. The policy
         // allows no inline script, so the chrome binds its handlers from
         // `laterite.js` and a module never adds an inline handler; inline styles
@@ -3519,6 +3558,12 @@ pub fn router(
 /// from the panel's own origin, images and uploads also from any HTTPS origin
 /// (a presigning disk), frames and forms from the panel alone.
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self'; connect-src 'self' https:; frame-src 'self' blob:; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'";
+
+/// Whether `path` is the admin mount or a page beneath it.
+fn under(path: &str, admin: &str) -> bool {
+    path.strip_prefix(admin)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
 
 /// Fallback for unmatched admin URLs: a styled 404.
 /// The styled 404, counted in the request log first.

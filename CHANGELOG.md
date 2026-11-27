@@ -13,6 +13,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- `registry.allow_site_source(directive, origin)` lets the public site load from another origin (a statistics script, a font host); the admin's content security policy stays fixed (`policy`).
 - `AdoptHistory`, a migration that records another module's migrations under this one, so code moving between modules runs nothing twice and a build from before the move still starts.
 - `clearable` on a list offers Clear, which removes every row of a log at once and is audited; `clear_permission` gates it (`ListConfig::clearable`). The request, event and access logs offer it.
 - An event log: every warning and error logged through `tracing` is kept as a row under Settings, Logs, and opens to read (`eventlog::layer`, permission `backend.view_event_log`).

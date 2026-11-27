@@ -72,3 +72,47 @@ async fn a_tls_deployment_pins_the_transport() {
         Some("max-age=31536000; includeSubDomains")
     );
 }
+
+#[tokio::test]
+async fn a_declared_origin_loosens_the_site_alone() {
+    use laterite_admin::policy::{Directive, SiteSource};
+    let (pool, _guard) = test_db().await;
+    let app = router(
+        AuthService::new(pool.clone(), AuthConfig::default()),
+        pool.clone(),
+        Contributions {
+            site_sources: vec![SiteSource::new(Directive::Script, "https://tags.acme.com")],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
+    let site = app.clone().oneshot(get("/about")).await.unwrap();
+    let policy = header(&site, "content-security-policy").unwrap();
+    assert!(policy.contains("script-src 'self' https://tags.acme.com;"));
+    // A path that merely starts like the mount is still the site's.
+    let near = app.clone().oneshot(get("/administer")).await.unwrap();
+    assert_eq!(header(&near, "content-security-policy"), Some(policy));
+    let admin = app.oneshot(get("/admin/login")).await.unwrap();
+    assert_eq!(
+        header(&admin, "content-security-policy"),
+        Some(CONTENT_SECURITY_POLICY)
+    );
+}
+
+#[tokio::test]
+#[should_panic(expected = "site source `*` refused")]
+async fn a_loose_origin_stops_the_start() {
+    use laterite_admin::policy::{Directive, SiteSource};
+    let (pool, _guard) = test_db().await;
+    let _ = router(
+        AuthService::new(pool.clone(), AuthConfig::default()),
+        pool.clone(),
+        Contributions {
+            site_sources: vec![SiteSource::new(Directive::Script, "*")],
+            ..Default::default()
+        },
+        AdminConfig::default(),
+        Arc::new(CatalogStore::default()),
+    );
+}
