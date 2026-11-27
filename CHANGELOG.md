@@ -13,6 +13,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- A mail driver declares its own fields for the Mail settings screen (`MailDriverReg::with_options`, `field`, `label`); a `sendmail` driver is built in, and the screen lists every registered driver.
 - "View the panel as this role" on a role's page runs the session with that role's permissions until stopped, for a role that grants nothing the operator lacks.
 - Roles take a description and a colour; `Permission::order` and `comment` arrange and explain the role editor, and `acme.posts.publish` nests under `acme.posts`.
 - A `permission` may name alternatives (`a|b`) or a prefix (`acme.blog.*`); `PermissionSet::allows_any` and `holds` (no superuser pass) join `allows`. A `swatch` list column shows a stored colour.

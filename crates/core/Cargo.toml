@@ -33,7 +33,7 @@ slug = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "process"] }
 unicode-normalization = { workspace = true }
 pulldown-cmark = { workspace = true }
 url = { workspace = true }

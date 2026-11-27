@@ -2334,6 +2334,16 @@ pub fn router(
     }
 
     let mut settings = builtin_settings();
+    // The Mail screen offers every driver the mail service can build, each
+    // with the fields it asks for.
+    if let Some(mail) = &config.mail {
+        if let Some(item) = settings
+            .iter_mut()
+            .find(|i| i.code == <settings::mail::MailSetting as settings::SettingsModel>::CODE)
+        {
+            *item = settings::mail::settings_item_for(mail.drivers());
+        }
+    }
     {
         // The rules over abilities, where the panel has any to rule on.
         let declared = plugin_defined.items::<ability::Ability>();

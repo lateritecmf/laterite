@@ -332,13 +332,58 @@ pub trait Mailer: Send + Sync {
     async fn deliver(&self, envelope: &Envelope) -> CoreResult<()>;
 }
 
-type BuildFn = dyn Fn(&MailConfig, &Db) -> CoreResult<Arc<dyn Mailer>> + Send + Sync;
+/// What a driver's own fields hold, by key: the values the Mail settings
+/// screen saved for it.
+pub type DriverOptions = std::collections::BTreeMap<String, String>;
+
+type BuildFn =
+    dyn Fn(&MailConfig, &DriverOptions, &Db) -> CoreResult<Arc<dyn Mailer>> + Send + Sync;
+
+/// One field a driver asks for on the Mail settings screen.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct MailDriverField {
+    /// The key the driver reads the value by (`secret`).
+    pub key: &'static str,
+    /// The field's label, localized at render.
+    pub label: crate::Text,
+    /// A line under the field.
+    pub help: Option<crate::Text>,
+    /// Kept sealed, and never shown back.
+    pub secret: bool,
+}
+
+impl MailDriverField {
+    /// A text field read as `key`, shown as `label`.
+    pub fn new(key: &'static str, label: impl Into<crate::Text>) -> Self {
+        Self {
+            key,
+            label: label.into(),
+            help: None,
+            secret: false,
+        }
+    }
+
+    /// Adds a line under the field.
+    pub fn help(mut self, help: impl Into<crate::Text>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Keeps the value sealed and never shows it back.
+    pub fn secret(mut self) -> Self {
+        self.secret = true;
+        self
+    }
+}
 
 /// A driver a module offers under a name, built from the configuration
 /// when `mail.driver` (or the Mail settings) names it.
 #[derive(Clone)]
 pub struct MailDriverReg {
     name: &'static str,
+    label: Option<crate::Text>,
+    fields: Vec<MailDriverField>,
     build: Arc<BuildFn>,
 }
 
@@ -348,10 +393,37 @@ impl MailDriverReg {
     where
         F: Fn(&MailConfig, &Db) -> CoreResult<Arc<dyn Mailer>> + Send + Sync + 'static,
     {
+        Self::with_options(name, move |config, _, db| build(config, db))
+    }
+
+    /// Returns a registration whose `build` also receives the values of the
+    /// driver's own [`field`](Self::field)s.
+    pub fn with_options<F>(name: &'static str, build: F) -> Self
+    where
+        F: Fn(&MailConfig, &DriverOptions, &Db) -> CoreResult<Arc<dyn Mailer>>
+            + Send
+            + Sync
+            + 'static,
+    {
         Self {
             name,
+            label: None,
+            fields: Vec::new(),
             build: Arc::new(build),
         }
+    }
+
+    /// Names the driver on the Mail settings screen; its code shows otherwise.
+    pub fn label(mut self, label: impl Into<crate::Text>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Adds a field the Mail settings screen shows while this driver is
+    /// selected; its value reaches `build` under the field's key.
+    pub fn field(mut self, field: MailDriverField) -> Self {
+        self.fields.push(field);
+        self
     }
 
     /// Returns the name `mail.driver` selects this driver by.
@@ -359,10 +431,30 @@ impl MailDriverReg {
         self.name
     }
 
+    /// The driver's name on the Mail settings screen, when it set one.
+    pub fn display(&self) -> Option<&crate::Text> {
+        self.label.as_ref()
+    }
+
+    /// The fields the driver asks for.
+    pub fn fields(&self) -> &[MailDriverField] {
+        &self.fields
+    }
+
     /// Builds the driver from `config`; errors when the configuration does not
     /// suit it.
     pub fn build(&self, config: &MailConfig, db: &Db) -> CoreResult<Arc<dyn Mailer>> {
-        (self.build)(config, db)
+        (self.build)(config, &DriverOptions::new(), db)
+    }
+
+    /// [`build`](Self::build), with the values of the driver's own fields.
+    pub fn build_with(
+        &self,
+        config: &MailConfig,
+        options: &DriverOptions,
+        db: &Db,
+    ) -> CoreResult<Arc<dyn Mailer>> {
+        (self.build)(config, options, db)
     }
 }
 
@@ -481,6 +573,19 @@ pub fn drivers(extra: impl IntoIterator<Item = MailDriverReg>) -> Vec<MailDriver
     all.push(MailDriverReg::new("smtp", |config, _| {
         Ok(Arc::new(smtp::SmtpMailer::from_config(&config.smtp)?))
     }));
+    #[cfg(feature = "smtp")]
+    all.push(
+        MailDriverReg::with_options("sendmail", |_, options, _| {
+            let command = options.get("path").map(String::as_str).unwrap_or("");
+            Ok(Arc::new(smtp::SendmailMailer::new(command)))
+        })
+        .label(crate::Text::new("Sendmail (this server's own mailer)"))
+        .field(
+            MailDriverField::new("path", crate::Text::new("Sendmail path")).help(crate::Text::new(
+                "The program to run; blank uses sendmail from the path.",
+            )),
+        ),
+    );
     all.extend(extra);
     all
 }
@@ -488,6 +593,16 @@ pub fn drivers(extra: impl IntoIterator<Item = MailDriverReg>) -> Vec<MailDriver
 /// Builds the driver `config.driver` names from `available`.
 pub fn build_driver(
     config: &MailConfig,
+    db: &Db,
+    available: &[MailDriverReg],
+) -> CoreResult<Arc<dyn Mailer>> {
+    build_driver_with(config, &DriverOptions::new(), db, available)
+}
+
+/// [`build_driver`], handing the driver the values of its own fields.
+pub fn build_driver_with(
+    config: &MailConfig,
+    options: &DriverOptions,
     db: &Db,
     available: &[MailDriverReg],
 ) -> CoreResult<Arc<dyn Mailer>> {
@@ -502,7 +617,7 @@ pub fn build_driver(
                 names.join(", ")
             ))
         })?;
-    reg.build(config, db)
+    reg.build_with(config, options, db)
 }
 
 /// How mail goes out: the sender and the development override, beside the
@@ -624,15 +739,52 @@ impl Mail {
         queue: Queue,
         db: Db,
     ) -> CoreResult<Self> {
-        let available = drivers(extra);
-        let mailer = build_driver(config, &db, &available)?;
+        Self::from_config_with(config, &DriverOptions::new(), extra, templates, queue, db)
+    }
+
+    /// [`from_config`](Self::from_config), handing the driver the values of
+    /// its own fields.
+    pub fn from_config_with(
+        config: &MailConfig,
+        options: &DriverOptions,
+        extra: impl IntoIterator<Item = MailDriverReg>,
+        templates: Templates,
+        queue: Queue,
+        db: Db,
+    ) -> CoreResult<Self> {
+        Self::from_drivers(config, options, drivers(extra), templates, queue, db)
+    }
+
+    /// The service over exactly `available`: a list [`drivers`] already put
+    /// the built-in ones in.
+    pub fn from_drivers(
+        config: &MailConfig,
+        options: &DriverOptions,
+        available: Vec<MailDriverReg>,
+        templates: Templates,
+        queue: Queue,
+        db: Db,
+    ) -> CoreResult<Self> {
+        let mailer = build_driver_with(config, options, &db, &available)?;
         let sender = Sender::from_config(config)?;
         Ok(Self::new(mailer, sender, templates, queue, available, db))
     }
 
+    /// Every driver that can be selected: the built-in ones and the ones
+    /// modules registered.
+    pub fn drivers(&self) -> &[MailDriverReg] {
+        &self.inner.available
+    }
+
     /// Replaces the driver and sender, as a saved Mail settings model asks.
     pub fn reconfigure(&self, config: &MailConfig) -> CoreResult<()> {
-        let mailer = build_driver(config, &self.inner.db, &self.inner.available)?;
+        self.reconfigure_with(config, &DriverOptions::new())
+    }
+
+    /// [`reconfigure`](Self::reconfigure), handing the driver the values of
+    /// its own fields.
+    pub fn reconfigure_with(&self, config: &MailConfig, options: &DriverOptions) -> CoreResult<()> {
+        let mailer = build_driver_with(config, options, &self.inner.db, &self.inner.available)?;
         let sender = Sender::from_config(config)?;
         *self
             .inner

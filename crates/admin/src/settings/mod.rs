@@ -614,7 +614,13 @@ pub(crate) async fn update(
                 let setting: mail::MailSetting =
                     serde_json::from_value(value.clone()).unwrap_or_default();
                 let config = mail::effective(&state.mail_config, &setting, &state.crypt);
-                if let Err(e) = state.mail.reconfigure(&config) {
+                let options = mail::driver_options(
+                    &config.driver,
+                    &setting,
+                    state.mail.drivers(),
+                    &state.crypt,
+                );
+                if let Err(e) = state.mail.reconfigure_with(&config, &options) {
                     session.push_flash(
                         crate::session::FlashLevel::Error,
                         t!(

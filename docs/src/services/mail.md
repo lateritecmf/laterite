@@ -114,7 +114,7 @@ timeout_seconds = 30
 
 Key | Description
 --- | ---
-`mail.driver` | `smtp` (the `smtp` feature of `laterite-core`, on in `lateritecmf`), `log` (kept in the mail log, nothing leaves), `stub` (kept in memory) or a driver a module registered. Default `log`.
+`mail.driver` | `smtp` or `sendmail` (the `smtp` feature of `laterite-core`, on in `lateritecmf`), `log` (kept in the mail log, nothing leaves), `stub` (kept in memory) or a driver a module registered. Default `log`.
 `mail.from` | The sender. Default `Laterite <no-reply@localhost>`.
 `mail.to` | A development override: every message goes to this address instead of its recipients.
 `mail.smtp.*` | The server, port, encryption, credentials and timeout.
@@ -159,3 +159,44 @@ fn register(&self, registry: &mut Registry) {
 ```
 
 A driver implements `Mailer`: a `name()` and `deliver(&Envelope)`; `mail.driver = "acme-http"` or the settings screen selects it.
+
+## Give a driver its own settings
+
+```rust
+use laterite_core::mail::{MailDriverField, MailDriverReg, MailRegistry};
+use laterite_core::t;
+
+registry.add_mail_driver(
+    MailDriverReg::with_options("acme-http", |_config, options, _db| {
+        let domain = options.get("domain").cloned().unwrap_or_default();
+        let key = options.get("key").cloned().unwrap_or_default();
+        Ok(Arc::new(AcmeHttp::new(domain, key)))
+    })
+    .label(t!("Acme Mail"))
+    .field(MailDriverField::new("domain", t!("Sending domain")))
+    .field(MailDriverField::new("key", t!("API key")).secret().help(t!("From the Acme console."))),
+);
+```
+
+Builder | Description
+--- | ---
+`with_options(name, build)` | `build` also receives the values of the driver's fields, by key.
+`.label(text)` | The driver's name under "Send through"; its code otherwise.
+`.field(MailDriverField::new(key, label))` | A field on the Mail settings screen, shown while the driver is selected.
+`MailDriverField::help(text)` | A line under the field.
+`MailDriverField::secret()` | Stored sealed and never shown back.
+
+## Send through sendmail
+
+```toml
+[mail]
+driver = "sendmail"
+```
+
+Setting | Description
+--- | ---
+`mail.driver = "sendmail"`, or "Send through: Sendmail" | Each message is written to the server's own `sendmail -t -i`.
+Sendmail path, on the settings screen | The program to run; blank runs `sendmail` from the path.
+A program that exits non-zero, or is missing | The delivery fails with its error and is retried.
+
+Needs the `smtp` feature of `laterite-core`, on in `lateritecmf`.

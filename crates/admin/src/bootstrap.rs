@@ -865,9 +865,19 @@ impl Bootstrap {
         let saved: crate::settings::mail::MailSetting =
             crate::settings::store::load(&db).await.unwrap_or_default();
         let mail_config = crate::settings::mail::effective(&config.mail, &saved, &crypt);
-        let mail = laterite_core::Mail::from_config(
-            &mail_config,
+        let mail_drivers = laterite_core::mail::drivers(
             contributions.take::<laterite_core::mail::MailDriverReg>(),
+        );
+        let mail_options = crate::settings::mail::driver_options(
+            &mail_config.driver,
+            &saved,
+            &mail_drivers,
+            &crypt,
+        );
+        let mail = laterite_core::Mail::from_drivers(
+            &mail_config,
+            &mail_options,
+            mail_drivers,
             templates,
             queue.clone(),
             db.clone(),
