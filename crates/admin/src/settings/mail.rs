@@ -350,8 +350,10 @@ mod tests {
         let names: Vec<&str> = item.fields.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"opt_acme_domain"));
         assert!(names.contains(&"opt_acme_secret"));
-        // The built-in sendmail driver asks for its path the same way.
-        assert!(names.contains(&"opt_sendmail_path"));
+        // The built-in sendmail driver, where the build has it, asks for its
+        // path the same way.
+        let sendmail = drivers.iter().any(|d| d.name() == "sendmail");
+        assert_eq!(names.contains(&"opt_sendmail_path"), sendmail);
         // The sender and the override stay first and last.
         assert_eq!(names.first(), Some(&"from_name"));
         assert_eq!(names.last(), Some(&"to_override"));
@@ -376,11 +378,13 @@ mod tests {
         assert_eq!(options.get("secret").map(String::as_str), Some("key-123"));
         // Only the selected driver's values are handed over.
         assert_eq!(options.len(), 2);
-        let sendmail = driver_options("sendmail", &setting, &drivers, &crypt);
-        assert_eq!(
-            sendmail.get("path").map(String::as_str),
-            Some("/usr/sbin/sendmail")
-        );
+        if sendmail {
+            let path = driver_options("sendmail", &setting, &drivers, &crypt);
+            assert_eq!(
+                path.get("path").map(String::as_str),
+                Some("/usr/sbin/sendmail")
+            );
+        }
         assert!(driver_options("log", &setting, &drivers, &crypt).is_empty());
     }
 }

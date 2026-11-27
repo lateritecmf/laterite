@@ -124,6 +124,46 @@ Builder | Description
 `counter_label(text)` | The counter's tooltip.
 `no_counter()` | No number; an item of tabs shows the sum of its tabs' unless set.
 
+## Put fields on tabs
+
+```rust
+SettingsItem::new("acme.shop", "Shop", vec![
+    FormField::text("name", "Shop name"),
+    FormField::text("footer", "Footer line").tab("Layout"),
+    FormField::text("columns", "Columns").tab("Layout"),
+    FormField::text("sender", "Sender").tab("Mail"),
+])
+```
+
+Field | Sits
+--- | ---
+With no `tab` | Above the tabs.
+With `.tab("Layout")` | On the Layout tab; tabs appear in the order they are first named.
+
+## Take choices from a source
+
+```rust
+FormField::of("region", "Region", "select")
+    .options(serde_json::json!({ "options": "acme.regions" }))
+```
+
+`options` | Choices
+--- | ---
+A list | As written.
+`acme.regions` | What the registered [option source](../forms/field-dependencies.md) returns, asked with the screen's values each time it opens and each time it saves.
+
+A source nothing registered aborts the start.
+
+## Reset to defaults
+
+Every settings screen has **Reset to defaults**: after a confirmation the
+stored value is emptied, each field reads its default again, the services
+that read the value are told, and the audit log records `backend.settings.reset`.
+
+```text
+POST /admin/settings/<path>/reset
+```
+
 ## Headings
 
 ```rust

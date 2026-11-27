@@ -3516,6 +3516,20 @@ pub fn router(
         protected = protected.merge(palette_do::routes(&admin_path, ctx));
     }
 
+    // A settings field naming an option source nobody registered would offer
+    // nothing, so it aborts the start like a form field's does.
+    for item in settings.iter() {
+        for field in &item.fields {
+            if let Some(name) = field.options.get("options").and_then(|o| o.as_str()) {
+                if !state.option_sources.contains_key(name) {
+                    panic!(
+                        "settings `{}`: field `{}` names the option source `{name}`, which nothing registered",
+                        item.code, field.name
+                    );
+                }
+            }
+        }
+    }
     // A route per settings screen, at the path its module resolved to, rather
     // than one parameterised route keyed by storage code. The code is captured
     // here, so it never has to survive a trip through the URL.
@@ -3541,6 +3555,25 @@ pub fn router(
                       Form(data): Form<HashMap<String, String>>| {
                     let code = code.clone();
                     async move { settings_update(state, shell, user, session, code, data).await }
+                },
+            ),
+        );
+        // Reset to defaults on this screen.
+        let reset_code = item.code.clone();
+        protected = protected.route(
+            &format!("{path}/reset"),
+            post(
+                move |State(state): State<AdminState>,
+                      Extension(user): Extension<AuthenticatedUser>,
+                      Extension(session): Extension<session::SessionHandle>| {
+                    let code = reset_code.clone();
+                    async move {
+                        let items = visible_settings(&state.settings, &user.permissions);
+                        match items.iter().find(|i| i.code == code && i.link.is_none()) {
+                            Some(item) => settings::reset(&state, item, &session, &user).await,
+                            None => not_found(),
+                        }
+                    }
                 },
             ),
         );

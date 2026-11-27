@@ -3792,7 +3792,7 @@ impl FieldView {
 }
 
 /// A label as a DOM id's part: its letters and digits, lowercase, the rest `-`.
-fn dom_slug(label: &str) -> String {
+pub(crate) fn dom_slug(label: &str) -> String {
     let slug: String = label
         .chars()
         .map(|c| {
@@ -4082,6 +4082,8 @@ pub struct ValueFieldView {
     pub layout: String,
     /// The wrapper's preset and trigger attributes, each led by a space.
     pub attrs: String,
+    /// The tab the field sits on, as authored; `None` sits above the tabs.
+    pub tab: Option<Text>,
 }
 
 #[derive(Template)]
@@ -4253,6 +4255,7 @@ pub(crate) fn value_views(
                 control: f.with_help_above(control, shell),
                 layout: f.wrapper_classes(),
                 attrs: behaviour_attrs(f),
+                tab: f.tab.clone(),
             }
         })
         .collect()

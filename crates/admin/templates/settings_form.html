@@ -14,28 +14,34 @@
        form renders: one field system, so a module's type works on both. #}
     <div class="lat-fields">
     {% for field in fields %}
-    {% if field.section %}
-    <div class="lat-field lat-field--section{{ field.layout }}"{{ field.attrs|safe }}>
-      <h3 class="lat-field__heading">{{ field.label }}</h3>
-      {% if let Some(help) = field.help %}<p class="lat-field__help">{{ help }}</p>{% endif %}
-    </div>
-    {% else %}
-    <div class="lat-field{{ field.layout }}"{{ field.attrs|safe }}>
-      <label class="lat-field__label">{{ field.label }}</label>
-      {{ field.control|safe }}
-      {% if let Some(help) = field.help %}<p class="lat-help">{{ help }}</p>{% endif %}
-    </div>
-    {% endif %}
+    {% include "_settings_field.html" %}
     {% endfor %}
     </div>
+    {% if !tabs.is_empty() %}
+    <div class="lat-formtabs" data-lat-widget="formtabs" data-linkable>
+      <div class="lat-pagetabs" role="tablist">
+        {% for tab in tabs %}<button type="button" role="tab" class="lat-pagetabs__tab{% if loop.first %} is-active{% endif %}" id="{{ tab.id }}" aria-controls="{{ tab.id }}-pane" aria-selected="{% if loop.first %}true{% else %}false{% endif %}"{% if !loop.first %} tabindex="-1"{% endif %}><span>{{ tab.label }}</span></button>{% endfor %}
+      </div>
+      {% for tab in tabs %}
+      <div class="lat-formtabs__pane lat-fields{% if loop.first %} is-active{% endif %}" role="tabpanel" id="{{ tab.id }}-pane" aria-labelledby="{{ tab.id }}" data-label="{{ tab.label }}">
+        {% for field in tab.fields %}
+        {% include "_settings_field.html" %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="lat-actions">
       <button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Save") }}</button>
       <a class="lat-btn lat-btn--ghost" href="{{ shell.base }}/settings">{{ shell.t("Cancel") }}</a>
     </div>
   </form>
 </div>
-{% if !actions.is_empty() %}
 <div class="lat-actions lat-toolbar__actions" style="margin-top:16px">
+  <form method="post" action="{{ action }}/reset">
+    {% include "_csrf.html" %}
+    <button class="lat-btn lat-btn--ghost" type="submit" data-lat-confirm='{{ shell.t("Put every field on this screen back to its default? What is saved here now is discarded.") }}'>{{ shell.t("Reset to defaults") }}</button>
+  </form>
   {% for a in actions %}
   <form method="post" action="{{ a.path }}">
     {% include "_csrf.html" %}
@@ -43,5 +49,4 @@
   </form>
   {% endfor %}
 </div>
-{% endif %}
 {% endblock %}

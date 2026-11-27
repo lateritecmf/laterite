@@ -445,6 +445,7 @@ pub(crate) async fn edit_form(
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
     prefill_from_config(item, &mut stored, &state.app_name);
+    let item = &with_sources(state, item, &stored, &shell).await;
     render(with_assets(
         build(
             item,
@@ -457,6 +458,75 @@ pub(crate) async fn edit_form(
         state,
         item,
     ))
+}
+
+/// `item` with each field's named option source asked for its choices, so a
+/// select, radio or checklist on a settings screen offers what the source
+/// returns for the values the screen holds. A source that fails offers
+/// nothing and is logged.
+async fn with_sources(
+    state: &AdminState,
+    item: &SettingsItem,
+    stored: &Value,
+    shell: &crate::Shell,
+) -> SettingsItem {
+    let named = |field: &FormField| {
+        field
+            .options
+            .get("options")
+            .and_then(|o| o.as_str())
+            .map(str::to_string)
+    };
+    if !item.fields.iter().any(|f| named(f).is_some()) {
+        return item.clone();
+    }
+    let values: HashMap<String, String> = stored
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .map(|(key, value)| {
+                    let text = match value {
+                        Value::String(s) => s.clone(),
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    };
+                    (key.clone(), text)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut item = item.clone();
+    for field in &mut item.fields {
+        let Some(name) = named(field) else {
+            continue;
+        };
+        let entries = match state.option_sources.get(&name) {
+            Some(reg) => {
+                let cx = crate::options::OptionCx {
+                    field: &field.name,
+                    value: values.get(&field.name).map(String::as_str).unwrap_or(""),
+                    values: &values,
+                    id: None,
+                    i18n: shell.i18n(),
+                };
+                match reg.source.options(&state.db, &cx).await {
+                    Ok(entries) => entries,
+                    Err(e) => {
+                        tracing::warn!(source = %name, error = %e, "an option source failed on a settings screen");
+                        Vec::new()
+                    }
+                }
+            }
+            None => Vec::new(),
+        };
+        if let Value::Object(options) = &mut field.options {
+            options.insert(
+                "options".to_string(),
+                serde_json::to_value(entries).unwrap_or(Value::Array(Vec::new())),
+            );
+        }
+    }
+    item
 }
 
 /// The page with the scripts and styles its fields' types declare, as a
@@ -544,6 +614,13 @@ pub(crate) async fn update(
     session: &crate::session::SessionHandle,
     user: &laterite_auth::AuthenticatedUser,
 ) -> Response {
+    // The choices a source offers are the ones a submitted value is held to.
+    let submitted = Value::Object(
+        data.iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect(),
+    );
+    let item = &with_sources(state, item, &submitted, &shell).await;
     // A field type that refuses its input refuses the save: the screen says so
     // rather than storing a value every later read has to defend against.
     let value = match collect(item, &state.field_types, &data) {
@@ -601,63 +678,7 @@ pub(crate) async fn update(
         state.settings_store().set(&item.code, &value).await.is_ok()
     };
     match written {
-        true => {
-            // The mail brand reaches every layout at once.
-            if item.code == mail_brand::MailBrandSetting::CODE {
-                let brand: mail_brand::MailBrandSetting =
-                    serde_json::from_value(value.clone()).unwrap_or_default();
-                state.mail.templates().set_brand_css(&brand.css()).await;
-            }
-            link_media(state, item, &value, user).await;
-            // The mail transport follows its settings at once.
-            if item.code == mail::MailSetting::CODE {
-                let setting: mail::MailSetting =
-                    serde_json::from_value(value.clone()).unwrap_or_default();
-                let config = mail::effective(&state.mail_config, &setting, &state.crypt);
-                let options = mail::driver_options(
-                    &config.driver,
-                    &setting,
-                    state.mail.drivers(),
-                    &state.crypt,
-                );
-                if let Err(e) = state.mail.reconfigure_with(&config, &options) {
-                    session.push_flash(
-                        crate::session::FlashLevel::Error,
-                        t!(
-                            "Saved, but the transport could not be set up: {error}",
-                            error = e.to_string()
-                        ),
-                    );
-                }
-            }
-            // The stored value can hold secrets, so the audit records which
-            // settings model changed, not the new contents. An operator's own
-            // preference is theirs alone and goes unrecorded, like their timezone.
-            if !item.per_operator {
-                crate::audit::record(
-                    state,
-                    user,
-                    "backend.settings.update",
-                    Some("settings"),
-                    Some(item.code.as_str()),
-                    None,
-                    None,
-                )
-                .await;
-            }
-            session.push_flash(
-                crate::session::FlashLevel::Success,
-                if item.per_operator {
-                    t!("Preferences saved.")
-                } else {
-                    t!("Settings saved.")
-                },
-            );
-            // Back to the screen that was saved, not the index. Saving is not
-            // leaving: an operator adjusting one setting usually adjusts the
-            // next, and being thrown back to the menu loses their place.
-            Redirect::to(&item.path(&state.admin_path)).into_response()
-        }
+        true => saved(state, item, &value, session, user, false).await,
         false => render(build(
             item,
             &state.field_types,
@@ -667,6 +688,101 @@ pub(crate) async fn update(
             &shell,
         )),
     }
+}
+
+/// What follows a stored value: the services that read it are told, the
+/// change is audited, and the operator returns to the screen. `reset` says
+/// the screen went back to its defaults.
+async fn saved(
+    state: &AdminState,
+    item: &SettingsItem,
+    value: &Value,
+    session: &crate::session::SessionHandle,
+    user: &laterite_auth::AuthenticatedUser,
+    reset: bool,
+) -> Response {
+    // The mail brand reaches every layout at once.
+    if item.code == mail_brand::MailBrandSetting::CODE {
+        let brand: mail_brand::MailBrandSetting =
+            serde_json::from_value(value.clone()).unwrap_or_default();
+        state.mail.templates().set_brand_css(&brand.css()).await;
+    }
+    link_media(state, item, value, user).await;
+    // The mail transport follows its settings at once.
+    if item.code == mail::MailSetting::CODE {
+        let setting: mail::MailSetting = serde_json::from_value(value.clone()).unwrap_or_default();
+        let config = mail::effective(&state.mail_config, &setting, &state.crypt);
+        let options =
+            mail::driver_options(&config.driver, &setting, state.mail.drivers(), &state.crypt);
+        if let Err(e) = state.mail.reconfigure_with(&config, &options) {
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                t!(
+                    "Saved, but the transport could not be set up: {error}",
+                    error = e.to_string()
+                ),
+            );
+        }
+    }
+    // The stored value can hold secrets, so the audit records which
+    // settings model changed, not the new contents. An operator's own
+    // preference is theirs alone and goes unrecorded, like their timezone.
+    if !item.per_operator {
+        crate::audit::record(
+            state,
+            user,
+            if reset {
+                "backend.settings.reset"
+            } else {
+                "backend.settings.update"
+            },
+            Some("settings"),
+            Some(item.code.as_str()),
+            None,
+            None,
+        )
+        .await;
+    }
+    session.push_flash(
+        crate::session::FlashLevel::Success,
+        if reset {
+            t!("Back to the defaults.")
+        } else if item.per_operator {
+            t!("Preferences saved.")
+        } else {
+            t!("Settings saved.")
+        },
+    );
+    // Back to the screen that was saved, not the index. Saving is not
+    // leaving: an operator adjusting one setting usually adjusts the
+    // next, and being thrown back to the menu loses their place.
+    Redirect::to(&item.path(&state.admin_path)).into_response()
+}
+
+/// Puts a settings screen back to its defaults: the stored value is emptied,
+/// so every field reads its default again.
+pub(crate) async fn reset(
+    state: &AdminState,
+    item: &SettingsItem,
+    session: &crate::session::SessionHandle,
+    user: &laterite_auth::AuthenticatedUser,
+) -> Response {
+    let value = Value::Object(Map::new());
+    let written = if item.per_operator {
+        store::set_for(&state.db, user.user.id, &item.code, &value)
+            .await
+            .is_ok()
+    } else {
+        state.settings_store().set(&item.code, &value).await.is_ok()
+    };
+    if !written {
+        session.push_flash(
+            crate::session::FlashLevel::Error,
+            t!("Could not save. Please try again."),
+        );
+        return Redirect::to(&item.path(&state.admin_path)).into_response();
+    }
+    saved(state, item, &value, session, user, true).await
 }
 
 /// What a public media field says when it was given a private file.
@@ -913,8 +1029,26 @@ fn build(
     stored: &Value,
     shell: &crate::Shell,
 ) -> SettingsFormTemplate {
-    let fields =
-        crate::form::value_views(&item.fields, types, overrides, stored, shell, &item.code);
+    let views = crate::form::value_views(&item.fields, types, overrides, stored, shell, &item.code);
+    // Fields naming a tab gather under it, in the order tabs first appear;
+    // the rest stay above the tab set.
+    let mut fields = Vec::new();
+    let mut tabs: Vec<TabView> = Vec::new();
+    for view in views {
+        let Some(tab) = view.tab.clone() else {
+            fields.push(view);
+            continue;
+        };
+        let label = shell.tt(&tab);
+        match tabs.iter_mut().find(|t| t.label == label) {
+            Some(found) => found.fields.push(view),
+            None => tabs.push(TabView {
+                id: format!("tab-{}", crate::form::dom_slug(tab.source())),
+                label,
+                fields: vec![view],
+            }),
+        }
+    }
     SettingsFormTemplate {
         title: shell.tt(&item.label),
         description: shell.tt(&item.description),
@@ -922,6 +1056,7 @@ fn build(
         action: item.path(&shell.base),
         error: error.map(|e| shell.tt(&e)),
         fields,
+        tabs,
         leave_off: !item.confirm_leave,
         actions: item
             .actions
@@ -993,9 +1128,18 @@ struct SettingsFormTemplate {
     action: String,
     error: Option<String>,
     fields: Vec<ValueFieldView>,
+    /// The fields that name a tab, by tab.
+    tabs: Vec<TabView>,
     /// Leaving with changes unsaved does not ask.
     leave_off: bool,
     actions: Vec<ActionView>,
+}
+
+/// One tab of a settings form and the fields on it.
+struct TabView {
+    id: String,
+    label: String,
+    fields: Vec<ValueFieldView>,
 }
 
 struct ActionView {
