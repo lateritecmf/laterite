@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}" data-lat-skin="{{ skin.code }}">
+<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}"{% if !look.mode_switch %} data-lat-mode-fixed{% endif %} data-lat-skin="{{ skin.code }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

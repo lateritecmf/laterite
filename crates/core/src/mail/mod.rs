@@ -156,7 +156,6 @@ impl std::fmt::Display for Address {
 
 /// A file carried by a message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct Attachment {
     /// File name the recipient sees.
     pub filename: String,
@@ -165,10 +164,16 @@ pub struct Attachment {
     /// File contents, stored as base64 when the message is queued.
     #[serde(with = "base64_bytes")]
     pub bytes: Vec<u8>,
-    /// The content id the HTML body shows the file by (`<img src="cid:logo">`);
-    /// `None` is an ordinary attachment.
-    #[serde(default)]
-    pub inline: Option<String>,
+}
+
+/// A picture the HTML body shows by its content id (`<img src="cid:logo">`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct InlineImage {
+    /// The content id the body names it by.
+    pub cid: String,
+    /// The picture, with its file name and MIME type.
+    pub file: Attachment,
 }
 
 mod base64_bytes {
@@ -234,6 +239,9 @@ pub struct Message {
     /// says nothing.
     #[serde(default)]
     pub priority: Option<u8>,
+    /// Pictures the HTML body shows.
+    #[serde(default)]
+    pub inline: Vec<InlineImage>,
 }
 
 impl Message {
@@ -265,6 +273,7 @@ impl Message {
             attachments: Vec::new(),
             sender: None,
             priority: None,
+            inline: Vec::new(),
         }
     }
 
@@ -289,11 +298,13 @@ impl Message {
         content_type: impl Into<String>,
         bytes: Vec<u8>,
     ) -> Self {
-        self.attachments.push(Attachment {
-            filename: filename.into(),
-            content_type: content_type.into(),
-            bytes,
-            inline: Some(cid.into()),
+        self.inline.push(InlineImage {
+            cid: cid.into(),
+            file: Attachment {
+                filename: filename.into(),
+                content_type: content_type.into(),
+                bytes,
+            },
         });
         self
     }
@@ -340,7 +351,6 @@ impl Message {
             filename: filename.into(),
             content_type: content_type.into(),
             bytes,
-            inline: None,
         });
         self
     }
@@ -366,9 +376,11 @@ pub struct Envelope {
     pub text: String,
     /// Rendered HTML body; `None` for a text-only message.
     pub html: Option<String>,
-    /// Files attached to the message; one with `inline` set is shown by the
-    /// HTML body.
+    /// Files attached to the message.
     pub attachments: Vec<Attachment>,
+    /// Pictures the HTML body shows.
+    #[serde(default)]
+    pub inline: Vec<InlineImage>,
     /// The address sending on the author's behalf, when the message set one.
     #[serde(default)]
     pub sender: Option<Address>,
@@ -1009,6 +1021,7 @@ impl Mail {
             attachments: message.attachments,
             sender: message.sender,
             priority: message.priority,
+            inline: message.inline,
         })
     }
 

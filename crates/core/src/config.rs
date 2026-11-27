@@ -452,6 +452,9 @@ pub struct BackendConfig {
     /// first letter of its name, or the address of an image (`/img/user.png`,
     /// `https://cdn.acme.com/user.png`).
     pub default_avatar: String,
+    /// `[backend.brand]`: what the admin's brand starts from, under whatever
+    /// the Admin Branding screen sets.
+    pub brand: BrandConfig,
     /// Paths left out of the check that refuses a POST from another site: an
     /// exact path (`/api/capture`) or a prefix ending in `*` (`/webhooks/*`).
     /// For endpoints that authenticate each request themselves.
@@ -473,6 +476,7 @@ impl Default for BackendConfig {
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
             default_avatar: "initial".to_string(),
+            brand: BrandConfig::default(),
             origin_check_except: Vec::new(),
         }
     }
@@ -509,6 +513,28 @@ pub fn load<T: DeserializeOwned>(dir: &Path, env_prefix: &str) -> CoreResult<T> 
         .build()
         .and_then(Config::try_deserialize)
         .map_err(|e| CoreError::Config(e.to_string()))
+}
+
+/// `[backend.brand]`: the admin brand's baseline, kept with the code. A value
+/// the Admin Branding screen sets wins over the one here.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+#[non_exhaustive]
+pub struct BrandConfig {
+    /// A named palette: `clay`, `slate`, `forest`, `ocean`, `plum` or `amber`.
+    pub palette: String,
+    /// The accent colour as `#rrggbb`; wins over `palette`.
+    pub accent: String,
+    /// The colour mode an operator starts in: `auto`, `light` or `dark`.
+    pub mode: String,
+    /// Whether the top bar offers the colour mode button; `None` shows it.
+    pub show_mode_switch: Option<bool>,
+    /// The line above the sign-in form.
+    pub login_prompt: String,
+    /// The line on the panel beside the sign-in form.
+    pub login_tagline: String,
+    /// A flat colour for that panel, as `#rrggbb`.
+    pub login_background_color: String,
 }
 
 static SOURCE: std::sync::OnceLock<(std::path::PathBuf, String)> = std::sync::OnceLock::new();

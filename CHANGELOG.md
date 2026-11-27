@@ -9,8 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Breaking
 
-- `mail::Message`, `Envelope` and `Attachment` are `#[non_exhaustive]` and carry `sender`, `priority` and `inline`: build them with `Message::template`, `Message::raw` and `.attach`, not a struct literal.
-- `Contributions` and `plugins::PluginRow` gained fields: a struct literal needs `..Default::default()` or the new fields.
+- `mail::Message` and `Envelope` are `#[non_exhaustive]` and carry `sender`, `priority` and `inline`: build a message with `Message::template` or `Message::raw`, not a struct literal. `Attachment` is unchanged.
+- `Contributions`, `plugins::PluginRow`, `settings::BrandSetting` and `settings::brand::Brand` gained fields: a struct literal needs `..Default::default()` or the new fields.
 
 ### Changed
 
@@ -20,6 +20,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
 - `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- Branding takes a named palette, a switch for the colour mode button and a flat sign-in background colour, and reads a baseline from `[backend.brand]`.
 - A message takes `.sender(addr)`, `.priority(1..=5)` and `.embed(cid, filename, type, bytes)` for a picture the HTML body shows.
 - A scheduled entry takes `.when`, `.before` and `.after`, and `ScheduleEntry` gains `daily`, `twice_daily`, `weekly` and `monthly`.
 - `config::plugin::<T>("acme.blog")` reads a plugin's own `[plugins.acme.blog]` section of the application's config files and environment.
@@ -50,6 +51,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Fixed
 
+- A colour field left blank stores no colour: it was submitted as black, so saving Admin Branding without an accent turned the panel black.
 - Saving a user preference no longer fails when two saves arrive together, as folding sidebar groups quickly did.
 
 ## [0.12.3] - 2026-11-27

@@ -397,15 +397,13 @@ async fn a_message_keeps_its_sender_priority_and_pictures_through_the_queue() {
     let fields = older.as_object_mut().unwrap();
     fields.remove("sender");
     fields.remove("priority");
-    fields["attachments"][0]
-        .as_object_mut()
-        .unwrap()
-        .remove("inline");
+    fields.remove("inline");
     let read: Message = serde_json::from_value(older).unwrap();
     assert!(read.sender.is_none() && read.priority.is_none());
 
     let envelope = mail.envelope(message).await.unwrap();
     assert_eq!(envelope.sender.unwrap().email, "bounces@acme.example");
     assert_eq!(envelope.priority, Some(5), "clamped to the lowest");
-    assert_eq!(envelope.attachments[0].inline.as_deref(), Some("logo"));
+    assert_eq!(envelope.inline[0].cid, "logo");
+    assert!(envelope.attachments.is_empty());
 }

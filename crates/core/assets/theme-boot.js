@@ -8,6 +8,7 @@
 //   <html data-theme="light">  the resolved mode; style against this
 //   localStorage["lat-mode"]   the reader's choice: light | dark | auto
 //   <html data-lat-mode="…">   the surface's default until the reader chooses
+//   <html data-lat-mode-fixed> the surface's default is the mode; no choice is read
 //   window.latApplyMode(mode)  resolve and apply a mode now
 //
 // "auto" means follow the operating system, including when the system changes
@@ -23,7 +24,9 @@
   // The surface's own default sits on <html data-lat-mode="light|dark|auto">
   // and applies until the reader chooses; a stored choice always wins.
   var fallback = document.documentElement.getAttribute('data-lat-mode') || 'auto';
+  var fixed = document.documentElement.hasAttribute('data-lat-mode-fixed');
   var current = function () {
+    if (fixed) return fallback;
     try { return localStorage.getItem('lat-mode') || fallback; } catch (e) { return fallback; }
   };
   window.latSetMode = function (m) {

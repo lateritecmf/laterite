@@ -448,6 +448,21 @@ pub(crate) async fn edit_form(
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
     prefill_from_config(item, &mut stored, &state.app_name);
+    // The brand's two controls that always send a value open on what the
+    // file says, so a save does not quietly change it.
+    if item.code == <BrandSetting as SettingsModel>::CODE {
+        if let Value::Object(map) = &mut stored {
+            let file = &state.brand_baseline;
+            if !file.mode.trim().is_empty() {
+                map.entry("mode".to_string())
+                    .or_insert_with(|| Value::String(file.mode.trim().to_string()));
+            }
+            if let Some(shown) = file.show_mode_switch {
+                map.entry("show_mode_switch".to_string())
+                    .or_insert(Value::Bool(shown));
+            }
+        }
+    }
     // A field nothing was saved for opens with its declared default.
     if let Value::Object(map) = &mut stored {
         for field in &item.fields {

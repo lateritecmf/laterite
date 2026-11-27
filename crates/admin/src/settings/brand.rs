@@ -47,6 +47,36 @@ pub struct BrandSetting {
     /// Stylesheet rules added to every admin page, cleaned on display.
     #[serde(default)]
     pub custom_css: String,
+    /// A named palette from [`PALETTES`]; blank keeps the configured one.
+    #[serde(default)]
+    pub palette: String,
+    /// Whether the top bar offers the colour mode button; `None` follows the
+    /// configuration, which shows it unless told otherwise.
+    #[serde(default)]
+    pub show_mode_switch: Option<bool>,
+    /// A flat colour for the sign-in page's hero panel, as `#rrggbb`.
+    #[serde(default)]
+    pub login_background_color: String,
+}
+
+/// The palettes a deployment picks by name: a code, a label and the accent
+/// each sets.
+pub const PALETTES: &[(&str, &str, &str)] = &[
+    ("clay", "Clay", "#C44E2F"),
+    ("slate", "Slate", "#475569"),
+    ("forest", "Forest", "#2F7D4F"),
+    ("ocean", "Ocean", "#1F6FB2"),
+    ("plum", "Plum", "#7A3E8E"),
+    ("amber", "Amber", "#B7791F"),
+];
+
+/// The accent a palette code names.
+fn palette_accent(code: &str) -> Option<&'static str> {
+    let code = code.trim();
+    PALETTES
+        .iter()
+        .find(|(known, _, _)| *known == code)
+        .map(|(_, _, hex)| *hex)
 }
 
 fn yes() -> bool {
@@ -86,6 +116,14 @@ pub(crate) fn settings_item() -> SettingsItem {
             FormField::of("favicon", "Browser icon", "media")
                 .options(serde_json::json!({ "mode": "image", "public": true }))
                 .help("The tab icon; a square PNG or SVG."),
+            FormField::select(
+                "palette",
+                "Palette",
+                std::iter::once(("", "As configured"))
+                    .chain(PALETTES.iter().map(|(code, label, _)| (*code, *label)))
+                    .collect(),
+            )
+            .help("A ready-made accent. An accent colour below wins over it."),
             FormField::of("accent", "Accent colour", "text")
                 .options(serde_json::json!({ "input": "color" }))
                 .help("Buttons, links and the active section take this colour."),
@@ -99,6 +137,9 @@ pub(crate) fn settings_item() -> SettingsItem {
                 ],
             )
             .help("What an operator sees before choosing their own."),
+            FormField::switch("show_mode_switch", "Offer the colour mode button")
+                .default_value(true)
+                .help("Off: everyone gets the colour mode above."),
             FormField::text("login_prompt", "Sign-in prompt")
                 .help("The line above the sign-in form."),
             FormField::text("login_tagline", "Sign-in tagline")
@@ -106,6 +147,9 @@ pub(crate) fn settings_item() -> SettingsItem {
             FormField::of("login_background", "Sign-in background", "media")
                 .options(serde_json::json!({ "mode": "image", "public": true }))
                 .help("An image behind the panel beside the form."),
+            FormField::of("login_background_color", "Sign-in background colour", "text")
+                .options(serde_json::json!({ "input": "color" }))
+                .help("A flat colour for the panel, when no image is set."),
             FormField::switch("login_hero", "Show the panel beside the sign-in form"),
             FormField::of("custom_css", "Custom stylesheet", "codeeditor")
                 .options(serde_json::json!({ "language": "css", "rows": 8 }))
@@ -143,6 +187,10 @@ pub struct Brand {
     pub login_background_url: Option<String>,
     /// Whether the sign-in page shows its hero panel.
     pub login_hero: bool,
+    /// The hero panel's flat colour as `#rrggbb`, when set and no image is.
+    pub login_background_color: Option<String>,
+    /// Whether the top bar offers the colour mode button.
+    pub mode_switch: bool,
     /// The `<style>` body for every page: the accent's variables plus the
     /// cleaned custom stylesheet. Empty when nothing is set.
     pub css: String,
@@ -155,12 +203,24 @@ impl Brand {
             name: name.to_string(),
             mode: "auto".to_string(),
             login_hero: true,
+            mode_switch: true,
             ..Self::default()
         }
     }
 
     /// Reads the setting and resolves it.
     pub async fn resolve(db: &Db, app_name: &str) -> Self {
+        Self::resolve_over(db, app_name, &Default::default()).await
+    }
+
+    /// Reads the setting and resolves it over `baseline`, the application's
+    /// `[backend.brand]`: a value the screen sets wins, a blank one falls
+    /// back to the file.
+    pub async fn resolve_over(
+        db: &Db,
+        app_name: &str,
+        baseline: &laterite_core::config::BrandConfig,
+    ) -> Self {
         let setting = super::store::load::<BrandSetting>(db)
             .await
             .unwrap_or_default();
@@ -169,11 +229,29 @@ impl Brand {
         } else {
             setting.app_name.trim().to_string()
         };
-        let mode = match setting.mode.as_str() {
-            "light" | "dark" => setting.mode.clone(),
+        let or_file = |own: &str, file: &str| {
+            if own.trim().is_empty() {
+                file.trim().to_string()
+            } else {
+                own.trim().to_string()
+            }
+        };
+        let mode = match or_file(&setting.mode, &baseline.mode).as_str() {
+            "light" => "light".to_string(),
+            "dark" => "dark".to_string(),
             _ => "auto".to_string(),
         };
-        let mut css = accent_css(&setting.accent).unwrap_or_default();
+        // The screen's accent, then its palette, then the file's two.
+        let accent = [
+            accent_css(&setting.accent),
+            palette_accent(&setting.palette).and_then(accent_css),
+            accent_css(&baseline.accent),
+            palette_accent(&baseline.palette).and_then(accent_css),
+        ]
+        .into_iter()
+        .flatten()
+        .next();
+        let mut css = accent.unwrap_or_default();
         let custom = clean_css(&setting.custom_css);
         if !custom.is_empty() {
             css.push('\n');
@@ -188,10 +266,19 @@ impl Brand {
             logo_url: media_url(db, &setting.logo).await,
             favicon_url: media_url(db, &setting.favicon).await,
             mode,
-            login_prompt: some(&setting.login_prompt),
-            login_tagline: some(&setting.login_tagline),
+            login_prompt: some(&or_file(&setting.login_prompt, &baseline.login_prompt)),
+            login_tagline: some(&or_file(&setting.login_tagline, &baseline.login_tagline)),
             login_background_url: media_url(db, &setting.login_background).await,
             login_hero: setting.login_hero,
+            login_background_color: Some(or_file(
+                &setting.login_background_color,
+                &baseline.login_background_color,
+            ))
+            .filter(|hex| parse_hex(hex).is_some()),
+            mode_switch: setting
+                .show_mode_switch
+                .or(baseline.show_mode_switch)
+                .unwrap_or(true),
             css,
         }
     }
@@ -299,6 +386,56 @@ mod tests {
         assert_eq!(saved.logo, "25");
         assert_eq!(saved.favicon, "7");
         assert_eq!(saved.login_background, "");
+    }
+
+    #[tokio::test]
+    async fn the_screen_wins_over_the_file_and_the_file_over_the_defaults() {
+        let (db, _guard) = laterite_core::testing::connect_test(&crate::builtin_migrations()).await;
+        let file: laterite_core::config::BrandConfig = serde_json::from_value(serde_json::json!({
+            "palette": "ocean",
+            "mode": "dark",
+            "show_mode_switch": false,
+            "login_tagline": "From the file",
+            "login_background_color": "#102030",
+        }))
+        .unwrap();
+
+        // Nothing saved: the file's values show.
+        let brand = Brand::resolve_over(&db, "Acme", &file).await;
+        assert!(brand.css.contains("--accent:#1F6FB2"), "{}", brand.css);
+        assert_eq!(brand.mode, "dark");
+        assert!(!brand.mode_switch);
+        assert_eq!(brand.login_tagline.as_deref(), Some("From the file"));
+        assert_eq!(brand.login_background_color.as_deref(), Some("#102030"));
+        // No file either: the defaults.
+        let plain = Brand::resolve(&db, "Acme").await;
+        assert!(plain.mode_switch && plain.css.is_empty() && plain.mode == "auto");
+        assert!(plain.login_background_color.is_none());
+
+        // The screen's values win; its accent wins over its own palette.
+        let saved = BrandSetting {
+            palette: "plum".into(),
+            mode: "light".into(),
+            show_mode_switch: Some(true),
+            login_background_color: "not a colour".into(),
+            ..Default::default()
+        };
+        crate::settings::save(&db, &saved).await.unwrap();
+        let brand = Brand::resolve_over(&db, "Acme", &file).await;
+        assert!(brand.css.contains("--accent:#7A3E8E"), "{}", brand.css);
+        assert_eq!(brand.mode, "light");
+        assert!(brand.mode_switch);
+        assert!(
+            brand.login_background_color.is_none(),
+            "an unreadable colour is dropped"
+        );
+        let saved = BrandSetting {
+            accent: "#123456".into(),
+            ..saved
+        };
+        crate::settings::save(&db, &saved).await.unwrap();
+        let brand = Brand::resolve_over(&db, "Acme", &file).await;
+        assert!(brand.css.contains("--accent:#123456"));
     }
 
     #[test]

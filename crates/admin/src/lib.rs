@@ -321,6 +321,8 @@ pub(crate) struct AdminState {
     upload_extensions: Arc<Vec<String>>,
     /// The image an account with no picture shows; `None` draws its initial.
     default_avatar: Option<Arc<str>>,
+    /// `[backend.brand]`: what the brand falls back to.
+    brand_baseline: Arc<laterite_core::config::BrandConfig>,
     nav: Arc<nav::NavTree>,
     /// The menu entries the tree was built from (after the deployment's
     /// moves), for an operator whose own moves need a tree of their own.
@@ -446,6 +448,7 @@ impl AdminState {
             mail_config: Arc::new(laterite_core::config::MailConfig::default()),
             upload_extensions: Arc::new(upload_extensions(&[])),
             default_avatar: None,
+            brand_baseline: Arc::default(),
             db,
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
@@ -494,14 +497,22 @@ impl AdminState {
                 BRAND_CACHE_KEY,
                 BRAND_TTL,
                 &[settings::NAMESPACE],
-                || async { Ok(settings::brand::Brand::resolve(&self.db, &self.app_name).await) },
+                || async {
+                    Ok(settings::brand::Brand::resolve_over(
+                        &self.db,
+                        &self.app_name,
+                        &self.brand_baseline,
+                    )
+                    .await)
+                },
             )
             .await;
         Arc::new(match resolved {
             Ok(brand) => brand,
             Err(e) => {
                 tracing::warn!(error = %e, "brand not cached");
-                settings::brand::Brand::resolve(&self.db, &self.app_name).await
+                settings::brand::Brand::resolve_over(&self.db, &self.app_name, &self.brand_baseline)
+                    .await
             }
         })
     }
@@ -581,6 +592,8 @@ pub struct AdminConfig {
     /// What an account with no picture shows (`backend.default_avatar`):
     /// `initial`, or the address of an image.
     pub default_avatar: String,
+    /// `[backend.brand]`: what the admin's brand starts from.
+    pub brand: laterite_core::config::BrandConfig,
     /// Paths left out of the origin check (`backend.origin_check_except`): an
     /// exact path or a prefix ending in `*`. A public route registered with
     /// [`routes::PublicRouteReg::skip_origin_check`] is added to these.
@@ -630,6 +643,7 @@ impl Default for AdminConfig {
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
             default_avatar: "initial".to_string(),
+            brand: Default::default(),
             origin_check_except: Vec::new(),
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
@@ -1127,6 +1141,12 @@ impl Shell {
     /// Returns the colour mode a user starts in: `auto`, `light` or `dark`.
     pub fn mode_default(&self) -> &str {
         &self.brand_look.mode
+    }
+
+    /// Whether the top bar offers the colour mode button; without it the
+    /// brand's mode is everyone's.
+    pub fn mode_switch(&self) -> bool {
+        self.brand_look.mode_switch
     }
 
     /// A UTC timestamp as stored (RFC 3339), shown in this operator's timezone.
@@ -2973,6 +2993,7 @@ pub fn router(
         mail_config: Arc::new(config.mail_config.clone()),
         upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
         default_avatar: default_avatar(&config.default_avatar),
+        brand_baseline: Arc::new(config.brand.clone()),
         db,
         nav: Arc::new(nav),
         nav_items: Arc::new(nav_items),
@@ -8118,6 +8139,7 @@ mod tests {
             default_locale: Arc::from("en"),
             catalogs: Arc::new(CatalogStore::default()),
             app_name: "Configured Name".to_string(),
+            brand_baseline: Arc::default(),
             cache: laterite_core::Cache::local(),
             queue: inline_queue(&db, laterite_core::Cache::local()),
             schedule: empty_schedule(

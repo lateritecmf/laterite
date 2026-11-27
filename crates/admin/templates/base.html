@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ shell.locale() }}" data-theme="light" data-lat-mode="{{ shell.mode_default() }}" data-lat-skin="{{ shell.skin_code() }}">
+<html lang="{{ shell.locale() }}" data-theme="light" data-lat-mode="{{ shell.mode_default() }}"{% if !shell.mode_switch() %} data-lat-mode-fixed{% endif %} data-lat-skin="{{ shell.skin_code() }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -48,7 +48,7 @@
          data-lat-tooltip='{{ shell.t("View the site") }}' aria-label='{{ shell.t("View the site") }}'>{{ shell.icon("external-link")|safe }}</a>
       <a class="lat-topnav__out lat-palette__open" href="{{ shell.base }}/palette" data-lat-widget="palette" data-palette-url="{{ shell.base }}/palette" data-palette-placeholder='{{ shell.t("Go to a page, a setting or a record") }}' data-palette-empty='{{ shell.t("Nothing matches.") }}'
          data-lat-tooltip='{{ shell.t("Go to") }}' data-lat-tooltip-hotkey="Ctrl+K" aria-label='{{ shell.t("Go to") }}'>{{ shell.icon("search")|safe }}</a>
-      <button class="lat-modebtn" type="button" data-lat-cycle-mode data-lat-tooltip='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}' data-label-light='{{ shell.t("Colour mode: Light") }}' data-label-dark='{{ shell.t("Colour mode: Dark") }}' data-label-auto='{{ shell.t("Colour mode: Auto (follows the system)") }}'><span id="lat-mode-ico">◐</span></button>
+{% if shell.mode_switch() %}      <button class="lat-modebtn" type="button" data-lat-cycle-mode data-lat-tooltip='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}' data-label-light='{{ shell.t("Colour mode: Light") }}' data-label-dark='{{ shell.t("Colour mode: Dark") }}' data-label-auto='{{ shell.t("Colour mode: Auto (follows the system)") }}'><span id="lat-mode-ico">◐</span></button>{% endif %}
       <details class="lat-usermenu">
         <summary class="lat-avatar" data-lat-tooltip="{{ shell.full_name }}">{% if let Some(url) = shell.avatar %}<img src="{{ url }}" alt="">{% else %}{{ shell.initial }}{% endif %}</summary>
         <div class="lat-usermenu__panel">

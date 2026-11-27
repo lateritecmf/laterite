@@ -1931,7 +1931,8 @@ impl InputType for UrlInput {
     }
 }
 
-/// A colour, picked with the browser's own control and stored as `#rrggbb`.
+/// A colour stored as `#rrggbb`: typed, or picked with the browser's own
+/// control beside the text. A blank text is no colour.
 struct ColorInput;
 impl InputType for ColorInput {
     fn key(&self) -> &'static str {

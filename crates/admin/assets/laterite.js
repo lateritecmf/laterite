@@ -2134,6 +2134,26 @@ window.lat.widget('reveal', function (btn) {
   return { show: function () { show(true); }, hide: function () { show(false); } };
 });
 
+// Colour: a `#rrggbb` text input with the browser's picker beside it. Picking
+// writes the text; typing a full colour moves the picker; an empty text is
+// no colour, which the picker alone could not say.
+window.lat.widget('colour', function (root) {
+  var pick = root.querySelector('input[type=color]');
+  var text = root.querySelector('input[type=text]');
+  if (!pick || !text) return;
+  function shown() { root.classList.toggle('is-empty', !/^#[0-9a-f]{6}$/i.test(text.value)); }
+  pick.addEventListener('input', function () {
+    text.value = pick.value.toUpperCase();
+    shown();
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  text.addEventListener('input', function () {
+    if (/^#[0-9a-f]{6}$/i.test(text.value)) pick.value = text.value;
+    shown();
+  });
+  shown();
+});
+
 // Form tabs: one pane of a form's tab set shows at a time. A tab opens on a
 // click, on the arrow keys from the strip, and by the address's fragment when
 // the set carries `data-linkable`, which then keeps the fragment in step. A

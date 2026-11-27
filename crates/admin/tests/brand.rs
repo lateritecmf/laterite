@@ -112,6 +112,24 @@ async fn branding_form_prefills_the_configured_name() {
         html.contains(r#"value="Configured Name""#),
         "branding form seeds the configured app name into the field"
     );
+    // An unset colour is an empty text the form submits as nothing; the
+    // picker beside it carries no name, so its black is never saved.
+    let accent = html.find("name=\"accent\"").expect(&html);
+    let tag = &html[html[..accent].rfind('<').unwrap()..];
+    let tag = &tag[..tag.find('>').unwrap()];
+    assert!(
+        tag.contains("type=\"text\"") && tag.contains("value=\"\""),
+        "{tag}"
+    );
+    assert!(tag.contains("pattern=\"#[0-9A-Fa-f]{6}\""), "{tag}");
+    assert!(
+        !html.contains("type=\"color\" id="),
+        "the picker is not the named control"
+    );
+    // The mode button switch opens on, as nothing says otherwise.
+    let switch = html.find("name=\"show_mode_switch\"").expect(&html);
+    let tag = &html[html[..switch].rfind('<').unwrap()..];
+    assert!(tag[..tag.find('>').unwrap()].contains("checked"));
 }
 
 #[tokio::test]
@@ -252,4 +270,36 @@ async fn a_logo_shows_when_its_file_is_public() {
         .unwrap();
     let (_, html) = get(app(db, "Acme"), "/admin/setup").await;
     assert!(!html.contains("/storage/media/"), "{html}");
+}
+
+#[tokio::test]
+async fn the_file_baseline_fixes_the_mode_and_colours_the_sign_in_panel() {
+    let (db, _guard) = test_db().await;
+    let auth = AuthService::new(db.clone(), AuthConfig::default());
+    let mut config = AdminConfig::default();
+    config.brand = serde_json::from_value(serde_json::json!({
+        "mode": "dark",
+        "show_mode_switch": false,
+        "palette": "forest",
+        "login_background_color": "#102030",
+    }))
+    .unwrap();
+    let app = router(
+        auth,
+        db,
+        Contributions::default(),
+        config,
+        Arc::new(CatalogStore::default()),
+    );
+    let (status, html) = get(app.clone(), "/admin/setup").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        html.contains("data-lat-mode=\"dark\" data-lat-mode-fixed"),
+        "{html}"
+    );
+    assert!(html.contains("--accent:#2F7D4F"), "{html}");
+    let (_, html) = get(app.clone(), "/admin/login").await;
+    if html.contains("lat-login__hero") {
+        assert!(html.contains("lat-login__hero--flat") && html.contains("background:#102030"));
+    }
 }

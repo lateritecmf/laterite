@@ -115,17 +115,14 @@ pub(super) fn build_message(envelope: &Envelope) -> CoreResult<LettreMessage> {
             .unwrap_or(ContentType::parse("application/octet-stream").expect("a valid type"))
     };
     // Pictures the body shows travel beside it; files hang off the whole.
-    let (shown, files): (Vec<_>, Vec<_>) = envelope
-        .attachments
-        .iter()
-        .partition(|f| f.inline.is_some());
+    let files = &envelope.attachments;
     let mut body = body;
-    if !shown.is_empty() {
+    if !envelope.inline.is_empty() {
         body = MultiPart::related().multipart(body);
-        for file in shown {
-            let cid = file.inline.clone().unwrap_or_default();
+        for image in &envelope.inline {
             body = body.singlepart(
-                LettreAttachment::new_inline(cid).body(file.bytes.clone(), typed(file)),
+                LettreAttachment::new_inline(image.cid.clone())
+                    .body(image.file.bytes.clone(), typed(&image.file)),
             );
         }
     }
@@ -242,6 +239,7 @@ mod tests {
             attachments: Vec::new(),
             sender: None,
             priority: None,
+            inline: Vec::new(),
         }
     }
 
@@ -255,6 +253,7 @@ mod tests {
             .embed("logo", "logo.png", "image/png", vec![1, 2, 3])
             .attach("terms.pdf", "application/pdf", vec![4, 5, 6]);
         envelope.attachments = message.attachments;
+        envelope.inline = message.inline;
         let built =
             String::from_utf8_lossy(&build_message(&envelope).unwrap().formatted()).to_string();
         assert!(built.contains("Sender: "), "{built}");

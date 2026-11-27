@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}" data-lat-skin="{{ skin.code }}">
+<html lang="{{ self.locale() }}" data-theme="light" data-lat-mode="{{ look.mode }}"{% if !look.mode_switch %} data-lat-mode-fixed{% endif %} data-lat-skin="{{ skin.code }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -50,7 +50,7 @@
       </div>
       <a class="lat-poweredby" href="https://laterite.rs" target="_blank" rel="noopener noreferrer"><img src="{{ self.asset("mark.png") }}" alt="" width="14" height="14">{{ self.t("Powered by Laterite") }}</a>
     </div>
-    <div class="lat-login__hero{% if look.login_background_url.is_some() %} lat-login__hero--image{% endif %}" aria-hidden="true"{% if let Some(bg) = look.login_background_url %} style="background-image:url('{{ bg }}')"{% endif %}>
+    <div class="lat-login__hero{% if look.login_background_url.is_some() %} lat-login__hero--image{% else if look.login_background_color.is_some() %} lat-login__hero--flat{% endif %}" aria-hidden="true"{% if let Some(bg) = look.login_background_url %} style="background-image:url('{{ bg }}')"{% else if let Some(colour) = look.login_background_color %} style="background:{{ colour }}"{% endif %}>
       <div class="lat-hero-blob lat-hero-blob--1"></div>
       <div class="lat-hero-blob lat-hero-blob--2"></div>
       <div class="lat-hero-blob lat-hero-blob--3"></div>

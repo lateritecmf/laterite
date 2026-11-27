@@ -17,7 +17,7 @@ fields:
 
 Key | Default | Description
 --- | --- | ---
-`input` | `text` | `text`, `email`, `tel`, `number`, `url`, `color`.
+`input` | `text` | `text`, `email`, `tel`, `number`, `url`, `color`. `color` is a `#rrggbb` text with a picker beside it; blank stores no colour.
 `placeholder` | none | The placeholder.
 `counter` | `auto` | `auto`, `true`, `false`. `auto`: with a `max_length` rule, shown once four fifths of it are used.
 `min`, `max`, `step` | none | A `number` input's bounds and step.

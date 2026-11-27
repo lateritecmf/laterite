@@ -901,6 +901,7 @@ impl Bootstrap {
             skin: config.backend.skin.clone(),
             upload_extensions: config.backend.upload_extensions.clone(),
             default_avatar: config.backend.default_avatar.clone(),
+            brand: config.backend.brand.clone(),
             origin_check_except: config.backend.origin_check_except.clone(),
             order: config.backend.order.clone(),
             menu: config.backend.menu.clone(),

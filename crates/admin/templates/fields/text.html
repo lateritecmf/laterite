@@ -1,4 +1,9 @@
-{%- if leading.is_empty() && trailing.is_empty() -%}
+{%- if input_type == "color" -%}
+<span class="lat-colour" data-lat-widget="colour">
+<input class="lat-colour__pick" type="color" value="{% if value.is_empty() %}#000000{% else %}{{ value }}{% endif %}" tabindex="-1" aria-hidden="true"{% if value.is_empty() %} data-empty{% endif %}>
+<input class="lat-input" type="text" id="{{ id }}" name="{{ name }}" value="{{ value }}" placeholder="#rrggbb" pattern="#[0-9A-Fa-f]{6}" maxlength="7" autocomplete="off" spellcheck="false"{% if required %} required{% endif %}{% for (k, v) in attrs %} {{ k }}="{{ v }}"{% endfor %}>
+</span>
+{%- else if leading.is_empty() && trailing.is_empty() -%}
 <input class="lat-input" type="{{ input_type }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if required %} required{% endif %}{% for (k, v) in attrs %} {{ k }}="{{ v }}"{% endfor %}>
 {%- else -%}
 <div class="lat-input-group">

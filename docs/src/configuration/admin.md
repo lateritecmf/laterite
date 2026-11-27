@@ -15,6 +15,9 @@ upload_extensions = []
 default_avatar = "initial"
 origin_check_except = ["/webhooks/*"]
 
+[backend.brand]                  # see Branding
+palette = "ocean"
+
 [backend.order]
 "backend.nav" = ["dashboard", "acme.shop", "media", "settings"]
 
@@ -38,6 +41,7 @@ Key | Description
 `upload_extensions` | The file extensions an upload may carry, lowercased. Empty applies the default list (images, documents, audio, video, fonts, archives). See [Media Library](../media/library.md).
 `default_avatar` | What an account with no picture shows: `initial` (the first letter of its name), a path (`/img/user.png`) or an `https` address. Default `initial`. Any other value aborts the start.
 `origin_check_except` | Paths a POST from another site may reach: an exact path, or a prefix ending in `*`. Only for endpoints that authenticate each request themselves. See [Public Routes](../screens/public-routes.md).
+`brand` | The brand's baseline under the Admin Branding screen: `palette`, `accent`, `mode`, `show_mode_switch`, `login_prompt`, `login_tagline`, `login_background_color`. See [Branding](../admin/branding.md).
 `skin` | The admin skin by code: `standard` (default), `compact`, or one a module registered. See [Skins](../admin/skins.md).
 `storage` | The directory files the admin keeps go under, relative to the working directory unless absolute. Uploaded import files go to `private` beneath it.
 

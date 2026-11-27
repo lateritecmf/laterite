@@ -187,6 +187,9 @@ a:hover{color:var(--text-link-hover);text-decoration:underline;text-underline-of
 .lat-sidebar__group:not([open]) .lat-sidebar__chevron{transform:rotate(-90deg)}
 .lat-sidebar__item{display:flex;gap:11px;align-items:flex-start;width:100%;padding:9px 14px 9px 13px;border-left:3px solid transparent;color:inherit;text-decoration:none;transition:var(--transition-control)}
 .lat-sidebar__item:hover{background:var(--alpha-bone-08);text-decoration:none}
+.lat-colour{display:flex;gap:8px;align-items:center;max-width:220px}
+.lat-colour__pick{flex:0 0 38px;width:38px;height:38px;padding:2px;border:1px solid var(--border-input);border-radius:var(--radius-control,6px);background:var(--surface-input);cursor:pointer}
+.lat-colour.is-empty .lat-colour__pick{opacity:.35}
 .lat-sidebar__heading{padding:12px 16px 4px;font-size:var(--fs-11);font-weight:var(--fw-semibold);letter-spacing:var(--ls-caps-wide);text-transform:uppercase;color:var(--bone-500)}
 .lat-sidebar__ruler,.lat-drawer__ruler{margin:8px 16px;border:0;border-top:1px solid var(--alpha-bone-08)}
 .lat-sidebar__primary{display:flex;justify-content:center;gap:8px;margin:10px 14px}
@@ -1055,7 +1058,7 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-topnav__brand img,.lat-drawer__brand img{max-height:28px;width:auto}
 .lat-login__brand img{max-height:40px;width:auto}
 .lat-login__hero--image{background-size:cover;background-position:center}
-.lat-login__hero--image .lat-hero-blob{display:none}
+.lat-login__hero--image .lat-hero-blob,.lat-login__hero--flat .lat-hero-blob{display:none}
 .lat-login__hero--image .lat-hero__caption{background:linear-gradient(transparent,rgba(20,12,8,.72));padding-top:80px}
 .lat-login--plain .lat-login__hero{display:none}
 .lat-login--plain .lat-login__form{width:100%;flex:1 1 auto}
