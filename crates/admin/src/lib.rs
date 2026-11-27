@@ -314,6 +314,8 @@ pub(crate) struct AdminState {
     parameters: laterite_core::parameters::Parameters,
     /// The extensions an upload may carry, lowercased.
     upload_extensions: Arc<Vec<String>>,
+    /// The image an account with no picture shows; `None` draws its initial.
+    default_avatar: Option<Arc<str>>,
     nav: Arc<nav::NavTree>,
     /// The menu entries the tree was built from (after the deployment's
     /// moves), for an operator whose own moves need a tree of their own.
@@ -438,6 +440,7 @@ impl AdminState {
             ),
             mail_config: Arc::new(laterite_core::config::MailConfig::default()),
             upload_extensions: Arc::new(upload_extensions(&[])),
+            default_avatar: None,
             db,
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
@@ -570,6 +573,9 @@ pub struct AdminConfig {
     /// The file extensions an upload may carry; empty means
     /// [`laterite_media::sanitize::DEFAULT_EXTENSIONS`]. Compared lowercased.
     pub upload_extensions: Vec<String>,
+    /// What an account with no picture shows (`backend.default_avatar`):
+    /// `initial`, or the address of an image.
+    pub default_avatar: String,
     /// Paths left out of the origin check (`backend.origin_check_except`): an
     /// exact path or a prefix ending in `*`. A public route registered with
     /// [`routes::PublicRouteReg::skip_origin_check`] is added to these.
@@ -618,6 +624,7 @@ impl Default for AdminConfig {
             storage_dir: "storage".to_string(),
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
+            default_avatar: "initial".to_string(),
             origin_check_except: Vec::new(),
             order: std::collections::BTreeMap::new(),
             menu: std::collections::BTreeMap::new(),
@@ -730,6 +737,9 @@ pub struct Shell {
     nav: Vec<NavView>,
     full_name: String,
     initial: String,
+    /// The address of the operator's picture, or of the deployment's default
+    /// one; `None` draws the initial.
+    pub(crate) avatar: Option<String>,
     /// The timezone this operator's timestamps render in, resolved once per
     /// request: the operator's own preference if set and valid, else the
     /// deployment default. List and detail screens format dates in it.
@@ -961,6 +971,7 @@ impl Shell {
             crumbs,
             tabs: Vec::new(),
             badges: counter::Badges::new(),
+            avatar: None,
             perms: user.permissions.clone(),
             full_name,
             initial,
@@ -1183,6 +1194,7 @@ impl Shell {
             crumbs: Vec::new(),
             tabs: Vec::new(),
             badges: counter::Badges::new(),
+            avatar: None,
             perms: Default::default(),
             csrf_token: "test-csrf-token".to_string(),
             flash: Vec::new(),
@@ -1250,16 +1262,19 @@ struct OwnMenu {
     /// The settings sidebar groups they folded, by category key.
     settings_collapsed: Vec<String>,
     moves: std::collections::BTreeMap<String, laterite_core::arrange::Move>,
+    /// The address of their picture, when they set one.
+    avatar: Option<String>,
 }
 
 impl OwnMenu {
-    /// One query for the four preferences, on every request.
+    /// One query for the five preferences, on every request.
     async fn load(state: &AdminState, user_id: i64) -> Self {
         let keys = [
             nav::order_preference(nav::TOP_HIERARCHY),
             nav::order_preference(settings::HIERARCHY),
             nav::collapsed_preference(settings::HIERARCHY),
             nav::MOVES_PREFERENCE.to_string(),
+            medialib::avatar::PREFERENCE.to_string(),
         ];
         let wanted: Vec<&str> = keys.iter().map(String::as_str).collect();
         let mut stored = laterite_auth::store::user_preferences(&state.db, user_id, &wanted)
@@ -1275,11 +1290,13 @@ impl OwnMenu {
             .remove(&keys[3])
             .map(|json| nav::operator_moves(&json))
             .unwrap_or_default();
+        let avatar = stored.remove(&keys[4]).filter(|url| !url.is_empty());
         Self {
             nav_order,
             settings_order,
             settings_collapsed,
             moves,
+            avatar,
         }
     }
 }
@@ -2796,6 +2813,7 @@ pub fn router(
         mail,
         mail_config: Arc::new(config.mail_config.clone()),
         upload_extensions: Arc::new(upload_extensions(&config.upload_extensions)),
+        default_avatar: default_avatar(&config.default_avatar),
         db,
         nav: Arc::new(nav),
         nav_items: Arc::new(nav_items),
@@ -3188,6 +3206,10 @@ pub fn router(
             .route(
                 &format!("{admin_path}/users/{{id}}/active"),
                 post(users::set_active),
+            )
+            .route(
+                &format!("{admin_path}/users/{{id}}/superuser"),
+                post(users::set_superuser),
             )
             .route(
                 &format!("{admin_path}/users/{{id}}/details"),
@@ -3929,6 +3951,19 @@ pub struct AssetReg {
 /// The upload allow-list as the route context carries it: the configured
 /// extensions lowercased and trimmed of a leading dot, or the media crate's
 /// default list when none are configured.
+/// The image `backend.default_avatar` names, or `None` for `initial`. Anything
+/// that is neither `initial`, a path nor an `https` address aborts the start.
+fn default_avatar(configured: &str) -> Option<Arc<str>> {
+    let value = configured.trim();
+    if value.is_empty() || value == "initial" {
+        return None;
+    }
+    if value.starts_with('/') || value.starts_with("https://") {
+        return Some(Arc::from(value));
+    }
+    panic!("backend.default_avatar is `{value}`: use `initial`, a path or an https address");
+}
+
 pub(crate) fn upload_extensions(configured: &[String]) -> Vec<String> {
     let listed: Vec<String> = configured
         .iter()
@@ -5508,6 +5543,10 @@ async fn require_auth(
     );
     shell.nav_logo = state.nav_logo().await;
     shell.tabs = tabs;
+    shell.avatar = own
+        .avatar
+        .clone()
+        .or_else(|| state.default_avatar.as_deref().map(str::to_string));
     for tab in &mut shell.nav {
         if let Some(badge) = badges.get(&tab.key) {
             tab.badge = badge.clone();
@@ -6895,6 +6934,7 @@ fn preferences_view(
         password_expired: account.due == Some(laterite_auth::PasswordDue::Expired),
         expire_days: account.expire_days,
         password_hint: account.password_hint,
+        own_avatar: account.own_avatar,
         first_name: user.user.first_name.clone(),
         last_name: user.user.last_name.clone().unwrap_or_default(),
         email: user.user.email.clone(),
@@ -6915,6 +6955,8 @@ struct AccountSecurity {
     expire_days: i64,
     /// The policy's rules, as the line under a new password.
     password_hint: String,
+    /// The address of the account's own picture, when it set one.
+    own_avatar: Option<String>,
 }
 
 async fn account_security(
@@ -6939,6 +6981,15 @@ async fn account_security(
         due: state.auth.password_due(user.user.id).await.unwrap_or(None),
         expire_days: i64::from(state.auth.password_policy().expire_days),
         password_hint: password_hint(state.auth.password_policy(), &shell.i18n),
+        own_avatar: laterite_auth::store::user_preference(
+            &state.db,
+            user.user.id,
+            medialib::avatar::PREFERENCE,
+        )
+        .await
+        .ok()
+        .flatten()
+        .filter(|url| !url.is_empty()),
     }
 }
 
@@ -7143,6 +7194,7 @@ fn backend_users_list_config() -> list::ListConfig {
             list::ListColumn::new("last_name", "Last name"),
             list::ListColumn::new("is_superuser", "Superuser").yes_no(),
             list::ListColumn::new("is_active", "Active").yes_no(),
+            list::ListColumn::new("last_login_at", "Last sign-in").datetime(),
             list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),
@@ -7285,6 +7337,8 @@ struct PreferencesTemplate {
     expire_days: i64,
     /// The policy's rules, as the line under the new password.
     password_hint: String,
+    /// The address of the operator's own picture, when they set one.
+    own_avatar: Option<String>,
     /// The operator's own name and email, for the details form.
     first_name: String,
     last_name: String,
@@ -7817,6 +7871,7 @@ mod tests {
             db: db.clone(),
             parameters: laterite_core::parameters::Parameters::new(db.clone()),
             upload_extensions: Arc::new(upload_extensions(&[])),
+            default_avatar: None,
             nav: Arc::new(nav::NavTree::default()),
             nav_items: Arc::new(Vec::new()),
             settings: Arc::new(Vec::new()),

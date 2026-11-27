@@ -1308,3 +1308,108 @@ async fn a_file_still_in_use_keeps_its_folder_from_a_delete_with_contents() {
     assert!(filed(&db).await.is_empty());
     assert!(folder::all(&db).await.unwrap().is_empty());
 }
+
+/// Posts `files` as a multipart form to `path`.
+async fn send_files(
+    app: &Router,
+    path: &str,
+    session: &str,
+    files: &[(&str, &[u8])],
+) -> (StatusCode, String) {
+    let req = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("cookie", format!("{SESSION_COOKIE}={session}"))
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", "tok-123")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(multipart(&[], files)))
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let status = response.status();
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    (status, location)
+}
+
+#[tokio::test]
+async fn an_account_sets_and_removes_its_picture() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, plain) = sessions(&db).await;
+    let root_id = auth_store::find_user_by_username(&db, "root")
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    // With no picture the top bar shows the initial.
+    let (_, html, _) = get(&app, "/admin/preferences", Some(&root)).await;
+    assert!(html.contains("Your picture"));
+    assert!(!html.contains("<img src=\"/storage/media/"));
+
+    // A file that is no image is refused and nothing is kept.
+    let (status, location) = send_files(
+        &app,
+        "/admin/media-files/avatar",
+        &root,
+        &[("notes.txt", b"hello, not a picture")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(location, "/admin/preferences#picture");
+    assert_eq!(auth_store::user_avatar(&db, root_id).await.unwrap(), None);
+
+    // A picture is stored, linked to the account and shown in the top bar.
+    let (status, _) = send_files(
+        &app,
+        "/admin/media-files/avatar",
+        &root,
+        &[("me.png", &wide_png(64, 64))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let media_id = auth_store::user_avatar(&db, root_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let users = link::users_of(&db, media_id).await.unwrap();
+    assert_eq!(users.len(), 1);
+    let (_, html, _) = get(&app, "/admin/preferences", Some(&root)).await;
+    assert!(html.contains("Picture saved."));
+    assert!(html.contains("class=\"lat-avatar\""));
+    assert!(html.contains("<img src=\"/storage/media/"), "{html}");
+    // It is the account's, not a library file.
+    let (_, library, _) = get(&app, "/admin/media", Some(&root)).await;
+    assert!(!library.contains("title=\"me.png\""));
+
+    // Someone without the permission cannot set another account's picture.
+    let (status, _) = send_files(
+        &app,
+        &format!("/admin/media-files/avatar/{root_id}"),
+        &plain,
+        &[("other.png", &wide_png(32, 32))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        auth_store::user_avatar(&db, root_id).await.unwrap(),
+        Some(media_id)
+    );
+
+    // Removing it brings the initial back and frees the file for collection.
+    let (status, _) = post(&app, "/admin/media-files/avatar/remove", &root, "").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(auth_store::user_avatar(&db, root_id).await.unwrap(), None);
+    assert!(link::users_of(&db, media_id).await.unwrap().is_empty());
+    let (_, html, _) = get(&app, "/admin/preferences", Some(&root)).await;
+    assert!(!html.contains("<img src=\"/storage/media/"));
+}

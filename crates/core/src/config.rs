@@ -448,6 +448,10 @@ pub struct BackendConfig {
     /// Empty, the admin's default list applies: images, documents, audio,
     /// video, fonts and archives, with no scripts, markup or stylesheets.
     pub upload_extensions: Vec<String>,
+    /// What an account with no picture shows: `initial` (the default) for the
+    /// first letter of its name, or the address of an image (`/img/user.png`,
+    /// `https://cdn.acme.com/user.png`).
+    pub default_avatar: String,
     /// Paths left out of the check that refuses a POST from another site: an
     /// exact path (`/api/capture`) or a prefix ending in `*` (`/webhooks/*`).
     /// For endpoints that authenticate each request themselves.
@@ -468,6 +472,7 @@ impl Default for BackendConfig {
             storage: "storage".to_string(),
             skin: "standard".to_string(),
             upload_extensions: Vec::new(),
+            default_avatar: "initial".to_string(),
             origin_check_except: Vec::new(),
         }
     }

@@ -102,6 +102,81 @@ pub(crate) async fn set_active(
     Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
 }
 
+/// What the superuser switch submits.
+#[derive(serde::Deserialize)]
+pub(crate) struct SuperuserForm {
+    #[serde(default)]
+    superuser: String,
+}
+
+/// Makes an account a superuser or an ordinary account again, on a
+/// superuser's say alone.
+pub(crate) async fn set_superuser(
+    State(state): State<AdminState>,
+    Extension(editor): Extension<AuthenticatedUser>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Path(id): Path<String>,
+    Form(form): Form<SuperuserForm>,
+) -> Result<Response, AdminError> {
+    editor
+        .require(MANAGE_USERS)
+        .map_err(|_| AdminError::Forbidden)?;
+    if !editor.user.is_superuser {
+        return Err(AdminError::Forbidden);
+    }
+    let target: i64 = id.parse().map_err(|_| AdminError::NotFound)?;
+    let on = form.superuser == "1";
+    match state
+        .auth
+        .set_user_superuser(editor.user.id, target, on)
+        .await
+    {
+        Ok(()) => {
+            let label = laterite_auth::store::find_user_by_id(&state.db, target)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username);
+            crate::audit::record(
+                &state,
+                &editor,
+                if on {
+                    "backend.user.grant_superuser"
+                } else {
+                    "backend.user.revoke_superuser"
+                },
+                Some("backend_user"),
+                Some(&id),
+                label.as_deref(),
+                None,
+            )
+            .await;
+            session.push_flash(
+                crate::session::FlashLevel::Success,
+                if on {
+                    t!("That account is now a superuser.")
+                } else {
+                    t!("That account is no longer a superuser.")
+                },
+            );
+        }
+        Err(laterite_auth::AuthError::Refused(reason)) => {
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                laterite_core::Text::dynamic(&reason),
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "changing an account's superuser state failed");
+            session.push_flash(
+                crate::session::FlashLevel::Error,
+                t!("That account could not be changed."),
+            );
+        }
+    }
+    Ok(Redirect::to(&format!("{}/users/{id}/edit", state.admin_path)).into_response())
+}
+
 /// Gives an account a new temporary password on an administrator's behalf.
 /// Never your own (that is Preferences), and never an account holding more
 /// than you do: signing in as it would be an escalation.
@@ -498,6 +573,10 @@ pub(crate) async fn edit_form(
     let last_name = row.get_text_opt("last_name").unwrap_or_default();
     let email = row.get_text("email").unwrap_or_default();
     let is_superuser = row.get_bool("is_superuser").unwrap_or(false);
+    // A superuser's page opens for a superuser alone.
+    if is_superuser && !editor.user.is_superuser {
+        return Err(AdminError::NotFound);
+    }
     let is_active = row.get_bool("is_active").unwrap_or(true);
     let password_changed = row
         .get_text_opt("password_changed_at")
@@ -569,6 +648,22 @@ pub(crate) async fn edit_form(
         None => false,
     };
     page.details_action = format!("{}/users/{id}/details", state.admin_path);
+    page.can_set_superuser = editor.user.is_superuser
+        && editor.user.id.to_string() != id
+        && editor.permissions.allows(crate::users::MANAGE_USERS);
+    page.superuser_action = format!("{}/users/{id}/superuser", state.admin_path);
+    page.avatar = laterite_auth::store::user_preference(
+        &state.db,
+        target_id,
+        crate::medialib::avatar::PREFERENCE,
+    )
+    .await
+    .ok()
+    .flatten()
+    .filter(|url| !url.is_empty());
+    if editor.user.id != target_id {
+        page.avatar_action = format!("{}/media-files/avatar/{id}", state.admin_path);
+    }
     page.first_name = first_name.clone();
     page.last_name = last_name.clone().unwrap_or_default();
     Ok(render(page))
@@ -900,6 +995,10 @@ fn build(
         locked: false,
         unlock_action: String::new(),
         can_edit_details: false,
+        can_set_superuser: false,
+        superuser_action: String::new(),
+        avatar: None,
+        avatar_action: String::new(),
         details_action: String::new(),
         first_name: String::new(),
         last_name: String::new(),
@@ -1007,6 +1106,15 @@ struct UsersFormTemplate {
     /// they lack.
     can_edit_details: bool,
     details_action: String,
+    /// The viewer is a superuser looking at another account: the superuser
+    /// switch is offered.
+    can_set_superuser: bool,
+    superuser_action: String,
+    /// The account's picture, when it has one.
+    avatar: Option<String>,
+    /// Where an administrator posts a picture for this account; empty on
+    /// your own page, where Preferences is the place.
+    avatar_action: String,
     first_name: String,
     last_name: String,
 }

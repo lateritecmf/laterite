@@ -297,9 +297,11 @@ async fn an_account_holding_more_than_you_cannot_be_reset() {
         .unwrap()
         .id;
 
-    let (status, html) = page(&db, &format!("/admin/users/{root_id}/edit"), &ada_token).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(!html.contains("Reset password"), "{html}");
+    // A superuser's page does not open for anyone else, and the reset is
+    // refused when asked for directly.
+    let (status, _) = page(&db, &format!("/admin/users/{root_id}/edit"), &ada_token).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, html) = page(&db, "/admin/users", &ada_token).await;
     let resp = post(
         &db,
         &ada_token,

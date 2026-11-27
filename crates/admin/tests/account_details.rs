@@ -212,3 +212,155 @@ async fn anyone_changes_their_own_name_and_needs_the_password_for_the_email() {
     assert_eq!(user.email, "new@acme.test");
     assert_eq!(user.username, "ada");
 }
+
+async fn status(db: &Db, token: &str, path: &str) -> StatusCode {
+    app(db)
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header("cookie", format!("laterite_session={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+/// Gives `user` a role holding `backend.manage_users`.
+async fn make_manager(db: &Db, user: i64) {
+    let role = laterite_auth::store::create_role(
+        db,
+        "managers",
+        "Managers",
+        &["backend.manage_users".to_string()],
+    )
+    .await
+    .unwrap();
+    laterite_auth::store::assign_role(db, user, role)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_superuser_makes_and_unmakes_another_superuser() {
+    let (db, _g) = test_db().await;
+    let (root, root_token) = account(&db, "root", true).await;
+    let (editor, editor_token) = account(&db, "editor", false).await;
+    make_manager(&db, editor).await;
+
+    // The switch is offered to a superuser, on another account.
+    let html = page(&db, &root_token, &format!("/admin/users/{editor}/edit")).await;
+    assert!(html.contains("Make superuser"));
+    let own = page(&db, &root_token, &format!("/admin/users/{root}/edit")).await;
+    assert!(!own.contains("Remove superuser"));
+
+    // A manager who is not a superuser is not offered it and is refused.
+    let (other, _) = account(&db, "other", false).await;
+    let html = page(&db, &editor_token, &format!("/admin/users/{other}/edit")).await;
+    assert!(!html.contains("Make superuser"));
+    let refused = post(
+        &db,
+        &editor_token,
+        &format!("/admin/users/{other}/superuser"),
+        "superuser=1",
+    )
+    .await;
+    assert_eq!(refused, StatusCode::FORBIDDEN);
+    assert!(!stored(&db, other).await.is_superuser);
+    // A superuser's page does not open for them either.
+    assert_eq!(
+        status(&db, &editor_token, &format!("/admin/users/{root}/edit")).await,
+        StatusCode::NOT_FOUND
+    );
+
+    // The superuser grants it, and takes it away again.
+    post(
+        &db,
+        &root_token,
+        &format!("/admin/users/{other}/superuser"),
+        "superuser=1",
+    )
+    .await;
+    assert!(stored(&db, other).await.is_superuser);
+    let html = page(&db, &root_token, &format!("/admin/users/{other}/edit")).await;
+    assert!(html.contains("That account is now a superuser."));
+    assert!(html.contains("Remove superuser"));
+    post(
+        &db,
+        &root_token,
+        &format!("/admin/users/{other}/superuser"),
+        "superuser=0",
+    )
+    .await;
+    assert!(!stored(&db, other).await.is_superuser);
+
+    // Never on your own account, so the last superuser cannot step down.
+    post(
+        &db,
+        &root_token,
+        &format!("/admin/users/{root}/superuser"),
+        "superuser=0",
+    )
+    .await;
+    assert!(stored(&db, root).await.is_superuser);
+}
+
+#[tokio::test]
+async fn the_last_active_superuser_keeps_the_role() {
+    let (db, _g) = test_db().await;
+    let (root, _) = account(&db, "root", true).await;
+    let (second, second_token) = account(&db, "second", true).await;
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    // With root deactivated, `second` is the only active superuser; root is
+    // not, so root can still be unmade.
+    svc.set_user_active(second, root, false).await.unwrap();
+    post(
+        &db,
+        &second_token,
+        &format!("/admin/users/{root}/superuser"),
+        "superuser=0",
+    )
+    .await;
+    assert!(!stored(&db, root).await.is_superuser);
+    // The service refuses to take the last active superuser away, whoever asks.
+    svc.set_user_superuser(second, root, true).await.unwrap();
+    svc.set_user_active(second, root, true).await.unwrap();
+    svc.set_user_active(root, second, false).await.unwrap();
+    svc.set_user_active(root, second, true).await.unwrap();
+    assert!(matches!(
+        svc.set_user_superuser(second, second, false).await,
+        Err(laterite_auth::AuthError::Refused(_))
+    ));
+}
+
+#[tokio::test]
+async fn the_users_list_shows_when_each_account_last_signed_in() {
+    let (db, _g) = test_db().await;
+    let (_, root_token) = account(&db, "root", true).await;
+    let svc = AuthService::new(db.clone(), AuthConfig::default());
+    svc.create_operator(
+        NewOperator {
+            username: "quiet",
+            email: "quiet@acme.test",
+            first_name: "Quiet",
+            last_name: None,
+            password: PASSWORD,
+            timezone: None,
+        },
+        &laterite_core::Actor::system("test"),
+    )
+    .await
+    .unwrap();
+    let html = page(&db, &root_token, "/admin/users").await;
+    assert!(html.contains("Last sign-in"));
+    let year = chrono::Utc::now().format("%Y").to_string();
+    let row = |name: &str| {
+        let at = html.find(&format!(">{name}<")).unwrap();
+        let end = html[at..].find("</tr>").unwrap();
+        html[at..at + end].to_string()
+    };
+    // Root signed in just now; the quiet account never has.
+    assert!(row("root").matches(&year).count() >= 2, "{}", row("root"));
+    assert_eq!(row("quiet").matches(&year).count(), 1, "{}", row("quiet"));
+}

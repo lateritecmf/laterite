@@ -352,6 +352,11 @@ pub fn framework_routes(admin_path: &str) -> Vec<RouteRow> {
         ),
         (
             &["POST"],
+            "/users/{id}/superuser",
+            manage("backend.manage_users"),
+        ),
+        (
+            &["POST"],
             "/users/{id}/password",
             manage("backend.manage_users"),
         ),

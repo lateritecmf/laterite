@@ -190,7 +190,6 @@ async fn an_operator_cannot_change_their_own_roles() {
 #[tokio::test]
 async fn a_superuser_is_offered_no_roles() {
     let (db, _guard) = test_db().await;
-    let (_, token) = operator(&db, "manager", &[MANAGE]).await;
     let svc = AuthService::new(db.clone(), AuthConfig::default());
     let target = svc
         .create_superuser(NewOperator {
@@ -203,6 +202,26 @@ async fn a_superuser_is_offered_no_roles() {
         })
         .await
         .unwrap();
+    // A superuser's page opens for a superuser alone.
+    svc.create_superuser(NewOperator {
+        username: "boss",
+        email: "boss@acme.test",
+        first_name: "Boss",
+        last_name: None,
+        password: "bosspw12345",
+        timezone: None,
+    })
+    .await
+    .unwrap();
+    let token = svc
+        .authenticate(
+            "boss",
+            "bosspw12345",
+            &laterite_auth::RequestContext::default(),
+        )
+        .await
+        .unwrap()
+        .token;
     let html = page(&db, &token, target).await;
     assert!(html.contains("holds every permission"));
     assert!(!html.contains(r#"name="role""#));

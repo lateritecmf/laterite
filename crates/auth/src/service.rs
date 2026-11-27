@@ -668,6 +668,7 @@ impl AuthService {
         .await?;
         self.log(Some(user.id), username, AccessEvent::LoginSuccess, ctx)
             .await?;
+        store::touch_last_login(&self.db, user.id).await?;
 
         Ok(IssuedSession {
             token,
@@ -1309,6 +1310,49 @@ impl AuthService {
         }
 
         if store::set_user_active(&self.db, user_id, active).await? == 0 {
+            return Err(AuthError::SessionInvalid);
+        }
+        Ok(())
+    }
+
+    /// Makes an account a superuser, or an ordinary account again. Only a
+    /// superuser may, never on their own account, and never taking the last
+    /// active superuser away: each returns [`AuthError::Refused`] with the
+    /// reason.
+    pub async fn set_user_superuser(
+        &self,
+        actor_id: i64,
+        user_id: i64,
+        on: bool,
+    ) -> Result<(), AuthError> {
+        let actor = store::find_user_by_id(&self.db, actor_id)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+        if !actor.is_superuser {
+            return Err(AuthError::Refused(
+                "Only a superuser can make or unmake a superuser.".to_string(),
+            ));
+        }
+        if actor_id == user_id {
+            return Err(AuthError::Refused(
+                "You cannot change this on your own account.".to_string(),
+            ));
+        }
+        let user = store::find_user_by_id(&self.db, user_id)
+            .await?
+            .ok_or(AuthError::SessionInvalid)?;
+        if !on
+            && user.is_superuser
+            && user.is_active
+            && store::other_active_superusers(&self.db, user_id).await? == 0
+        {
+            return Err(AuthError::Refused(
+                "This is the last active superuser; the panel would have no \
+                 administrator left."
+                    .to_string(),
+            ));
+        }
+        if store::set_user_superuser(&self.db, user_id, on).await? == 0 {
             return Err(AuthError::SessionInvalid);
         }
         Ok(())

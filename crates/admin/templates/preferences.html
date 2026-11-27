@@ -27,6 +27,24 @@
   </form>
 </div>
 
+<div class="lat-toolbar lat-toolbar--section" id="picture"><h2>{{ shell.t("Your picture") }}</h2></div>
+<div class="lat-card lat-card--form">
+  <div class="lat-picture">
+    <span class="lat-avatar lat-avatar--lg">{% if let Some(url) = own_avatar %}<img src="{{ url }}" alt="">{% else %}{{ shell.initial }}{% endif %}</span>
+    <form method="post" action="{{ shell.base }}/media-files/avatar" enctype="multipart/form-data" class="lat-picture__form">
+      {% include "_csrf.html" %}
+      <input class="lat-input" type="file" name="file" accept="image/png,image/jpeg,image/webp,image/gif" required aria-label='{{ shell.t("Picture") }}'>
+      <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Upload") }}</button>
+    </form>
+    {% if own_avatar.is_some() %}
+    <form method="post" action="{{ shell.base }}/media-files/avatar/remove">
+      {% include "_csrf.html" %}
+      <button class="lat-btn lat-btn--ghost lat-btn--sm" type="submit">{{ shell.t("Remove") }}</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="lat-help">{{ shell.t("A square image up to 5 MB. Shown in the top bar and on your account's page.") }}</p>
+</div>
 <div class="lat-toolbar lat-toolbar--section" id="details"><h2>{{ shell.t("Your details") }}</h2></div>
 <div class="lat-card lat-card--form">
   <form method="post" action="{{ shell.base }}/preferences/details" data-lat-widget="form">

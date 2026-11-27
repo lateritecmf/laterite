@@ -32,6 +32,7 @@ use laterite_media::{
 use crate::html::Markup;
 use crate::routes::{PublicRoute, PublicRouteReg, RouteCtx, Screen, ScreenReg};
 
+pub(crate) mod avatar;
 pub mod field;
 use crate::session::{FlashLevel, SessionHandle};
 use crate::upload::VerifiedUpload;
@@ -259,6 +260,11 @@ pub(crate) fn private_files(ctx: &RouteCtx) -> Router {
     Router::new()
         // The tiles of a `media` field, for anyone who can see the form.
         .route("/resolve", get(resolve))
+        // An account's picture: its owner's, or an administrator's, to set.
+        .route("/avatar", post(avatar::upload_own))
+        .route("/avatar/remove", post(avatar::remove_own))
+        .route("/avatar/{user_id}", post(avatar::upload_for))
+        .route("/avatar/{user_id}/remove", post(avatar::remove_for))
         .route("/{id}/{*name}", get(serve_private))
         .with_state(AppState::new(ctx))
 }

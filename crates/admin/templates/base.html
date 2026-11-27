@@ -50,7 +50,7 @@
          data-lat-tooltip='{{ shell.t("Go to") }}' data-lat-tooltip-hotkey="Ctrl+K" aria-label='{{ shell.t("Go to") }}'>{{ shell.icon("search")|safe }}</a>
       <button class="lat-modebtn" type="button" data-lat-cycle-mode data-lat-tooltip='{{ shell.t("Colour mode") }}' aria-label='{{ shell.t("Colour mode") }}' data-label-light='{{ shell.t("Colour mode: Light") }}' data-label-dark='{{ shell.t("Colour mode: Dark") }}' data-label-auto='{{ shell.t("Colour mode: Auto (follows the system)") }}'><span id="lat-mode-ico">◐</span></button>
       <details class="lat-usermenu">
-        <summary class="lat-avatar" data-lat-tooltip="{{ shell.full_name }}">{{ shell.initial }}</summary>
+        <summary class="lat-avatar" data-lat-tooltip="{{ shell.full_name }}">{% if let Some(url) = shell.avatar %}<img src="{{ url }}" alt="">{% else %}{{ shell.initial }}{% endif %}</summary>
         <div class="lat-usermenu__panel">
           <div class="lat-usermenu__name">{{ shell.full_name }}</div>
           <a class="lat-usermenu__item" href="{{ shell.base }}/preferences">{{ shell.t("Preferences") }}</a>

@@ -60,8 +60,12 @@ Page | Does
 --- | ---
 `/admin/users/new` | Creates the account, shows the temporary password once, and mails `laterite.auth::invite` with a link to set a password; the link works for seven days.
 `/admin/users/<id>/edit` | Details: the account's first name, last name, username and email, changed by a user holding `backend.manage_users`. A username or email another account holds is refused.
+`/admin/users/<id>/edit` | Make superuser, Remove superuser: offered to a superuser on another account. The last active superuser keeps it. A superuser's page opens for a superuser alone.
+`/admin/users` | Lists each account's last sign-in.
+`/admin/preferences` | Your picture: a PNG, JPEG, WebP or GIF up to 5 MB, shown in the top bar; Remove brings the default back.
+`/admin/users/<id>/edit` | Upload picture, Remove picture: for a user holding `backend.manage_users`, a superuser's by a superuser alone.
 `/admin/preferences` | Your details: a user's own first name, last name and email. A new email asks for the current password; the username is changed by an administrator.
-`/admin/forgot` | Linked from the sign-in page. Takes a username or email address and mails `laterite.auth::reset` with a link that works for one hour; the page says the same whether or not the account exists, and one address may ask five times in fifteen minutes.
+`/admin/forgot` | Linked from the sign-in page. Takes a username or email address and mails `laterite.auth::reset` with a link that works for `password_policy.reset_expire_minutes` (one hour); the page says the same whether or not the account exists, and one address may ask five times in fifteen minutes.
 `/admin/set-password/<token>` | Opened from either link: a new password, checked against the password policy, then the sign-in page.
 
 Both templates are edited under **Settings → System → Mail Templates**. The mail goes through the configured transport; with the `log` driver it sits in the Mail Log.

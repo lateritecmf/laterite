@@ -35,6 +35,10 @@ pub(crate) enum BackendUsers {
     PasswordChangedAt,
     /// Set while the account holds a temporary password it must replace.
     MustChangePassword,
+    /// When the account last signed in.
+    LastLoginAt,
+    /// The media record of the account's picture.
+    AvatarId,
     CreatedAt,
     UpdatedAt,
 }

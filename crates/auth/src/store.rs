@@ -916,6 +916,77 @@ pub(crate) async fn must_change_password(db: &Db, user_id: i64) -> Result<bool, 
     }
 }
 
+/// Makes the account a superuser, or an ordinary account again.
+pub(crate) async fn set_user_superuser(db: &Db, user_id: i64, on: bool) -> Result<u64, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::IsSuperuser, on)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    Ok(bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?
+        .rows_affected())
+}
+
+/// Stamps the account as having signed in now.
+pub(crate) async fn touch_last_login(db: &Db, user_id: i64) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::LastLoginAt, now_ts())
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// Sets or clears the media record that is the account's picture.
+pub async fn set_user_avatar(
+    db: &Db,
+    user_id: i64,
+    media_id: Option<i64>,
+) -> Result<(), AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendUsers::Table)
+            .value(BackendUsers::AvatarId, media_id)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
+/// The media record that is the account's picture, when it has one.
+pub async fn user_avatar(db: &Db, user_id: i64) -> Result<Option<i64>, AuthError> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .column(BackendUsers::AvatarId)
+            .from(BackendUsers::Table)
+            .and_where(Expr::col(BackendUsers::Id).eq(user_id))
+            .to_owned(),
+    );
+    let row = bind_values(sqlx::query(&sql), values)
+        .fetch_optional(&db.pool)
+        .await?;
+    Ok(match row {
+        Some(row) => row.get_int_opt("avatar_id")?,
+        None => None,
+    })
+}
+
 /// Whether the account holds a temporary password, and when its password
 /// was last set (the day it was created, when never changed). `None` for an
 /// account that does not exist.
