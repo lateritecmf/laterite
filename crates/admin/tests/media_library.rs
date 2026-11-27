@@ -1531,3 +1531,49 @@ async fn a_change_to_a_file_or_folder_is_announced() {
         FolderChange::Removed
     )));
 }
+
+#[tokio::test]
+async fn an_image_is_resized_by_one_side_or_both_and_after_a_crop() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    upload(&app, &root, &[], &[("wide.png", &wide_png(400, 200))]).await;
+    let listed = laterite_media::library::list(&db, &laterite_media::library::Listing::default())
+        .await
+        .unwrap();
+    let r = listed.items[0].clone();
+    let sized = |location: String| {
+        let db = db.clone();
+        async move {
+            let id: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
+            let copy = record::find(&db, id).await.unwrap().unwrap();
+            (
+                copy.original_name,
+                copy.width.unwrap(),
+                copy.height.unwrap(),
+            )
+        }
+    };
+
+    // One side: the other follows the image's shape.
+    let path = format!("/admin/media/{}/crop", r.id);
+    let (status, location) = post(&app, &path, &root, "rw=100&rh=&mode=new").await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        sized(location).await,
+        ("wide-resized.png".to_string(), 100, 50)
+    );
+    // Both sides: exactly that.
+    let (_, location) = post(&app, &path, &root, "rw=120&rh=120&mode=new").await;
+    let (_, w, h) = sized(location).await;
+    assert_eq!((w, h), (120, 120));
+    // A drawn area, then a size: the crop scaled.
+    let (_, location) = post(&app, &path, &root, "x=0&y=0&w=200&h=200&rh=50&mode=new").await;
+    assert_eq!(sized(location).await, ("wide-crop.png".to_string(), 50, 50));
+    // Neither an area nor a size is refused, and the page offers the dialog.
+    let (_, location) = post(&app, &path, &root, "mode=new").await;
+    assert_eq!(location, format!("/admin/media/{}", r.id));
+    let (_, html, _) = get(&app, &location, Some(&root)).await;
+    assert!(html.contains("id=\"resize-image\"") && html.contains("name=\"rw\""));
+}

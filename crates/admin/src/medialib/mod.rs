@@ -1322,8 +1322,10 @@ async fn index(
     let sort_links = [
         ("newest", shell.t("Newest first")),
         ("oldest", shell.t("Oldest first")),
-        ("name", shell.t("Name")),
+        ("name", shell.t("Name, A to Z")),
+        ("name_desc", shell.t("Name, Z to A")),
         ("size", shell.t("Largest first")),
+        ("smallest", shell.t("Smallest first")),
     ]
     .into_iter()
     .map(|(code, label)| NavLink {
@@ -2519,6 +2521,23 @@ struct CropForm {
     /// original; `replace` rewrites this file's bytes.
     #[serde(default)]
     mode: String,
+    /// The width to scale the result to; blank or `0` leaves it.
+    #[serde(default, deserialize_with = "blank_as_zero")]
+    rw: u32,
+    /// The height to scale the result to; blank or `0` leaves it.
+    #[serde(default, deserialize_with = "blank_as_zero")]
+    rh: u32,
+}
+
+/// A number field left blank reads as zero.
+fn blank_as_zero<'de, D: serde::Deserializer<'de>>(de: D) -> Result<u32, D::Error> {
+    use serde::Deserialize;
+    let text = String::deserialize(de)?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(0);
+    }
+    text.parse().map_err(serde::de::Error::custom)
 }
 
 /// Crops an image to the rectangle the operator drew, as a new file in the
@@ -2542,7 +2561,10 @@ async fn crop_file(
         session.push_flash(FlashLevel::Error, t!("Only an image can be cropped."));
         return Redirect::to(&here).into_response();
     }
-    if form.w == 0 || form.h == 0 {
+    // A new size alone scales the whole image; a drawn area is cropped first.
+    let resizing = form.rw > 0 || form.rh > 0;
+    let whole = form.w == 0 || form.h == 0;
+    if whole && !resizing {
         session.push_flash(FlashLevel::Error, t!("Draw the area to keep first."));
         return Redirect::to(&here).into_response();
     }
@@ -2565,14 +2587,34 @@ async fn crop_file(
         .and_then(|o| o.as_u64())
         .and_then(|o| u8::try_from(o).ok())
         .unwrap_or(1);
-    let rect = laterite_media::image::Rect {
+    let rect = (!whole).then_some(laterite_media::image::Rect {
         x: form.x,
         y: form.y,
         width: form.w,
         height: form.h,
+    });
+    let size = laterite_media::image::Size {
+        width: (form.rw > 0).then_some(form.rw),
+        height: (form.rh > 0).then_some(form.rh),
+    };
+    // What the change is called, where it is recorded and announced.
+    let (action, done, copied, suffix) = if whole {
+        (
+            "media.resize",
+            t!("Image resized."),
+            t!("Resized copy saved."),
+            "resized",
+        )
+    } else {
+        (
+            "media.crop",
+            t!("Image cropped."),
+            t!("Cropped copy saved."),
+            "crop",
+        )
     };
     let rendered = match tokio::task::spawn_blocking(move || {
-        laterite_media::image::crop(&bytes, rect, orientation)
+        laterite_media::image::edit(&bytes, rect, size, orientation)
     })
     .await
     {
@@ -2635,7 +2677,7 @@ async fn crop_file(
         }
         ctx.audit(
             &user,
-            "media.crop",
+            action,
             Some("media"),
             Some(&id.to_string()),
             Some(&r.original_name),
@@ -2653,10 +2695,10 @@ async fn crop_file(
                 by: user.user.username.clone(),
             })
             .await;
-        session.push_flash(FlashLevel::Success, t!("Image cropped."));
+        session.push_flash(FlashLevel::Success, done);
         return Redirect::to(&here).into_response();
     }
-    let name = cropped_name(&r.original_name, rendered.extension);
+    let name = cropped_name(&r.original_name, suffix, rendered.extension);
     let new_id = match record::create_with(
         ctx.db(),
         NewMedia {
@@ -2685,7 +2727,7 @@ async fn crop_file(
     };
     ctx.audit(
         &user,
-        "media.crop",
+        action,
         Some("media"),
         Some(&new_id.to_string()),
         Some(&name),
@@ -2703,17 +2745,17 @@ async fn crop_file(
             by: user.user.username.clone(),
         })
         .await;
-    session.push_flash(FlashLevel::Success, t!("Cropped copy saved."));
+    session.push_flash(FlashLevel::Success, copied);
     Redirect::to(&ctx.url(&new_id.to_string())).into_response()
 }
 
 /// `photo.jpg` cropped becomes `photo-crop.jpg`, in the crop's own format.
-fn cropped_name(original: &str, extension: &str) -> String {
+fn cropped_name(original: &str, suffix: &str, extension: &str) -> String {
     let stem = match original.rsplit_once('.') {
         Some((stem, _)) if !stem.is_empty() => stem,
         _ => original,
     };
-    format!("{stem}-crop.{extension}")
+    format!("{stem}-{suffix}.{extension}")
 }
 
 #[derive(serde::Deserialize)]

@@ -100,4 +100,22 @@
     <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Crop") }}</button></div>
   </form>
 </dialog>
+<dialog class="lat-dialog" id="resize-image">
+  <form method="post" action="{{ file_href }}/crop">
+    {% let dialog_title = shell.t("Resize image") %}{% include "_dialog_head.html" %}
+    <div class="lat-dialog__body">
+      <input type="hidden" name="_csrf" value="{{ shell.csrf_token() }}">
+      <p class="lat-help" style="margin-top:0">{{ shell.t("Now") }} {{ width }} × {{ height }}. {{ shell.t("Fill one side to keep the shape, or both to set it exactly.") }}</p>
+      <div class="lat-fields">
+        <div class="lat-field lat-field--6"><label class="lat-field__label" for="resize-w">{{ shell.t("Width") }}</label><input class="lat-input" id="resize-w" type="number" name="rw" min="1" max="12000" inputmode="numeric" placeholder="{{ width }}"></div>
+        <div class="lat-field lat-field--6"><label class="lat-field__label" for="resize-h">{{ shell.t("Height") }}</label><input class="lat-input" id="resize-h" type="number" name="rh" min="1" max="12000" inputmode="numeric" placeholder="{{ height }}"></div>
+      </div>
+      <div class="lat-pane__bar" style="padding-left:0">
+        <label class="lat-check"><input type="radio" name="mode" value="new" checked> {{ shell.t("Save as a new file") }}</label>
+        <label class="lat-check"><input type="radio" name="mode" value="replace"> {{ shell.t("Replace this file") }}</label>
+      </div>
+    </div>
+    <div class="lat-dialog__actions"><button class="lat-btn lat-btn--ghost" type="button" data-lat-dialog-close>{{ shell.t("Cancel") }}</button><button class="lat-btn lat-btn--primary" type="submit">{{ shell.t("Resize") }}</button></div>
+  </form>
+</dialog>
 {% endif %}

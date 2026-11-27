@@ -10,6 +10,7 @@ use crate::Kind;
 
 /// How a listing is ordered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Sort {
     /// Most recently uploaded first.
     #[default]
@@ -20,16 +21,23 @@ pub enum Sort {
     Name,
     /// Largest file first.
     Size,
+    /// By original file name, Z to A.
+    NameDescending,
+    /// Smallest file first.
+    Smallest,
 }
 
 impl Sort {
-    /// Returns the sort named by `name` (`newest`, `oldest`, `name` or `size`), or `None` for any other string.
+    /// Returns the sort named by `name` (`newest`, `oldest`, `name`,
+    /// `name_desc`, `size` or `smallest`), or `None` for any other string.
     pub fn parse(name: &str) -> Option<Sort> {
         match name {
             "newest" => Some(Sort::Newest),
             "oldest" => Some(Sort::Oldest),
             "name" => Some(Sort::Name),
             "size" => Some(Sort::Size),
+            "name_desc" => Some(Sort::NameDescending),
+            "smallest" => Some(Sort::Smallest),
             _ => None,
         }
     }
@@ -41,6 +49,8 @@ impl Sort {
             Sort::Oldest => "oldest",
             Sort::Name => "name",
             Sort::Size => "size",
+            Sort::NameDescending => "name_desc",
+            Sort::Smallest => "smallest",
         }
     }
 }
@@ -159,6 +169,12 @@ pub async fn list(db: &Db, listing: &Listing) -> Result<Page, RecordError> {
                 .order_by(Media::Id, Order::Asc),
             Sort::Size => query
                 .order_by(Media::Size, Order::Desc)
+                .order_by(Media::Id, Order::Asc),
+            Sort::NameDescending => query
+                .order_by(Media::OriginalName, Order::Desc)
+                .order_by(Media::Id, Order::Asc),
+            Sort::Smallest => query
+                .order_by(Media::Size, Order::Asc)
                 .order_by(Media::Id, Order::Asc),
         };
         query.limit(per_page).offset((page - 1) * per_page);

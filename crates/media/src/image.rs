@@ -178,6 +178,28 @@ pub struct Rect {
 /// PNG. Orientation is baked in first, so the rectangle is what the viewer
 /// saw. CPU-bound: call it from a blocking thread.
 pub fn crop(bytes: &[u8], rect: Rect, orientation: u8) -> Result<Rendered, ImageError> {
+    edit(bytes, Some(rect), Size::default(), orientation)
+}
+
+/// The size an image is scaled to: both sides exactly, or one side with the
+/// other following the image's shape. Neither leaves the size alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Size {
+    /// The width to scale to, in pixels.
+    pub width: Option<u32>,
+    /// The height to scale to, in pixels.
+    pub height: Option<u32>,
+}
+
+/// Crops `bytes` to `rect` when one is given, then scales the result to
+/// `size`, in the source's own format (see [`crop`]). A side is kept within
+/// the decode limit. CPU-bound: call it from a blocking thread.
+pub fn edit(
+    bytes: &[u8],
+    rect: Option<Rect>,
+    size: Size,
+    orientation: u8,
+) -> Result<Rendered, ImageError> {
     let (w, h) = header_dimensions(bytes).ok_or(ImageError::Unsupported)?;
     if w > MAX_SIDE || h > MAX_SIDE || u64::from(w) * u64::from(h) > MAX_PIXELS {
         return Err(ImageError::TooLarge {
@@ -202,11 +224,37 @@ pub fn crop(bytes: &[u8], rect: Rect, orientation: u8) -> Result<Rendered, Image
     if let Some(o) = Orientation::from_exif(orientation) {
         img.apply_orientation(o);
     }
-    let x = rect.x.min(img.width().saturating_sub(1));
-    let y = rect.y.min(img.height().saturating_sub(1));
-    let width = rect.width.clamp(1, img.width() - x);
-    let height = rect.height.clamp(1, img.height() - y);
-    let cropped = img.crop_imm(x, y, width, height);
+    let cropped = match rect {
+        Some(rect) => {
+            let x = rect.x.min(img.width().saturating_sub(1));
+            let y = rect.y.min(img.height().saturating_sub(1));
+            let width = rect.width.clamp(1, img.width() - x);
+            let height = rect.height.clamp(1, img.height() - y);
+            img.crop_imm(x, y, width, height)
+        }
+        None => img,
+    };
+    let (cw, ch) = (cropped.width().max(1), cropped.height().max(1));
+    let side = |n: u32| n.clamp(1, MAX_SIDE);
+    let follow = |n: u32, of: u32, by: u32| {
+        side(((u64::from(n) * u64::from(by)) as f64 / f64::from(of)).round() as u32)
+    };
+    let cropped = match (size.width, size.height) {
+        (None, None) => cropped,
+        (Some(tw), Some(th)) => {
+            cropped.resize_exact(side(tw), side(th), image::imageops::FilterType::Lanczos3)
+        }
+        (Some(tw), None) => cropped.resize_exact(
+            side(tw),
+            follow(side(tw), cw, ch),
+            image::imageops::FilterType::Lanczos3,
+        ),
+        (None, Some(th)) => cropped.resize_exact(
+            follow(side(th), ch, cw),
+            side(th),
+            image::imageops::FilterType::Lanczos3,
+        ),
+    };
     let keep = match format {
         Some(image::ImageFormat::Jpeg) => Format::Jpeg,
         Some(image::ImageFormat::WebP) => Format::WebP,

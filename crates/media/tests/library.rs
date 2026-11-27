@@ -200,6 +200,30 @@ async fn the_library_lists_by_folder_search_kind_and_sort() {
     .unwrap();
     assert_eq!(by_name.total, 2);
     assert_eq!(by_name.items[0].original_name, "notes.pdf");
+    // The other way round, and by size from the small end.
+    let all = |sort: Sort| {
+        let db = db.clone();
+        async move {
+            library::list(
+                &db,
+                &Listing {
+                    sort,
+                    per_page: 10,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .items
+        }
+    };
+    let down = all(Sort::NameDescending).await;
+    assert_eq!(down[0].original_name, "notes.pdf");
+    let small = all(Sort::Smallest).await;
+    let large = all(Sort::Size).await;
+    assert!(small[0].size <= small[1].size && large[0].size >= large[1].size);
+    assert_eq!(Sort::parse("name_desc"), Some(Sort::NameDescending));
+    assert_eq!(Sort::Smallest.as_str(), "smallest");
 
     record::move_to_folder(&db, cat, Some(photos.id))
         .await

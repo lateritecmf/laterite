@@ -10,6 +10,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 ### Breaking
 
 - `mail::Message` and `Envelope` are `#[non_exhaustive]` and carry `sender`, `priority` and `inline`: build a message with `Message::template` or `Message::raw`, not a struct literal. `Attachment` is unchanged.
+- `laterite_media::library::Sort` is `#[non_exhaustive]`: match it with a `_` arm.
 - `Contributions`, `plugins::PluginRow`, `settings::BrandSetting` and `settings::brand::Brand` gained fields: a struct literal needs `..Default::default()` or the new fields.
 
 ### Changed
@@ -20,6 +21,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
 - `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- The media library resizes an image (a width, a height or both; `image::edit`, `image::Size`) and sorts by name Z to A and smallest first.
 - Branding takes a named palette, a switch for the colour mode button and a flat sign-in background colour, and reads a baseline from `[backend.brand]`.
 - A message takes `.sender(addr)`, `.priority(1..=5)` and `.embed(cid, filename, type, bytes)` for a picture the HTML body shows.
 - A scheduled entry takes `.when`, `.before` and `.after`, and `ScheduleEntry` gains `daily`, `twice_daily`, `weekly` and `monthly`.
