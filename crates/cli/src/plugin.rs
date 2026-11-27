@@ -55,6 +55,16 @@ pub enum PluginCommand {
     List,
     /// Check each installed plugin against the expected layout.
     Check,
+    /// Turn a plugin on; it loads from the next start.
+    Enable {
+        /// The plugin's id (`acme.blog`).
+        id: String,
+    },
+    /// Turn a plugin off; it is skipped from the next start.
+    Disable {
+        /// The plugin's id (`acme.blog`).
+        id: String,
+    },
 }
 
 pub fn run(command: PluginCommand) -> Result<()> {
@@ -65,7 +75,39 @@ pub fn run(command: PluginCommand) -> Result<()> {
         PluginCommand::Sync => sync(&project.root),
         PluginCommand::List => list(&project.root),
         PluginCommand::Check => check(&project.root),
+        PluginCommand::Enable { .. } | PluginCommand::Disable { .. } => {
+            anyhow::bail!("this command reads the database")
+        }
     }
+}
+
+/// Turns the plugin `id` on or off in the application's database, as the
+/// Plugins screen does. Refused for an id the application never recorded.
+pub async fn set_enabled(id: &str, enabled: bool, database_url: Option<String>) -> Result<()> {
+    let db = crate::connect(database_url).await?;
+    println!("{}", set_enabled_in(&db, id, enabled).await?);
+    Ok(())
+}
+
+/// [`set_enabled`] on an open database, returning what to tell the caller.
+async fn set_enabled_in(db: &laterite_core::Db, id: &str, enabled: bool) -> Result<String> {
+    let known = laterite_admin::plugins::list_plugins(db).await?;
+    if !known.iter().any(|p| p.id == id) {
+        let ids: Vec<&str> = known.iter().map(|p| p.id.as_str()).collect();
+        anyhow::bail!(
+            "no plugin `{id}` is recorded; the application knows: {}",
+            if ids.is_empty() {
+                "none (start it once first)".to_string()
+            } else {
+                ids.join(", ")
+            }
+        );
+    }
+    laterite_admin::plugins::set_enabled(db, id, enabled).await?;
+    Ok(format!(
+        "{id} {}. The change applies on the next start.",
+        if enabled { "enabled" } else { "disabled" }
+    ))
 }
 
 /// One entry in `plugins/plugins.toml`.
@@ -1003,6 +1045,31 @@ fn file_name(p: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_recorded_plugin_is_turned_off_and_on_and_an_unknown_one_refused() {
+        use laterite_core::Module;
+        let (db, _guard) = laterite_core::testing::connect_test(&[
+            laterite_admin::plugins::PluginsModule.migrations(),
+        ])
+        .await;
+        laterite_admin::plugins::record_roster(&db, ["acme.blog"])
+            .await
+            .unwrap();
+        let said = set_enabled_in(&db, "acme.blog", false).await.unwrap();
+        assert!(said.starts_with("acme.blog disabled"), "{said}");
+        assert_eq!(
+            laterite_admin::plugins::disabled_ids(&db).await.unwrap(),
+            ["acme.blog"]
+        );
+        set_enabled_in(&db, "acme.blog", true).await.unwrap();
+        assert!(laterite_admin::plugins::disabled_ids(&db)
+            .await
+            .unwrap()
+            .is_empty());
+        let refused = set_enabled_in(&db, "acme.shop", false).await.unwrap_err();
+        assert!(refused.to_string().contains("acme.blog"), "{refused}");
+    }
 
     /// A plugin crate at `plugins/<folder>`, whose name deliberately need not
     /// match the folder: that freedom is the point of the list.

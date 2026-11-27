@@ -33,7 +33,10 @@ impl Module for PluginsModule {
         ModuleId::new(MODULE_ID)
     }
     fn migrations(&self) -> MigrationSet {
-        MigrationSet::new(MODULE_ID, vec![Box::new(CreatePlugins)])
+        MigrationSet::new(
+            MODULE_ID,
+            vec![Box::new(CreatePlugins), Box::new(AddPluginAbout)],
+        )
     }
 }
 
@@ -59,6 +62,8 @@ enum LateritePlugins {
     LoadFingerprint,
     CreatedAt,
     UpdatedAt,
+    Name,
+    Description,
 }
 
 struct CreatePlugins;
@@ -92,6 +97,76 @@ impl Migration for CreatePlugins {
     }
 }
 
+/// Adds the name and description a plugin gives of itself.
+struct AddPluginAbout;
+
+#[async_trait(?Send)]
+impl Migration for AddPluginAbout {
+    fn name(&self) -> &str {
+        "0002_add_plugin_about"
+    }
+    async fn up(&self, s: &mut Schema<'_>) -> CoreResult<()> {
+        s.exec(
+            Table::alter()
+                .table(LateritePlugins::Table)
+                .add_column(ColumnDef::new(LateritePlugins::Name).text())
+                .to_owned(),
+        )
+        .await?;
+        s.exec(
+            Table::alter()
+                .table(LateritePlugins::Table)
+                .add_column(ColumnDef::new(LateritePlugins::Description).text())
+                .to_owned(),
+        )
+        .await
+    }
+    async fn down(&self, s: &mut Schema<'_>) -> CoreResult<()> {
+        s.exec(
+            Table::alter()
+                .table(LateritePlugins::Table)
+                .drop_column(LateritePlugins::Name)
+                .to_owned(),
+        )
+        .await?;
+        s.exec(
+            Table::alter()
+                .table(LateritePlugins::Table)
+                .drop_column(LateritePlugins::Description)
+                .to_owned(),
+        )
+        .await
+    }
+}
+
+/// Records what a plugin says about itself: its name, description and
+/// version, as the running binary has them. An empty value clears what an
+/// older binary recorded.
+pub async fn record_about(
+    db: &Db,
+    plugin_id: &str,
+    about: &laterite_core::ModuleAbout,
+) -> anyhow::Result<()> {
+    let text = |value: &str| -> Option<String> {
+        let value = value.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    };
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(LateritePlugins::Table)
+            .value(LateritePlugins::Name, text(&about.name))
+            .value(LateritePlugins::Description, text(&about.description))
+            .value(LateritePlugins::Version, text(&about.version))
+            .and_where(Expr::col(LateritePlugins::PluginId).eq(plugin_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
 /// The plugin ids an operator has disabled (rows with `enabled` false). An absent
 /// row means enabled, so a fresh install disables nothing.
 pub async fn disabled_ids(db: &Db) -> anyhow::Result<Vec<String>> {
@@ -122,6 +197,10 @@ pub struct PluginRow {
     pub version: Option<String>,
     /// Why the plugin was quarantined after failing to load, when it was.
     pub quarantined_reason: Option<String>,
+    /// The name the plugin gives itself, when it gives one.
+    pub name: Option<String>,
+    /// The plugin's own line on what it does, when it gives one.
+    pub description: Option<String>,
 }
 
 /// Every registered plugin with its state, ordered by id, for the admin screen.
@@ -134,6 +213,8 @@ pub async fn list_plugins(db: &Db) -> anyhow::Result<Vec<PluginRow>> {
                 LateritePlugins::Enabled,
                 LateritePlugins::Version,
                 LateritePlugins::QuarantinedReason,
+                LateritePlugins::Name,
+                LateritePlugins::Description,
             ])
             .from(LateritePlugins::Table)
             .order_by(LateritePlugins::PluginId, Order::Asc)
@@ -149,6 +230,8 @@ pub async fn list_plugins(db: &Db) -> anyhow::Result<Vec<PluginRow>> {
             enabled: r.get_bool("enabled").unwrap_or(true),
             version: r.get_text_opt("version").unwrap_or_default(),
             quarantined_reason: r.get_text_opt("quarantined_reason").unwrap_or_default(),
+            name: r.get_text_opt("name").unwrap_or_default(),
+            description: r.get_text_opt("description").unwrap_or_default(),
         })
         .collect())
 }
@@ -431,6 +514,8 @@ pub async fn reconcile_boot(db: &Db, fingerprint: &str) -> anyhow::Result<Reconc
 /// it is set.
 struct PluginView {
     id: String,
+    name: String,
+    description: String,
     version: String,
     enabled: bool,
     quarantined: bool,
@@ -445,6 +530,8 @@ struct PluginView {
 impl PluginView {
     fn from_row(row: PluginRow) -> Self {
         PluginView {
+            name: row.name.unwrap_or_default(),
+            description: row.description.unwrap_or_default(),
             version: row.version.unwrap_or_else(|| "--".to_string()),
             quarantined: row.quarantined_reason.is_some(),
             quarantined_reason: row.quarantined_reason.unwrap_or_default(),
@@ -568,6 +655,32 @@ mod tests {
         let shop = plugins.iter().find(|p| p.id == "acme.shop").unwrap();
         assert!(!blog.enabled, "existing disabled state preserved");
         assert!(shop.enabled, "new plugin defaults enabled");
+    }
+
+    #[tokio::test]
+    async fn what_a_plugin_says_of_itself_is_recorded_and_follows_the_binary() {
+        let (db, _guard) =
+            laterite_core::testing::connect_test(&[PluginsModule.migrations()]).await;
+        record_roster(&db, ["acme.blog"]).await.unwrap();
+        let about =
+            laterite_core::ModuleAbout::new("Blog", "Posts and categories.").version("1.2.0");
+        record_about(&db, "acme.blog", &about).await.unwrap();
+        let row = list_plugins(&db).await.unwrap().remove(0);
+        assert_eq!(row.name.as_deref(), Some("Blog"));
+        assert_eq!(row.description.as_deref(), Some("Posts and categories."));
+        assert_eq!(row.version.as_deref(), Some("1.2.0"));
+        let view = PluginView::from_row(row);
+        assert_eq!(
+            (view.name.as_str(), view.version.as_str()),
+            ("Blog", "1.2.0")
+        );
+
+        // A binary that says nothing clears what the older one recorded.
+        record_about(&db, "acme.blog", &laterite_core::ModuleAbout::default())
+            .await
+            .unwrap();
+        let row = list_plugins(&db).await.unwrap().remove(0);
+        assert_eq!((row.name, row.description, row.version), (None, None, None));
     }
 
     #[tokio::test]

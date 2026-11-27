@@ -65,7 +65,9 @@ pub use migration::{
 /// The template engine of mail and themes, at the framework's version.
 pub use minijinja;
 pub use model::Model;
-pub use module::{BootCx, Capability, Module, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx};
+pub use module::{
+    BootCx, Capability, Module, ModuleAbout, ModuleId, ModuleRegistry, SiteFilesCx, StaticSeedCx,
+};
 pub use query::AnyRowExt;
 pub use queue::Queue;
 pub use record::{

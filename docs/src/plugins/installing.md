@@ -42,6 +42,7 @@ Command | Description
 `lat plugin sync` | Regenerates `plugins-manifest/` from the list. Run after editing by hand.
 `lat plugin list` | Prints the plugins the application compiles in.
 `lat plugin check` | Checks each installed plugin against the expected layout.
+`lat plugin enable <id>`, `lat plugin disable <id>` | Turns a plugin on or off by its id (`acme.blog`), as the Plugins screen does; applies on the next start.
 `lat doctor` | Checks the list and the manifest agree.
 
 Two entries resolving to one crate are refused.

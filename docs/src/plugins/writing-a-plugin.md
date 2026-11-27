@@ -94,6 +94,9 @@ impl Module for Plugin {
     fn id(&self) -> ModuleId {
         ModuleId::new("acme.blog")
     }
+    fn about(&self) -> ModuleAbout {
+        ModuleAbout::new("Blog", "Posts, categories and a feed.").version(env!("CARGO_PKG_VERSION"))
+    }
     fn migrations(&self) -> MigrationSet {
         migrations()
     }
@@ -111,6 +114,7 @@ impl Module for Plugin {
 
 Method | Runs | Description
 --- | --- | ---
+`about` | At each start. | The name, description and version listed under **Settings → Plugins**.
 `migrations` | Before `register`, in dependency order. | Applies the module's own migrations. See [Migrations](../database/migrations.md).
 `register` | Once every module has migrated. | Contributes resources, [settings models](../admin/settings.md), [permissions](../admin/permissions.md), menu entries, hooks.
 `boot` | Once every module has registered, before anything is served. | Anything that needs the database and the whole registry. An error quarantines the plugin.

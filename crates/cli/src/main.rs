@@ -197,7 +197,15 @@ async fn main() -> Result<()> {
         Command::Domain(args) => domain::run(args),
         Command::Doctor => doctor::run().await,
         Command::Admin { command } => run_admin(command, cli.database_url).await,
-        Command::Plugin { command } => plugin::run(command),
+        Command::Plugin { command } => match command {
+            plugin::PluginCommand::Enable { id } => {
+                plugin::set_enabled(&id, true, cli.database_url).await
+            }
+            plugin::PluginCommand::Disable { id } => {
+                plugin::set_enabled(&id, false, cli.database_url).await
+            }
+            other => plugin::run(other),
+        },
         Command::I18n(args) => i18n::run(args),
         Command::Theme { command } => theme::run(command, cli.database_url).await,
         Command::Media { command } => {

@@ -65,6 +65,35 @@ impl Capability {
     }
 }
 
+/// What a module says about itself, for the screens that list modules.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ModuleAbout {
+    /// The name a person reads (`Blog`).
+    pub name: String,
+    /// One line on what the module does.
+    pub description: String,
+    /// The module's version (`env!("CARGO_PKG_VERSION")`).
+    pub version: String,
+}
+
+impl ModuleAbout {
+    /// A module named `name` that does `description`.
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            version: String::new(),
+        }
+    }
+
+    /// Sets the version, usually `env!("CARGO_PKG_VERSION")`.
+    pub fn version(mut self, version: impl Into<String>) -> Self {
+        self.version = version.into();
+        self
+    }
+}
+
 /// A registerable unit: a framework crate or an application feature/plugin.
 #[async_trait]
 pub trait Module: Send + Sync + 'static {
@@ -105,6 +134,12 @@ pub trait Module: Send + Sync + 'static {
     /// to gate the enhanced path (for example trigram fuzzy search).
     fn optional_db_capabilities(&self) -> &'static [Capability] {
         &[]
+    }
+
+    /// The module's name, description and version, shown where modules are
+    /// listed. Default: none, and the list shows the id alone.
+    fn about(&self) -> ModuleAbout {
+        ModuleAbout::default()
     }
 
     /// Contributes this module's items (resources, permissions, nav, settings,

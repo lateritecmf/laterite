@@ -377,6 +377,9 @@ impl Bootstrap {
         )
         .await?;
         crate::plugins::record_roster(&db, plugin_ids.iter().map(String::as_str)).await?;
+        for module in &self.plugin_modules {
+            crate::plugins::record_about(&db, module.id().as_str(), &module.about()).await?;
+        }
 
         // Crash-loop journal: reconcile the previous boot's load markers against
         // this binary's fingerprint. A plugin whose init took the whole process

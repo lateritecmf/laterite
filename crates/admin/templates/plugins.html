@@ -19,7 +19,7 @@
       {% else %}
       {% for p in plugins %}
       <tr>
-        <td>{{ p.id }}</td>
+        <td>{% if p.name.is_empty() %}{{ p.id }}{% else %}<strong>{{ p.name }}</strong> <span class="lat-help">{{ p.id }}</span>{% endif %}{% if !p.description.is_empty() %}<p class="lat-help">{{ p.description }}</p>{% endif %}</td>
         <td>{{ p.version }}</td>
         <td>
           {% if p.quarantined %}
