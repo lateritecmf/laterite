@@ -511,6 +511,48 @@ pub fn load<T: DeserializeOwned>(dir: &Path, env_prefix: &str) -> CoreResult<T> 
         .map_err(|e| CoreError::Config(e.to_string()))
 }
 
+static SOURCE: std::sync::OnceLock<(std::path::PathBuf, String)> = std::sync::OnceLock::new();
+
+/// Records where the application's configuration is read from, once, at
+/// boot: the directory and the environment prefix. Later calls are ignored.
+/// [`plugin`] reads through it.
+pub fn set_source(dir: &Path, env_prefix: &str) {
+    let _ = SOURCE.set((dir.to_path_buf(), env_prefix.to_string()));
+}
+
+/// A module's own section of the application's configuration: the table
+/// `[plugins.<vendor>.<package>]` for the id `vendor.package`, through the
+/// same file layers and environment variables as the rest
+/// (`<PREFIX>__PLUGINS__VENDOR__PACKAGE__KEY`). A section nobody wrote, or an
+/// application that recorded no source, gives `T::default()`.
+pub fn plugin<T: DeserializeOwned + Default>(module_id: &str) -> CoreResult<T> {
+    match SOURCE.get() {
+        Some((dir, env_prefix)) => plugin_from(dir, env_prefix, module_id),
+        None => Ok(T::default()),
+    }
+}
+
+/// [`plugin`] from a named directory and prefix, for a tool or a test.
+pub fn plugin_from<T: DeserializeOwned + Default>(
+    dir: &Path,
+    env_prefix: &str,
+    module_id: &str,
+) -> CoreResult<T> {
+    let built = file_layers(dir)
+        .add_source(
+            Environment::with_prefix(env_prefix)
+                .prefix_separator("__")
+                .separator("__"),
+        )
+        .build()
+        .map_err(|e| CoreError::Config(e.to_string()))?;
+    match built.get::<T>(&format!("plugins.{module_id}")) {
+        Ok(section) => Ok(section),
+        Err(config::ConfigError::NotFound(_)) => Ok(T::default()),
+        Err(e) => Err(CoreError::Config(format!("[plugins.{module_id}]: {e}"))),
+    }
+}
+
 /// The environment-variable prefix a configuration declares as `app.env_prefix`,
 /// read from the files alone: it selects the environment layer, so it cannot come
 /// from there. `None` when undeclared or blank, meaning the framework default.
@@ -553,6 +595,51 @@ mod tests {
     struct TestConfig {
         server: ServerConfig,
         database: DatabaseConfig,
+    }
+
+    #[derive(Debug, Deserialize, Default, PartialEq)]
+    #[serde(default)]
+    struct BlogConfig {
+        max_items: u32,
+        feed_title: String,
+    }
+
+    #[test]
+    fn a_plugin_reads_its_own_section_and_the_environment_overrides_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("default.toml"),
+            "[plugins.acme.blog]\nmax_items = 20\nfeed_title = \"Acme\"\n",
+        )
+        .unwrap();
+        let blog: BlogConfig =
+            plugin_from(dir.path(), "LATERITE_PLUGIN_TEST", "acme.blog").unwrap();
+        assert_eq!(
+            blog,
+            BlogConfig {
+                max_items: 20,
+                feed_title: "Acme".into()
+            }
+        );
+        std::env::set_var("LATERITE_PLUGIN_TEST__PLUGINS__ACME__BLOG__MAX_ITEMS", "5");
+        let blog: BlogConfig =
+            plugin_from(dir.path(), "LATERITE_PLUGIN_TEST", "acme.blog").unwrap();
+        std::env::remove_var("LATERITE_PLUGIN_TEST__PLUGINS__ACME__BLOG__MAX_ITEMS");
+        assert_eq!(blog.max_items, 5);
+        // A section nobody wrote is the defaults; a wrong type is refused by name.
+        let shop: BlogConfig =
+            plugin_from(dir.path(), "LATERITE_PLUGIN_TEST", "acme.shop").unwrap();
+        assert_eq!(shop, BlogConfig::default());
+        std::fs::write(
+            dir.path().join("local.toml"),
+            "[plugins.acme.blog]\nmax_items = \"many\"\n",
+        )
+        .unwrap();
+        let refused = plugin_from::<BlogConfig>(dir.path(), "LATERITE_PLUGIN_TEST", "acme.blog");
+        assert!(refused
+            .unwrap_err()
+            .to_string()
+            .contains("plugins.acme.blog"));
     }
 
     #[test]

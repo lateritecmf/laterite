@@ -119,6 +119,33 @@ Method | Runs | Description
 `register` | Once every module has migrated. | Contributes resources, [settings models](../admin/settings.md), [permissions](../admin/permissions.md), menu entries, hooks.
 `boot` | Once every module has registered, before anything is served. | Anything that needs the database and the whole registry. An error quarantines the plugin.
 
+## Read the plugin's own configuration
+
+```toml
+# config/default.toml, in the application
+[plugins.acme.blog]
+max_items = 20
+feed_title = "Acme"
+```
+
+```rust
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct BlogConfig {
+    max_items: u32,
+    feed_title: String,
+}
+
+let blog: BlogConfig = laterite_core::config::plugin("acme.blog")?;
+```
+
+Source | Read as
+--- | ---
+`[plugins.acme.blog]` in `default.toml`, `<APP_ENV>.toml`, `local.toml` | Layered like every other section.
+`ACME__PLUGINS__ACME__BLOG__MAX_ITEMS=5` | Overrides the files, under the application's prefix.
+No section | `BlogConfig::default()`.
+A value of the wrong type | An error naming `[plugins.acme.blog]`.
+
 ## Add a resource
 
 ```bash

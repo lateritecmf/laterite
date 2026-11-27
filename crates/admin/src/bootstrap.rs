@@ -340,6 +340,8 @@ impl Bootstrap {
             config::declared_env_prefix(&self.config_dir)?,
         );
         let mut config: AppConfig = config::load(&self.config_dir, &env_prefix)?;
+        // A module reads its own section through the same source.
+        laterite_core::config::set_source(&self.config_dir, &env_prefix);
         // Debug gates the cause on error pages; the log records it regardless.
         laterite_core::config::set_debug(config.app.debug);
 
