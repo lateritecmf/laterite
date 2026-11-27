@@ -13,6 +13,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- "View the panel as this role" on a role's page runs the session with that role's permissions until stopped, for a role that grants nothing the operator lacks.
 - Roles take a description and a colour; `Permission::order` and `comment` arrange and explain the role editor, and `acme.posts.publish` nests under `acme.posts`.
 - A `permission` may name alternatives (`a|b`) or a prefix (`acme.blog.*`); `PermissionSet::allows_any` and `holds` (no superuser pass) join `allows`. A `swatch` list column shows a stored colour.
 - An account has a picture: uploaded on Preferences or by an administrator, shown in the top bar; `backend.default_avatar` sets what an account without one shows.

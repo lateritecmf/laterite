@@ -286,3 +286,145 @@ async fn the_editor_orders_explains_and_nests_permissions() {
         Some(r#"["acme.posts","acme.posts.publish"]"#)
     );
 }
+
+async fn status_of(app: axum::Router, path: &str, token: &str) -> StatusCode {
+    app.oneshot(
+        Request::builder()
+            .uri(path)
+            .header("cookie", format!("{SESSION_COOKIE}={token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+    .status()
+}
+
+#[tokio::test]
+async fn a_role_can_be_tried_on_and_taken_off() {
+    let (pool, _guard) = test_db().await;
+    let root = root_session(&pool).await;
+    let app = || {
+        router(
+            AuthService::new(pool.clone(), AuthConfig::default()),
+            pool.clone(),
+            Contributions::default(),
+            AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
+        )
+    };
+    let role = laterite_auth::store::create_role(
+        &pool,
+        "helpdesk",
+        "Helpdesk",
+        &["backend.manage_users".to_string()],
+    )
+    .await
+    .unwrap();
+
+    // The role's page offers it.
+    let form = get_page(app(), &format!("/admin/roles/{role}/edit"), &root).await;
+    assert!(form.contains("View the panel as this role"));
+    assert!(!form.contains("You are viewing the panel as"));
+
+    let path: &'static str = Box::leak(format!("/admin/roles/{role}/view-as").into_boxed_str());
+    let status = app()
+        .oneshot(post_form(path, &root, ""))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // Now even a superuser sees what the role sees, and is told so.
+    let users = get_page(app(), "/admin/users", &root).await;
+    assert!(users.contains("You are viewing the panel as the role Helpdesk."));
+    assert_eq!(
+        status_of(app(), "/admin/users", &root).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of(app(), "/admin/roles", &root).await,
+        StatusCode::FORBIDDEN
+    );
+
+    // Stopping returns to the role's page with everything back.
+    let resp = app()
+        .oneshot(post_form("/admin/view-as/stop", &root, ""))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        resp.headers().get("location").unwrap().to_str().unwrap(),
+        format!("/admin/roles/{role}/edit")
+    );
+    assert_eq!(
+        status_of(app(), "/admin/roles", &root).await,
+        StatusCode::OK
+    );
+    let users = get_page(app(), "/admin/users", &root).await;
+    assert!(!users.contains("You are viewing the panel as"));
+}
+
+#[tokio::test]
+async fn a_role_that_grants_more_cannot_be_tried_on() {
+    let (pool, _guard) = test_db().await;
+    let svc = AuthService::new(pool.clone(), AuthConfig::default());
+    root_session(&pool).await;
+    // A manager of roles who does not manage users.
+    let hash = laterite_auth::password::hash_password("managerpw12345").unwrap();
+    let manager = laterite_auth::store::create_user(
+        &pool,
+        "manager",
+        "manager@acme.test",
+        "Manager",
+        None,
+        &hash,
+        false,
+    )
+    .await
+    .unwrap();
+    let own = laterite_auth::store::create_role(
+        &pool,
+        "rolekeepers",
+        "Role keepers",
+        &["backend.manage_roles".to_string()],
+    )
+    .await
+    .unwrap();
+    laterite_auth::store::assign_role(&pool, manager, own)
+        .await
+        .unwrap();
+    let token = login(&svc, "manager", "managerpw12345").await;
+    seed_csrf(&svc, &token).await;
+    let bigger = laterite_auth::store::create_role(
+        &pool,
+        "helpdesk",
+        "Helpdesk",
+        &["backend.manage_users".to_string()],
+    )
+    .await
+    .unwrap();
+    let app = || {
+        router(
+            AuthService::new(pool.clone(), AuthConfig::default()),
+            pool.clone(),
+            Contributions::default(),
+            AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
+        )
+    };
+    let path: &'static str = Box::leak(format!("/admin/roles/{bigger}/view-as").into_boxed_str());
+    app().oneshot(post_form(path, &token, "")).await.unwrap();
+    // Refused, with the reason: they still see the Roles screen, and still
+    // not Users.
+    let page = get_page(app(), "/admin/roles", &token).await;
+    assert!(page.contains("This role grants more than you hold"));
+    assert_eq!(
+        status_of(app(), "/admin/roles", &token).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of(app(), "/admin/users", &token).await,
+        StatusCode::FORBIDDEN
+    );
+}

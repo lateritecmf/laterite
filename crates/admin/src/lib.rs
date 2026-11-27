@@ -759,6 +759,8 @@ pub struct Shell {
     tabs: Vec<PageTab>,
     /// Every counted entry's number on this page, by the entry's key.
     badges: counter::Badges,
+    /// The role the operator is viewing the panel as, by name.
+    pub(crate) viewing_as: Option<String>,
     /// What the operator may do, for the controls a page shows.
     perms: laterite_auth::PermissionSet,
     /// The icon set, for chrome that renders one outside a nav entry.
@@ -971,6 +973,7 @@ impl Shell {
             crumbs,
             tabs: Vec::new(),
             badges: counter::Badges::new(),
+            viewing_as: None,
             avatar: None,
             perms: user.permissions.clone(),
             full_name,
@@ -1194,6 +1197,7 @@ impl Shell {
             crumbs: Vec::new(),
             tabs: Vec::new(),
             badges: counter::Badges::new(),
+            viewing_as: None,
             avatar: None,
             perms: Default::default(),
             csrf_token: "test-csrf-token".to_string(),
@@ -3278,6 +3282,10 @@ pub fn router(
             .route(
                 &format!("{admin_path}/roles/{{id}}/edit"),
                 get(roles::edit_form).post(roles::update),
+            )
+            .route(
+                &format!("{admin_path}/roles/{{id}}/view-as"),
+                post(roles::view_as),
             ),
         "backend.manage_roles",
     ));
@@ -3433,6 +3441,10 @@ pub fn router(
             post(menu_moves_update),
         )
         .route(&format!("{admin_path}/menu/counters"), get(menu_counters))
+        .route(
+            &format!("{admin_path}/view-as/stop"),
+            post(roles::stop_view_as),
+        )
         .route(
             &format!("{admin_path}/markdown/preview"),
             post(markdown_preview),
@@ -5501,7 +5513,24 @@ async fn require_auth(
         request = Request::from_parts(parts, body);
     }
 
-    let user = resolved.identity;
+    let mut user = resolved.identity;
+    // Viewing as a role: the request runs with that role's permissions and
+    // nothing more, while the audit log keeps naming the real operator.
+    let mut viewing_as: Option<String> = None;
+    if let Some(role_id) = handle.view_as() {
+        match laterite_auth::store::list_roles(&state.db).await {
+            Ok(roles) => match roles.into_iter().find(|r| r.id == role_id) {
+                Some(role) => {
+                    user.permissions = PermissionSet::new(false, role.permissions);
+                    user.user.is_superuser = false;
+                    viewing_as = Some(role.name);
+                }
+                // The role is gone: the view ends with it.
+                None => handle.set_view_as(None),
+            },
+            Err(e) => tracing::warn!(error = %e, "the role being viewed as could not be read"),
+        }
+    }
     // Kept past the move into the request, for the deferred-check log below.
     let acting_user_id = user.user.id;
     let path = request.uri().path().to_string();
@@ -5643,6 +5672,7 @@ async fn require_auth(
         }
     }
     shell.badges = badges;
+    shell.viewing_as = viewing_as;
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(shell);
     request.extensions_mut().insert(handle.clone());

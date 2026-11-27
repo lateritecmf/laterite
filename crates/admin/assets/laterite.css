@@ -398,6 +398,7 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 @media (hover:none){.lat-media-item__pick{opacity:1}}
 .lat-avatar{overflow:hidden}
 .lat-checklist__item.is-nested{margin-left:26px}
+.lat-viewas{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:8px 16px;background:var(--accent-subtle);border-bottom:1px solid var(--border-subtle);font-size:var(--fs-13);color:var(--text-heading)}
 .lat-swatch{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--border-strong);vertical-align:middle}
 .lat-colourpick{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .lat-colourpick input[type=color]{width:44px;height:30px;padding:2px;border:1px solid var(--border-strong);border-radius:var(--radius-control);background:var(--surface-card);cursor:pointer}

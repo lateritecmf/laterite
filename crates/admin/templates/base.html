@@ -94,6 +94,13 @@
     </aside>
     {% endif %}
     <main class="lat-main" id="lat-content" tabindex="-1">
+      {% if let Some(role) = shell.viewing_as %}
+      <form class="lat-viewas" method="post" action="{{ shell.base }}/view-as/stop">
+        {% include "_csrf.html" %}
+        <span>{{ shell.tfs("You are viewing the panel as the role {role}.", [("role", role.as_str())]) }}</span>
+        <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("Stop") }}</button>
+      </form>
+      {% endif %}
       <div class="lat-page">
         {% if shell.crumbs.len() > 1 %}
         <nav class="lat-breadcrumb" aria-label='{{ shell.t("You are here") }}'>{% for c in shell.crumbs %}{% if !loop.first %}<span aria-hidden="true">&rsaquo;</span>{% endif %}<a href="{{ c.href }}">{{ c.label }}</a>{% endfor %}</nav>

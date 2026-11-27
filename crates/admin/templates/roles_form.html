@@ -3,6 +3,14 @@
 {% block content %}
 <nav class="lat-breadcrumb"><a href="{{ cancel_path }}">&larr; {{ shell.t("Back") }}</a></nav>
 <div class="lat-toolbar"><h1>{{ title }}</h1></div>
+{% if !view_as_action.is_empty() %}
+<div class="lat-actionbar">
+  <form method="post" action="{{ view_as_action }}">
+    {% include "_csrf.html" %}
+    <button class="lat-btn lat-btn--secondary lat-btn--sm" type="submit">{{ shell.t("View the panel as this role") }}</button>
+  </form>
+</div>
+{% endif %}
 <div class="lat-card lat-card--form">
   {% include "_roles_form_fields.html" %}
 </div>

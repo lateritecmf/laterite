@@ -76,6 +76,9 @@ struct SessionData {
     /// The query each list was last shown with, newest last: `(path, query)`.
     #[serde(default)]
     lists: Vec<(String, String)>,
+    /// The role the operator is viewing the panel as, by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    view_as: Option<i64>,
 }
 
 /// How many lists a session remembers, and how long a query it keeps: the blob
@@ -94,6 +97,7 @@ impl Default for SessionData {
             csrf: String::new(),
             flash: Vec::new(),
             lists: Vec::new(),
+            view_as: None,
         }
     }
 }
@@ -136,6 +140,20 @@ impl SessionHandle {
         }
         Self {
             inner: Arc::new(Mutex::new(Inner { data, dirty })),
+        }
+    }
+
+    /// The role this session views the panel as, when it does.
+    pub(crate) fn view_as(&self) -> Option<i64> {
+        self.inner.lock().unwrap().data.view_as
+    }
+
+    /// Starts or stops viewing the panel as a role.
+    pub(crate) fn set_view_as(&self, role: Option<i64>) {
+        let mut g = self.inner.lock().unwrap();
+        if g.data.view_as != role {
+            g.data.view_as = role;
+            g.dirty = true;
         }
     }
 

@@ -153,7 +153,9 @@ pub(crate) async fn edit_form(
             .unwrap_or_default(),
         colour: row.get_text_opt("color").ok().flatten().unwrap_or_default(),
     };
-    render(build(&state, &action, None, &code, &name, &perms, system, shell).with(&extras))
+    let mut page = build(&state, &action, None, &code, &name, &perms, system, shell).with(&extras);
+    page.view_as_action = format!("{}/roles/{id}/view-as", state.admin_path);
+    render(page)
 }
 
 /// Persists an edited role, then redirects to the list.
@@ -279,6 +281,69 @@ pub(crate) async fn update(
 /// Pulls `code`, `name`, and the repeated `perm` values out of the submitted
 /// form pairs. A checkbox list arrives as one `perm` pair per ticked box, so the
 /// form is decoded as an ordered list of pairs rather than a map.
+/// Starts viewing the panel as a role: until stopped, every request of this
+/// session runs with the role's permissions alone. Offered for a role that
+/// grants nothing the operator lacks, so it can only ever narrow what they see.
+pub(crate) async fn view_as(
+    State(state): State<AdminState>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+) -> Response {
+    let back = format!("{}/roles/{id}/edit", state.admin_path);
+    let role = match laterite_auth::store::list_roles(&state.db).await {
+        Ok(roles) => roles.into_iter().find(|r| r.id.to_string() == id),
+        Err(_) => return render_error(),
+    };
+    let Some(role) = role else {
+        return not_found();
+    };
+    if !role.permissions.iter().all(|p| user.permissions.allows(p)) {
+        session.push_flash(
+            crate::session::FlashLevel::Error,
+            t!("This role grants more than you hold, so you cannot view the panel as it."),
+        );
+        return axum::response::Redirect::to(&back).into_response();
+    }
+    session.set_view_as(Some(role.id));
+    crate::audit::record(
+        &state,
+        &user,
+        "backend.role.view_as",
+        Some("backend_role"),
+        Some(id.as_str()),
+        Some(role.name.as_str()),
+        None,
+    )
+    .await;
+    axum::response::Redirect::to(&state.admin_path).into_response()
+}
+
+/// Stops viewing the panel as a role.
+pub(crate) async fn stop_view_as(
+    State(state): State<AdminState>,
+    Extension(session): Extension<crate::session::SessionHandle>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Response {
+    let role = session.view_as();
+    session.set_view_as(None);
+    if let Some(role) = role {
+        crate::audit::record(
+            &state,
+            &user,
+            "backend.role.view_as_stop",
+            Some("backend_role"),
+            Some(role.to_string().as_str()),
+            None,
+            None,
+        )
+        .await;
+        return axum::response::Redirect::to(&format!("{}/roles/{role}/edit", state.admin_path))
+            .into_response();
+    }
+    axum::response::Redirect::to(&state.admin_path).into_response()
+}
+
 /// A role's description and colour, as the form holds them.
 #[derive(Default, Clone)]
 struct Extras {
@@ -411,6 +476,7 @@ fn build(
         duplicate_path: format!("{}/roles/new", state.admin_path),
         description: String::new(),
         colour: String::new(),
+        view_as_action: String::new(),
     }
 }
 
@@ -432,6 +498,8 @@ struct RolesFormTemplate {
     description: String,
     /// `#rrggbb`, or empty for none.
     colour: String,
+    /// Where "View as this role" posts; empty on a new role.
+    view_as_action: String,
 }
 
 impl RolesFormTemplate {

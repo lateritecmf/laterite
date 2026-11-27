@@ -318,6 +318,7 @@ pub fn framework_routes(admin_path: &str) -> Vec<RouteRow> {
         (&["POST"], "/preferences/menu", None),
         (&["POST"], "/preferences/menu/moves", None),
         (&["GET"], "/menu/counters", None),
+        (&["POST"], "/view-as/stop", None),
         (&["POST"], "/preferences/sessions/revoke", None),
         (&["POST"], "/markdown/preview", None),
         (&["GET"], "/editor/menu", None),
@@ -333,6 +334,11 @@ pub fn framework_routes(admin_path: &str) -> Vec<RouteRow> {
         (
             &["GET", "POST"],
             "/roles/{id}/edit",
+            manage("backend.manage_roles"),
+        ),
+        (
+            &["POST"],
+            "/roles/{id}/view-as",
             manage("backend.manage_roles"),
         ),
         (

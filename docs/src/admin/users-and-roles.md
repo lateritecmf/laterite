@@ -81,6 +81,23 @@ Colour | "Mark this role with a colour", then the picker. | A chip in the Roles 
 laterite_auth::store::set_role_details(&db, role_id, "Drafts and edits posts", "#2b7a4b").await?;
 ```
 
+## View the panel as a role
+
+```text
+POST /admin/roles/<id>/view-as   starts
+POST /admin/view-as/stop         stops
+```
+
+Step | Result
+--- | ---
+"View the panel as this role" on a role's page | Every request of that session runs with the role's permissions alone, a superuser's included.
+A role granting a permission the operator lacks | Refused.
+The banner's Stop | The operator's own permissions return, on the role's page.
+The role is deleted meanwhile | The view ends.
+
+Needs `backend.manage_roles`. The audit log records the start and the stop,
+and every change made meanwhile, under the operator's own name.
+
 ## Groups
 
 A group is a named set of accounts, for addressing people together. It grants
