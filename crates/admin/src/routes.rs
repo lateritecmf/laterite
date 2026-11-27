@@ -271,6 +271,18 @@ impl RouteCtx {
         crate::requestlog::record(&self.db, method, path, status).await;
     }
 
+    /// [`record_unserved`](Self::record_unserved), keeping the page that
+    /// linked to the URL: the request's `Referer` header.
+    pub async fn record_unserved_from(
+        &self,
+        method: &str,
+        path: &str,
+        status: u16,
+        referrer: Option<&str>,
+    ) {
+        crate::requestlog::record_from(&self.db, method, path, status, referrer).await;
+    }
+
     /// The file extensions an upload may carry (`backend.upload_extensions`,
     /// else [`laterite_media::sanitize::DEFAULT_EXTENSIONS`]), lowercased. A
     /// screen that takes files checks a name with

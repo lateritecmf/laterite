@@ -445,6 +445,15 @@ pub(crate) async fn edit_form(
     // Prefill unset fields from config so they show the current effective value
     // rather than opening blank. Display only; nothing is written.
     prefill_from_config(item, &mut stored, &state.app_name);
+    // A field nothing was saved for opens with its declared default.
+    if let Value::Object(map) = &mut stored {
+        for field in &item.fields {
+            if let Some(default) = &field.default {
+                map.entry(field.name.clone())
+                    .or_insert_with(|| default.clone());
+            }
+        }
+    }
     let item = &with_sources(state, item, &stored, &shell).await;
     render(with_assets(
         build(

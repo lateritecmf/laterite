@@ -5,6 +5,16 @@ entity: backend_request_log
 path: /request-log
 title: Request Log
 permission: backend.view_request_log
+preview:
+  title: Request
+  fields:
+    method:     { span: 1/3 }
+    status:     { span: 1/3 }
+    count:      { label: Hits, span: 1/3 }
+    path:       { type: textarea, rows: 2 }
+    referrers:  { label: Linked from, type: textarea, rows: 6 }
+    first_seen: { label: First seen, span: 1/2 }
+    last_seen:  { label: Last seen, span: 1/2 }
 list:
   order_by: last_seen
   order_dir: desc
@@ -13,6 +23,7 @@ list:
   exportable: true
   deletable: true
   clearable: true
+  row_click: preview
   search: { prompt: Search by path }
   columns:
     last_seen:  { label: Last seen, type: datetime }

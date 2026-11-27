@@ -190,7 +190,11 @@ pub(crate) fn start(db: Db) {
 
 /// Stores one entry: a message already there from the same place at the same
 /// level is counted again, a new one is added and the log trimmed to its cap.
+/// Nothing is stored while the Log settings turn the event log off.
 pub async fn record(db: &Db, entry: &Entry) -> Result<(), sqlx::Error> {
+    if !crate::requestlog::LogSetting::current(db).await.log_events {
+        return Ok(());
+    }
     let now = chrono::Utc::now().to_rfc3339();
     let mut tx = db.pool.begin().await?;
     let (sql, values) = build(

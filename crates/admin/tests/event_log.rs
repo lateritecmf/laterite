@@ -181,3 +181,25 @@ async fn clear_is_refused_on_a_resource_with_a_form() {
         Arc::new(CatalogStore::default()),
     );
 }
+
+#[tokio::test]
+async fn the_log_settings_turn_the_event_log_off() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    laterite_admin::settings::patch(&db, "laterite.log", "log_events", false.into())
+        .await
+        .unwrap();
+    record(
+        &db,
+        &Entry {
+            level: "error",
+            target: "acme".into(),
+            message: "kept nowhere".into(),
+            detail: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let (_, list) = get(&db, &token, "/admin/event-log").await;
+    assert!(!list.contains("kept nowhere"), "{list}");
+}

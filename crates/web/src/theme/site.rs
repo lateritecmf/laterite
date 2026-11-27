@@ -305,9 +305,11 @@ async fn serve_page(
 ) -> Response {
     let ctx = &site.ctx;
     let path = uri.path().to_string();
+    let referrer = headers.get("referer").and_then(|v| v.to_str().ok());
     let admin = ctx.admin_path();
     if path == admin || path.starts_with(&format!("{admin}/")) {
-        ctx.record_unserved(method.as_str(), &path, 404).await;
+        ctx.record_unserved_from(method.as_str(), &path, 404, referrer)
+            .await;
         return AdminError::NotFound.into_response();
     }
     // A file the config copies into the build is served from its folder.
@@ -342,7 +344,8 @@ async fn serve_page(
                     }
                 }
                 _ => {
-                    ctx.record_unserved(method.as_str(), &path, 404).await;
+                    ctx.record_unserved_from(method.as_str(), &path, 404, referrer)
+                        .await;
                     AdminError::NotFound.into_response()
                 }
             };
@@ -350,7 +353,8 @@ async fn serve_page(
     }
 
     let Some(theme) = theme else {
-        ctx.record_unserved(method.as_str(), &path, 404).await;
+        ctx.record_unserved_from(method.as_str(), &path, 404, referrer)
+            .await;
         return AdminError::NotFound.into_response();
     };
     let origin = ctx.base_url().trim_end_matches('/').to_string();
@@ -412,7 +416,8 @@ async fn serve_page(
     let (name, params, status) = match resolved {
         Some((name, params)) => (name, params, StatusCode::OK),
         None => {
-            ctx.record_unserved(method.as_str(), &path, 404).await;
+            ctx.record_unserved_from(method.as_str(), &path, 404, referrer)
+                .await;
             match engine.resolve("/404") {
                 Some((name, _)) => (name.to_string(), Params::new(), StatusCode::NOT_FOUND),
                 None => return AdminError::NotFound.into_response(),

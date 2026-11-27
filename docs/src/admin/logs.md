@@ -69,8 +69,33 @@ Last seen, First seen | When the URL was last and first requested.
 Method, Path | The request; the path is kept to 512 characters, without its query string.
 Status | `404`.
 Hits | How many times.
+Linked from | Up to ten pages whose link led here (the request's `Referer`), on the row's detail.
 
 Rows are selected and deleted like any list's, and Clear removes them all.
+
+A public route of your own counts what it could not serve:
+
+```rust
+let referrer = headers.get("referer").and_then(|v| v.to_str().ok());
+ctx.record_unserved_from("GET", uri.path(), 404, referrer).await;
+```
+
+## Turn a log off
+
+**Settings → Logs → Log Settings**, gated by `backend.manage_settings`, or in code:
+
+```rust
+use laterite_admin::requestlog::LogSetting;
+
+let mut logs = laterite_admin::settings::load::<LogSetting>(&db).await?;
+logs.log_requests = false;
+laterite_admin::settings::save(&db, &logs).await?;
+```
+
+Key | Default | Off
+--- | --- | ---
+`log_events` | `true` | Warnings and errors are no longer stored in the event log.
+`log_requests` | `true` | Unserved URLs are no longer counted in the request log.
 
 ## Read the event log
 

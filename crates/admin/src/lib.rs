@@ -55,7 +55,7 @@ pub mod plugins;
 pub mod policy;
 pub mod records;
 pub mod relation;
-pub(crate) mod requestlog;
+pub mod requestlog;
 mod richtext;
 mod roles;
 pub mod routemap;
@@ -3859,8 +3859,12 @@ async fn not_found_fallback(
     State(state): State<AdminState>,
     method: axum::http::Method,
     uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
 ) -> AdminError {
-    requestlog::record(&state.db, method.as_str(), uri.path(), 404).await;
+    let referrer = headers
+        .get(axum::http::header::REFERER)
+        .and_then(|v| v.to_str().ok());
+    requestlog::record_from(&state.db, method.as_str(), uri.path(), 404, referrer).await;
     AdminError::NotFound
 }
 
@@ -7387,6 +7391,7 @@ fn builtin_settings() -> Vec<settings::SettingsItem> {
             .icon("triangle-alert")
             .permission("backend.view_event_log")
             .link("/event-log"),
+        requestlog::settings_item(),
     ]
 }
 

@@ -129,3 +129,65 @@ async fn an_unserved_url_is_counted_and_the_log_is_gated() {
         "and out of their settings: {html}"
     );
 }
+
+async fn missing_from(app: &Router, path: &str, session: &str, referrer: &str) {
+    let req = Request::builder()
+        .uri(path)
+        .header("cookie", format!("{SESSION_COOKIE}={session}"))
+        .header("referer", referrer)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_row_keeps_the_pages_that_linked_to_it_and_the_log_can_be_turned_off() {
+    let (db, _guard) = test_db().await;
+    let app = app(&db);
+    let (root, _) = sessions(&db).await;
+
+    missing_from(&app, "/admin/gone", &root, "https://acme.test/blog/one").await;
+    missing_from(&app, "/admin/gone", &root, "https://acme.test/blog/one").await;
+    missing_from(&app, "/admin/gone", &root, "https://acme.test/blog/two").await;
+    let (sql, values) = laterite_core::query::build(
+        db.backend,
+        sea_query::Query::select()
+            .columns([
+                sea_query::Alias::new("referrers"),
+                sea_query::Alias::new("count"),
+            ])
+            .from(sea_query::Alias::new("backend_request_log"))
+            .to_owned(),
+    );
+    let rows = laterite_core::query::bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    use laterite_core::AnyRowExt;
+    assert_eq!(rows[0].get_int("count").unwrap(), 3);
+    assert_eq!(
+        rows[0].get_text("referrers").unwrap(),
+        "https://acme.test/blog/one\nhttps://acme.test/blog/two"
+    );
+
+    // The Log settings screen opens with both logs on.
+    let (status, html) = get(&app, "/admin/settings/laterite/log", &root).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let switch = html.find("name=\"log_requests\"").expect(&html);
+    let tag = &html[html[..switch].rfind('<').unwrap()..];
+    let tag = &tag[..tag.find('>').unwrap()];
+    assert!(tag.contains("checked"), "{tag}");
+
+    // Turned off, nothing more is counted.
+    laterite_admin::settings::patch(&db, "laterite.log", "log_requests", false.into())
+        .await
+        .unwrap();
+    missing_from(&app, "/admin/after-off", &root, "https://acme.test/x").await;
+    let (_, html) = get(&app, "/admin/request-log", &root).await;
+    assert!(
+        html.contains("/admin/gone") && !html.contains("/admin/after-off"),
+        "{html}"
+    );
+}
