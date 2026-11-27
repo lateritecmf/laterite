@@ -827,6 +827,7 @@ pub struct PageHead {
     actions: Option<html::Markup>,
     aside: Option<(Text, html::Markup)>,
     assets: Vec<&'static str>,
+    crumbs: Vec<(Text, String)>,
 }
 
 impl PageHead {
@@ -838,7 +839,16 @@ impl PageHead {
             actions: None,
             aside: None,
             assets: Vec::new(),
+            crumbs: Vec::new(),
         }
+    }
+
+    /// A further level of the trail above the heading, after the ones the
+    /// menu gives: a record's name, then a page under it. Called once per
+    /// level, in order.
+    pub fn crumb(mut self, label: impl Into<Text>, href: impl Into<String>) -> Self {
+        self.crumbs.push((label.into(), href.into()));
+        self
     }
 
     /// Widget assets this page needs beyond the core script and stylesheet,
@@ -1142,6 +1152,12 @@ impl Shell {
                     css: key.ends_with(".css"),
                 });
             }
+        }
+        for (label, href) in head.crumbs {
+            shell.crumbs.push(CrumbView {
+                label: self.tt(&label),
+                href,
+            });
         }
         render(PageTemplate {
             title: self.tt(&head.title),

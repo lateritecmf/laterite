@@ -31,6 +31,7 @@ Method | Does
 --- | ---
 `PageHead::new(title)` | The heading.
 `.back(label, href)` | A link above the heading to the page this one sits under.
+`.crumb(label, href)` | One more level of the trail after the menu's own, such as a record's name; call it once per level.
 `.actions(markup)` | Controls in the band under the heading: buttons, a `details.lat-menu`, dialog openers.
 `.aside(label, markup)` | A context side panel beside the body, folded under `label` on a narrow window.
 `.assets(assets)` | Scripts and styles the page needs, such as `CODE_EDITOR_ASSETS`.

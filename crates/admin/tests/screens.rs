@@ -29,6 +29,19 @@ impl Screen for Importer {
         Router::new()
             .route("/", get(|| async { "import" }))
             .route("/where", get(move || async move { here }))
+            .route(
+                "/trail",
+                get(
+                    |axum::Extension(shell): axum::Extension<laterite_admin::Shell>| async move {
+                        shell.page_with(
+                            laterite_admin::PageHead::new("Row 7")
+                                .crumb("Spring batch", "/admin/import/batches/3")
+                                .crumb("Row 7", "/admin/import/batches/3/rows/7"),
+                            laterite_admin::html::Markup::empty(),
+                        )
+                    },
+                ),
+            )
     }
 }
 
@@ -504,4 +517,22 @@ async fn a_route_that_authenticates_itself_or_is_listed_skips_the_origin_check()
         post_from_elsewhere(&app, "/api/guarded").await,
         StatusCode::FORBIDDEN
     );
+}
+
+#[tokio::test]
+async fn a_screen_adds_levels_to_its_trail() {
+    let (db, _guard) = test_db().await;
+    let token = superuser(&db).await;
+    let (status, html) = body(app_in_menu(db), "/admin/import/trail", &token).await;
+    assert_eq!(status, StatusCode::OK);
+    let trail = html.split("lat-breadcrumb").nth(1).expect("a trail");
+    let trail = trail.split("</nav>").next().unwrap();
+    let batch = trail
+        .find("/admin/import/batches/3\"")
+        .expect("the batch level");
+    let row = trail
+        .find("/admin/import/batches/3/rows/7\"")
+        .expect("the row level");
+    assert!(batch < row, "{trail}");
+    assert!(trail.contains(">Spring batch<"));
 }

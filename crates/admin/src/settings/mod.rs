@@ -22,8 +22,8 @@ pub use crate::descriptor::settings_from_yaml as from_yaml;
 pub use brand::BrandSetting;
 pub use migrations::{migrations, MODULE_ID};
 pub use store::{
-    get, get_for, load, load_for, save, save_for, set, set_for, PreferencesError, PreferencesModel,
-    SettingsError, SettingsModel,
+    get, get_for, load, load_for, patch, save, save_for, set, set_for, PreferencesError,
+    PreferencesModel, SettingsError, SettingsModel,
 };
 
 /// The `laterite.settings` module: the framework's settings store table.

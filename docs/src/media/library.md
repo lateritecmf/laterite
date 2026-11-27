@@ -102,3 +102,31 @@ Call | Refused when
 
 `Listing.search` looks across every folder; `Kind::of(content_type)` gives
 `Image`, `Video`, `Audio`, `Document` or `Other`.
+
+## Hear a change
+
+```rust
+use laterite_admin::medialib::{FolderChange, MediaFolderChanged, MediaMoved, MediaRenamed, MediaRemoved, MediaStored};
+
+struct Reindex;
+
+#[async_trait]
+impl Listener<MediaFolderChanged> for Reindex {
+    async fn handle(&self, cx: &EventCx<'_>, event: &MediaFolderChanged) -> Result<(), EventError> {
+        if event.change == FolderChange::Removed {
+            acme::index::forget(cx.db(), &event.path).await?;
+        }
+        Ok(())
+    }
+}
+
+registry.listen::<MediaFolderChanged>(Reindex);
+```
+
+Event | Name | Fields
+--- | --- | ---
+`MediaStored` | `media.stored` | `id`, `hash`, `name`, `by`
+`MediaRemoved` | `media.removed` | `id`, `hash`, `name`, `by`
+`MediaRenamed` | `media.renamed` | `id`, `name`, `was`, `by`
+`MediaMoved` | `media.moved` | `id`, `folder_id`, `by`
+`MediaFolderChanged` | `media.folder.changed` | `id`, `path`, `change` (`created`, `renamed`, `moved`, `removed`), `by`

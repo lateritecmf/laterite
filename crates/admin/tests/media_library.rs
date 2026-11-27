@@ -4,11 +4,12 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
+use laterite_admin::medialib::{FolderChange, MediaFolderChanged, MediaMoved, MediaRenamed};
 use laterite_admin::{router, AdminConfig, Contributions};
 use laterite_auth::{
     password, store as auth_store, AuthConfig, AuthService, NewOperator, RequestContext,
 };
-use laterite_core::{CatalogStore, Db};
+use laterite_core::{CatalogStore, Db, EventCx, EventError, Listener};
 use laterite_media::{
     blob_path, folder, ingest, link, record, stream_of, DiskReg, LocalDisk, NewMedia,
     NewMediaExtra, Owner, StorageDriver,
@@ -34,6 +35,39 @@ impl laterite_admin::routes::Screen for Keeper {
     }
 }
 
+/// What the library announced, across every test in this file; a test reads
+/// the lines carrying the names it used.
+static HEARD: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+struct Heard;
+
+#[laterite_core::strata::async_trait]
+impl Listener<MediaRenamed> for Heard {
+    async fn handle(&self, _cx: &EventCx<'_>, e: &MediaRenamed) -> Result<(), EventError> {
+        let line = format!("renamed {} from {} by {}", e.name, e.was, e.by);
+        HEARD.lock().unwrap().push(line);
+        Ok(())
+    }
+}
+
+#[laterite_core::strata::async_trait]
+impl Listener<MediaMoved> for Heard {
+    async fn handle(&self, _cx: &EventCx<'_>, e: &MediaMoved) -> Result<(), EventError> {
+        let line = format!("moved {} to {:?}", e.id, e.folder_id);
+        HEARD.lock().unwrap().push(line);
+        Ok(())
+    }
+}
+
+#[laterite_core::strata::async_trait]
+impl Listener<MediaFolderChanged> for Heard {
+    async fn handle(&self, _cx: &EventCx<'_>, e: &MediaFolderChanged) -> Result<(), EventError> {
+        let line = format!("folder {} {:?}", e.path, e.change);
+        HEARD.lock().unwrap().push(line);
+        Ok(())
+    }
+}
+
 fn app(db: &Db, root: &std::path::Path) -> Router {
     app_and_ctx(db, root).0
 }
@@ -49,6 +83,12 @@ fn app_and_ctx(db: &Db, root: &std::path::Path) -> (Router, laterite_admin::rout
         "public",
         Arc::new(LocalDisk::new(root.join("media"))),
     ));
+    let events = laterite_core::Events::builder(db.clone())
+        .listen::<MediaRenamed>(Heard)
+        .listen::<MediaMoved>(Heard)
+        .listen::<MediaFolderChanged>(Heard)
+        .build()
+        .unwrap();
     let contributions = Contributions {
         plugin_defined: Arc::new(registry),
         screens: vec![laterite_admin::routes::ScreenReg::new(
@@ -59,7 +99,7 @@ fn app_and_ctx(db: &Db, root: &std::path::Path) -> (Router, laterite_admin::rout
         ..Default::default()
     };
     let app = router(
-        AuthService::new(db.clone(), AuthConfig::default()),
+        AuthService::new(db.clone(), AuthConfig::default()).with_events(events),
         db.clone(),
         contributions,
         config,
@@ -1412,4 +1452,82 @@ async fn an_account_sets_and_removes_its_picture() {
     assert!(link::users_of(&db, media_id).await.unwrap().is_empty());
     let (_, html, _) = get(&app, "/admin/preferences", Some(&root)).await;
     assert!(!html.contains("<img src=\"/storage/media/"));
+}
+
+#[tokio::test]
+async fn a_change_to_a_file_or_folder_is_announced() {
+    let (db, _g) = test_db().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = app(&db, dir.path());
+    let (root, _) = sessions(&db).await;
+    let heard = |needle: &str| {
+        let all = HEARD.lock().unwrap();
+        all.iter().any(|l| l == needle) || panic!("{needle} not in {all:?}")
+    };
+
+    post(&app, "/admin/media/folders", &root, "name=Evented").await;
+    let made = folder::children(&db, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|f| f.name == "Evented")
+        .unwrap();
+    assert!(heard(&format!(
+        "folder /Evented {:?}",
+        FolderChange::Created
+    )));
+
+    upload(
+        &app,
+        &root,
+        &[("folder", &made.id.to_string())],
+        &[("evented-one.png", &png(7))],
+    )
+    .await;
+    let listed = laterite_media::library::list(
+        &db,
+        &laterite_media::library::Listing {
+            folder: Some(made.id),
+            per_page: 50,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let file = listed.items[0].id;
+    post(
+        &app,
+        &format!("/admin/media/{file}/update"),
+        &root,
+        "name=evented-two.png&title=&alt=",
+    )
+    .await;
+    assert!(heard(
+        "renamed evented-two.png from evented-one.png by root"
+    ));
+    post(&app, &format!("/admin/media/{file}/move"), &root, "to=").await;
+    assert!(heard(&format!("moved {file} to None")));
+
+    post(
+        &app,
+        &format!("/admin/media/folders/{}/rename", made.id),
+        &root,
+        "name=Evented+Again",
+    )
+    .await;
+    assert!(heard(&format!(
+        "folder /Evented Again {:?}",
+        FolderChange::Renamed
+    )));
+    post(
+        &app,
+        &format!("/admin/media/folders/{}/delete", made.id),
+        &root,
+        "",
+    )
+    .await;
+    assert!(heard(&format!(
+        "folder /Evented Again {:?}",
+        FolderChange::Removed
+    )));
 }

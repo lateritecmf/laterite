@@ -42,6 +42,7 @@ struct. By code, untyped:
 ```rust
 let value = laterite_admin::settings::get(&db, SiteSettings::CODE).await?;
 laterite_admin::settings::set(&db, "acme.site", &value.unwrap_or_default()).await?;
+laterite_admin::settings::patch(&db, "acme.site", "maintenance", true.into()).await?;   // one key
 ```
 
 ## Edit it in the admin

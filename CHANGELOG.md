@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
+- `PageHead::crumb` adds a level to a screen's breadcrumb trail, and `settings::patch` writes one key of a stored settings object.
 - A settings form puts fields on tabs (`FormField::tab`), takes a select's choices from an option source, and has Reset to defaults (`POST <path>/reset`).
 - A mail driver declares its own fields for the Mail settings screen (`MailDriverReg::with_options`, `field`, `label`); a `sendmail` driver is built in, and the screen lists every registered driver.
 - "View the panel as this role" on a role's page runs the session with that role's permissions until stopped, for a role that grants nothing the operator lacks.

@@ -175,3 +175,18 @@ async fn reset_puts_every_field_back_to_its_default() {
     let status = post(&app, &format!("{PATH}/reset"), "nobody", "").await;
     assert!(!status.is_success());
 }
+
+#[tokio::test]
+async fn patch_writes_one_key_and_keeps_the_rest() {
+    let (db, _g) = test_db().await;
+    laterite_admin::settings::patch(&db, "acme.shop", "name", "Acme".into())
+        .await
+        .unwrap();
+    laterite_admin::settings::patch(&db, "acme.shop", "open", true.into())
+        .await
+        .unwrap();
+    assert_eq!(
+        stored(&db).await,
+        serde_json::json!({ "name": "Acme", "open": true })
+    );
+}

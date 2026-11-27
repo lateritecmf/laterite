@@ -232,3 +232,19 @@ pub async fn set_for(
     laterite_auth::store::set_user_preference(db, user_id, &preference_key(code), &json).await?;
     Ok(())
 }
+
+/// Writes one key of the object stored for `code`, leaving its other keys as
+/// they are; a code with nothing stored starts from an empty object.
+pub async fn patch(
+    db: &Db,
+    code: &str,
+    key: &str,
+    value: serde_json::Value,
+) -> Result<(), SettingsError> {
+    let mut stored = match get(db, code).await? {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    stored.insert(key.to_string(), value);
+    set(db, code, &serde_json::Value::Object(stored)).await
+}

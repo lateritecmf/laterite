@@ -138,6 +138,100 @@ impl laterite_core::Event for MediaRemoved {
     const NAME: &'static str = "media.removed";
 }
 
+/// A library file given another name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaRenamed {
+    /// Id of the media record.
+    pub id: i64,
+    /// The name the record carries now.
+    pub name: String,
+    /// The name it carried before.
+    pub was: String,
+    /// Username of the user who renamed the file.
+    pub by: String,
+}
+
+impl laterite_core::Event for MediaRenamed {
+    const NAME: &'static str = "media.renamed";
+}
+
+/// A library file put in another folder.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaMoved {
+    /// Id of the media record.
+    pub id: i64,
+    /// The folder it sits in now; `None` is the library's root.
+    pub folder_id: Option<i64>,
+    /// Username of the user who moved the file.
+    pub by: String,
+}
+
+impl laterite_core::Event for MediaMoved {
+    const NAME: &'static str = "media.moved";
+}
+
+/// What happened to a library folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum FolderChange {
+    /// It was made.
+    Created,
+    /// It was given another name.
+    Renamed,
+    /// It was put under another folder.
+    Moved,
+    /// It was deleted.
+    Removed,
+}
+
+/// A library folder made, renamed, moved or deleted.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaFolderChanged {
+    /// Id of the folder.
+    pub id: i64,
+    /// The folder's path after the change (`/a/b`); for a deleted folder,
+    /// the path it had.
+    pub path: String,
+    /// What happened.
+    pub change: FolderChange,
+    /// Username of the user who made the change.
+    pub by: String,
+}
+
+impl laterite_core::Event for MediaFolderChanged {
+    const NAME: &'static str = "media.folder.changed";
+}
+
+/// Tells listeners a folder changed.
+async fn announce_folder(
+    ctx: &RouteCtx,
+    user: &AuthenticatedUser,
+    id: i64,
+    path: &str,
+    change: FolderChange,
+) {
+    ctx.events()
+        .emit(&MediaFolderChanged {
+            id,
+            path: path.to_string(),
+            change,
+            by: user.user.username.clone(),
+        })
+        .await;
+}
+
+/// Tells listeners a file changed folder.
+async fn announce_moved(ctx: &RouteCtx, user: &AuthenticatedUser, id: i64, folder_id: Option<i64>) {
+    ctx.events()
+        .emit(&MediaMoved {
+            id,
+            folder_id,
+            by: user.user.username.clone(),
+        })
+        .await;
+}
+
 /// The library's disk: the one registered as [`DISK`], else the local
 /// folder under the storage directory.
 pub fn library_driver(
@@ -1827,6 +1921,7 @@ async fn create_folder(
                 None,
             )
             .await;
+            announce_folder(ctx, &user, f.id, &f.path, FolderChange::Created).await;
             session.push_flash(FlashLevel::Success, t!("Folder created."));
             back_to(ctx, Some(f.id))
         }
@@ -1864,6 +1959,7 @@ async fn rename_folder(
                 None,
             )
             .await;
+            announce_folder(ctx, &user, f.id, &f.path, FolderChange::Renamed).await;
             session.push_flash(FlashLevel::Success, t!("Folder renamed."));
             back_to(ctx, f.parent_id)
         }
@@ -1903,6 +1999,7 @@ async fn move_folder(
                 None,
             )
             .await;
+            announce_folder(ctx, &user, f.id, &f.path, FolderChange::Moved).await;
             session.push_flash(FlashLevel::Success, t!("Folder moved."));
             back_to(ctx, to)
         }
@@ -2043,6 +2140,7 @@ async fn sweep_folder(
                     None,
                 )
                 .await;
+                announce_folder(ctx, user, f.id, &f.path, FolderChange::Removed).await;
             }
             Err(laterite_media::FolderError::NotEmpty { .. }) => swept.kept += 1,
             Err(e) => {
@@ -2136,6 +2234,7 @@ async fn bulk(
                             Some(&detail),
                         )
                         .await;
+                        announce_moved(ctx, &user, id, to).await;
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "a media record could not be moved");
@@ -2156,6 +2255,7 @@ async fn bulk(
                             None,
                         )
                         .await;
+                        announce_folder(ctx, &user, f.id, &f.path, FolderChange::Moved).await;
                     }
                     Err(e) => flash_folder_error(&session, &e),
                 }
@@ -2193,11 +2293,9 @@ async fn delete_folder(
         return forbidden();
     }
     let ctx = &app.ctx;
-    let parent = folder::find(ctx.db(), id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|f| f.parent_id);
+    let found = folder::find(ctx.db(), id).await.ok().flatten();
+    let gone_path = found.as_ref().map(|f| f.path.clone()).unwrap_or_default();
+    let parent = found.and_then(|f| f.parent_id);
     if form.contents == "1" {
         let Ok(Some(root)) = folder::find(ctx.db(), id).await else {
             return AdminError::NotFound.into_response();
@@ -2219,6 +2317,7 @@ async fn delete_folder(
                 None,
             )
             .await;
+            announce_folder(ctx, &user, id, &gone_path, FolderChange::Removed).await;
             session.push_flash(FlashLevel::Success, t!("Folder deleted."));
             back_to(ctx, parent)
         }
@@ -2673,6 +2772,16 @@ async fn update_file(
                 None,
             )
             .await;
+            if name != r.original_name {
+                ctx.events()
+                    .emit(&MediaRenamed {
+                        id,
+                        name: name.to_string(),
+                        was: r.original_name.clone(),
+                        by: user.user.username.clone(),
+                    })
+                    .await;
+            }
             session.push_flash(FlashLevel::Success, t!("File saved."));
         }
         Err(e) => {
@@ -2716,6 +2825,7 @@ async fn move_file(
                 )),
             )
             .await;
+            announce_moved(ctx, &user, id, to).await;
             session.push_flash(FlashLevel::Success, t!("File moved."));
         }
         Err(e) => {
