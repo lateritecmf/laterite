@@ -19,6 +19,9 @@ Method | Does
 `Message::raw(subject, text, html)` | A message with its own body; `html` optional.
 `.to(addr)`, `.cc(addr)`, `.bcc(addr)`, `.reply_to(addr)`, `.from(addr)` | Addresses, as `Name <address>` or bare.
 `.attach(filename, content_type, bytes)` | A file.
+`.embed(cid, filename, content_type, bytes)` | A picture the HTML body shows as `<img src="cid:logo">`.
+`.sender(addr)` | The address sending on the author's behalf, when it differs from `from`.
+`.priority(n)` | Urgency, `1` (highest) to `5` (lowest), sent as `X-Priority`.
 `mail.send(message)` | Queues it; `Pushed::Ran` in inline mode.
 `mail.send_in(message, delay)`, `mail.send_at(message, when)` | Queues it to go out after a `Duration`, or at a UTC time.
 `mail.send_on(message, queue)`, `mail.send_on_at(message, queue, when)` | Queues it on a named queue, for the workers started with `--queue` naming it.

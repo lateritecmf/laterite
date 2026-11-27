@@ -1,7 +1,7 @@
 //! The `smtp` driver, over lettre with a pooled connection and rustls.
 
 use async_trait::async_trait;
-use lettre::message::header::ContentType;
+use lettre::message::header::{ContentType, Header, HeaderName, HeaderValue};
 use lettre::message::{Attachment as LettreAttachment, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message as LettreMessage, Tokio1Executor};
@@ -61,6 +61,22 @@ fn mailbox(address: &Address) -> CoreResult<Mailbox> {
 }
 
 /// One envelope as a message lettre can hand to a transport.
+/// The `X-Priority` header: `1` (highest) to `5` (lowest).
+#[derive(Clone)]
+struct XPriority(String);
+
+impl Header for XPriority {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("X-Priority")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.to_string()))
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
 pub(super) fn build_message(envelope: &Envelope) -> CoreResult<LettreMessage> {
     let mut builder = LettreMessage::builder()
         .from(mailbox(&envelope.from)?)
@@ -77,6 +93,12 @@ pub(super) fn build_message(envelope: &Envelope) -> CoreResult<LettreMessage> {
     if let Some(reply_to) = &envelope.reply_to {
         builder = builder.reply_to(mailbox(reply_to)?);
     }
+    if let Some(sender) = &envelope.sender {
+        builder = builder.sender(mailbox(sender)?);
+    }
+    if let Some(level) = envelope.priority {
+        builder = builder.header(XPriority(level.to_string()));
+    }
     let text = SinglePart::builder()
         .header(ContentType::TEXT_PLAIN)
         .body(envelope.text.clone());
@@ -88,16 +110,33 @@ pub(super) fn build_message(envelope: &Envelope) -> CoreResult<LettreMessage> {
         ),
         None => MultiPart::mixed().singlepart(text),
     };
-    let mut mixed = if envelope.attachments.is_empty() {
+    let typed = |file: &super::Attachment| {
+        ContentType::parse(&file.content_type)
+            .unwrap_or(ContentType::parse("application/octet-stream").expect("a valid type"))
+    };
+    // Pictures the body shows travel beside it; files hang off the whole.
+    let (shown, files): (Vec<_>, Vec<_>) = envelope
+        .attachments
+        .iter()
+        .partition(|f| f.inline.is_some());
+    let mut body = body;
+    if !shown.is_empty() {
+        body = MultiPart::related().multipart(body);
+        for file in shown {
+            let cid = file.inline.clone().unwrap_or_default();
+            body = body.singlepart(
+                LettreAttachment::new_inline(cid).body(file.bytes.clone(), typed(file)),
+            );
+        }
+    }
+    let mut mixed = if files.is_empty() {
         body
     } else {
         MultiPart::mixed().multipart(body)
     };
-    for file in &envelope.attachments {
-        let content_type = ContentType::parse(&file.content_type)
-            .unwrap_or(ContentType::parse("application/octet-stream").expect("a valid type"));
+    for file in files {
         mixed = mixed.singlepart(
-            LettreAttachment::new(file.filename.clone()).body(file.bytes.clone(), content_type),
+            LettreAttachment::new(file.filename.clone()).body(file.bytes.clone(), typed(file)),
         );
     }
     builder
@@ -201,7 +240,32 @@ mod tests {
             text: "A line.\n.\nAnother.".to_string(),
             html: None,
             attachments: Vec::new(),
+            sender: None,
+            priority: None,
         }
+    }
+
+    #[test]
+    fn the_built_message_carries_the_sender_the_priority_and_inline_pictures() {
+        let mut envelope = envelope();
+        envelope.html = Some("<p><img src=\"cid:logo\"></p>".to_string());
+        envelope.sender = crate::mail::Address::parse("Mailer <bounces@acme.example>");
+        envelope.priority = Some(1);
+        let message = crate::mail::Message::raw("x", "y", None)
+            .embed("logo", "logo.png", "image/png", vec![1, 2, 3])
+            .attach("terms.pdf", "application/pdf", vec![4, 5, 6]);
+        envelope.attachments = message.attachments;
+        let built =
+            String::from_utf8_lossy(&build_message(&envelope).unwrap().formatted()).to_string();
+        assert!(built.contains("Sender: "), "{built}");
+        assert!(built.contains("bounces@acme.example"));
+        assert!(built.contains("X-Priority: 1"), "{built}");
+        assert!(built.contains("multipart/related"), "{built}");
+        assert!(built.contains("Content-ID: <logo>"), "{built}");
+        assert!(built.contains("Content-Disposition: inline"), "{built}");
+        assert!(built.contains("filename=\"terms.pdf\""), "{built}");
+        // The picture sits with the body, the file after both.
+        assert!(built.find("multipart/related").unwrap() < built.find("terms.pdf").unwrap());
     }
 
     #[tokio::test]

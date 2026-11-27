@@ -156,6 +156,7 @@ impl std::fmt::Display for Address {
 
 /// A file carried by a message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Attachment {
     /// File name the recipient sees.
     pub filename: String,
@@ -164,6 +165,10 @@ pub struct Attachment {
     /// File contents, stored as base64 when the message is queued.
     #[serde(with = "base64_bytes")]
     pub bytes: Vec<u8>,
+    /// The content id the HTML body shows the file by (`<img src="cid:logo">`);
+    /// `None` is an ordinary attachment.
+    #[serde(default)]
+    pub inline: Option<String>,
 }
 
 mod base64_bytes {
@@ -205,6 +210,7 @@ pub enum Content {
 /// A message to send. Built with [`Message::template`] or [`Message::raw`]
 /// and the recipient methods; stored as JSON when queued.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Message {
     /// What the message says: a template or a body of its own.
     pub content: Content,
@@ -220,6 +226,14 @@ pub struct Message {
     pub from: Option<Address>,
     /// Files attached to the message.
     pub attachments: Vec<Attachment>,
+    /// The address that sends on the author's behalf, when it differs from
+    /// `from`: bounces go to it.
+    #[serde(default)]
+    pub sender: Option<Address>,
+    /// How urgent the message is, `1` (highest) to `5` (lowest); `None`
+    /// says nothing.
+    #[serde(default)]
+    pub priority: Option<u8>,
 }
 
 impl Message {
@@ -249,7 +263,39 @@ impl Message {
             reply_to: None,
             from: None,
             attachments: Vec::new(),
+            sender: None,
+            priority: None,
         }
+    }
+
+    /// Sets the address that sends on the author's behalf; text that is not
+    /// an address clears it.
+    pub fn sender(mut self, address: &str) -> Self {
+        self.sender = Address::parse(address);
+        self
+    }
+
+    /// Marks how urgent the message is, `1` (highest) to `5` (lowest).
+    pub fn priority(mut self, level: u8) -> Self {
+        self.priority = Some(level.clamp(1, 5));
+        self
+    }
+
+    /// Carries a picture the HTML body shows as `<img src="cid:{cid}">`.
+    pub fn embed(
+        mut self,
+        cid: impl Into<String>,
+        filename: impl Into<String>,
+        content_type: impl Into<String>,
+        bytes: Vec<u8>,
+    ) -> Self {
+        self.attachments.push(Attachment {
+            filename: filename.into(),
+            content_type: content_type.into(),
+            bytes,
+            inline: Some(cid.into()),
+        });
+        self
     }
 
     /// Adds a recipient; text that is not an address is dropped.
@@ -294,6 +340,7 @@ impl Message {
             filename: filename.into(),
             content_type: content_type.into(),
             bytes,
+            inline: None,
         });
         self
     }
@@ -301,6 +348,7 @@ impl Message {
 
 /// A message rendered and addressed: what a driver delivers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Envelope {
     /// Sender: the message's own `from`, else the configured one.
     pub from: Address,
@@ -318,8 +366,15 @@ pub struct Envelope {
     pub text: String,
     /// Rendered HTML body; `None` for a text-only message.
     pub html: Option<String>,
-    /// Files attached to the message.
+    /// Files attached to the message; one with `inline` set is shown by the
+    /// HTML body.
     pub attachments: Vec<Attachment>,
+    /// The address sending on the author's behalf, when the message set one.
+    #[serde(default)]
+    pub sender: Option<Address>,
+    /// Urgency, `1` (highest) to `5` (lowest), when the message set one.
+    #[serde(default)]
+    pub priority: Option<u8>,
 }
 
 /// Delivers envelopes. A driver's failure is the sender's to see: the job
@@ -952,6 +1007,8 @@ impl Mail {
             text: rendered.text,
             html: rendered.html,
             attachments: message.attachments,
+            sender: message.sender,
+            priority: message.priority,
         })
     }
 

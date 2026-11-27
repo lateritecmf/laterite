@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ## [Unreleased]
 
+### Breaking
+
+- `mail::Message`, `Envelope` and `Attachment` are `#[non_exhaustive]` and carry `sender`, `priority` and `inline`: build them with `Message::template`, `Message::raw` and `.attach`, not a struct literal.
+- `Contributions` and `plugins::PluginRow` gained fields: a struct literal needs `..Default::default()` or the new fields.
+
 ### Changed
 
 - `lat new` scaffolds no application module: a project's own screens, tables and permissions go in a plugin under `plugins/`, made with `lat make:plugin`.
@@ -15,6 +20,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
 - `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- A message takes `.sender(addr)`, `.priority(1..=5)` and `.embed(cid, filename, type, bytes)` for a picture the HTML body shows.
 - A scheduled entry takes `.when`, `.before` and `.after`, and `ScheduleEntry` gains `daily`, `twice_daily`, `weekly` and `monthly`.
 - `config::plugin::<T>("acme.blog")` reads a plugin's own `[plugins.acme.blog]` section of the application's config files and environment.
 - `Module::about` gives a plugin's name, description and version to the Plugins screen, and `lat plugin enable` and `disable` toggle one from the command line; run migrations.
