@@ -15,6 +15,7 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 - The media library announces `media.renamed`, `media.moved` and `media.folder.changed` beside `media.stored` and `media.removed`.
 - `Mail::send_in`, `send_at`, `send_on` and `send_on_at` queue a message for later or on a named queue; `Queue::push_named_at` does it for any job.
+- A scheduled entry takes `.when`, `.before` and `.after`, and `ScheduleEntry` gains `daily`, `twice_daily`, `weekly` and `monthly`.
 - `config::plugin::<T>("acme.blog")` reads a plugin's own `[plugins.acme.blog]` section of the application's config files and environment.
 - `Module::about` gives a plugin's name, description and version to the Plugins screen, and `lat plugin enable` and `disable` toggle one from the command line; run migrations.
 - Each operator sets their own code editor (text size, indent, wrapping, gutter) under Preferences; `CodeEditorPreferences`.

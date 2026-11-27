@@ -25,11 +25,18 @@ Constructor | Expression
 `ScheduleEntry::every_minutes(name, n)` | `*/n * * * *`
 `ScheduleEntry::hourly(name)` | `0 * * * *`
 `ScheduleEntry::daily_at(name, "07:30")` | `30 7 * * *`
+`ScheduleEntry::daily(name)` | `0 0 * * *`
+`ScheduleEntry::twice_daily(name, 1, 13)` | `0 1,13 * * *`
+`ScheduleEntry::weekly(name)` | `0 0 * * 0`
+`ScheduleEntry::monthly(name)` | `0 0 1 * *`
 
 Method | Default | Meaning
 --- | --- | ---
 `.run(\|cx\| async { .. })` | | Runs the closure when due; `cx` gives `db()`, `events()`, `cache()`, `parameters()`, `queue()`.
 `.job(job)` | | Pushes the job when due.
+`.when(\|cx\| async { .. })` | | A test answering `bool`; on `false` the due minute is let go and the status is `skipped`. Several must all pass.
+`.before(\|cx\| async { .. })` | | Runs right before the entry; its error fails the run.
+`.after(\|cx, outcome\| async { .. })` | | Runs once the entry finished, with `Ok(())` or the error's text: mail a failure, call a monitor.
 `.timezone("Asia/Colombo")` | `UTC` | The timezone the expression is read in.
 `.description("..")` | | A line for the Scheduled tasks screen.
 `.overlap(Overlap::Allow)` | `Overlap::Skip` | Whether a due entry runs while its last run is still going.

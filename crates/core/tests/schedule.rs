@@ -216,3 +216,94 @@ async fn overlap_allow_runs_beside_a_running_one_and_a_duplicate_name_is_refused
     );
     assert!(dup.is_err());
 }
+
+#[tokio::test]
+async fn a_condition_gates_a_run_and_hooks_run_around_it() {
+    let (db, _guard) = test_db().await;
+    let open = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let say = |seen: &Arc<std::sync::Mutex<Vec<String>>>, what: &str| {
+        seen.lock().unwrap().push(what.to_string());
+    };
+    let (gate, s1, s2, s3, s4) = (
+        open.clone(),
+        seen.clone(),
+        seen.clone(),
+        seen.clone(),
+        seen.clone(),
+    );
+    let entries = vec![
+        // Run twice within a minute below, so the once-a-minute lock is off.
+        ScheduleEntry::every_minutes("acme.test::gated", 1)
+            .one_server(false)
+            .when(move |_| {
+                let gate = gate.clone();
+                async move { gate.load(Ordering::SeqCst) }
+            })
+            .before(move |_| {
+                let seen = s1.clone();
+                async move {
+                    seen.lock().unwrap().push("before".into());
+                    Ok(())
+                }
+            })
+            .run(move |_| {
+                let seen = s2.clone();
+                async move {
+                    seen.lock().unwrap().push("run".into());
+                    Ok(())
+                }
+            })
+            .after(move |_, outcome| {
+                let seen = s3.clone();
+                async move {
+                    seen.lock().unwrap().push(format!("after {outcome:?}"));
+                }
+            }),
+        ScheduleEntry::every_minutes("acme.test::failing", 1)
+            .run(|_| async { Err(laterite_core::CoreError::Internal("no luck".into())) })
+            .after(move |_, outcome| {
+                let seen = s4.clone();
+                async move {
+                    seen.lock()
+                        .unwrap()
+                        .push(format!("failed {}", outcome.unwrap_err()));
+                }
+            }),
+    ];
+    let _ = say;
+    let schedule = Schedule::new(
+        entries,
+        services(&db, Cache::new(NullStore, DbSignals::new(db.clone()))),
+    )
+    .unwrap();
+
+    // The condition says no: the minute is let go and recorded as skipped.
+    assert!(!schedule.run_now("acme.test::gated").await.unwrap());
+    assert!(seen.lock().unwrap().is_empty());
+    let state = schedule.list().await.unwrap();
+    let gated = state.iter().find(|e| e.name == "acme.test::gated").unwrap();
+    assert_eq!(gated.last_status, RunStatus::Skipped);
+
+    // It says yes: before, the entry, then after with how it went.
+    open.store(true, Ordering::SeqCst);
+    assert!(schedule.run_now("acme.test::gated").await.unwrap());
+    assert_eq!(*seen.lock().unwrap(), ["before", "run", "after Ok(())"]);
+
+    // A failure reaches the hook as its text.
+    assert!(schedule.run_now("acme.test::failing").await.unwrap());
+    let last = seen.lock().unwrap().last().cloned().unwrap();
+    assert!(
+        last.starts_with("failed ") && last.contains("no luck"),
+        "{last}"
+    );
+
+    // The named frequencies are plain expressions.
+    assert_eq!(ScheduleEntry::daily("a.b::c").expression(), "0 0 * * *");
+    assert_eq!(
+        ScheduleEntry::twice_daily("a.b::c", 1, 13).expression(),
+        "0 1,13 * * *"
+    );
+    assert_eq!(ScheduleEntry::weekly("a.b::c").expression(), "0 0 * * 0");
+    assert_eq!(ScheduleEntry::monthly("a.b::c").expression(), "0 0 1 * *");
+}

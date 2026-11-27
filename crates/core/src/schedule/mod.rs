@@ -105,6 +105,12 @@ pub enum Overlap {
 type RunFn =
     dyn Fn(ScheduleCx) -> Pin<Box<dyn Future<Output = CoreResult<()>> + Send>> + Send + Sync;
 
+type WhenFn = dyn Fn(ScheduleCx) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync;
+
+type AfterFn = dyn Fn(ScheduleCx, Result<(), String>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    + Send
+    + Sync;
+
 #[derive(Clone)]
 enum Action {
     Run(Arc<RunFn>),
@@ -128,6 +134,9 @@ pub struct ScheduleEntry {
     action: Action,
     overlap: Overlap,
     one_server: bool,
+    when: Vec<Arc<WhenFn>>,
+    before: Vec<Arc<RunFn>>,
+    after: Vec<Arc<AfterFn>>,
 }
 
 impl std::fmt::Debug for ScheduleEntry {
@@ -154,7 +163,68 @@ impl ScheduleEntry {
             action: Action::None,
             overlap: Overlap::Skip,
             one_server: true,
+            when: Vec::new(),
+            before: Vec::new(),
+            after: Vec::new(),
         }
+    }
+
+    /// Every day at midnight.
+    pub fn daily(name: impl Into<String>) -> Self {
+        Self::new(name, "0 0 * * *")
+    }
+
+    /// Twice a day, on the hours `first` and `second` (`1`, `13`).
+    pub fn twice_daily(name: impl Into<String>, first: u32, second: u32) -> Self {
+        Self::new(
+            name,
+            format!("0 {},{} * * *", first.min(23), second.min(23)),
+        )
+    }
+
+    /// Every week, at midnight on Sunday.
+    pub fn weekly(name: impl Into<String>) -> Self {
+        Self::new(name, "0 0 * * 0")
+    }
+
+    /// Every month, at midnight on the first.
+    pub fn monthly(name: impl Into<String>) -> Self {
+        Self::new(name, "0 0 1 * *")
+    }
+
+    /// Runs the entry only when `test` says so: a due minute where it
+    /// answers `false` is let go and recorded as skipped. Several tests must
+    /// all pass.
+    pub fn when<F, Fut>(mut self, test: F) -> Self
+    where
+        F: Fn(ScheduleCx) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = bool> + Send + 'static,
+    {
+        self.when.push(Arc::new(move |cx| Box::pin(test(cx))));
+        self
+    }
+
+    /// Runs `f` right before the entry; its error fails the run and the
+    /// entry itself does not start.
+    pub fn before<F, Fut>(mut self, f: F) -> Self
+    where
+        F: Fn(ScheduleCx) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = CoreResult<()>> + Send + 'static,
+    {
+        self.before.push(Arc::new(move |cx| Box::pin(f(cx))));
+        self
+    }
+
+    /// Runs `f` once the entry finished, with how it went: `Ok(())`, or the
+    /// error's text. The place to mail a failure or call a monitor.
+    pub fn after<F, Fut>(mut self, f: F) -> Self
+    where
+        F: Fn(ScheduleCx, Result<(), String>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.after
+            .push(Arc::new(move |cx, outcome| Box::pin(f(cx, outcome))));
+        self
     }
 
     /// Every `n` minutes.
@@ -490,6 +560,16 @@ impl Schedule {
         } else {
             None
         };
+        for test in &prepared.entry.when {
+            if !test(self.inner.cx.clone()).await {
+                tracing::debug!(entry = %name, "scheduled entry's condition said no");
+                store::skipped(&self.inner.db, &name).await?;
+                if let Some(lock) = overlap {
+                    let _ = lock.release().await;
+                }
+                return Ok(None);
+            }
+        }
         store::started(&self.inner.db, &name).await?;
         let schedule = self.clone();
         Ok(Some(tokio::spawn(async move {
@@ -509,6 +589,10 @@ impl Schedule {
                     }
                 }
             }
+            let said = outcome.as_ref().map(|_| ()).map_err(|e| e.to_string());
+            for hook in &schedule.inner.entries[at].entry.after {
+                hook(schedule.inner.cx.clone(), said.clone()).await;
+            }
             if let Some(lock) = overlap {
                 let _ = lock.release().await;
             }
@@ -517,6 +601,9 @@ impl Schedule {
 
     async fn execute(&self, at: usize) -> CoreResult<()> {
         let prepared = &self.inner.entries[at];
+        for hook in &prepared.entry.before {
+            hook(self.inner.cx.clone()).await?;
+        }
         match &prepared.entry.action {
             Action::Run(f) => f(self.inner.cx.clone()).await,
             Action::Job {
