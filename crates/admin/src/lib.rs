@@ -1621,6 +1621,14 @@ pub struct Permission {
     /// Codes this permission used to have. At boot every role and override
     /// still holding one is rewritten to the current code.
     pub renamed_from: Vec<String>,
+    /// Sorts the permission within its group, lowest first; equal orders keep
+    /// the order they were registered in.
+    pub order: i32,
+    /// A line under the label in the role editor, localized at render.
+    pub comment: Option<Text>,
+    /// The permission this one sits under: the registered code its own code
+    /// extends (`acme.posts` for `acme.posts.publish`). Worked out at boot.
+    pub parent: Option<String>,
 }
 
 /// The signed-in operator a module's handler extracts
@@ -1639,7 +1647,22 @@ impl Permission {
             group: group.into(),
             default_roles: Vec::new(),
             renamed_from: Vec::new(),
+            order: 0,
+            comment: None,
+            parent: None,
         }
+    }
+
+    /// Sorts the permission within its group, lowest first.
+    pub fn order(mut self, order: i32) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// Adds a line under the label in the role editor.
+    pub fn comment(mut self, comment: impl Into<Text>) -> Self {
+        self.comment = Some(comment.into());
+        self
     }
 
     /// Codes this permission used to have.
@@ -1666,6 +1689,72 @@ impl Permission {
         self.default_roles = roles.into_iter().map(Into::into).collect();
         self
     }
+}
+
+/// Whether every permission a `permission` key names is one a module
+/// registered: each alternative of `a|b`, and for `prefix.*` at least one
+/// permission under the prefix.
+pub(crate) fn permission_known(codes: &std::collections::HashSet<String>, spec: &str) -> bool {
+    let mut any = false;
+    for code in spec.split('|').map(str::trim).filter(|c| !c.is_empty()) {
+        any = true;
+        let known = match code.strip_suffix(".*") {
+            Some(prefix) => codes.iter().any(|c| {
+                c.strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with('.'))
+            }),
+            None => codes.contains(code),
+        };
+        if !known {
+            return false;
+        }
+    }
+    any
+}
+
+/// Arranges the registry for the editors: groups in the order they first
+/// appear, each group's permissions by `order`, and a permission whose code
+/// extends another's (`acme.posts.publish` under `acme.posts`) right after it,
+/// with that one as its `parent`.
+pub(crate) fn arrange_permissions(mut permissions: Vec<Permission>) -> Vec<Permission> {
+    let codes: Vec<String> = permissions.iter().map(|p| p.code.clone()).collect();
+    for permission in &mut permissions {
+        permission.parent = codes
+            .iter()
+            .filter(|code| {
+                permission
+                    .code
+                    .strip_prefix(code.as_str())
+                    .is_some_and(|rest| rest.starts_with('.'))
+            })
+            .max_by_key(|code| code.len())
+            .cloned();
+    }
+    let mut groups: Vec<String> = Vec::new();
+    for permission in &permissions {
+        let group = permission.group.source().to_string();
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    let rank = |p: &Permission| {
+        groups
+            .iter()
+            .position(|g| g == p.group.source())
+            .unwrap_or(usize::MAX)
+    };
+    // Stable, so equal orders keep registration order.
+    permissions.sort_by_key(|p| (rank(p), p.order));
+    // Each child directly after its parent, depth first.
+    let mut out: Vec<Permission> = Vec::with_capacity(permissions.len());
+    fn place(code: Option<&str>, from: &[Permission], out: &mut Vec<Permission>) {
+        for permission in from.iter().filter(|p| p.parent.as_deref() == code) {
+            out.push(permission.clone());
+            place(Some(&permission.code), from, out);
+        }
+    }
+    place(None, &permissions, &mut out);
+    out
 }
 
 /// Every rename the registry declares, as `(old, new)` pairs.
@@ -2278,6 +2367,7 @@ pub fn router(
 
     let mut permissions = builtin_permissions();
     permissions.extend(app_permissions);
+    let permissions = arrange_permissions(permissions);
     // The codes a column may require; `list::check` refuses one nobody registered.
     let permission_codes: std::collections::HashSet<String> =
         permissions.iter().map(|p| p.code.clone()).collect();
@@ -2906,7 +2996,7 @@ pub fn router(
         }
         if let Some(prepared) = prepared {
             for (field, permission) in prepared.field_permissions() {
-                if !permission_codes.contains(permission) {
+                if !permission_known(&permission_codes, permission) {
                     panic!(
                         "admin resource `{}`: field `{field}` requires `{permission}`, which no module registered",
                         resource.base_path
@@ -4352,7 +4442,7 @@ fn mount_resource(
         .into_iter()
         .flatten()
     {
-        if !permission_codes.contains(code) {
+        if !permission_known(permission_codes, code) {
             panic!(
                 "admin resource `{}` asks for permission `{code}`, which no module registers",
                 resource.base_path
@@ -4963,7 +5053,7 @@ fn mount_resource(
             );
         }
         if let Some(permission) = &resource.list.clear_permission {
-            if !permission_codes.contains(permission) {
+            if !permission_known(permission_codes, permission) {
                 panic!(
                     "admin resource `{}`: `clear_permission` is `{permission}`, which no module registered",
                     resource.base_path
@@ -7218,8 +7308,10 @@ fn roles_list_config() -> list::ListConfig {
         entity: "backend_roles".to_string(),
         title: "Roles".into(),
         columns: vec![
-            list::ListColumn::new("code", "Code"),
+            list::ListColumn::new("color", "").swatch().sortable(false),
             list::ListColumn::new("name", "Name"),
+            list::ListColumn::new("code", "Code"),
+            list::ListColumn::new("description", "Description").sortable(false),
             list::ListColumn::new("created_at", "Created").datetime(),
         ],
         order_by: "created_at".to_string(),

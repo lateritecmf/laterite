@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/) as Cargo reads it: be
 
 ### Added
 
+- Roles take a description and a colour; `Permission::order` and `comment` arrange and explain the role editor, and `acme.posts.publish` nests under `acme.posts`.
+- A `permission` may name alternatives (`a|b`) or a prefix (`acme.blog.*`); `PermissionSet::allows_any` and `holds` (no superuser pass) join `allows`. A `swatch` list column shows a stored colour.
 - An account has a picture: uploaded on Preferences or by an administrator, shown in the top bar; `backend.default_avatar` sets what an account without one shows.
 - A superuser makes or unmakes another superuser from the account's page (`AuthService::set_user_superuser`), and the Users list shows each account's last sign-in (`backend_users.last_login_at`).
 - `[auth.password_policy]` gains `require_uppercase`, `require_lowercase`, `require_number`, `require_nonalpha`, `expire_days`, `allow_reset` and `reset_expire_minutes`; a refused password is told every rule it breaks (`PasswordPolicy::unmet`, `AuthService::password_due`).

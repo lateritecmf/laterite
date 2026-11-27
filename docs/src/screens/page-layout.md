@@ -157,6 +157,7 @@ Builder | Does
 `Choice::new(name, value, label)` | One box, submitted as `name=value`.
 `.note(..)`, `.code(..)` | A second line under the label; an identifier beside it.
 `.checked(..)`, `.locked(..)` | Ticked; shown and not changeable.
+`.needs(value)` | Indented under the choice with that value, and tickable only while it is ticked.
 `.group(label, entries)` | A heading over entries of its own, nested to any depth.
 `.select_all(..)`, `.search(..)`, `.expand(..)` | The defaults listed under [Behaviours](../reference/behaviours.md).
 `.read_only(true)` | Every box locked.

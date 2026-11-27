@@ -10,6 +10,20 @@
     <input class="lat-input" type="text" id="name" name="name" value="{{ name }}" required{% if system %} readonly{% endif %}>
   </div>
   <div class="lat-field">
+    <label class="lat-field__label" for="description">{{ shell.t("Description") }}</label>
+    <textarea class="lat-input" id="description" name="description" rows="2" maxlength="240"{% if system %} readonly{% endif %}>{{ description }}</textarea>
+    <p class="lat-help">{{ shell.t("What the role is for, shown in the Roles list.") }}</p>
+  </div>
+  {% if !system %}
+  <div class="lat-field">
+    <span class="lat-field__label">{{ shell.t("Colour") }}</span>
+    <span class="lat-colourpick">
+      <label class="lat-check"><input type="checkbox" name="has_colour" value="1"{% if !colour.is_empty() %} checked{% endif %}> {{ shell.t("Mark this role with a colour") }}</label>
+      <input type="color" name="colour" value="{% if colour.is_empty() %}#c2492b{% else %}{{ colour }}{% endif %}" aria-label='{{ shell.t("Colour") }}'>
+    </span>
+  </div>
+  {% endif %}
+  <div class="lat-field">
     <span class="lat-field__label">{{ shell.t("Permissions") }}</span>
     {{ permissions|safe }}
   </div>

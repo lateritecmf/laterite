@@ -63,10 +63,35 @@ impl PermissionSet {
     /// Whether this identity is allowed `needed`. A superuser is always allowed.
     /// Otherwise a user override decides first (deny wins, then allow); with no
     /// override the role grants decide.
+    ///
+    /// `needed` may name alternatives separated by `|` (`acme.posts|acme.pages`:
+    /// either opens it), and an alternative may end in `.*` (`acme.blog.*`:
+    /// holding anything under `acme.blog` opens it).
     pub fn allows(&self, needed: &str) -> bool {
-        if self.superuser {
-            return true;
-        }
+        self.superuser || self.holds(needed)
+    }
+
+    /// Whether this identity is allowed any one of `needed`.
+    pub fn allows_any<'a>(&self, needed: impl IntoIterator<Item = &'a str>) -> bool {
+        self.superuser || needed.into_iter().any(|code| self.holds(code))
+    }
+
+    /// [`allows`](Self::allows) with no pass for a superuser: whether the
+    /// grants themselves cover `needed`. For a check about what an account
+    /// was given, such as whether it may be handed a role.
+    pub fn holds(&self, needed: &str) -> bool {
+        needed
+            .split('|')
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+            .any(|code| match code.strip_suffix(".*") {
+                Some(prefix) => self.holds_under(prefix),
+                None => self.holds_one(code),
+            })
+    }
+
+    /// One exact permission, by override first and role grants after.
+    fn holds_one(&self, needed: &str) -> bool {
         if self.deny.contains(needed) {
             return false;
         }
@@ -74,6 +99,23 @@ impl PermissionSet {
             return true;
         }
         self.role_allows(needed)
+    }
+
+    /// Anything under `prefix`: a grant or an allowed override beneath it that
+    /// is not denied, or a wildcard grant that covers it.
+    fn holds_under(&self, prefix: &str) -> bool {
+        let beneath = |code: &str| {
+            code.strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('.'))
+        };
+        if self.grants.contains("*") || self.role_allows(&format!("{prefix}.x")) {
+            return true;
+        }
+        self.allow.iter().any(|code| beneath(code))
+            || self
+                .grants
+                .iter()
+                .any(|code| beneath(code) && !self.deny.contains(code))
     }
 
     /// Whether the role grants (ignoring overrides) allow `needed`.
@@ -103,6 +145,35 @@ mod tests {
 
     fn set(grants: &[&str]) -> PermissionSet {
         PermissionSet::new(false, grants.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn a_check_may_name_alternatives_and_a_prefix() {
+        let p = set(&["posts.approve", "pages.edit"]);
+        assert!(p.allows("users.edit|posts.approve"));
+        assert!(!p.allows("users.edit|users.delete"));
+        assert!(p.allows_any(["users.edit", "pages.edit"]));
+        // Anything held under a prefix opens a prefix check.
+        assert!(p.allows("posts.*"));
+        assert!(!p.allows("users.*"));
+        assert!(!p.allows("post.*"));
+        assert!(set(&["blog.*"]).allows("blog.posts.*"));
+        // A denied override does not count as held.
+        let denied = PermissionSet::with_overrides(
+            false,
+            ["posts.approve".to_string()],
+            std::iter::empty(),
+            ["posts.approve".to_string()],
+        );
+        assert!(!denied.allows("posts.*"));
+    }
+
+    #[test]
+    fn a_strict_check_gives_a_superuser_no_pass() {
+        let su = PermissionSet::new(true, ["posts.edit".to_string()]);
+        assert!(su.allows("users.delete"));
+        assert!(!su.holds("users.delete"));
+        assert!(su.holds("posts.edit"));
     }
 
     #[test]

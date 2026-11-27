@@ -26,8 +26,8 @@ const SESSION_COOKIE: &str = "laterite_session";
 /// and 2026-11-27 for menu counters, list bulk actions and the media selection, which also
 /// raised the script's ceiling and each screen's page weight.
 const ASSETS: &[(&str, usize, usize)] = &[
-    ("laterite.css", 99_193, 102_000),
-    ("laterite.js", 133_648, 140_000),
+    ("laterite.css", 99_640, 102_000),
+    ("laterite.js", 134_964, 140_000),
     ("theme-boot.js", 1_973, 4_000),
     ("vendor/htmx.min.js", 51_238, 56_000),
 ];
@@ -40,21 +40,21 @@ const SCREENS: &[Screen] = &[
         name: "list",
         path: "/admin/products",
         html: (25_096, 30_000),
-        weight: (323_556, 335_000),
+        weight: (325_319, 335_000),
         queries: (10, 12),
     },
     Screen {
         name: "form (new)",
         path: "/admin/products/new",
         html: (9_436, 12_000),
-        weight: (307_896, 320_000),
+        weight: (309_659, 320_000),
         queries: (7, 9),
     },
     Screen {
         name: "form (edit)",
         path: "/admin/products/1/edit",
         html: (9_441, 12_000),
-        weight: (307_901, 320_000),
+        weight: (309_664, 320_000),
         queries: (8, 10),
     },
 ];

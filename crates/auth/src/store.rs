@@ -1611,6 +1611,42 @@ pub async fn create_role(
     Ok(insert_returning_id(db, stmt, BackendRoles::Id).await?)
 }
 
+/// Whether `value` is a colour as a role stores one: `#rrggbb`.
+pub fn is_hex_colour(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Sets a role's description and colour. An empty description and a colour
+/// that is not `#rrggbb` are stored as none.
+pub async fn set_role_details(
+    db: &Db,
+    role_id: i64,
+    description: &str,
+    colour: &str,
+) -> Result<(), AuthError> {
+    let description = description.trim();
+    let colour = colour.trim().to_ascii_lowercase();
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(BackendRoles::Table)
+            .value(
+                BackendRoles::Description,
+                (!description.is_empty()).then(|| description.to_string()),
+            )
+            .value(
+                BackendRoles::Color,
+                is_hex_colour(&colour).then_some(colour),
+            )
+            .and_where(Expr::col(BackendRoles::Id).eq(role_id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}
+
 /// A role the framework owns: its permissions come from the registry, not from
 /// the database, so they cannot drift as modules add permissions.
 pub struct SystemRole<'a> {

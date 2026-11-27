@@ -10,7 +10,7 @@
   </div>
 </details>
 {% else %}
-<label class="lat-check lat-checklist__item{% if locked %} is-locked{% endif %}">
+<label class="lat-check lat-checklist__item{% if locked %} is-locked{% endif %}{% if needs.is_some() %} is-nested{% endif %}"{% if let Some(parent) = needs %} data-lat-needs="{{ parent }}"{% endif %}>
   <input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}{% if locked %} disabled{% endif %}>
   <span class="lat-checklist__label">{{ label }}{% if let Some(note) = note %}<small class="lat-checklist__note">{{ note }}</small>{% endif %}</span>
   {% if let Some(code) = code %}<code class="lat-code">{{ code }}</code>{% endif %}

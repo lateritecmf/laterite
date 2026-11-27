@@ -295,3 +295,40 @@ async fn an_unregistered_handler_stops_the_start() {
         Arc::new(CatalogStore::default()),
     );
 }
+
+#[tokio::test]
+async fn a_permission_may_name_alternatives_or_a_prefix() {
+    let (db, _g) = test_db().await;
+    let mut config = AdminConfig::default();
+    config.origin = ORIGIN.to_string();
+    let app = router(
+        AuthService::new(db.clone(), AuthConfig::default()),
+        db.clone(),
+        Contributions {
+            resources: vec![
+                resource!("tests/descriptors/anyof_tasks.yaml"),
+                resource!("tests/descriptors/prefix_tasks.yaml"),
+                resource!("tests/descriptors/reopen_tasks.yaml"),
+            ],
+            permissions: vec![
+                Permission::new("acme.manage_tasks", t!("Manage tasks"), t!("Acme")),
+                Permission::new("acme.reopen_tasks", t!("Reopen tasks"), t!("Acme")),
+            ],
+            ..Default::default()
+        },
+        config,
+        Arc::new(CatalogStore::default()),
+    );
+    // The clerk holds `acme.manage_tasks` alone.
+    let (_, clerk) = sessions(&db).await;
+    let (status, _) = send(&app, "GET", "/admin/either", &clerk, "").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send(&app, "GET", "/admin/any-acme", &clerk, "").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send(&app, "GET", "/admin/reopeners", &clerk, "").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // The menu follows the same rule.
+    let (_, html) = send(&app, "GET", "/admin/either", &clerk, "").await;
+    assert!(html.contains("/admin/any-acme"));
+    assert!(!html.contains("/admin/reopeners"));
+}

@@ -106,3 +106,183 @@ async fn editor_saves_only_registered_permissions() {
     let saved: Vec<String> = serde_json::from_str(&saved_json).unwrap();
     assert_eq!(saved, ["backend.manage_users", "backend.manage_roles"]);
 }
+
+async fn get_page(app: axum::Router, path: &str, token: &str) -> String {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header("cookie", format!("{SESSION_COOKIE}={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+/// One role's stored value of `column`.
+async fn stored(pool: &Db, code: &str, column: &str) -> Option<String> {
+    let (sql, values) = laterite_core::query::build(
+        pool.backend,
+        sea_query::Query::select()
+            .column(sea_query::Alias::new(column))
+            .from(sea_query::Alias::new("backend_roles"))
+            .and_where(sea_query::Expr::col(sea_query::Alias::new("code")).eq(code))
+            .to_owned(),
+    );
+    let row = laterite_core::query::bind_values(sqlx::query(&sql), values)
+        .fetch_one(&pool.pool)
+        .await
+        .unwrap();
+    laterite_core::AnyRowExt::get_text_opt(&row, column).unwrap()
+}
+
+async fn root_session(pool: &Db) -> String {
+    let svc = AuthService::new(pool.clone(), AuthConfig::default());
+    svc.create_superuser(NewOperator {
+        username: "root",
+        email: "root@acme.test",
+        first_name: "Root",
+        last_name: None,
+        password: "rootpw12345",
+        timezone: None,
+    })
+    .await
+    .unwrap();
+    let root = login(&svc, "root", "rootpw12345").await;
+    seed_csrf(&svc, &root).await;
+    root
+}
+
+#[tokio::test]
+async fn a_role_carries_a_description_and_a_colour() {
+    let (pool, _guard) = test_db().await;
+    let root = root_session(&pool).await;
+    let app = || {
+        router(
+            AuthService::new(pool.clone(), AuthConfig::default()),
+            pool.clone(),
+            Contributions::default(),
+            AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
+        )
+    };
+    let body = "code=writers&name=Writers&description=Drafts+and+edits+posts\
+                &has_colour=1&colour=%232B7A4B&perm=backend.manage_users";
+    let status = app()
+        .oneshot(post_form("/admin/roles/new", &root, body))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        stored(&pool, "writers", "description").await.as_deref(),
+        Some("Drafts and edits posts")
+    );
+    assert_eq!(
+        stored(&pool, "writers", "color").await.as_deref(),
+        Some("#2b7a4b")
+    );
+
+    // The list shows both; the form brings them back.
+    let list = get_page(app(), "/admin/roles", &root).await;
+    assert!(list.contains("Drafts and edits posts"));
+    assert!(list.contains("class=\"lat-swatch\" style=\"background:#2b7a4b\""));
+    let id = laterite_auth::store::list_roles(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.code == "writers")
+        .unwrap()
+        .id;
+    let form = get_page(app(), &format!("/admin/roles/{id}/edit"), &root).await;
+    assert!(form.contains(">Drafts and edits posts</textarea>"));
+    assert!(form.contains("value=\"#2b7a4b\""));
+
+    // Unticking the box clears the colour; a value that is no colour is not kept.
+    let path: &'static str = Box::leak(format!("/admin/roles/{id}/edit").into_boxed_str());
+    app()
+        .oneshot(post_form(
+            path,
+            &root,
+            "code=writers&name=Writers&description=&colour=%232B7A4B",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stored(&pool, "writers", "color").await, None);
+    assert_eq!(stored(&pool, "writers", "description").await, None);
+    app()
+        .oneshot(post_form(
+            path,
+            &root,
+            "code=writers&name=Writers&has_colour=1&colour=red%3Bposition%3Afixed",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stored(&pool, "writers", "color").await, None);
+}
+
+#[tokio::test]
+async fn the_editor_orders_explains_and_nests_permissions() {
+    use laterite_admin::Permission;
+    use laterite_core::t;
+    let (pool, _guard) = test_db().await;
+    let root = root_session(&pool).await;
+    let app = || {
+        router(
+            AuthService::new(pool.clone(), AuthConfig::default()),
+            pool.clone(),
+            Contributions {
+                permissions: vec![
+                    Permission::new("acme.posts.publish", t!("Publish posts"), t!("Acme"))
+                        .comment(t!("Makes a post public.")),
+                    Permission::new("acme.posts", t!("Manage posts"), t!("Acme")).order(2),
+                    Permission::new("acme.pages", t!("Manage pages"), t!("Acme")).order(1),
+                ],
+                ..Default::default()
+            },
+            AdminConfig::default(),
+            Arc::new(CatalogStore::default()),
+        )
+    };
+    let form = get_page(app(), "/admin/roles/new", &root).await;
+    let at = |needle: &str| {
+        form.find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing"))
+    };
+    // By order, with the nested one right after the one it sits under.
+    assert!(at("value=\"acme.pages\"") < at("value=\"acme.posts\""));
+    assert!(at("value=\"acme.posts\"") < at("value=\"acme.posts.publish\""));
+    assert!(form.contains("data-lat-needs=\"acme.posts\""));
+    assert!(form.contains("Makes a post public."));
+
+    // A nested permission is kept only with the one it sits under.
+    app()
+        .oneshot(post_form(
+            "/admin/roles/new",
+            &root,
+            "code=loose&name=Loose&perm=acme.posts.publish&perm=acme.pages",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored(&pool, "loose", "permissions").await.as_deref(),
+        Some(r#"["acme.pages"]"#)
+    );
+    app()
+        .oneshot(post_form(
+            "/admin/roles/new",
+            &root,
+            "code=whole&name=Whole&perm=acme.posts&perm=acme.posts.publish",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored(&pool, "whole", "permissions").await.as_deref(),
+        Some(r#"["acme.posts","acme.posts.publish"]"#)
+    );
+}

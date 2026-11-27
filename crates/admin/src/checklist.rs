@@ -129,6 +129,10 @@ pub struct Choice {
     /// Shown, and not changeable: the box is disabled, so the browser leaves it
     /// out of the submission whatever its state.
     pub locked: bool,
+    /// The value of the choice this one sits under: it is drawn indented and
+    /// can be ticked only while that one is.
+    #[serde(default)]
+    pub needs: Option<String>,
 }
 
 impl Choice {
@@ -146,12 +150,20 @@ impl Choice {
             code: None,
             checked: false,
             locked: false,
+            needs: None,
         }
     }
 
     /// Sets the second line shown under the label.
     pub fn note(mut self, note: impl Into<String>) -> Self {
         self.note = Some(note.into());
+        self
+    }
+
+    /// Draws the choice under the one whose value is `value`, tickable only
+    /// while that one is ticked.
+    pub fn needs(mut self, value: impl Into<String>) -> Self {
+        self.needs = Some(value.into());
         self
     }
 
@@ -377,6 +389,7 @@ fn node(entry: &Entry, expand: Expand, closes: bool, read_only: bool, pattern: &
             code: choice.code.clone(),
             checked: choice.checked,
             locked: read_only || choice.locked,
+            needs: choice.needs.clone(),
             open: false,
             count: String::new(),
             nodes: Vec::new(),
@@ -393,6 +406,7 @@ fn node(entry: &Entry, expand: Expand, closes: bool, read_only: bool, pattern: &
                 code: None,
                 checked: total > 0 && checked == total,
                 locked: read_only,
+                needs: None,
                 open: match expand {
                     Expand::All => true,
                     Expand::None => false,
@@ -453,6 +467,7 @@ struct NodeView {
     code: Option<String>,
     checked: bool,
     locked: bool,
+    needs: Option<String>,
     open: bool,
     count: String,
     nodes: Vec<NodeView>,

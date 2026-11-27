@@ -53,6 +53,7 @@ pub(crate) enum BackendRoles {
     CreatedAt,
     IsSystem,
     Description,
+    Color,
 }
 
 #[derive(Iden)]

@@ -184,6 +184,10 @@ impl ListColumn {
     pub fn pill(self) -> Self {
         self.of("status_pill")
     }
+    /// Render a stored `#rrggbb` colour as a chip.
+    pub fn swatch(self) -> Self {
+        self.of("swatch")
+    }
 
     /// Overrides whether the search box looks in this column.
     pub fn searchable(mut self, searchable: bool) -> Self {
@@ -421,6 +425,7 @@ pub(crate) fn builtin_column_types() -> Vec<Arc<dyn ColumnType>> {
         Arc::new(TimeColumn),
         Arc::new(BoolColumn),
         Arc::new(StatusPillColumn),
+        Arc::new(SwatchColumn),
         Arc::new(LinkColumn),
         Arc::new(PartialColumn::new(Vec::new())),
     ]
@@ -677,6 +682,38 @@ impl ColumnType for BoolColumn {
 struct CellStatusTmpl<'a> {
     label: &'a str,
     slug: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "cells/swatch.html")]
+struct CellSwatchTmpl<'a> {
+    colour: &'a str,
+}
+
+/// A stored `#rrggbb` colour shown as a chip; anything else shows nothing.
+struct SwatchColumn;
+impl ColumnType for SwatchColumn {
+    fn option_keys(&self) -> Option<Vec<&'static str>> {
+        Some(Vec::new())
+    }
+    fn view_key(&self) -> &'static str {
+        "swatch"
+    }
+    fn view_model(&self, cx: &CellCx<'_>) -> CellVm {
+        CellVm {
+            view_key: "swatch".to_string(),
+            value: cx.value.to_string(),
+            display: cx.value.to_string(),
+            data: serde_json::Value::Null,
+        }
+    }
+    fn render_default(&self, vm: &CellVm) -> Markup {
+        if !laterite_auth::store::is_hex_colour(&vm.value) {
+            return Markup::empty();
+        }
+        Markup::from_template(&CellSwatchTmpl { colour: &vm.value })
+            .unwrap_or_else(|_| Markup::empty())
+    }
 }
 
 /// A status shown as a coloured pill: the first Markup-bearing cell.
@@ -1728,7 +1765,7 @@ pub(crate) fn check(
         // An unregistered permission can never be granted, so the column would
         // be hidden from everyone but a superuser: a wiring bug, not a choice.
         if let Some(p) = &col.permission {
-            if !permission_codes.contains(p) {
+            if !crate::permission_known(permission_codes, p) {
                 return Err(format!(
                     "column `{}` requires unregistered permission `{p}`",
                     col.field
@@ -1738,7 +1775,7 @@ pub(crate) fn check(
     }
     for filter in &config.filters {
         if let Some(p) = &filter.permission {
-            if !permission_codes.contains(p) {
+            if !crate::permission_known(permission_codes, p) {
                 return Err(format!(
                     "filter `{}` requires unregistered permission `{p}`",
                     filter.field

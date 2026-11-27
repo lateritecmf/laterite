@@ -1,0 +1,7 @@
+entity: tasks
+path: /either
+title: Either
+permission: acme.reopen_tasks|acme.manage_tasks
+list:
+  columns:
+    title: {}

@@ -40,6 +40,7 @@ pub(crate) async fn create(
 ) -> Response {
     let htmx = crate::form::is_htmx(&headers);
     let (code, name, perms) = parse(&pairs);
+    let extras = Extras::parse(&pairs);
     let perms = registered_only(perms, &state.permissions);
     let action = format!("{}/roles/new", state.admin_path);
     if code.is_empty() || name.is_empty() {
@@ -54,11 +55,22 @@ pub(crate) async fn create(
                 &perms,
                 false,
                 shell,
-            ),
+            )
+            .with(&extras),
         );
     }
     match laterite_auth::store::create_role(&state.db, &code, &name, &perms).await {
         Ok(role_id) => {
+            if let Err(e) = laterite_auth::store::set_role_details(
+                &state.db,
+                role_id,
+                &extras.description,
+                &extras.colour,
+            )
+            .await
+            {
+                tracing::error!(error = %e, "a role's description and colour were not saved");
+            }
             let detail = serde_json::json!({ "code": code, "name": name }).to_string();
             let target_id = role_id.to_string();
             crate::audit::record(
@@ -85,7 +97,8 @@ pub(crate) async fn create(
                 &perms,
                 false,
                 shell,
-            ),
+            )
+            .with(&extras),
         ),
     }
 }
@@ -105,6 +118,8 @@ pub(crate) async fn edit_form(
                 Alias::new("name"),
                 Alias::new("permissions"),
                 Alias::new("is_system"),
+                Alias::new("description"),
+                Alias::new("color"),
             ])
             .from(Alias::new("backend_roles"))
             .and_where(
@@ -130,9 +145,15 @@ pub(crate) async fn edit_form(
     let perms_json = row.get_text("permissions").unwrap_or_default();
     let perms: Vec<String> = serde_json::from_str(&perms_json).unwrap_or_default();
     let system = row.get_bool("is_system").unwrap_or(false);
-    render(build(
-        &state, &action, None, &code, &name, &perms, system, shell,
-    ))
+    let extras = Extras {
+        description: row
+            .get_text_opt("description")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        colour: row.get_text_opt("color").ok().flatten().unwrap_or_default(),
+    };
+    render(build(&state, &action, None, &code, &name, &perms, system, shell).with(&extras))
 }
 
 /// Persists an edited role, then redirects to the list.
@@ -147,6 +168,7 @@ pub(crate) async fn update(
 ) -> Response {
     let htmx = crate::form::is_htmx(&headers);
     let (code, name, perms) = parse(&pairs);
+    let extras = Extras::parse(&pairs);
     let perms = registered_only(perms, &state.permissions);
     let action = format!("{}/roles/{id}/edit", state.admin_path);
     // The framework rewrites its own roles at every boot, so a save here would
@@ -169,7 +191,8 @@ pub(crate) async fn update(
                     &perms,
                     true,
                     shell,
-                ),
+                )
+                .with(&extras),
             );
         }
     }
@@ -185,7 +208,8 @@ pub(crate) async fn update(
                 &perms,
                 false,
                 shell,
-            ),
+            )
+            .with(&extras),
         );
     }
     let perms_json = serde_json::to_string(&perms).unwrap_or_else(|_| "[]".to_string());
@@ -220,6 +244,18 @@ pub(crate) async fn update(
                 Some(detail.as_str()),
             )
             .await;
+            if let Ok(role_id) = id.parse::<i64>() {
+                if let Err(e) = laterite_auth::store::set_role_details(
+                    &state.db,
+                    role_id,
+                    &extras.description,
+                    &extras.colour,
+                )
+                .await
+                {
+                    tracing::error!(error = %e, "a role's description and colour were not saved");
+                }
+            }
             session.push_flash(crate::session::FlashLevel::Success, t!("Role updated."));
             crate::form::saved_response(htmx, &format!("{}/roles", state.admin_path))
         }
@@ -234,7 +270,8 @@ pub(crate) async fn update(
                 &perms,
                 false,
                 shell,
-            ),
+            )
+            .with(&extras),
         ),
     }
 }
@@ -242,6 +279,36 @@ pub(crate) async fn update(
 /// Pulls `code`, `name`, and the repeated `perm` values out of the submitted
 /// form pairs. A checkbox list arrives as one `perm` pair per ticked box, so the
 /// form is decoded as an ordered list of pairs rather than a map.
+/// A role's description and colour, as the form holds them.
+#[derive(Default, Clone)]
+struct Extras {
+    description: String,
+    /// `#rrggbb`, or empty for none.
+    colour: String,
+}
+
+impl Extras {
+    fn parse(pairs: &[(String, String)]) -> Self {
+        let value = |key: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.trim().to_string())
+                .unwrap_or_default()
+        };
+        // The colour input always holds a value, so a box says whether it counts.
+        let colour = if value("has_colour") == "1" {
+            value("colour")
+        } else {
+            String::new()
+        };
+        Self {
+            description: value("description"),
+            colour,
+        }
+    }
+}
+
 fn parse(pairs: &[(String, String)]) -> (String, String, Vec<String>) {
     let mut code = String::new();
     let mut name = String::new();
@@ -259,9 +326,26 @@ fn parse(pairs: &[(String, String)]) -> (String, String, Vec<String>) {
 
 /// Keeps only the submitted permissions that the deployment has registered.
 fn registered_only(perms: Vec<String>, registry: &[Permission]) -> Vec<String> {
-    perms
+    let registered: Vec<String> = perms
         .into_iter()
         .filter(|p| registry.iter().any(|r| &r.code == p))
+        .collect();
+    // A permission under another is kept only with the one it sits under,
+    // all the way up.
+    let held = |code: &str| registered.iter().any(|p| p == code);
+    registered
+        .iter()
+        .filter(|code| {
+            let mut at = registry.iter().find(|r| &&r.code == code);
+            while let Some(parent) = at.and_then(|r| r.parent.as_deref()) {
+                if !held(parent) {
+                    return false;
+                }
+                at = registry.iter().find(|r| r.code == parent);
+            }
+            true
+        })
+        .cloned()
         .collect()
 }
 
@@ -276,8 +360,14 @@ fn group_permissions(
 ) -> Checklist {
     let mut groups: Vec<(String, Vec<Entry>)> = Vec::new();
     for permission in registry {
-        let choice = Choice::new("perm", permission.code.clone(), shell.tt(&permission.label))
+        let mut choice = Choice::new("perm", permission.code.clone(), shell.tt(&permission.label))
             .checked(selected.iter().any(|s| s == &permission.code));
+        if let Some(comment) = &permission.comment {
+            choice = choice.note(shell.tt(comment));
+        }
+        if let Some(parent) = &permission.parent {
+            choice = choice.needs(parent.clone());
+        }
         // Merge by the localized group heading (same source localizes identically).
         let heading = shell.tt(&permission.group);
         match groups.iter_mut().find(|(name, _)| *name == heading) {
@@ -319,6 +409,8 @@ fn build(
         permissions,
         system,
         duplicate_path: format!("{}/roles/new", state.admin_path),
+        description: String::new(),
+        colour: String::new(),
     }
 }
 
@@ -337,6 +429,17 @@ struct RolesFormTemplate {
     /// A role the framework owns: shown, never saved.
     system: bool,
     duplicate_path: String,
+    description: String,
+    /// `#rrggbb`, or empty for none.
+    colour: String,
+}
+
+impl RolesFormTemplate {
+    fn with(mut self, extras: &Extras) -> Self {
+        self.description = extras.description.clone();
+        self.colour = extras.colour.clone();
+        self
+    }
 }
 
 /// The form alone, for an HTMX submit that swaps it in place.
@@ -353,6 +456,8 @@ struct RolesFormFragment {
     permissions: String,
     system: bool,
     duplicate_path: String,
+    description: String,
+    colour: String,
 }
 
 /// The 422 response for a rejected save: the form alone under HTMX, the whole
@@ -369,6 +474,8 @@ fn invalid_response(htmx: bool, page: RolesFormTemplate) -> Response {
             permissions: page.permissions,
             system: page.system,
             duplicate_path: page.duplicate_path,
+            description: page.description,
+            colour: page.colour,
         })
     } else {
         render(page)

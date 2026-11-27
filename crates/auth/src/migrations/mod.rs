@@ -34,4 +34,5 @@ laterite_core::migration_set! {
     m0021_create_backend_user_groups,
     m0022_add_backend_audit_channel,
     m0023_add_backend_user_last_login_and_avatar,
+    m0024_add_backend_role_color,
 }

@@ -70,6 +70,17 @@ Page | Does
 
 Both templates are edited under **Settings → System → Mail Templates**. The mail goes through the configured transport; with the `log` driver it sits in the Mail Log.
 
+## Describe and colour a role
+
+Field | On the role's form | Shown
+--- | --- | ---
+Description | Up to 240 characters. | The Roles list.
+Colour | "Mark this role with a colour", then the picker. | A chip in the Roles list.
+
+```rust
+laterite_auth::store::set_role_details(&db, role_id, "Drafts and edits posts", "#2b7a4b").await?;
+```
+
 ## Groups
 
 A group is a named set of accounts, for addressing people together. It grants

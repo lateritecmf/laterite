@@ -1779,6 +1779,37 @@ window.lat.widget('media-select', function (bar) {
   sync();
 });
 
+// A nested choice of a checklist follows the one it sits under: it can be
+// ticked only while that one is, and is cleared when that one is.
+(function () {
+  function sync(root) {
+    var nested = root.querySelectorAll('[data-lat-needs]');
+    for (var i = 0; i < nested.length; i++) {
+      var need = nested[i].getAttribute('data-lat-needs');
+      var box = nested[i].querySelector('input[type="checkbox"]');
+      var boxes = root.querySelectorAll('input[type="checkbox"]');
+      var parent = null;
+      for (var j = 0; j < boxes.length; j++) if (boxes[j].value === need) parent = boxes[j];
+      if (!box || !parent) continue;
+      if (!parent.checked) box.checked = false;
+      box.disabled = !parent.checked || nested[i].classList.contains('is-locked');
+    }
+  }
+  function all() {
+    var lists = document.querySelectorAll('.lat-checklist');
+    for (var i = 0; i < lists.length; i++) sync(lists[i]);
+  }
+  document.addEventListener('change', function (e) {
+    var root = e.target.closest && e.target.closest('.lat-checklist');
+    if (root) sync(root);
+  });
+  document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('[data-lat-checklist-all],[data-lat-checklist-none]')) setTimeout(all, 0);
+  });
+  document.addEventListener('htmx:load', all);
+  all();
+})();
+
 // A dropdown of bulk actions: it opens only while a row is ticked.
 window.lat.widget('bulk-menu', function (menu) {
   var summary = menu.querySelector('summary');

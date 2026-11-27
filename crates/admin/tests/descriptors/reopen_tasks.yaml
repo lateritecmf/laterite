@@ -1,0 +1,7 @@
+entity: tasks
+path: /reopeners
+title: Reopeners
+permission: acme.reopen_tasks
+list:
+  columns:
+    title: {}

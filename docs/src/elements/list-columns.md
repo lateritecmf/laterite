@@ -63,6 +63,18 @@ columns:
 A pill coloured by the value, lowercased with anything but letters and digits
 made a hyphen, and reading as its entry under `labels`.
 
+## swatch
+
+```yaml
+columns:
+  color: { type: swatch, label: "" }
+```
+
+Stored value | Shows
+--- | ---
+`#2b7a4b` | A round chip of that colour, the value as its tooltip.
+Anything else, or empty | Nothing.
+
 ## link
 
 ```yaml

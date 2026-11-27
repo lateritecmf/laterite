@@ -19,6 +19,55 @@ registry.add_permission(
 Registered permissions appear in the role editor under their `group`. Only a
 registered permission can be granted.
 
+## Order, explain and nest permissions
+
+```rust
+registry.add_permission(
+    Permission::new("acme.posts", t!("Manage posts"), t!("Content")).order(10),
+);
+registry.add_permission(
+    Permission::new("acme.posts.publish", t!("Publish posts"), t!("Content"))
+        .comment(t!("Makes a post public.")),
+);
+```
+
+Builder | Description
+--- | ---
+`.order(n)` | Sorts the permission within its group, lowest first. Default `0`; equal orders keep registration order.
+`.comment(text)` | A line under the label in the role editor.
+
+Code | In the role editor
+--- | ---
+`acme.posts` | A box in its group.
+`acme.posts.publish` | Indented under `acme.posts`, and tickable only while that one is ticked. Saved without it, the nested one is dropped.
+
+## Name alternatives or a prefix
+
+```yaml
+# descriptors/posts.yaml
+permission: acme.posts|acme.pages
+```
+
+```rust
+if shell.allows("acme.blog.*") { /* holds something under acme.blog */ }
+if user.permissions.allows_any(["acme.posts", "acme.pages"]) { /* either */ }
+if user.permissions.holds("acme.posts") { /* granted, superuser or not */ }
+```
+
+Form | Passes when
+--- | ---
+`acme.posts` | The operator holds it.
+`acme.posts\|acme.pages` | The operator holds either. Accepted wherever a `permission` is named.
+`acme.blog.*` | The operator holds any permission under `acme.blog`.
+
+Check | Superuser
+--- | ---
+`allows(code)`, `allows_any(codes)` | Always passes.
+`holds(code)` | Passes on the grants alone.
+
+Every alternative must be registered, and a prefix must have a registered
+permission under it; a `permission` that names neither aborts the start.
+
 ## Rename a permission
 
 ```rust

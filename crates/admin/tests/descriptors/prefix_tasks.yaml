@@ -1,0 +1,7 @@
+entity: tasks
+path: /any-acme
+title: Any
+permission: acme.*
+list:
+  columns:
+    title: {}
