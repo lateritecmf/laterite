@@ -57,7 +57,11 @@
       {% if let Some(f) = folder %}<input type="hidden" name="from" value="{{ f }}">{% endif %}
     </form>
     {% endif %}
-    <div class="lat-media-grid">
+    <div class="lat-media-view" data-lat-widget="media-view" hidden>
+      <button type="button" class="lat-media-view__btn" data-view="grid" aria-pressed="true" data-lat-tooltip='{{ shell.t("Tiles") }}' aria-label='{{ shell.t("Tiles") }}'>{{ shell.icon("layout-grid")|safe }}</button>
+      <button type="button" class="lat-media-view__btn" data-view="list" aria-pressed="false" data-lat-tooltip='{{ shell.t("List") }}' aria-label='{{ shell.t("List") }}'>{{ shell.icon("list")|safe }}</button>
+    </div>
+    <div class="lat-media-grid" data-media-grid>
       {% for f in folders %}
       <div class="lat-media-item">
       {% if may_manage %}<input class="lat-media-item__pick" type="checkbox" name="folders" value="{{ f.id }}" form="lat-media-bulk" aria-label='{{ shell.tfs("Select {name}", [("name", f.name.as_str())]) }}'>{% endif %}

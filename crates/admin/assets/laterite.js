@@ -1737,6 +1737,28 @@ window.lat.widget('bulk-delete', function (btn) {
   sync();
 });
 
+// Media view: shows the library's files as tiles or as a list, and keeps the
+// choice in this browser. With no script the tiles show and the switch stays
+// hidden.
+window.lat.widget('media-view', function (bar) {
+  var grid = bar.parentNode && bar.parentNode.querySelector('[data-media-grid]');
+  if (!grid) return;
+  var buttons = Array.prototype.slice.call(bar.querySelectorAll('[data-view]'));
+  function show(view, keep) {
+    grid.classList.toggle('is-list', view === 'list');
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-view') === view ? 'true' : 'false'); });
+    if (keep) { try { localStorage.setItem('lat-media-view', view); } catch (e) {} }
+    window.lat.emit(bar, 'media-view:changed', { view: view });
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { show(b.getAttribute('data-view'), true); });
+  });
+  var saved = 'grid';
+  try { saved = localStorage.getItem('lat-media-view') || 'grid'; } catch (e) {}
+  bar.hidden = false;
+  show(saved === 'list' ? 'list' : 'grid', false);
+});
+
 // The media library's selection: ticking files and folders enables the bar's
 // actions and counts them; Select all ticks the page, shift-click a range.
 window.lat.widget('media-select', function (bar) {

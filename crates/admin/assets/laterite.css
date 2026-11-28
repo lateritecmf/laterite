@@ -397,6 +397,10 @@ textarea.lat-input[rows]:not([data-lat-grow="off"]){min-height:calc(var(--rows) 
 .lat-help{font-size:var(--fs-12);color:var(--text-muted);margin:4px 0 0}
 .lat-media-bulk{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px 0}
 .lat-media-bulk__actions{display:flex;gap:8px;margin-left:auto}
+.lat-media-view{display:flex;gap:4px;justify-content:flex-end;padding:10px 14px 0}
+.lat-media-view__btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);color:var(--text-muted);cursor:pointer}
+.lat-media-view__btn svg{width:16px;height:16px}
+.lat-media-view__btn[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
 .lat-media-item{position:relative;display:flex;min-width:0}
 .lat-media-item>.lat-media-card{flex:1 1 auto}
 .lat-media-item__pick{position:absolute;top:14px;left:14px;z-index:1;width:18px;height:18px;margin:0;cursor:pointer;opacity:0}
@@ -987,6 +991,14 @@ tr.is-drop-after td{box-shadow:inset 0 -2px 0 var(--accent)}
 .lat-crop__aspect .lat-input{height:var(--control-h-sm);font-size:var(--fs-12);width:auto}
 /* The media library: a grid of folders and files with a thumbnail. */
 .lat-media-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));padding:14px}
+.lat-media-grid.is-list{grid-template-columns:1fr;gap:0;padding:6px 14px 14px}
+.lat-media-grid.is-list .lat-media-card{flex-direction:row;align-items:center;gap:12px;padding:8px 8px 8px 38px;border-width:0 0 1px;border-radius:0;background:none}
+.lat-media-grid.is-list .lat-media-card__thumb{flex:0 0 44px;width:44px;aspect-ratio:1}
+.lat-media-grid.is-list .lat-media-card--folder .lat-media-card__thumb svg{width:22px;height:22px}
+.lat-media-grid.is-list .lat-media-card__name{flex:1 1 auto;min-width:0}
+.lat-media-grid.is-list .lat-media-card__lock{top:-4px;right:-4px;width:16px;height:16px}
+.lat-media-grid.is-list .lat-media-item__pick{top:50%;left:10px;margin-top:-9px;opacity:1}
+.lat-media-grid.is-list .lat-media-item:has(.lat-media-item__pick:checked)>.lat-media-card{box-shadow:none;background:var(--accent-quiet)}
 .lat-media-card{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-card);color:var(--text-body);text-decoration:none;min-width:0}
 .lat-media-card:hover{border-color:var(--accent);text-decoration:none}
 .lat-media-card__thumb{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;background:var(--surface-sunken);border-radius:6px;overflow:hidden}

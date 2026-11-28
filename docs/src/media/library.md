@@ -48,6 +48,7 @@ Action | Where | Needs
 --- | --- | ---
 Make, rename, move or remove a folder | The folder bar | `media.manage`; an empty folder only.
 Retitle, rename or move a file | The file page | `media.manage`
+Show files as tiles or a list | The switch above the files; kept in the browser | `media.browse`
 Resize an image | **Resize** on the file page: a width, a height or both, as a new file or in place | `media.manage`
 Crop an image | The file page | `media.manage`; a new file `<stem>-crop.<ext>` beside it, or the file replaced.
 Make private, make public | The file page | `media.manage`; the file moves disk and its thumbnails are made again.
